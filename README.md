@@ -1,0 +1,2 @@
+# novarr
+Web Novel Manager
