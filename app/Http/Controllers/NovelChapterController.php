@@ -625,63 +625,6 @@ class NovelChapterController extends Controller
         return $result_data;
     }
 
-    public function all_novels_scraper() {
-        foreach ( Novel::where('status', 0)->where('group_id', '!=', 37)->orderBy('name', 'asc')->get() as $n ) {
-            echo $n->name . "\r\n";
-            $toc = $this->table_of_content_generator($n);
-
-            if ( $n->group_id != 6 ) {
-                foreach ($toc as $item) {
-                    $check_duplicate = NovelChapter::where('novel_id', $n->id)->where('chapter', round($item["chapter"], 2))->where('book', intval($item["book"]))->select('id')->first();
-
-                    if (empty($check_duplicate)) {
-                        if (!empty($item["label"]) && !empty($item["url"]) && !empty($item["chapter"])) {
-                            $object = new NovelChapter();
-                            $object->novel_id = $n->id;
-                            $object->label = $item["label"];
-                            $object->url = $item["url"];
-                            $object->chapter = $item["chapter"];
-                            $object->book = intval($item["book"]);
-                            $object->save();
-                        }
-                    } else {
-                        $check_duplicate->label = $item["label"];
-                        $check_duplicate->chapter = $item["chapter"];
-                        $check_duplicate->book = intval($item["book"]);
-                        $check_duplicate->url = $item["url"];
-                        $check_duplicate->save();
-                    }
-                }
-            } else {
-                foreach ($toc as $item) {
-                    $urlArr = explode("/", str_replace("https://www.webnovel.com/book/", "", $item["url"]));
-
-                    $check_duplicate = NovelChapter::where('novel_id', $n->id)->where('chapter', round($item["chapter"], 2))->select('id')->first();
-
-                    if (empty($check_duplicate)) {
-                        if (!empty($item["label"]) && !empty($item["url"]) && !empty($item["chapter"])) {
-                            $object = new NovelChapter();
-                            $object->novel_id = $n->id;
-                            $object->label = $item["label"];
-                            $object->url = $item["url"];
-                            $object->chapter = $item["chapter"];
-                            $object->book = intval($item["book"]);
-                            $object->unique_id = $urlArr[1];
-                            $object->save();
-                        }
-                    } else {
-                        $check_duplicate->label = $item["label"];
-                        $check_duplicate->chapter = $item["chapter"];
-                        $check_duplicate->book = intval($item["book"]);
-                        $check_duplicate->url = $item["url"];
-                        $check_duplicate->unique_id = $urlArr[1];
-                        $check_duplicate->save();
-                    }
-                }
-            }
-        }
-    }
-
     public function all_novels_scraper_reverse() {
         foreach ( Novel::where('status', 0)->where('group_id', '!=', 37)->orderBy('name', 'desc')->get() as $n ) {
             echo $n->name . "\r\n";
@@ -2181,57 +2124,6 @@ class NovelChapterController extends Controller
                     $item->save();
                 }
             }
-        }
-    }
-
-    public function all_new_chapters_scraper() {
-        $newChapters = array();
-
-        Novel::where('status', 0)->where('group_id', '!=', 37)->whereHas('chapters', function($q) {
-            $q->where('status', 0)->where('blacklist', 0);
-        })->with(['chapters' => function($q) {
-            $q->where('status', 0)->where('blacklist', 0)->orderBy('book')->orderBy('chapter');
-        }])->orderBy('name', 'desc')->chunk(5, function ($novels) use (&$newChapters) {
-            foreach ( $novels as $novel ) {
-                if ( count($novel->chapters) > 0 ) {
-                    foreach ( $novel->chapters as $item ) {
-                        $chapter = $this->chapter_generator($item);
-
-                        $description = "";
-                        foreach ( $chapter as $c ) {
-                            $description .= $c;
-                        }
-
-                        if ( str_word_count($description) > 250 ) {
-                            $progress = $novel->no_of_chapters == 0 ? 0 : round(($item->chapter / $novel->no_of_chapters * 100), 2);
-
-                            array_push($newChapters, array(
-                                'novel' => $novel->name,
-                                'label' => $item->label,
-                                'chapter' => $item->chapter,
-                                'book' => $item->book,
-                                'progress' => number_format($progress, 2, ".", ",")
-                            ));
-
-//                            echo $novel->name . " - " . $item->chapter . "\r\n";
-
-                            $item->description = $description;
-
-                            if ( trim($description) != "" ) {
-                                $item->status = 1;
-                            }
-                            $item->download_date = Carbon::now();
-                            $item->save();
-                        } else {
-//                            echo $item->novel->name . " - " . $item->chapter . " (Incomplete)\r\n";
-                        }
-                    }
-                }
-            }
-        });
-
-        if ( count($newChapters) > 0 ) {
-            Mail::to("reyhan.thee@icloud.com")->send(new NewChapters($newChapters));
         }
     }
 

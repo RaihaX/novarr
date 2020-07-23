@@ -1,4 +1,33 @@
 <?php
+
+function __getMetadata($data) {
+    $metadata = array();
+
+    $name = str_replace("!", "", str_replace("?", "", str_replace("'", "", str_replace(" ", "-", strtolower($data->name)))));
+    $name = str_replace(",", "", $name);
+    $name = str_replace("'", "", $name);
+
+    $crawler = Goutte::request('GET', 'https://www.novelupdates.com/series/' . $name);
+    $crawler->filter('#editdescription')->each(function ($node, $key) use (&$metadata) {
+        $metadata["description"] = $node->html();
+    });
+
+    $crawler->filter('#authtag')->each(function ($node, $key) use (&$metadata) {
+        if ( $key == 0 ) {
+            $metadata["author"] = $node->text();
+        }
+    });
+
+    $crawler->filter('#editstatus')->each(function ($node, $key) use (&$metadata) {
+        $array = explode(" ", str_replace("Chapter ", "Chapters ", $node->text()));
+        $key = array_search("Chapters", $array);
+
+        $metadata["no_of_chapters"] = $key == 0 ? 0 : intval(trim($array[$key - 1]));
+    });
+
+    return $metadata;
+}
+
 function __convertWordToNumber($object) {
     // Replace all number words with an equivalent numeric value
     $data = strtr(

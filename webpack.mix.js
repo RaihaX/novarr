@@ -26,7 +26,6 @@ mix.js('resources/assets/js/app.js', 'public/js')
         'node_modules/gasparesganga-jquery-loading-overlay/dist/loadingoverlay.js'
     ], 'public/js/vendor.js')
     .styles([
-        // 'node_modules/datatables.net-dt/css/jquery.dataTables.css',
         'node_modules/datatables.net-bs4/css/dataTables.bootstrap4.css',
         'node_modules/datatables.net-buttons-bs4/css/buttons.bootstrap4.css',
         'node_modules/datatables.net-select-bs4/css/select.bootstrap4.css',

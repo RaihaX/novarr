@@ -188,7 +188,7 @@
                 processing: true,
                 serverSide: true,
                 responsive: true,
-                pageLength: 25,
+                pageLength: 12,
                 select: true,
                 order: [[0, "asc"]],
                 ajax: '{!! route('novels.datatables') !!}',
@@ -201,8 +201,6 @@
                         }
                     }, {
                         data: 'author', name: 'author'
-                    // }, {
-                    //     data: 'translator', name: 'translator'
                     }, {
                         data: 'group.label', name: 'group.label'
                     }, {
