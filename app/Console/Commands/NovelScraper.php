@@ -42,7 +42,7 @@ class NovelScraper extends Command
     {
         foreach ( Novel::where('status', 0)->where('group_id', '!=', 37)->orderBy('name', 'asc')->get() as $n ) {
             echo $n->name . "\r\n";
-            $toc = $this->table_of_content_generator($n);
+            $toc = __tableOfContentGenerator($n);
 
             if ( $n->group_id != 6 ) {
                 foreach ($toc as $item) {

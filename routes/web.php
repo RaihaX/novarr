@@ -55,5 +55,7 @@ Route::group(['middleware' => ['auth']], function () {
     Route::get('/novels/getnovel/{id}', 'NovelController@get_novel')->name('novels.get_novel');
     Route::get('/novels/getmetadata/{id}', 'NovelController@update_metadata')->name('novels.get_metadata');
 
+    Route::post('/novels/search/novelupdates', 'NovelController@search_novels')->name('novels.search_novel_updates');
+
     Route::get('/rss_feed', 'GroupController@rss_feed')->name('groups.rss_feed');
 });

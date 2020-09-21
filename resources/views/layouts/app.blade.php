@@ -13,12 +13,13 @@
     <!-- Styles -->
     <link href="{{ mix('css/app.css') }}" rel="stylesheet">
     <link href="{{ mix('css/vendor.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha384-wvfXpqpZZVQGK6TAh5PVlGOfQNHSoD2xbE+QkPxCAFlNEevoEH3Sl0sibVcOQVnN" crossorigin="anonymous">
 </head>
 <body>
     <div id="app">
-        <nav class="navbar navbar-expand-md navbar-light navbar-laravel">
+        <nav style="height:7vh;" class="navbar navbar-expand-md navbar-light navbar-laravel bg-dark">
             <div class="container">
-                <a class="navbar-brand" href="{{ url('/') }}">
+                <a class="navbar-brand text-light" href="{{ url('/novels') }}">
                     {{ config('app.name', 'Laravel') }}
                 </a>
                 <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
@@ -28,22 +29,22 @@
                 <div class="collapse navbar-collapse" id="navbarSupportedContent">
                     <!-- Left Side Of Navbar -->
                     <ul class="navbar-nav mr-auto">
-
+                        <li class="text-light">@yield('title')</li>
                     </ul>
 
                     <!-- Right Side Of Navbar -->
                     <ul class="navbar-nav ml-auto">
                         <!-- Authentication Links -->
                         @guest
-                            <li><a class="nav-link" href="{{ route('login') }}">{{ __('Login') }}</a></li>
-                            <li><a class="nav-link" href="{{ route('register') }}">{{ __('Register') }}</a></li>
+                            <li><a class="nav-link text-light" href="{{ route('login') }}">{{ __('Login') }}</a></li>
+                            <li><a class="nav-link text-light" href="{{ route('register') }}">{{ __('Register') }}</a></li>
                         @else
-                            <li><a class="nav-link" href="{{ route('novels.index') }}">{{ __('Novel') }}</a></li>
-                            <li><a class="nav-link" href="{{ route('groups.index') }}">{{ __('Group') }}</a></li>
-                            <li><a class="nav-link" href="{{ route('mangas.index') }}">{{ __('Manga') }}</a></li>
-                            <li><a class="nav-link" href="{{ route('languages.index') }}">{{ __('Language') }}</a></li>
+                            <li><a class="nav-link text-light" href="{{ route('novels.index') }}">{{ __('Novel') }}</a></li>
+                            <li><a class="nav-link text-light" href="{{ route('groups.index') }}">{{ __('Group') }}</a></li>
+                            <li><a class="nav-link text-light" href="{{ route('languages.index') }}">{{ __('Language') }}</a></li>
+                            <li><a class="nav-link text-light" href="{{ route('mangas.index') }}">{{ __('Manga') }}</a></li>
                             <li class="nav-item dropdown">
-                                <a id="navbarDropdown" class="nav-link dropdown-toggle" href="#" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" v-pre>
+                                <a id="navbarDropdown" class="nav-link dropdown-toggle text-light" href="#" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" v-pre>
                                     {{ Auth::user()->name }} <span class="caret"></span>
                                 </a>
 
@@ -65,11 +66,20 @@
             </div>
         </nav>
 
-        <main class="py-4">
-            <div class="container-fluid">
-                @yield('content')
+        <div class="container-fluid">
+            <div class="row">
+                <div class="col-1 bg-secondary">
+                    <div class="d-flex flex-column">
+                        <div class="p-2">
+                            @yield('subnav')
+                        </div>
+                    </div>
+                </div>
+                <div class="col-11" style="overflow-y: scroll; height:93vh;">
+                    @yield('content')
+                </div>
             </div>
-        </main>
+        </div>
     </div>
 
     <!-- Scripts -->

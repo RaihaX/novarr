@@ -25,7 +25,6 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule)
     {
         $schedule->command('novel:novel_scraper')->dailyAt(8)->name('update_all_active_toc')->withoutOverlapping();
-        $schedule->call('App\Http\Controllers\NovelChapterController@all_novels_scraper_reverse')->dailyAt(1)->name('update_all_active_toc_reverse')->withoutOverlapping();
         $schedule->command('novel:chapter_scraper')->dailyAt(5)->name('download_new_chapters')->withoutOverlapping();
         $schedule->command('novel:generate_epub')->everyMinute()->name('generate_epub')->withoutOverlapping();
         $schedule->command('novel:calculate_chapter')->everyThirtyMinutes()->name('update_active_novels_chapter_count')->withoutOverlapping();

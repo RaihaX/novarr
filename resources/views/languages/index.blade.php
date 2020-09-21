@@ -1,11 +1,11 @@
 @extends('layouts.app')
 
+@section('title', "Languages")
+
 @section('content')
     <div class="row justify-content-center">
         <div class="col">
             <div class="card">
-                <div class="card-header">Languages</div>
-
                 <div class="card-body">
                     <table id="contentTable" class="table table-sm">
                         <thead>

@@ -1,11 +1,11 @@
 @extends('layouts.app')
 
+@section('title', $title)
+
 @section('content')
     <div class="row justify-content-center">
         <div class="col">
             <div class="card">
-                <div class="card-header"><span id="name_content"></span></div>
-
                 <div class="card-body">
                     <div class="row">
                         <div class="col">
@@ -30,7 +30,7 @@
                     <div class="row">
                         <div class="col-2">
                             <figure class="figure">
-                                <img src="{{ isset($data->file) ? Storage::url($data->file->file_path) : "/images/placeholder.png" }}" class="figure-img img-fluid rounded" alt="{{ $data->name }}">
+                                <img src="{{ isset($data->file) ? Storage::url($data->file->file_path) : "/images/placeholder.jpg" }}" class="figure-img img-fluid rounded" alt="{{ $data->name }}">
                             </figure>
                         </div>
                         <div class="col-10">
@@ -63,7 +63,7 @@
                                 <th scope="col">Chapter</th>
                                 <th scope="col">Label</th>
                                 <th scope="col">Status</th>
-                                <th scope="col">Created</th>
+{{--                                <th scope="col">Created</th>--}}
                             </tr>
                         </thead>
                     </table>
@@ -332,7 +332,7 @@
 
         $(function() {
             var table = $('#contentTable').DataTable({
-                pageLength: 100,
+                pageLength: 10,
                 processing: true,
                 serverSide: true,
                 select: true,
@@ -359,19 +359,19 @@
                                 case 0:
                                     d = "Not Complete";
                                     break;
-                                case "1":
+                                case 1:
                                     d = "Complete";
                                     break;
                             }
 
                             return d;
                         }
-                    }, {
-                        data: 'created_at',
-                        name: 'created_at',
-                        render: function(data, type, row, meta) {
-                            return moment(data).format("DD-MM-YYYY hh:mm A");
-                        }
+                    // }, {
+                    //     data: 'created_at',
+                    //     name: 'created_at',
+                    //     render: function(data, type, row, meta) {
+                    //         return moment(data).format("DD-MM-YYYY hh:mm A");
+                    //     }
                     }
                 ],
                 lengthChange: false,
@@ -381,6 +381,7 @@
                         className: 'btn-sm',
                         action: function () {
                             $("#formModal").trigger('reset');
+                            $("#id").val(0);
                             $('#formModalDiv').modal({});
                         }
                     }, {
@@ -624,9 +625,6 @@
                 method: "GET",
                 url: "/novels/getnovel/" + id
             }).done(function(d) {
-                var name_content = $("#name_content");
-                name_content.empty().append(d.data.name);
-
                 var author_content = $("#author_content");
                 author_content.empty().append(d.data.author);
 

@@ -36,6 +36,20 @@ class NovelController extends Controller
         $this->novels = $novels;
     }
 
+    public function search_novels(Request $request) {
+        $data = array();
+
+        $crawler = Goutte::request('GET', 'https://www.novelupdates.com/?s=' . $request->name . '&post_type=seriesplans');
+        $crawler->filter('.search_title > a')->each(function ($node, $key) use (&$data) {
+            array_push($data, array(
+                'name' => $node->text(),
+                'url' => $node->attr('href')
+            ));
+        });
+
+        return response()->json($data);
+    }
+
     public function datatables() {
         return DataTables::of($this->novels->with(['file' => function($q) {
             $q->orderBy('id', 'desc');
@@ -118,8 +132,16 @@ class NovelController extends Controller
     public function index()
     {
         return view('novels.index', [
+            'novels' => Novel::orderBy('name')->get(),
             'groups' => Group::orderBy('label')->get(),
             'languages' => Language::orderBy('label')->get()
+        ]);
+    }
+
+    public function create()
+    {
+        return view('novels.create', [
+
         ]);
     }
 
@@ -233,6 +255,7 @@ class NovelController extends Controller
 
         return view('novels.show', [
             'data' => $data,
+            'title' => 'Novels',
             'new_chapters' => $new_chapters,
             'duplicate_chapters' => $duplicate_chapters,
             'missing_chapters' => $missing_chapters,
