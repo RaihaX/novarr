@@ -27,7 +27,7 @@ class Kernel extends ConsoleKernel
         $schedule->command('novel:novel_scraper')->dailyAt(8)->name('update_all_active_toc')->withoutOverlapping();
         $schedule->command('novel:chapter_scraper')->dailyAt(5)->name('download_new_chapters')->withoutOverlapping();
         $schedule->command('novel:generate_epub')->everyMinute()->name('generate_epub')->withoutOverlapping();
-        $schedule->command('novel:calculate_chapter')->everyThirtyMinutes()->name('update_active_novels_chapter_count')->withoutOverlapping();
+        $schedule->command('novel:calculate_chapter')->daily()->name('update_active_novels_chapter_count')->withoutOverlapping();
         $schedule->command('novel:update_metadata')->weekly()->name('update_novel_metadata')->withoutOverlapping();
     }
 

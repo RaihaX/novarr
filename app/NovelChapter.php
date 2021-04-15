@@ -27,6 +27,7 @@ class NovelChapter extends Model
         $value = str_replace("</p>", "[[/p]]", $value);
         $value = str_replace(">", "", $value);
         $value = str_replace("<", "", $value);
+        $value = str_replace("<p>&nbsp;</p>", "", $value);
         $value = str_replace("[[p]]", "<p>", $value);
         $value = str_replace("[[/p]]", "</p>", $value);
 

@@ -34,6 +34,7 @@
                             </figure>
                         </div>
                         <div class="col-10">
+                            <p><strong>Title:</strong> <span id="novel_title"></span></p>
                             <p><strong>Author:</strong> <span id="author_content"></span></p>
                             <p><strong>Translator:</strong> <span id="translator_content"></span></p>
                             <p><strong>Group:</strong> <span id="group_content"></span></p>
@@ -625,6 +626,10 @@
                 method: "GET",
                 url: "/novels/getnovel/" + id
             }).done(function(d) {
+                console.info(d);
+                let novel_title = $("#novel_title");
+                novel_title.empty().append(d.data.name);
+
                 var author_content = $("#author_content");
                 author_content.empty().append(d.data.author);
 

@@ -1001,6 +1001,18 @@ function __chapterGenerator($data) {
 
                 $result = __cleanseChapterArray($result);
                 break;
+            case 40: // Read Light novels
+                $crawler->filter('.chapter-content3 > .desc')->each(function ($node) use (&$result) {
+                    $text = str_replace("<br>", "=|br|=", $node->html());
+                    $text = preg_replace('/<[^>]*>/', '', $text);
+                    $text = "<p>" . str_replace("=|br|==|br|=", "</p><p>", $text);
+                    $text = str_replace("=|br|=", "", $text);
+
+                    array_push($result, $text);
+                });
+
+                $result = __cleanseChapterArray($result);
+                break;
         }
 
         if ( is_array($result) ) {
@@ -1512,6 +1524,14 @@ function __tableOfContentGenerator($data) {
                     array_push($result, __tocChapterLabelGenerator($label, $url));
                 });
                 break;
+            case 40: // Read Light Novels
+                $crawler->filter('.chapter-chs > li > a')->each(function ($node, $key) use (&$result) {
+                    $label = $node->text();
+                    $url = trim($node->attr('href'));
+
+                    array_push($result, __tocChapterLabelGenerator($label, $url));
+                });
+                break;
         }
 
         // remove nulls
@@ -1696,6 +1716,7 @@ function __generateHTMLContent($object) {
 }
 
 function __generateHTMLToc($object) {
+    echo var_dump($object);
     $content = '<?xml version="1.0" encoding="utf-8" ?>';
     $content .= '<ncx version="2005-1" xmlns="http://www.daisy.org/z3986/2005/ncx/">';
     $content .= '<head>';
@@ -2139,6 +2160,41 @@ function __tocChapterLabelGenerator($label, $url) {
 //            echo $chapter;
 
 //            echo "<br>";
+
+
+        if ( strpos($url, 'dtpb-chapter-1') == true ) {
+            $book = 1;
+        }
+
+        if ( strpos($url, 'dtpb-chapter-2') == true ) {
+            $book = 2;
+        }
+
+        if ( strpos($url, 'dtpb-chapter-3') == true ) {
+            $book = 3;
+        }
+
+        if ( strpos($url, 'dtpb-chapter-4') == true ) {
+            $book = 4;
+        }
+
+        if ( strpos($url, 'dtpb-chapter-5') == true ) {
+            $book = 5;
+        }
+
+        if ( strpos($url, 'dtpb-chapter-6') == true ) {
+            $book = 6;
+        }
+
+        if ( strpos($url, 'dtpb-chapter-7') == true ) {
+            $book = 7;
+        }
+
+        if ( strpos($url, 'www.readlightnovel.org') == true ) {
+            $tmpUrl = str_replace("https://www.readlightnovel.org/banished-to-another-world/chapter-", "", $url);
+
+            $chapter = intval($tmpUrl);
+        }
 
         return array(
             "label" => substr($label, 0, 250),

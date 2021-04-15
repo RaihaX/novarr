@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 
+use App\Novel;
 use App\NovelChapter;
 
 class CalculateChapters extends Command
@@ -39,7 +40,7 @@ class CalculateChapters extends Command
      */
     public function handle()
     {
-        foreach ( $this->novels->get() as $item ) {
+        foreach ( Novel::get() as $item ) {
             $current_chapters = NovelChapter::where('novel_id', $item->id)->where('status', 1)->where('blacklist', 0)->count();
             $chapters_not_downloaded = NovelChapter::where('novel_id', $item->id)->where('status', 0)->where('blacklist', 0)->count();
             $duplicate_chapters = NovelChapter::where('novel_id', $item->id)->where('blacklist', 0)->groupBy('chapter', 'book')->havingRaw('count(id) > 1')->select('chapter', 'book')->count();

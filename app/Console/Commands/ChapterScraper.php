@@ -100,6 +100,7 @@ class ChapterScraper extends Command
                 foreach ( $novels as $novel ) {
                     if ( count($novel->chapters) > 0 ) {
                         foreach ( $novel->chapters as $item ) {
+                            echo var_dump("a");
                             $chapter = __chapterGenerator($item);
 
                             $description = "";

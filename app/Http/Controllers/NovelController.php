@@ -132,7 +132,9 @@ class NovelController extends Controller
     public function index()
     {
         return view('novels.index', [
-            'novels' => Novel::orderBy('name')->get(),
+            'novels' => Novel::with(['file' => function($q) {
+                $q->orderBy('id', 'desc');
+            }, 'group', 'language'])->orderBy('name')->get(),
             'groups' => Group::orderBy('label')->get(),
             'languages' => Language::orderBy('label')->get()
         ]);
