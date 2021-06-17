@@ -104,21 +104,27 @@ class NovelScraper extends Command
 
                 if ( $n->group_id != 6 ) {
                     foreach ($toc as $item) {
-                        $check_duplicate = NovelChapter::where('novel_id', $n->id)->where('chapter', round($item["chapter"], 2))->where('book', intval($item["book"]))->select('id')->first();
+                        if ( strpos($item['chapter'], "-") !== false ) {
+                            $chapter = substr($item['chapter'], 0, (strpos($item['chapter'], "-")));
+                        } else {
+                            $chapter = $item['chapter'];
+                        }
+
+                        $check_duplicate = NovelChapter::where('novel_id', $n->id)->where('chapter', round($chapter, 2))->where('book', intval($item["book"]))->select('id')->first();
 
                         if (empty($check_duplicate)) {
-                            if (!empty($item["label"]) && !empty($item["url"]) && !empty($item["chapter"])) {
+                            if (!empty($item["label"]) && !empty($item["url"]) && !empty($chapter)) {
                                 $object = new NovelChapter();
                                 $object->novel_id = $n->id;
                                 $object->label = $item["label"];
                                 $object->url = $item["url"];
-                                $object->chapter = $item["chapter"];
+                                $object->chapter = $chapter;
                                 $object->book = intval($item["book"]);
                                 $object->save();
                             }
                         } else {
                             $check_duplicate->label = $item["label"];
-                            $check_duplicate->chapter = $item["chapter"];
+                            $check_duplicate->chapter = $chapter;
                             $check_duplicate->book = intval($item["book"]);
                             $check_duplicate->url = $item["url"];
                             $check_duplicate->save();

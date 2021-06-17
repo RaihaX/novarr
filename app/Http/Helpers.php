@@ -893,6 +893,14 @@ function __chapterGenerator($data) {
                 }
 
                 if ( count($result) < 5 ) {
+                    $crawler->filter('#chapter-content > div')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
                     $crawler->filter('#chapter-content > div > p')->each(function ($node) use (&$result) {
                         array_push($result, '<p>' . $node->text() . '</p>');
                     });
@@ -909,7 +917,23 @@ function __chapterGenerator($data) {
                 }
 
                 if ( count($result) < 5 ) {
+                    $crawler->filter('.reading-content > .text-left')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
                     $crawler->filter('.reading-content > div > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('.reading-content > div > div')->each(function ($node) use (&$result) {
                         array_push($result, '<p>' . $node->text() . '</p>');
                     });
 
@@ -1012,6 +1036,45 @@ function __chapterGenerator($data) {
                 });
 
                 $result = __cleanseChapterArray($result);
+                break;
+            case 41: // Box Novel Org
+                $crawler->filter('#chr-content > p')->each(function ($node) use (&$result) {
+                    array_push($result, '<p>' . $node->text() . '</p>');
+                });
+
+                $result = __cleanseChapterArray($result);
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('#chapter-content > blockquote > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('#chapter-content > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('.reading-content > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('.reading-content > div > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
                 break;
         }
 
@@ -1497,7 +1560,7 @@ function __tableOfContentGenerator($data) {
                     $total = $b[1];
                 });
 
-                for ( $i = 24; $i <= 50; $i++ ) {
+                for ( $i = 1; $i <= 50; $i++ ) {
                     $crawler = Goutte::request('GET', $data->translator_url . "?page=" . $i . "&per_page=50");
                     $crawler->filter('.list-chapter > li > a')->each(function($node) use (&$result, &$total) {
                         $label = trim($node->attr('title'));
@@ -1531,6 +1594,18 @@ function __tableOfContentGenerator($data) {
 
                     array_push($result, __tocChapterLabelGenerator($label, $url));
                 });
+                break;
+            case 41: // Box Novel Org
+                for ( $i = 1; $i <= 50; $i++ ) {
+                    $crawler = Goutte::request('GET', $data->translator_url . "?page=" . $i);
+                    $crawler->filter('.list-chapter > li > a')->each(function($node) use (&$result) {
+                        $label = trim($node->attr('title'));
+                        $label = str_replace("Dragoon ", "Chapter ", $label);
+                        $url = $node->attr('href');
+
+                        array_push($result, __tocChapterLabelGenerator($label, $url));
+                    });
+                }
                 break;
         }
 
@@ -1716,7 +1791,6 @@ function __generateHTMLContent($object) {
 }
 
 function __generateHTMLToc($object) {
-    echo var_dump($object);
     $content = '<?xml version="1.0" encoding="utf-8" ?>';
     $content .= '<ncx version="2005-1" xmlns="http://www.daisy.org/z3986/2005/ncx/">';
     $content .= '<head>';
@@ -1741,7 +1815,7 @@ function __generateHTMLToc($object) {
     return $content;
 }
 
-function __generateHTMLNav($string) {
+function __generateHTMLNav($string) {    
     $content = '<?xml version="1.0" encoding="utf-8"?>';
     $content .= '<!DOCTYPE html>';
     $content .= '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="en" xml:lang="en">';
