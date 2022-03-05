@@ -5,11 +5,11 @@
     "license": "MIT",
     "type": "project",
     "require": {
-       "php": "^7.3|^8.0",
+        "php": "^7.3|^8.0",
         "fideloper/proxy": "^4.4",
         "laravel/framework": "^8.12",
         "laravel/tinker": "~2.5",
-        "laravel/ui": "^2.0",
+        "laravel/ui": "^3.4",
         "madnest/madzipper": "^1.0",
         "spatie/laravel-backup": "^6.10",
         "vedmant/laravel-feed-reader": "^1.4.2",

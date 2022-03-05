@@ -1,7 +1,6 @@
 <?php
 
 function urlExists($url) {
-
     $handle = curl_init($url);
     curl_setopt($handle,  CURLOPT_RETURNTRANSFER, TRUE);
 
@@ -11,7 +10,7 @@ function urlExists($url) {
     if($httpCode >= 200 && $httpCode <= 400) {
         return true;
     } else {
-        return false;
+        return true;
     }
 
     curl_close($handle);
@@ -893,6 +892,86 @@ function __chapterGenerator($data) {
                 }
 
                 if ( count($result) < 5 ) {
+                    $crawler->filter('article > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('#chapter-content > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('#chapter-content > div > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('#chapter-content > div > div > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }      
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('#chapter-content > div > div > div > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('#chapter-content > div > div > div > div > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('#chapter-content > div > div > div > div > div > div > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('#chapter-content > div > div > div > div > div > div > div > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('#chapter-content > div > div > div > div > div > div > div > div > div > p')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }
+
+                if ( count($result) < 5 ) {
+                    $crawler->filter('#chapter-content > div > div')->each(function ($node) use (&$result) {
+                        array_push($result, '<p>' . $node->text() . '</p>');
+                    });
+
+                    $result = __cleanseChapterArray($result);
+                }      
+
+                if ( count($result) < 5 ) {
                     $crawler->filter('#chapter-content > div')->each(function ($node) use (&$result) {
                         array_push($result, '<p>' . $node->text() . '</p>');
                     });
@@ -1033,6 +1112,10 @@ function __chapterGenerator($data) {
                     $text = str_replace("=|br|=", "", $text);
 
                     array_push($result, $text);
+                });
+
+                $crawler->filter('.chapter-content3 > .desc > p')->each(function ($node) use (&$result) {
+                    array_push($result, '<p>' . $node->text() . '</p>');
                 });
 
                 $result = __cleanseChapterArray($result);
@@ -1560,7 +1643,7 @@ function __tableOfContentGenerator($data) {
                     $total = $b[1];
                 });
 
-                for ( $i = 1; $i <= 50; $i++ ) {
+                for ( $i = 0; $i <= 100; $i++ ) {
                     $crawler = Goutte::request('GET', $data->translator_url . "?page=" . $i . "&per_page=50");
                     $crawler->filter('.list-chapter > li > a')->each(function($node) use (&$result, &$total) {
                         $label = trim($node->attr('title'));
@@ -1580,7 +1663,7 @@ function __tableOfContentGenerator($data) {
                 });
                 break;
             case 38: // Box Novel
-                $crawler->filter('.wp-manga-chapter > a')->each(function ($node, $key) use (&$result) {
+                $crawler->filter('.version-chap > li > a')->each(function ($node, $key) use (&$result) {
                     $label = $node->text();
                     $url = trim($node->attr('href'));
 
