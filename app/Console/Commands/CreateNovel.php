@@ -84,5 +84,7 @@ class CreateNovel extends Command
                 $object->file()->save($file_object);
             }
         }
+
+        $this->info("New Novel ID: {$object->id}");
     }
 }
