@@ -99,7 +99,7 @@ class NovelScraper extends Command
             }
         } else {
             foreach ( Novel::where('status', 0)->where('id', $args["novel"])->where('group_id', '!=', 37)->orderBy('name', 'asc')->get() as $n ) {
-                echo $n->name . "\r\n";
+                $this->info($n->name);
                 $toc = __tableOfContentGenerator($n);
 
                 if ( $n->group_id != 6 ) {
@@ -129,6 +129,8 @@ class NovelScraper extends Command
                             $check_duplicate->url = $item["url"];
                             $check_duplicate->save();
                         }
+                
+                        $this->info($chapter);
                     }
                 } else {
                     foreach ($toc as $item) {
@@ -155,6 +157,8 @@ class NovelScraper extends Command
                             $check_duplicate->unique_id = $urlArr[1];
                             $check_duplicate->save();
                         }
+                
+                        $this->info($item["chapter"]);
                     }
                 }
             }
