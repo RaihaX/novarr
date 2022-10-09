@@ -1663,7 +1663,7 @@ function __tableOfContentGenerator($data) {
                 });
                 break;
             case 38: // Box Novel
-                $crawler->filter('.version-chap > li > a')->each(function ($node, $key) use (&$result) {
+                $crawler->filter('.wp-manga-chapter > a')->each(function ($node, $key) use (&$result) {
                     $label = $node->text();
                     $url = trim($node->attr('href'));
 
