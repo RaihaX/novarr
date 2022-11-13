@@ -1732,6 +1732,7 @@ function __getMetadata($data) {
     $name = str_replace("'", "", $name);
 
     $crawler = Goutte::request('GET', 'https://www.novelupdates.com/series/' . $name);
+    echo var_dump($crawler);
     $crawler->filter('#editdescription')->each(function ($node, $key) use (&$metadata) {
         $metadata["description"] = $node->html();
     });

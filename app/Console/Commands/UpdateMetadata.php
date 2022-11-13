@@ -41,6 +41,8 @@ class UpdateMetadata extends Command
     public function handle()
     {
         foreach ( Novel::with('file')->get() as $item ) {
+            $this->info($item->name);
+            
             $metadata = __getMetadata($item);
 
             $novel = Novel::find($item->id);
