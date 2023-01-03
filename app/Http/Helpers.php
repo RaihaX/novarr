@@ -1731,8 +1731,16 @@ function __getMetadata($data) {
     $name = str_replace(",", "", $name);
     $name = str_replace("'", "", $name);
 
+    switch ($name) {
+        case 'otherwordly-evil-monarch':
+            $name = 'otherworldly-evil-monarch';
+            break;
+        default:
+            $name = $name;
+            break;
+    }
+
     $crawler = Goutte::request('GET', 'https://www.novelupdates.com/series/' . $name);
-    echo var_dump($crawler);
     $crawler->filter('#editdescription')->each(function ($node, $key) use (&$metadata) {
         $metadata["description"] = $node->html();
     });
@@ -1754,6 +1762,8 @@ function __getMetadata($data) {
         $url = trim($node->attr('src'));
         $metadata["image"] = $url;
     });
+
+    echo var_dump($metadata);
 
     return $metadata;
 }
