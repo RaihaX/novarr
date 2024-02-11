@@ -2,143 +2,108 @@
 
 namespace App\Console\Commands;
 
-
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
-
 use App\Novel;
-
 use App\Mail\NewChapters;
-
 use Carbon\Carbon;
 
 class ChapterScraper extends Command
 {
-    /**
-     * The name and signature of the console command.
-     *
-     * @var string
-     */
-    protected $signature = 'novel:chapter_scraper {novel=0}';
+    protected $signature = "novel:chapter {novel=0}";
+    protected $description = "Scrape new chapters for each novel.";
 
-    /**
-     * The console command description.
-     *
-     * @var string
-     */
-    protected $description = 'Scrape new chapters for each novels.';
-
-    /**
-     * Create a new command instance.
-     *
-     * @return void
-     */
     public function __construct()
     {
         parent::__construct();
     }
 
-    /**
-     * Execute the console command.
-     *
-     * @return mixed
-     */
     public function handle()
     {
-        $args = $this->arguments('novel');
-        $newChapters = array();
+        $novelId = $this->argument("novel");
+        $newChapters = $this->scrapeChapters($novelId);
+    }
 
-        if ( $args["novel"] == 0 ) {
-            Novel::where('status', 0)->where('group_id', '!=', 37)->whereHas('chapters', function($q) {
-                $q->where('status', 0)->where('blacklist', 0);
-            })->with(['chapters' => function($q) {
-                $q->where('status', 0)->where('blacklist', 0)->orderBy('book')->orderBy('chapter');
-            }])->orderBy('name', 'desc')->chunk(5, function ($novels) use (&$newChapters) {
-                foreach ( $novels as $novel ) {
-                    if ( count($novel->chapters) > 0 ) {
-                        foreach ( $novel->chapters as $item ) {
-                            $chapter = __chapterGenerator($item);
-
-                            $description = "";
-                            foreach ( $chapter as $c ) {
-                                $description .= $c;
-                            }
-
-                            if ( str_word_count($description) > 250 ) {
-                                $progress = $novel->no_of_chapters == 0 ? 0 : round(($item->chapter / $novel->no_of_chapters * 100), 2);
-
-                                array_push($newChapters, array(
-                                    'novel' => $novel->name,
-                                    'label' => $item->label,
-                                    'chapter' => $item->chapter,
-                                    'book' => $item->book,
-                                    'progress' => number_format($progress, 2, ".", ",")
-                                ));
-
-//                            echo $novel->name . " - " . $item->chapter . "\r\n";
-
-                                $item->description = $description;
-
-                                if ( trim($description) != "" ) {
-                                    $item->status = 1;
-                                }
-                                $item->download_date = Carbon::now();
-                                $item->save();
-                            } else {
-//                            echo $item->novel->name . " - " . $item->chapter . " (Incomplete)\r\n";
-                            }
-                        }
-                    }
-                }
+    private function scrapeChapters($novelId)
+    {
+        $newChapters = [];
+        $query = Novel::where("status", 0)
+            ->where("group_id", "!=", 37)
+            ->whereHas("chapters", function ($q) {
+                $q->where("status", 0)->where("blacklist", 0);
             });
-        } else {
-            Novel::where('status', 0)->where('id', $args["novel"])->where('group_id', '!=', 37)->whereHas('chapters', function($q) {
-                $q->where('status', 0)->where('blacklist', 0);
-            })->with(['chapters' => function($q) {
-                $q->where('status', 0)->where('blacklist', 0)->orderBy('book')->orderBy('chapter');
-            }])->orderBy('name', 'desc')->chunk(5, function ($novels) use (&$newChapters) {
-                foreach ( $novels as $novel ) {
-                    if ( count($novel->chapters) > 0 ) {
-                        foreach ( $novel->chapters as $item ) {
-                            $this->info($item->chapter);
-                            $chapter = __chapterGenerator($item);
 
-                            $description = "";
-                            foreach ( $chapter as $c ) {
-                                $description .= $c;
-                            }
-
-                            if ( str_word_count($description) > 250 ) {
-                                $progress = $novel->no_of_chapters == 0 ? 0 : round(($item->chapter / $novel->no_of_chapters * 100), 2);
-
-                                array_push($newChapters, array(
-                                    'novel' => $novel->name,
-                                    'label' => $item->label,
-                                    'chapter' => $item->chapter,
-                                    'book' => $item->book,
-                                    'progress' => number_format($progress, 2, ".", ",")
-                                ));
-
-//                            echo $novel->name . " - " . $item->chapter . "\r\n";
-
-                                $item->description = $description;
-
-                                if ( trim($description) != "" ) {
-                                    $item->status = 1;
-                                }
-                                $item->download_date = Carbon::now();
-                                $item->save();
-                            } else {
-//                            echo $item->novel->name . " - " . $item->chapter . " (Incomplete)\r\n";
-                            }
-                        }
-                    }
-                }
-            });
+        if ($novelId != 0) {
+            $query->where("id", $novelId);
         }
 
-        if ( count($newChapters) > 0 ) {
-            Mail::to("reyhan.thee@icloud.com")->send(new NewChapters($newChapters));
+        $query
+            ->with([
+                "chapters" => function ($q) {
+                    $q->where("status", 0)
+                        ->where("blacklist", 0)
+                        ->orderBy("book")
+                        ->orderBy("chapter");
+                },
+            ])
+            ->orderBy("name", "desc")
+            ->chunk(5, function ($novels) use (&$newChapters) {
+                foreach ($novels as $novel) {
+                    $this->processNovel($novel, $newChapters);
+                }
+            });
+
+        return $newChapters;
+    }
+
+    private function processNovel($novel, &$newChapters)
+    {
+        if (count($novel->chapters) > 0) {
+            foreach ($novel->chapters as $item) {
+                $this->info("Processing: {$novel->name} - {$item->label}");
+                $description = $this->generateChapterDescription($item);
+
+                if (str_word_count($description) > 250) {
+                    $this->updateChapter($item, $description);
+                    $this->addChapterToArray($novel, $item, $newChapters);
+                }
+            }
         }
+    }
+
+    private function generateChapterDescription($chapter)
+    {
+        $description = "";
+
+        foreach (chapterGenerator($chapter) as $c) {
+            $description .= $c;
+        }
+        return $description;
+    }
+
+    private function updateChapter($chapter, $description)
+    {
+        $chapter->description = $description;
+        if (trim($description) != "") {
+            $chapter->status = 1;
+        }
+        $chapter->download_date = Carbon::now();
+        $chapter->save();
+    }
+
+    private function addChapterToArray($novel, $chapter, &$newChapters)
+    {
+        $progress =
+            $novel->no_of_chapters == 0
+                ? 0
+                : round(($chapter->chapter / $novel->no_of_chapters) * 100, 2);
+
+        $newChapters[] = [
+            "novel" => $novel->name,
+            "label" => $chapter->label,
+            "chapter" => $chapter->chapter,
+            "book" => $chapter->book,
+            "progress" => number_format($progress, 2, ".", ","),
+        ];
     }
 }

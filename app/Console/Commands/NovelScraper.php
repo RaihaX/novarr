@@ -3,166 +3,93 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-
 use App\Novel;
 use App\NovelChapter;
 
 class NovelScraper extends Command
 {
-    /**
-     * The name and signature of the console command.
-     *
-     * @var string
-     */
-    protected $signature = 'novel:novel_scraper {novel=0}';
+    protected $signature = "novel:toc {novel=0}";
+    protected $description = "Scrape all active novels to create the chapter list.";
 
-    /**
-     * The console command description.
-     *
-     * @var string
-     */
-    protected $description = 'Scrape all active novels to create the chapter list.';
-
-    /**
-     * Create a new command instance.
-     *
-     * @return void
-     */
     public function __construct()
     {
         parent::__construct();
     }
 
-    /**
-     * Execute the console command.
-     *
-     * @return mixed
-     */
     public function handle()
     {
-        $args = $this->arguments('novel');
+        $novelId = $this->argument("novel");
 
-        if ( $args["novel"] == 0 ) {
-            foreach ( Novel::where('status', 0)->where('group_id', '!=', 37)->orderBy('name', 'asc')->get() as $n ) {
-                echo $n->name . "\r\n";
-                $toc = __tableOfContentGenerator($n);
+        $novels = Novel::where("status", 0)
+            ->when($novelId != 0, function ($query) use ($novelId) {
+                return $query->where("id", $novelId);
+            })
+            ->where("group_id", "!=", 37)
+            ->orderBy("name", "asc")
+            ->get();
 
-                if ( $n->group_id != 6 ) {
-                    foreach ($toc as $item) {
-                        $check_duplicate = NovelChapter::where('novel_id', $n->id)->where('chapter', round($item["chapter"], 2))->where('book', intval($item["book"]))->select('id')->first();
+        foreach ($novels as $novel) {
+            $this->info("Processing: {$novel->name}");
+            $toc = tableOfContentGenerator($novel);
+            $this->processChapters($novel, $toc);
+        }
+    }
 
-                        if (empty($check_duplicate)) {
-                            if (!empty($item["label"]) && !empty($item["url"]) && !empty($item["chapter"])) {
-                                $object = new NovelChapter();
-                                $object->novel_id = $n->id;
-                                $object->label = $item["label"];
-                                $object->url = $item["url"];
-                                $object->chapter = $item["chapter"];
-                                $object->book = intval($item["book"]);
-                                $object->save();
-                            }
-                        } else {
-                            $check_duplicate->label = $item["label"];
-                            $check_duplicate->chapter = $item["chapter"];
-                            $check_duplicate->book = intval($item["book"]);
-                            $check_duplicate->url = $item["url"];
-                            $check_duplicate->save();
-                        }
-                    }
-                } else {
-                    foreach ($toc as $item) {
-                        $urlArr = explode("/", str_replace("https://www.webnovel.com/book/", "", $item["url"]));
-
-                        $check_duplicate = NovelChapter::where('novel_id', $n->id)->where('chapter', round($item["chapter"], 2))->select('id')->first();
-
-                        if (empty($check_duplicate)) {
-                            if (!empty($item["label"]) && !empty($item["url"]) && !empty($item["chapter"])) {
-                                $object = new NovelChapter();
-                                $object->novel_id = $n->id;
-                                $object->label = $item["label"];
-                                $object->url = $item["url"];
-                                $object->chapter = $item["chapter"];
-                                $object->book = intval($item["book"]);
-                                $object->unique_id = $urlArr[1];
-                                $object->save();
-                            }
-                        } else {
-                            $check_duplicate->label = $item["label"];
-                            $check_duplicate->chapter = $item["chapter"];
-                            $check_duplicate->book = intval($item["book"]);
-                            $check_duplicate->url = $item["url"];
-                            $check_duplicate->unique_id = $urlArr[1];
-                            $check_duplicate->save();
-                        }
-                    }
-                }
+    private function processChapters($novel, $toc)
+    {
+        foreach ($toc as $item) {
+            if ($novel->group_id == 6) {
+                $item["unique_id"] = $this->extractUniqueId($item["url"]);
             }
-        } else {
-            foreach ( Novel::where('status', 0)->where('id', $args["novel"])->where('group_id', '!=', 37)->orderBy('name', 'asc')->get() as $n ) {
-                $this->info($n->name);
-                $toc = __tableOfContentGenerator($n);
 
-                if ( $n->group_id != 6 ) {
-                    foreach ($toc as $item) {
-                        if ( strpos($item['chapter'], "-") !== false ) {
-                            $chapter = substr($item['chapter'], 0, (strpos($item['chapter'], "-")));
-                        } else {
-                            $chapter = $item['chapter'];
-                        }
+            $chapterValue = $this->getChapterValue($item);
+            $check_duplicate = NovelChapter::where("novel_id", $novel->id)
+                ->where("chapter", $chapterValue)
+                ->when(isset($item["book"]), function ($query) use ($item) {
+                    return $query->where("book", intval($item["book"]));
+                })
+                ->first();
 
-                        $check_duplicate = NovelChapter::where('novel_id', $n->id)->where('chapter', round($chapter, 2))->where('book', intval($item["book"]))->select('id')->first();
+            $this->updateOrCreateChapter($check_duplicate, $novel->id, $item);
+        }
+    }
 
-                        if (empty($check_duplicate)) {
-                            if (!empty($item["label"]) && !empty($item["url"]) && !empty($chapter)) {
-                                $object = new NovelChapter();
-                                $object->novel_id = $n->id;
-                                $object->label = $item["label"];
-                                $object->url = $item["url"];
-                                $object->chapter = $chapter;
-                                $object->book = intval($item["book"]);
-                                $object->save();
-                            }
-                        } else {
-                            $check_duplicate->label = $item["label"];
-                            $check_duplicate->chapter = $chapter;
-                            $check_duplicate->book = intval($item["book"]);
-                            $check_duplicate->url = $item["url"];
-                            $check_duplicate->save();
-                        }
-                
-                        $this->info($chapter);
-                    }
-                } else {
-                    foreach ($toc as $item) {
-                        $urlArr = explode("/", str_replace("https://www.webnovel.com/book/", "", $item["url"]));
+    private function extractUniqueId($url)
+    {
+        $urlArr = explode(
+            "/",
+            str_replace("https://www.webnovel.com/book/", "", $url)
+        );
+        return $urlArr[1] ?? null;
+    }
 
-                        $check_duplicate = NovelChapter::where('novel_id', $n->id)->where('chapter', round($item["chapter"], 2))->select('id')->first();
+    private function getChapterValue($item)
+    {
+        if (strpos($item["chapter"], "-") !== false) {
+            return substr($item["chapter"], 0, strpos($item["chapter"], "-"));
+        }
+        return round($item["chapter"], 2);
+    }
 
-                        if (empty($check_duplicate)) {
-                            if (!empty($item["label"]) && !empty($item["url"]) && !empty($item["chapter"])) {
-                                $object = new NovelChapter();
-                                $object->novel_id = $n->id;
-                                $object->label = $item["label"];
-                                $object->url = $item["url"];
-                                $object->chapter = $item["chapter"];
-                                $object->book = intval($item["book"]);
-                                $object->unique_id = $urlArr[1];
-                                $object->save();
-                            }
-                        } else {
-                            $check_duplicate->label = $item["label"];
-                            $check_duplicate->chapter = $item["chapter"];
-                            $check_duplicate->book = intval($item["book"]);
-                            $check_duplicate->url = $item["url"];
-                            $check_duplicate->unique_id = $urlArr[1];
-                            $check_duplicate->save();
-                        }
-                
-                        $this->info($item["chapter"]);
-                    }
-                }
-            }
+    private function updateOrCreateChapter($chapter, $novelId, $item)
+    {
+        if (empty($chapter)) {
+            $chapter = new NovelChapter();
+            $chapter->novel_id = $novelId;
         }
 
+        $chapter
+            ->fill([
+                "label" => $item["label"] ?? null,
+                "url" => $item["url"] ?? null,
+                "chapter" => $this->getChapterValue($item),
+                "book" => intval($item["book"] ?? 0),
+                "unique_id" => $item["unique_id"] ?? null,
+            ])
+            ->save();
+
+        if ($chapter->chapter > 0) {
+            $this->info("Chapter processed: " . $chapter->chapter);
+        }
     }
 }

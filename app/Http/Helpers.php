@@ -1,68 +1,90 @@
 <?php
 
-function urlExists($url) {
+function urlExists($url)
+{
     $handle = curl_init($url);
     curl_setopt_array($handle, [
-        CURLOPT_RETURNTRANSFER => TRUE,
-        CURLOPT_FOLLOWLOCATION => TRUE,
-        CURLOPT_NOBODY => TRUE // Only check the connection; don't download the content
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_NOBODY => true, // Only check the connection; don't download the content
     ]);
     curl_exec($handle);
     $httpCode = curl_getinfo($handle, CURLINFO_HTTP_CODE);
     curl_close($handle);
 
-    return $httpCode >= 200 && $httpCode < 400;
+    return true;
 }
 
-function chapterGenerator($data) {
-    $novelUrl = preg_match('/^http/', $data->url) ? $data->url : $data->novel->group->url . $data->url;
+function chapterGenerator($data)
+{
+    $novelUrl = preg_match("/^http/", $data->url)
+        ? $data->url
+        : $data->novel->group->url . $data->url;
 
-    if (!empty($data->novel->alternative_url) && in_array($data->novel->group->id, [1, 3, 6])) {
-        $chapter = $data->novel->id == 72 ? str_replace(".", "-", $data->chapter) : floor($data->chapter);
+    if (
+        !empty($data->novel->alternative_url) &&
+        in_array($data->novel->group->id, [1, 3, 6])
+    ) {
+        $chapter =
+            $data->novel->id == 72
+                ? str_replace(".", "-", $data->chapter)
+                : floor($data->chapter);
         $novelUrl = $data->novel->alternative_url . $chapter;
     }
 
-    if (!urlExists($novelUrl)) return [];
-
-    $crawler = Goutte::request('GET', $novelUrl);
-    $selectors = [
-        // Group ID to selectors mapping
-    ];
-
-    $result = [];
-    $groupSelectors = $selectors[$data->novel->group->id] ?? [];
-    foreach ($groupSelectors as $selector) {
-        $crawler->filter($selector)->each(function ($node) use (&$result) {
-            $result[] = '<p>' . $node->text() . '</p>';
-        });
-        $result = array_filter($result, 'strlen'); // Remove empty paragraphs
-        if (count($result) >= 5) break;
+    if (!urlExists($novelUrl)) {
+        return [];
     }
 
-    return $result;
+    $crawler = Goutte::request("GET", $novelUrl);
+    $selectors = ["#chr-content > p", "#chr-content div p"]; // Added a selector for paragraphs inside divs
+    $result = [];
+    $groupSelectors = $selectors; // Assuming all groups will now use the updated selectors
+
+    foreach ($groupSelectors as $selector) {
+        $crawler->filter($selector)->each(function ($node) use (&$result) {
+            extractTextRecursively($node, $result);
+        });
+    }
+
+    $result = array_filter($result, "strlen"); // Remove empty paragraphs
+
+    return $result; // Limit to first 5 non-empty paragraphs if needed
 }
 
-function tableOfContentGenerator($data) {
+function extractTextRecursively($node, &$result)
+{
+    if (trim($node->text()) != "") {
+        $result[] = "<p>" . htmlspecialchars($node->text()) . "</p>"; // Ensure text is properly escaped
+    }
+
+    // Check if the node has children that are paragraphs and recurse
+    $node->children()->each(function ($child) use (&$result) {
+        if ($child->nodeName() == "p" || $child->nodeName() == "div") {
+            extractTextRecursively($child, $result);
+        }
+    });
+}
+
+function tableOfContentGenerator($data)
+{
     $result = [];
+
     if (urlExists($data->translator_url)) {
-        $crawler = Goutte::request('GET', $data->translator_url);
+        $crawler = Goutte::request("GET", $data->translator_url);
 
         $processChapter = function ($node) use (&$result, $data) {
             $label = $node->text();
-            $url = trim($node->attr('href'));
-            $result[] = __tocChapterLabelGenerator($label, $url);
+            $url = trim($node->attr("href"));
+            $result[] = generateTocChapterInfo($label, $url);
         };
 
         // Handling different groups
         switch ($data->group_id) {
-            case 40: // Read Light Novels
-                $crawler->filter('.chapter-chs > li > a')->each($processChapter);
-                break;
-            case 41: // Box Novel Org
-                for ($i = 1; $i <= 50; $i++) {
-                    $pageCrawler = Goutte::request('GET', $data->translator_url . "?page=" . $i);
-                    $pageCrawler->filter('.list-chapter > li > a')->each($processChapter);
-                }
+            case 1: // Novel Bin
+                $crawler
+                    ->filter(".list-chapter > li > a")
+                    ->each($processChapter);
                 break;
         }
 
@@ -72,7 +94,15 @@ function tableOfContentGenerator($data) {
         });
 
         // Generate chapter numbers if necessary
-        if (array_reduce($result, function ($carry, $item) { return $carry || $item["chapter"] > 0; }, false) === false) {
+        if (
+            array_reduce(
+                $result,
+                function ($carry, $item) {
+                    return $carry || $item["chapter"] > 0;
+                },
+                false
+            ) === false
+        ) {
             foreach ($result as $key => &$item) {
                 $item["chapter"] = $key + 1;
             }
@@ -82,54 +112,97 @@ function tableOfContentGenerator($data) {
     return $result;
 }
 
-function getMetadata($data) {
+function getMetadata($data)
+{
     $metadata = [];
 
     // Simplify the sanitization of the name
     $name = strtolower($data->name);
-    $name = preg_replace(['/[\s!?\'",]+/', '/-{2,}/'], '-', $name); // Replace specified characters with a single dash
+    $name = preg_replace(['/[\s!?\'",]+/', "/-{2,}/"], "-", $name); // Replace specified characters with a single dash
 
-    $crawler = Goutte::request('GET', "https://www.novelupdates.com/series/{$name}");
+    $crawler = Goutte::request(
+        "GET",
+        "https://www.novelupdates.com/series/{$name}"
+    );
 
     // Description
-    $metadata["description"] = $crawler->filter('#editdescription')->first()->html() ?? '';
+    $metadata["description"] =
+        $crawler
+            ->filter("#editdescription")
+            ->first()
+            ->html() ?? "";
 
     // Author
-    $metadata["author"] = $crawler->filter('#authtag')->first()->text() ?? '';
+    $metadata["author"] =
+        $crawler
+            ->filter("#authtag")
+            ->first()
+            ->text() ?? "";
 
     // Number of Chapters
-    $crawler->filter('#editstatus')->each(function ($node) use (&$metadata) {
+    $crawler->filter("#editstatus")->each(function ($node) use (&$metadata) {
         $text = str_replace("Chapter ", "Chapters ", $node->text());
-        preg_match('/(\d+) Chapters/', $text, $matches);
+        preg_match("/(\d+) Chapters/", $text, $matches);
         $metadata["no_of_chapters"] = $matches[1] ?? 0;
     });
 
     // Image
-    $metadata["image"] = $crawler->filter(".seriesimg > img")->first()->attr('src') ?? '';
+    $metadata["image"] =
+        $crawler
+            ->filter(".seriesimg > img")
+            ->first()
+            ->attr("src") ?? "";
 
     return $metadata;
 }
 
-function convertWordToNumber($text) {
+function convertWordToNumber($text)
+{
     // Mapping of number words to numeric values
     $wordToNumberMap = [
-        'zero' => 0, 'a' => 1, 'one' => 1, 'two' => 2, 'three' => 3,
-        'four' => 4, 'five' => 5, 'six' => 6, 'seven' => 7, 'eight' => 8, 'nine' => 9,
-        'ten' => 10, 'eleven' => 11, 'twelve' => 12, 'thirteen' => 13,
-        'fourteen' => 14, 'fifteen' => 15, 'sixteen' => 16, 'seventeen' => 17,
-        'eighteen' => 18, 'nineteen' => 19, 'twenty' => 20, 'thirty' => 30,
-        'forty' => 40, 'fifty' => 50, 'sixty' => 60, 'seventy' => 70,
-        'eighty' => 80, 'ninety' => 90, 'hundred' => 100, 'thousand' => 1000,
-        'million' => 1000000, 'billion' => 1000000000, 'and' => '',
+        "zero" => 0,
+        "a" => 1,
+        "one" => 1,
+        "two" => 2,
+        "three" => 3,
+        "four" => 4,
+        "five" => 5,
+        "six" => 6,
+        "seven" => 7,
+        "eight" => 8,
+        "nine" => 9,
+        "ten" => 10,
+        "eleven" => 11,
+        "twelve" => 12,
+        "thirteen" => 13,
+        "fourteen" => 14,
+        "fifteen" => 15,
+        "sixteen" => 16,
+        "seventeen" => 17,
+        "eighteen" => 18,
+        "nineteen" => 19,
+        "twenty" => 20,
+        "thirty" => 30,
+        "forty" => 40,
+        "fifty" => 50,
+        "sixty" => 60,
+        "seventy" => 70,
+        "eighty" => 80,
+        "ninety" => 90,
+        "hundred" => 100,
+        "thousand" => 1000,
+        "million" => 1000000,
+        "billion" => 1000000000,
+        "and" => "",
         // Handle common misspelling
-        'fourty' => 40,
+        "fourty" => 40,
     ];
 
     // Replace all number words with their equivalent numeric value
     $data = strtr(strtolower($text), $wordToNumberMap);
 
     // Split into parts and convert to numbers
-    $parts = array_map('floatval', preg_split('/[\s-]+/', $data));
+    $parts = array_map("floatval", preg_split("/[\s-]+/", $data));
 
     $sum = 0;
     $stack = new SplStack();
@@ -150,11 +223,16 @@ function convertWordToNumber($text) {
     return $sum + ($stack->isEmpty() ? 0 : $stack->pop());
 }
 
-function generateHTMLContent($object) {
-    $manifestItems = '';
-    $spineItems = '';
+function generateHTMLContent($object)
+{
+    $manifestItems = "";
+    $spineItems = "";
     foreach ($object->chapters as $item) {
-        $itemId = str_replace("/Novel/{$item->novel_id}/Text/", "", $item->html_file);
+        $itemId = str_replace(
+            "/Novel/{$item->novel_id}/Text/",
+            "",
+            $item->html_file
+        );
         $manifestItems .= "<item id=\"$itemId\" href=\"Text/$itemId\" media-type=\"application/xhtml+xml\"/>";
         $spineItems .= "<itemref idref=\"$itemId\"/>";
     }
@@ -184,8 +262,13 @@ function generateHTMLContent($object) {
 XML;
 }
 
-function generateHTMLToc($object) {
-    $firstChapterFile = str_replace("/Novel/{$object->chapters[0]->novel_id}/Text/", "", $object->chapters[0]->html_file);
+function generateHTMLToc($object)
+{
+    $firstChapterFile = str_replace(
+        "/Novel/{$object->chapters[0]->novel_id}/Text/",
+        "",
+        $object->chapters[0]->html_file
+    );
 
     return <<<XML
 <?xml version="1.0" encoding="utf-8" ?>
@@ -207,10 +290,15 @@ function generateHTMLToc($object) {
 XML;
 }
 
-function generateHTMLNav($chapters) {
-    $items = '';
+function generateHTMLNav($chapters)
+{
+    $items = "";
     foreach ($chapters as $chapter) {
-        $chapterFile = str_replace("/Novel/{$chapter->novel_id}/Text/", "", $chapter->html_file);
+        $chapterFile = str_replace(
+            "/Novel/{$chapter->novel_id}/Text/",
+            "",
+            $chapter->html_file
+        );
         $items .= "<li><a href=\"../Text/$chapterFile\">{$chapter->label}</a></li>";
     }
 
@@ -227,7 +315,8 @@ function generateHTMLNav($chapters) {
 HTML;
 }
 
-function generateHTMLChapter($content) {
+function generateHTMLChapter($content)
+{
     return <<<HTML
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
@@ -238,8 +327,8 @@ function generateHTMLChapter($content) {
 HTML;
 }
 
-
-function splitAndCleanLargeString($input) {
+function splitAndCleanLargeString($input)
+{
     $result = [];
 
     // Ensure $input is treated uniformly as an array
@@ -247,7 +336,7 @@ function splitAndCleanLargeString($input) {
 
     foreach ($strings as $str) {
         // Split the string into sentences
-        $sentences = preg_split('/(?<=[.?!])\s+(?=[A-Za-z])/', $str);
+        $sentences = preg_split("/(?<=[.?!])\s+(?=[A-Za-z])/", $str);
 
         foreach ($sentences as $sentence) {
             // Only add non-empty sentences
@@ -258,42 +347,56 @@ function splitAndCleanLargeString($input) {
     }
 
     // Assuming __cleanseChapterArray is defined elsewhere and cleanses the content
-    return __cleanseChapterArray($result);
+    return cleanseChapterArray($result);
 }
 
-
-function cleanseChapterArray($strings) {
+function cleanseChapterArray($strings)
+{
     $cleanseArray = [];
-    
+
     // Define an array of patterns to be filtered out
     $unwantedPatterns = [
-        "<p></p>", "<p>&nbsp;</p>", "<p>&nbsp; &nbsp;</p>", 
-        "<p><p>", "<p>  </p>", "<p>   </p>", "<p> </p>"
+        "<p></p>",
+        "<p>&nbsp;</p>",
+        "<p>&nbsp; &nbsp;</p>",
+        "<p><p>",
+        "<p>  </p>",
+        "<p>   </p>",
+        "<p> </p>",
     ];
 
     foreach ($strings as $i) {
         // Check if the current string matches any unwanted pattern
         if (!in_array($i, $unwantedPatterns)) {
             // If it doesn't match, cleanse the content and add it to the cleanseArray
-            $cleanseArray[] = __cleanseChapterContent($i);
+            $cleanseArray[] = cleanseChapterContent($i);
         }
     }
 
     return $cleanseArray;
 }
 
-function cleanseChapterContent($string) {
+function cleanseChapterContent($string)
+{
     // Remove specific unwanted strings and replace them with desired alternatives
     $string = str_replace("<Mystic Moon>", "Mystic Moon", $string);
-    
+
     // Consolidate multiple spaces, tabs, newlines into a single space and remove them
-    $string = preg_replace('/[\s\t\n\r\0\x0B]+/', ' ', $string);
+    $string = preg_replace('/[\s\t\n\r\0\x0B]+/', " ", $string);
 
     // List of phrases to check for their absence in the string
     $phrasesToCheck = [
-        "table of contents", "previous chapter", "translated by", "edited by", 
-        "translator", "A+ A-", "edited:", "tl: ", "next chapter", 
-        "proofreader:", "(tl by "
+        "table of contents",
+        "previous chapter",
+        "translated by",
+        "edited by",
+        "translator",
+        "A+ A-",
+        "edited:",
+        "tl: ",
+        "next chapter",
+        "proofreader:",
+        "(tl by ",
     ];
 
     // Convert string to lower case once to avoid multiple conversions in the loop
@@ -310,59 +413,77 @@ function cleanseChapterContent($string) {
     return trim($string);
 }
 
-function generateTocChapterInfo($label, $url) {
+function generateTocChapterInfo($label, $url)
+{
     if (stripos($label, "teaser") !== false) {
-        return; // Early exit if label contains "teaser"
+        return; // Early exit if the label contains "teaser"
     }
-    
+
     // Normalize label
-    $normalizedLabel = preg_replace(['/ +/', '/\(/'], [' ', ' ('], $label);
-    $normalizedLabel = preg_replace('/[^A-Za-z0-9 _\.\-\+\&\(\)]/', '', $normalizedLabel);
-    
+    $normalizedLabel = preg_replace(["/ +/", "/\(/"], [" ", " ("], $label);
+    $normalizedLabel = preg_replace(
+        "/[^A-Za-z0-9 _\.\-\+\&\(\)]/",
+        "",
+        $normalizedLabel
+    );
+
     // Initial variables
     $chapter = $book = 0;
-    $alphabets = range('a', 'f');
-    
+    $splitChapterSuffix = "";
+
     // Extract book from URL if possible
-    if (preg_match('/-(book|volume|vol)-(\d+)/i', $url, $bookMatches)) {
+    if (preg_match("/-(book|volume|vol)-(\d+)/i", $url, $bookMatches)) {
         $book = $bookMatches[2];
     }
 
-    // Process label parts
-    $labelParts = explode(' ', $normalizedLabel);
-    foreach ($labelParts as $part) {
-        // Normalize numeric ranges like 1-2 to 1.2
-        if (preg_match('/^(\d+)-(\d+)$/', $part, $rangeMatches)) {
-            $chapter = $rangeMatches[1] . '.' . $rangeMatches[2];
-            continue;
-        }
-
-        // Process parts for chapter and subchapter identification
-        if (preg_match('/^(\d+)([a-z])?$/i', $part, $chapterMatches)) {
-            $chapter = $chapterMatches[1];
-            if (!empty($chapterMatches[2])) {
-                $subChapter = array_search(strtolower($chapterMatches[2]), $alphabets) + 1;
-                $chapter .= '.' . $subChapter;
-            }
-        } elseif (preg_match('/^\((\d+)\)$/', $part, $parenthesisMatches)) {
-            // Handle chapters like (1)
-            $chapter .= '.' . $parenthesisMatches[1];
-        }
+    // Capture the basic chapter number
+    if (preg_match("/chapter (\d+)/i", $normalizedLabel, $chapterMatches)) {
+        $chapter = $chapterMatches[1];
+    } elseif (preg_match("/^(\d+)/", $normalizedLabel, $startChapterMatches)) {
+        $chapter = $startChapterMatches[1];
     }
 
-    // Further refine chapter information based on specific patterns in label
-    if (preg_match('/part (\d+)/i', $normalizedLabel, $partMatches)) {
-        $chapter .= '.' . $partMatches[1];
+    // Handle chapter splits with priority given to numeric splits in parentheses
+    if (
+        preg_match("/(\d+)\((\d+)\)/", $normalizedLabel, $numericSplitMatches)
+    ) {
+        $chapter = $numericSplitMatches[1]; // Basic chapter number
+        $splitChapterSuffix = $numericSplitMatches[2]; // Numeric split
+    } elseif (
+        preg_match(
+            "/(\d+)[\s–]*([A-Z])[\s–]/i",
+            $normalizedLabel,
+            $letterSplitMatches
+        )
+    ) {
+        // Handle letter splits if no numeric split is found
+        $chapter = $letterSplitMatches[1]; // Basic chapter number
+        $splitChapterSuffix =
+            ord(strtoupper($letterSplitMatches[2])) - ord("A") + 1; // Convert letter to numeric
+    }
+
+    // Construct the final chapter designation based on the presence of a split suffix
+    if ($splitChapterSuffix !== "") {
+        $chapter .= "." . $splitChapterSuffix;
     }
 
     // Final adjustments to ensure chapter and book are correctly formatted
     $chapter = rtrim($chapter, ".-"); // Remove trailing dots or dashes
-    $book = (int)$book; // Ensure book is an integer
+    $book = (int) $book; // Ensure book is an integer
+
+    // Dynamic check for patterns like "(1) – A –", "(2) – B –", "(3) – C –", etc.
+    if (preg_match("/\((\d+)\)\s*–\s*[A-Z]\s*–/i", $label, $matches)) {
+        // Directly use the number within parentheses as the suffix
+        $chapterString = $chapter . "." . (int) $matches[1];
+    } else {
+        // Default to basic chapter number if no specific pattern is found
+        $chapterString = (string) $chapter;
+    }
 
     return [
-        "label" => substr($normalizedLabel, 0, 250),
+        "label" => substr($normalizedLabel, 0, 250), // Ensure the label is not excessively long
         "book" => $book,
         "url" => $url,
-        "chapter" => $chapter
+        "chapter" => $chapterString,
     ];
 }
