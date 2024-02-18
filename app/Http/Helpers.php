@@ -431,12 +431,14 @@ function generateTocChapterInfo($label, $url)
     $chapter = $book = 0;
     $splitChapterSuffix = "";
 
-    // Extract book from URL if possible
-    if (preg_match("/-(book|volume|vol)-(\d+)/i", $url, $bookMatches)) {
+    // Extract book from label if present, fallback to URL extraction
+    if (preg_match("/vol\.?(\d+)/i", $normalizedLabel, $volumeMatches)) {
+        $book = $volumeMatches[1];
+    } elseif (preg_match("/-(book|volume|vol)-(\d+)/i", $url, $bookMatches)) {
         $book = $bookMatches[2];
     }
 
-    // Capture the basic chapter number
+    // Capture the basic chapter number from the label
     if (preg_match("/chapter (\d+)/i", $normalizedLabel, $chapterMatches)) {
         $chapter = $chapterMatches[1];
     } elseif (preg_match("/^(\d+)/", $normalizedLabel, $startChapterMatches)) {
@@ -456,7 +458,6 @@ function generateTocChapterInfo($label, $url)
             $letterSplitMatches
         )
     ) {
-        // Handle letter splits if no numeric split is found
         $chapter = $letterSplitMatches[1]; // Basic chapter number
         $splitChapterSuffix =
             ord(strtoupper($letterSplitMatches[2])) - ord("A") + 1; // Convert letter to numeric
@@ -467,23 +468,19 @@ function generateTocChapterInfo($label, $url)
         $chapter .= "." . $splitChapterSuffix;
     }
 
-    // Final adjustments to ensure chapter and book are correctly formatted
-    $chapter = rtrim($chapter, ".-"); // Remove trailing dots or dashes
-    $book = (int) $book; // Ensure book is an integer
-
     // Dynamic check for patterns like "(1) – A –", "(2) – B –", "(3) – C –", etc.
     if (preg_match("/\((\d+)\)\s*–\s*[A-Z]\s*–/i", $label, $matches)) {
-        // Directly use the number within parentheses as the suffix
-        $chapterString = $chapter . "." . (int) $matches[1];
-    } else {
-        // Default to basic chapter number if no specific pattern is found
-        $chapterString = (string) $chapter;
+        $chapter = $chapter . "." . (int) $matches[1];
     }
+
+    // Final adjustments
+    $chapter = rtrim($chapter, ".-"); // Remove trailing dots or dashes
+    $book = (int) $book; // Ensure book is an integer
 
     return [
         "label" => substr($normalizedLabel, 0, 250), // Ensure the label is not excessively long
         "book" => $book,
         "url" => $url,
-        "chapter" => $chapterString,
+        "chapter" => $chapter,
     ];
 }
