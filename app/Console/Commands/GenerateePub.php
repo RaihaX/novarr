@@ -16,7 +16,7 @@ class GenerateePub extends Command
      *
      * @var string
      */
-    protected $signature = "novel:generate_epub {novel=0}";
+    protected $signature = "novel:epub {novel=0}";
 
     /**
      * The console command description.
