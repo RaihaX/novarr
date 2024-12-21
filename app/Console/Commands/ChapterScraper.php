@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 use App\Novel;
 use App\Mail\NewChapters;
 use Carbon\Carbon;
@@ -21,12 +22,21 @@ class ChapterScraper extends Command
     public function handle()
     {
         $novelId = $this->argument("novel");
+        Log::info("Starting chapter scraping for novel ID: $novelId");
+
         $newChapters = $this->scrapeChapters($novelId);
+
+        Log::info(
+            "Finished chapter scraping. Total new chapters: " .
+                count($newChapters)
+        );
     }
 
     private function scrapeChapters($novelId)
     {
         $newChapters = [];
+        Log::debug("Building query for novels.");
+
         $query = Novel::where("status", 0)
             ->where("group_id", "!=", 37)
             ->whereHas("chapters", function ($q) {
@@ -49,6 +59,7 @@ class ChapterScraper extends Command
             ->orderBy("name", "desc")
             ->chunk(5, function ($novels) use (&$newChapters) {
                 foreach ($novels as $novel) {
+                    Log::info("Processing novel: {$novel->name}");
                     $this->processNovel($novel, $newChapters);
                 }
             });
@@ -60,12 +71,18 @@ class ChapterScraper extends Command
     {
         if (count($novel->chapters) > 0) {
             foreach ($novel->chapters as $item) {
+                Log::debug("Processing chapter: {$item->label}");
                 $this->info("Processing: {$novel->name} - {$item->label}");
                 $description = $this->generateChapterDescription($item);
 
                 if (str_word_count($description) > 250) {
+                    Log::debug("Chapter description valid for: {$item->label}");
                     $this->updateChapter($item, $description);
                     $this->addChapterToArray($novel, $item, $newChapters);
+                } else {
+                    Log::warning(
+                        "Chapter skipped due to insufficient description: {$item->label}"
+                    );
                 }
             }
         }
@@ -78,6 +95,7 @@ class ChapterScraper extends Command
         foreach (chapterGenerator($chapter) as $c) {
             $description .= $c;
         }
+        Log::debug("Generated description for chapter ID: {$chapter->id}");
         return $description;
     }
 
@@ -89,6 +107,10 @@ class ChapterScraper extends Command
         }
         $chapter->download_date = Carbon::now();
         $chapter->save();
+
+        Log::info(
+            "Updated chapter ID: {$chapter->id}, status set to: {$chapter->status}"
+        );
     }
 
     private function addChapterToArray($novel, $chapter, &$newChapters)
@@ -105,5 +127,9 @@ class ChapterScraper extends Command
             "book" => $chapter->book,
             "progress" => number_format($progress, 2, ".", ","),
         ];
+
+        Log::info(
+            "Added chapter to array: {$chapter->label}, progress: {$progress}%"
+        );
     }
 }
