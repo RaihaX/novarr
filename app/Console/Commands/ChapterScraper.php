@@ -76,9 +76,19 @@ class ChapterScraper extends Command
                 $description = $this->generateChapterDescription($item);
 
                 if (str_word_count($description) > 250) {
+                    $wordCount = str_word_count($description);
                     Log::debug("Chapter description valid for: {$item->label}");
+                    Log::info("Successfully downloaded chapter: {$item->label} ({$wordCount} words)");
+                    $this->info("✓ Downloaded: {$item->label} ({$wordCount} words)");
+
                     $this->updateChapter($item, $description);
                     $this->addChapterToArray($novel, $item, $newChapters);
+
+                    // Emulate fast human reading time - random delay between 30-90 seconds
+                    $readingDelay = rand(30, 90); // 30 seconds to 1.5 minutes
+                    Log::info("Waiting {$readingDelay} seconds before next chapter (simulating fast reader)...");
+                    $this->info("Waiting {$readingDelay} seconds to simulate human reading...");
+                    sleep($readingDelay);
                 } else {
                     Log::warning(
                         "Chapter skipped due to insufficient description: {$item->label}"

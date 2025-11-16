@@ -3,16 +3,39 @@
 function urlExists($url)
 {
     $handle = curl_init($url);
+
+    // Set browser-like headers to bypass Cloudflare
+    $headers = [
+        'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language: en-US,en;q=0.9',
+        'Accept-Encoding: gzip, deflate, br',
+        'Connection: keep-alive',
+        'Upgrade-Insecure-Requests: 1',
+        'Sec-Fetch-Dest: document',
+        'Sec-Fetch-Mode: navigate',
+        'Sec-Fetch-Site: none',
+        'Sec-Fetch-User: ?1',
+        'Cache-Control: max-age=0',
+    ];
+
     curl_setopt_array($handle, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_NOBODY => true, // Only check the connection; don't download the content
+        CURLOPT_TIMEOUT => 10, // Add timeout to prevent hanging
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_SSL_VERIFYPEER => false, // Bypass SSL verification if needed
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_ENCODING => '', // Handle all encodings
     ]);
+
     curl_exec($handle);
     $httpCode = curl_getinfo($handle, CURLINFO_HTTP_CODE);
     curl_close($handle);
 
-    return true;
+    // Return true only if HTTP status is in the 200 range
+    return $httpCode >= 200 && $httpCode < 300;
 }
 
 function chapterGenerator($data)
@@ -32,24 +55,96 @@ function chapterGenerator($data)
         $novelUrl = $data->novel->alternative_url . $chapter;
     }
 
+    \Log::debug("ChapterGenerator attempting to fetch URL: {$novelUrl}");
+
     if (!urlExists($novelUrl)) {
+        \Log::warning("ChapterGenerator URL does not exist or returned error: {$novelUrl}");
         return [];
     }
 
-    $crawler = Goutte::request("GET", $novelUrl);
-    $selectors = ["#chr-content > p", "#chr-content div p"]; // Added a selector for paragraphs inside divs
-    $result = [];
-    $groupSelectors = $selectors; // Assuming all groups will now use the updated selectors
+    try {
+        // Add delay to avoid rate limiting
+        usleep(rand(500000, 1500000)); // Random delay between 0.5-1.5 seconds
 
-    foreach ($groupSelectors as $selector) {
-        $crawler->filter($selector)->each(function ($node) use (&$result) {
-            extractTextRecursively($node, $result);
-        });
+        // Create a new Guzzle client with browser-like headers
+        $guzzleClient = new \GuzzleHttp\Client([
+            'timeout' => 30,
+            'verify' => false, // Bypass SSL verification
+            'headers' => [
+                'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language' => 'en-US,en;q=0.9',
+                'Accept-Encoding' => 'gzip, deflate, br',
+                'Connection' => 'keep-alive',
+                'Upgrade-Insecure-Requests' => '1',
+                'Sec-Fetch-Dest' => 'document',
+                'Sec-Fetch-Mode' => 'navigate',
+                'Sec-Fetch-Site' => 'none',
+                'Sec-Fetch-User' => '?1',
+                'Cache-Control' => 'max-age=0',
+            ],
+        ]);
+
+        // Set the custom Guzzle client to Goutte
+        $client = new \Goutte\Client();
+        $client->setClient($guzzleClient);
+
+        $crawler = $client->request("GET", $novelUrl);
+
+        // Expanded list of common selectors for novel content
+        $selectors = [
+            "#chr-content p",           // Direct paragraphs in chr-content
+            "#chr-content > p",         // Only direct child paragraphs
+            "#chr-content div p",       // Paragraphs inside divs
+            ".chapter-content p",       // Common alternative class
+            ".entry-content p",         // WordPress-style content
+            "div.content p",            // Generic content div
+            "#chapter-content p",       // Alternative ID
+            "article p",                // Article tag paragraphs
+            ".text p",                  // Common text class
+            ".text_story p",            // Novel-specific class
+            "#content p",               // Simple content ID
+        ];
+
+        $result = [];
+
+        foreach ($selectors as $selector) {
+            $tempResult = [];
+            try {
+                $crawler->filter($selector)->each(function ($node) use (&$tempResult) {
+                    extractTextRecursively($node, $tempResult);
+                });
+            } catch (\Exception $e) {
+                // Selector might not exist, continue to next one
+                continue;
+            }
+
+            // If we found content with this selector, use it
+            if (count($tempResult) > 10) { // At least 10 paragraphs to be considered valid
+                \Log::debug("ChapterGenerator found content using selector: {$selector} (paragraphs: " . count($tempResult) . ")");
+                $result = $tempResult;
+                break;
+            }
+        }
+
+        // If no selector found enough content, log it
+        if (count($result) < 10) {
+            \Log::warning("ChapterGenerator found insufficient content for URL: {$novelUrl} (paragraphs: " . count($result) . ")");
+
+            // Debug: Log the page HTML to see what we actually got
+            $html = $crawler->html();
+            if (stripos($html, 'cloudflare') !== false || stripos($html, 'challenge') !== false) {
+                \Log::error("ChapterGenerator detected Cloudflare challenge page for URL: {$novelUrl}");
+            }
+        }
+
+        $result = array_filter($result, "strlen"); // Remove empty paragraphs
+
+        return $result;
+    } catch (\Exception $e) {
+        \Log::error("ChapterGenerator exception for URL {$novelUrl}: " . $e->getMessage());
+        return [];
     }
-
-    $result = array_filter($result, "strlen"); // Remove empty paragraphs
-
-    return $result; // Limit to first 5 non-empty paragraphs if needed
 }
 
 function extractTextRecursively($node, &$result)
@@ -126,32 +221,33 @@ function getMetadata($data)
     );
 
     // Description
-    $metadata["description"] =
-        $crawler
-            ->filter("#editdescription")
-            ->first()
-            ->html() ?? "";
+    $descriptionFilter = $crawler->filter("#editdescription");
+    $metadata["description"] = $descriptionFilter->count() > 0
+        ? $descriptionFilter->first()->html()
+        : "";
 
     // Author
-    $metadata["author"] =
-        $crawler
-            ->filter("#authtag")
-            ->first()
-            ->text() ?? "";
+    $authorFilter = $crawler->filter("#authtag");
+    $metadata["author"] = $authorFilter->count() > 0
+        ? $authorFilter->first()->text()
+        : "";
 
     // Number of Chapters
-    $crawler->filter("#editstatus")->each(function ($node) use (&$metadata) {
-        $text = str_replace("Chapter ", "Chapters ", $node->text());
-        preg_match("/(\d+) Chapters/", $text, $matches);
-        $metadata["no_of_chapters"] = $matches[1] ?? 0;
-    });
+    $metadata["no_of_chapters"] = 0;
+    $statusFilter = $crawler->filter("#editstatus");
+    if ($statusFilter->count() > 0) {
+        $statusFilter->each(function ($node) use (&$metadata) {
+            $text = str_replace("Chapter ", "Chapters ", $node->text());
+            preg_match("/(\d+) Chapters/", $text, $matches);
+            $metadata["no_of_chapters"] = $matches[1] ?? 0;
+        });
+    }
 
     // Image
-    $metadata["image"] =
-        $crawler
-            ->filter(".seriesimg > img")
-            ->first()
-            ->attr("src") ?? "";
+    $imageFilter = $crawler->filter(".seriesimg > img");
+    $metadata["image"] = $imageFilter->count() > 0
+        ? $imageFilter->first()->attr("src")
+        : "";
 
     return $metadata;
 }

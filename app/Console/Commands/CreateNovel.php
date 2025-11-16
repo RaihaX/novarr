@@ -65,7 +65,7 @@ class CreateNovel extends Command
 
         $object->save();
 
-        if (isset($metadata["image"])) {
+        if (isset($metadata["image"]) && !empty($metadata["image"])) {
             $file = new File();
             $url_headers = @get_headers($metadata["image"]);
 
