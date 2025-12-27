@@ -29,3 +29,11 @@ composer.lock
 *.sql
 rr
 .rr.yaml
+
+# Deployment state files
+.deployment-state
+.docker-tag
+
+# Migration data (contains sensitive database dumps)
+/migrate/
+!/migrate/.gitkeep

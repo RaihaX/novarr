@@ -1,0 +1,13 @@
+# Novarr Deployment State
+# This file tracks the current blue-green deployment state
+# Generated automatically by docker-deploy.sh and docker-update.sh
+#
+# DO NOT EDIT MANUALLY - changes will be overwritten during deployments
+#
+# Copy this to .deployment-state for manual state initialization (rarely needed)
+
+DEPLOYMENT_ACTIVE_COLOR=blue
+DEPLOYMENT_ACTIVE_TAG=20241226-120000
+DEPLOYMENT_TIMESTAMP=1703592000
+DEPLOYMENT_PREVIOUS_COLOR=green
+DEPLOYMENT_PREVIOUS_TAG=20241225-180000

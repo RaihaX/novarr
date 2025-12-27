@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Controllers\Voyager\CommandController;
+use App\Http\Controllers\Voyager\LogController;
+
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -12,6 +15,31 @@
 */
 
 Auth::routes();
+
+/*
+|--------------------------------------------------------------------------
+| Voyager Admin Routes
+|--------------------------------------------------------------------------
+*/
+Route::group(['prefix' => 'admin'], function () {
+    Voyager::routes();
+
+    // Custom command routes within Voyager admin
+    Route::group(['middleware' => ['web', 'admin.user']], function () {
+        Route::get('commands', [CommandController::class, 'index'])->name('voyager.commands.index');
+        Route::get('commands/{command}', [CommandController::class, 'showForm'])->name('voyager.commands.form');
+        Route::post('commands/execute', [CommandController::class, 'execute'])->name('voyager.commands.execute');
+        Route::post('commands/execute-async', [CommandController::class, 'executeAsync'])->name('voyager.commands.execute-async');
+        Route::get('commands/status/{jobId}', [CommandController::class, 'status'])->name('voyager.commands.status');
+
+        // Log viewer routes
+        Route::get('logs', [LogController::class, 'index'])->name('voyager.logs.index');
+        Route::get('logs/{filename}', [LogController::class, 'show'])->name('voyager.logs.show');
+        Route::get('logs/{filename}/tail', [LogController::class, 'tail'])->name('voyager.logs.tail');
+        Route::get('logs/{filename}/download', [LogController::class, 'download'])->name('voyager.logs.download');
+        Route::delete('logs/{filename}', [LogController::class, 'destroy'])->name('voyager.logs.destroy');
+    });
+});
 
 Route::group(['middleware' => ['auth']], function () {
     Route::get('/', 'HomeController@index')->name('home');

@@ -1,0 +1,404 @@
+/**
+ * Voyager Custom Styles
+ * Container-level scrolling and UI optimizations
+ */
+
+/* Container-level scrolling for tables */
+.voyager .table-responsive,
+.voyager-table-scroll {
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 60vh;
+    position: relative;
+}
+
+/* Sticky table headers */
+.voyager .table-responsive thead,
+.voyager-table-scroll thead {
+    position: sticky;
+    top: 0;
+    background: #fff;
+    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.voyager .table-responsive thead th,
+.voyager-table-scroll thead th {
+    background: #fff;
+}
+
+/* Dark mode sticky headers */
+.voyager.dark .table-responsive thead,
+.voyager.dark .voyager-table-scroll thead {
+    background: #2c3e50;
+}
+
+.voyager.dark .table-responsive thead th,
+.voyager.dark .voyager-table-scroll thead th {
+    background: #2c3e50;
+}
+
+/* Log viewer specific scrolling */
+.log-content-container {
+    overflow-y: auto;
+    max-height: 75vh;
+    background: #1e1e1e;
+    padding: 1rem;
+    border-radius: 4px;
+}
+
+/* Command output scrolling */
+.command-output {
+    overflow-y: auto;
+    max-height: 50vh;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 1rem;
+    border: 1px solid #333;
+    border-radius: 4px;
+    font-family: 'Courier New', Consolas, monospace;
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Novel chapters list scrolling */
+.chapters-list {
+    overflow-y: auto;
+    max-height: 65vh;
+}
+
+/* Prevent body scroll when modal is open */
+body.voyager-modal-open {
+    overflow: hidden;
+}
+
+/* Log level colors */
+.log-level-emergency,
+.log-level-alert,
+.log-level-critical {
+    color: #dc3545 !important;
+    font-weight: bold;
+}
+
+.log-level-error {
+    color: #e74c3c !important;
+    font-weight: bold;
+}
+
+.log-level-warning {
+    color: #f39c12 !important;
+    font-weight: bold;
+}
+
+.log-level-notice {
+    color: #3498db !important;
+}
+
+.log-level-info {
+    color: #17a2b8 !important;
+}
+
+.log-level-debug {
+    color: #6c757d !important;
+}
+
+/* Panel scrollable content */
+.panel-body-scroll {
+    overflow-y: auto;
+    max-height: 70vh;
+}
+
+/* Command cards grid */
+.command-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+    padding: 10px 0;
+}
+
+.command-card {
+    border: 1px solid #e3e3e3;
+    border-radius: 8px;
+    padding: 20px;
+    background: #fff;
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.command-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+}
+
+.command-card-icon {
+    font-size: 2rem;
+    color: #22A7F0;
+    margin-bottom: 10px;
+}
+
+.command-card-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #333;
+}
+
+.command-card-description {
+    font-size: 0.9rem;
+    color: #666;
+    margin-bottom: 15px;
+    line-height: 1.4;
+}
+
+.command-card-actions {
+    display: flex;
+    gap: 10px;
+}
+
+/* Category badges */
+.command-category {
+    display: inline-block;
+    padding: 3px 8px;
+    font-size: 0.75rem;
+    border-radius: 3px;
+    margin-bottom: 10px;
+}
+
+.command-category.scraping {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+.command-category.generation {
+    background: #e3f2fd;
+    color: #1565c0;
+}
+
+.command-category.maintenance {
+    background: #fff3e0;
+    color: #ef6c00;
+}
+
+/* Novel stats badges */
+.novel-stats {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+.novel-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    background: #f5f5f5;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.novel-stat i {
+    color: #22A7F0;
+}
+
+/* Progress bar styles */
+.chapter-progress {
+    height: 6px;
+    border-radius: 3px;
+    background: #e9ecef;
+    overflow: hidden;
+    margin-top: 8px;
+}
+
+.chapter-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #22A7F0, #1abc9c);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.chapter-progress-text {
+    font-size: 0.8rem;
+    color: #666;
+    margin-top: 4px;
+}
+
+/* Quick action buttons */
+.quick-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.quick-actions .btn {
+    padding: 5px 12px;
+    font-size: 0.85rem;
+}
+
+/* Loading spinner */
+.loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #22A7F0;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Command execution status */
+.execution-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 15px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+}
+
+.execution-status.running {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    color: #856404;
+}
+
+.execution-status.success {
+    background: #d4edda;
+    border: 1px solid #28a745;
+    color: #155724;
+}
+
+.execution-status.error {
+    background: #f8d7da;
+    border: 1px solid #dc3545;
+    color: #721c24;
+}
+
+/* Chapter content view */
+.chapter-content {
+    overflow-y: auto;
+    max-height: 70vh;
+    padding: 20px;
+    background: #fafafa;
+    border: 1px solid #e3e3e3;
+    border-radius: 4px;
+    line-height: 1.8;
+    font-size: 15px;
+}
+
+.chapter-meta {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    padding: 15px;
+    background: #f5f5f5;
+    border-radius: 4px;
+    margin-bottom: 15px;
+}
+
+.chapter-meta-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.chapter-meta-label {
+    font-size: 0.75rem;
+    color: #666;
+    text-transform: uppercase;
+}
+
+.chapter-meta-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #333;
+}
+
+/* Destructive command warning */
+.destructive-warning {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.destructive-warning i {
+    color: #856404;
+    margin-right: 10px;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+    .voyager .table-responsive,
+    .voyager-table-scroll {
+        max-height: 50vh;
+    }
+
+    .log-content-container {
+        max-height: 60vh;
+        font-size: 11px;
+    }
+
+    .command-output {
+        max-height: 40vh;
+        font-size: 11px;
+    }
+
+    .command-cards {
+        grid-template-columns: 1fr;
+    }
+
+    .log-filter-form {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .log-filter-form .form-group {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .command-card {
+        background: #2c3e50;
+        border-color: #34495e;
+    }
+
+    .command-card-title {
+        color: #ecf0f1;
+    }
+
+    .command-card-description {
+        color: #bdc3c7;
+    }
+
+    .novel-stat {
+        background: #34495e;
+        color: #ecf0f1;
+    }
+
+    .chapter-content {
+        background: #2c3e50;
+        border-color: #34495e;
+        color: #ecf0f1;
+    }
+
+    .chapter-meta {
+        background: #34495e;
+    }
+
+    .chapter-meta-label {
+        color: #95a5a6;
+    }
+
+    .chapter-meta-value {
+        color: #ecf0f1;
+    }
+}

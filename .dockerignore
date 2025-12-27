@@ -1,0 +1,81 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Dependencies (will be installed in Docker)
+node_modules
+vendor
+
+# Storage (mounted as volumes)
+storage/app/*
+!storage/app/.gitignore
+!storage/app/public
+storage/framework/cache/*
+!storage/framework/cache/.gitignore
+storage/framework/sessions/*
+!storage/framework/sessions/.gitignore
+storage/framework/views/*
+!storage/framework/views/.gitignore
+storage/logs/*
+!storage/logs/.gitignore
+
+# Bootstrap cache (mounted as volume)
+bootstrap/cache/*
+!bootstrap/cache/.gitignore
+
+# Tests
+tests
+.phpunit.result.cache
+phpunit.xml
+
+# IDE and editors
+.idea
+.vscode
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+*.DS_Store
+
+# Build artifacts
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Documentation (not needed in container)
+*.md
+!README.md
+!DOCKER.md
+docs
+
+# Docker files (avoid recursive copy)
+docker-compose*.yml
+Dockerfile*
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.travis.yml
+
+# Code quality tools
+.editorconfig
+.styleci.yml
+.php_cs
+.php_cs.cache
+.phpcs.xml
+
+# Misc
+*.bak
+*.tmp
+*.temp

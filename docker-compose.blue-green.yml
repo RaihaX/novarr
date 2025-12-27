@@ -1,0 +1,181 @@
+# =============================================================================
+# Novarr Blue-Green Deployment Compose File
+# =============================================================================
+# This file defines blue and green app services for zero-downtime deployments.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.blue-green.yml up -d
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # Blue environment - typically the currently active deployment
+  app-blue:
+    image: ${NOVARR_IMAGE:-novarr}:${NOVARR_BLUE_TAG:-latest}
+    container_name: novarr-app-blue
+    restart: unless-stopped
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_DATABASE=novarr
+      - DB_USERNAME=novarr_user
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - CACHE_DRIVER=redis
+      - SESSION_DRIVER=redis
+      - QUEUE_CONNECTION=redis
+      - OCTANE_SERVER=roadrunner
+      - DEPLOYMENT_COLOR=blue
+    volumes:
+      - ./storage:/var/www/html/storage
+      - ./storage/app:/var/www/html/storage/app
+      - ./storage/framework:/var/www/html/storage/framework
+      - ./storage/logs:/var/www/html/storage/logs
+      - ./bootstrap/cache:/var/www/html/bootstrap/cache
+      - ./public/storage:/var/www/html/public/storage
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - novarr-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "novarr.deployment.color=blue"
+      - "novarr.deployment.type=blue-green"
+
+  # Green environment - typically the new deployment being rolled out
+  app-green:
+    image: ${NOVARR_IMAGE:-novarr}:${NOVARR_GREEN_TAG:-latest}
+    container_name: novarr-app-green
+    restart: unless-stopped
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_DATABASE=novarr
+      - DB_USERNAME=novarr_user
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - CACHE_DRIVER=redis
+      - SESSION_DRIVER=redis
+      - QUEUE_CONNECTION=redis
+      - OCTANE_SERVER=roadrunner
+      - DEPLOYMENT_COLOR=green
+    volumes:
+      - ./storage:/var/www/html/storage
+      - ./storage/app:/var/www/html/storage/app
+      - ./storage/framework:/var/www/html/storage/framework
+      - ./storage/logs:/var/www/html/storage/logs
+      - ./bootstrap/cache:/var/www/html/bootstrap/cache
+      - ./public/storage:/var/www/html/public/storage
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - novarr-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "novarr.deployment.color=green"
+      - "novarr.deployment.type=blue-green"
+
+  # Scheduler for blue environment
+  scheduler-blue:
+    image: ${NOVARR_IMAGE:-novarr}:${NOVARR_BLUE_TAG:-latest}
+    container_name: novarr-scheduler-blue
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          php /var/www/html/artisan schedule:run --verbose --no-interaction
+          sleep 60
+        done
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_DATABASE=novarr
+      - DB_USERNAME=novarr_user
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - CACHE_DRIVER=redis
+      - QUEUE_CONNECTION=redis
+      - DEPLOYMENT_COLOR=blue
+    volumes:
+      - ./storage:/var/www/html/storage
+      - ./storage/app:/var/www/html/storage/app
+      - ./storage/framework:/var/www/html/storage/framework
+      - ./storage/logs:/var/www/html/storage/logs
+      - ./bootstrap/cache:/var/www/html/bootstrap/cache
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - novarr-network
+    labels:
+      - "novarr.deployment.color=blue"
+      - "novarr.deployment.type=blue-green"
+    profiles:
+      - blue
+
+  # Scheduler for green environment
+  scheduler-green:
+    image: ${NOVARR_IMAGE:-novarr}:${NOVARR_GREEN_TAG:-latest}
+    container_name: novarr-scheduler-green
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          php /var/www/html/artisan schedule:run --verbose --no-interaction
+          sleep 60
+        done
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_DATABASE=novarr
+      - DB_USERNAME=novarr_user
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - CACHE_DRIVER=redis
+      - QUEUE_CONNECTION=redis
+      - DEPLOYMENT_COLOR=green
+    volumes:
+      - ./storage:/var/www/html/storage
+      - ./storage/app:/var/www/html/storage/app
+      - ./storage/framework:/var/www/html/storage/framework
+      - ./storage/logs:/var/www/html/storage/logs
+      - ./bootstrap/cache:/var/www/html/bootstrap/cache
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - novarr-network
+    labels:
+      - "novarr.deployment.color=green"
+      - "novarr.deployment.type=blue-green"
+    profiles:
+      - green
