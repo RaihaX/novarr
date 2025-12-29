@@ -1,12 +1,69 @@
 <?php
 
+use Spatie\Browsershot\Browsershot;
 use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 
 /**
+ * Fetch page HTML using headless browser with stealth plugin
+ * This bypasses Cloudflare and other JavaScript-based protections
+ */
+function fetchWithBrowser($url, $waitForSelector = null)
+{
+    try {
+        \Log::debug("Fetching URL with stealth browser: {$url}");
+
+        $scriptPath = base_path('scripts/fetch-page.cjs');
+        $escapedUrl = escapeshellarg($url);
+
+        // Run the Node.js script with puppeteer-extra stealth plugin
+        $command = "node {$scriptPath} {$escapedUrl} 2>&1";
+
+        $descriptorSpec = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        $process = proc_open($command, $descriptorSpec, $pipes);
+
+        if (!is_resource($process)) {
+            \Log::error("Failed to start browser process for URL: {$url}");
+            return null;
+        }
+
+        // Close stdin
+        fclose($pipes[0]);
+
+        // Read stdout with timeout
+        stream_set_timeout($pipes[1], 120);
+        $html = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+
+        // Read stderr
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+
+        $exitCode = proc_close($process);
+
+        if ($exitCode !== 0) {
+            \Log::error("Browser process failed for URL {$url}: {$stderr}");
+            return null;
+        }
+
+        \Log::debug("Successfully fetched URL: {$url} (length: " . strlen($html) . ")");
+
+        return $html;
+    } catch (\Exception $e) {
+        \Log::error("Browser error for URL {$url}: " . $e->getMessage());
+        return null;
+    }
+}
+
+/**
  * Create a configured HTTP client with browser-like headers
- * to bypass Cloudflare and other protections
+ * Used as fallback for sites that don't need headless browser
  */
 function createHttpClient()
 {
@@ -29,42 +86,37 @@ function createHttpClient()
     ]);
 }
 
+/**
+ * Check if URL exists using headless browser
+ * Returns true if page loads successfully without Cloudflare challenge
+ */
 function urlExists($url)
 {
-    $handle = curl_init($url);
+    try {
+        $html = fetchWithBrowser($url);
 
-    // Set browser-like headers to bypass Cloudflare
-    $headers = [
-        'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language: en-US,en;q=0.9',
-        'Accept-Encoding: gzip, deflate, br',
-        'Connection: keep-alive',
-        'Upgrade-Insecure-Requests: 1',
-        'Sec-Fetch-Dest: document',
-        'Sec-Fetch-Mode: navigate',
-        'Sec-Fetch-Site: none',
-        'Sec-Fetch-User: ?1',
-        'Cache-Control: max-age=0',
-    ];
+        if ($html === null) {
+            return false;
+        }
 
-    curl_setopt_array($handle, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_NOBODY => true, // Only check the connection; don't download the content
-        CURLOPT_TIMEOUT => 10, // Add timeout to prevent hanging
-        CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_SSL_VERIFYPEER => false, // Bypass SSL verification if needed
-        CURLOPT_SSL_VERIFYHOST => false,
-        CURLOPT_ENCODING => '', // Handle all encodings
-    ]);
+        // Check if we got a Cloudflare challenge page
+        if (stripos($html, 'cf-challenge') !== false ||
+            stripos($html, 'cloudflare') !== false && stripos($html, 'challenge') !== false) {
+            \Log::warning("urlExists detected Cloudflare challenge for: {$url}");
+            return false;
+        }
 
-    curl_exec($handle);
-    $httpCode = curl_getinfo($handle, CURLINFO_HTTP_CODE);
-    curl_close($handle);
+        // Check if page has minimal content (not an error page)
+        if (strlen($html) < 1000) {
+            \Log::warning("urlExists page too short for: {$url} (length: " . strlen($html) . ")");
+            return false;
+        }
 
-    // Return true only if HTTP status is in the 200 range
-    return $httpCode >= 200 && $httpCode < 300;
+        return true;
+    } catch (\Exception $e) {
+        \Log::error("urlExists exception for {$url}: " . $e->getMessage());
+        return false;
+    }
 }
 
 function chapterGenerator($data)
@@ -86,19 +138,27 @@ function chapterGenerator($data)
 
     \Log::debug("ChapterGenerator attempting to fetch URL: {$novelUrl}");
 
-    if (!urlExists($novelUrl)) {
-        \Log::warning("ChapterGenerator URL does not exist or returned error: {$novelUrl}");
-        return [];
-    }
-
     try {
         // Add delay to avoid rate limiting
         usleep(rand(500000, 1500000)); // Random delay between 0.5-1.5 seconds
 
-        // Create Symfony HTTP client and fetch the page
-        $httpClient = createHttpClient();
-        $response = $httpClient->request('GET', $novelUrl);
-        $crawler = new Crawler($response->getContent());
+        // Fetch page using headless browser (bypasses Cloudflare)
+        // Don't wait for specific selector - let the page load fully
+        $html = fetchWithBrowser($novelUrl);
+
+        if ($html === null) {
+            \Log::warning("ChapterGenerator failed to fetch URL: {$novelUrl}");
+            return [];
+        }
+
+        // Check for Cloudflare challenge
+        if (stripos($html, 'cf-challenge') !== false ||
+            (stripos($html, 'cloudflare') !== false && stripos($html, 'challenge') !== false)) {
+            \Log::error("ChapterGenerator detected Cloudflare challenge page for URL: {$novelUrl}");
+            return [];
+        }
+
+        $crawler = new Crawler($html);
 
         // Expanded list of common selectors for novel content
         $selectors = [
@@ -139,12 +199,6 @@ function chapterGenerator($data)
         // If no selector found enough content, log it
         if (count($result) < 10) {
             \Log::warning("ChapterGenerator found insufficient content for URL: {$novelUrl} (paragraphs: " . count($result) . ")");
-
-            // Debug: Log the page HTML to see what we actually got
-            $html = $crawler->html();
-            if (stripos($html, 'cloudflare') !== false || stripos($html, 'challenge') !== false) {
-                \Log::error("ChapterGenerator detected Cloudflare challenge page for URL: {$novelUrl}");
-            }
         }
 
         $result = array_filter($result, "strlen"); // Remove empty paragraphs
@@ -174,11 +228,11 @@ function tableOfContentGenerator($data)
 {
     $result = [];
 
-    if (urlExists($data->translator_url)) {
-        try {
-            $httpClient = createHttpClient();
-            $response = $httpClient->request('GET', $data->translator_url);
-            $crawler = new Crawler($response->getContent());
+    try {
+        $html = fetchWithBrowser($data->translator_url, '.list-chapter');
+
+        if ($html !== null) {
+            $crawler = new Crawler($html);
 
             $processChapter = function ($node) use (&$result, $data) {
                 $label = $node->text();
@@ -214,11 +268,9 @@ function tableOfContentGenerator($data)
                     $item["chapter"] = $key + 1;
                 }
             }
-        } catch (TransportExceptionInterface $e) {
-            \Log::error("tableOfContentGenerator transport error: " . $e->getMessage());
-        } catch (\Exception $e) {
-            \Log::error("tableOfContentGenerator error: " . $e->getMessage());
         }
+    } catch (\Exception $e) {
+        \Log::error("tableOfContentGenerator error: " . $e->getMessage());
     }
 
     return $result;

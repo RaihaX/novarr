@@ -28,7 +28,28 @@
         "gasparesganga-jquery-loading-overlay": "^2.1.7",
         "jquery": "^3.7.1",
         "lodash": "^4.17.21",
-        "moment": "^2.30.1"
+        "moment": "^2.30.1",
+        "puppeteer": "^24.34.0",
+        "puppeteer-extra": "^3.3.6",
+        "puppeteer-extra-plugin-stealth": "^2.11.2"
     },
-    "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+    "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e",
+    "name": "novarr-old",
+    "version": "1.0.0",
+    "description": "<p align=\"center\"><img src=\"https://laravel.com/assets/img/components/logo-laravel.svg\"></p>",
+    "main": "vite.config.js",
+    "directories": {
+        "test": "tests"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/RaihaX/novarr.git"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "bugs": {
+        "url": "https://github.com/RaihaX/novarr/issues"
+    },
+    "homepage": "https://github.com/RaihaX/novarr#readme"
 }
