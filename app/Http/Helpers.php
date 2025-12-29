@@ -1,5 +1,34 @@
 <?php
 
+use Symfony\Component\HttpClient\HttpClient;
+use Symfony\Component\DomCrawler\Crawler;
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
+
+/**
+ * Create a configured HTTP client with browser-like headers
+ * to bypass Cloudflare and other protections
+ */
+function createHttpClient()
+{
+    return HttpClient::create([
+        'timeout' => 30,
+        'verify_peer' => false,
+        'verify_host' => false,
+        'headers' => [
+            'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language' => 'en-US,en;q=0.9',
+            'Connection' => 'keep-alive',
+            'Upgrade-Insecure-Requests' => '1',
+            'Sec-Fetch-Dest' => 'document',
+            'Sec-Fetch-Mode' => 'navigate',
+            'Sec-Fetch-Site' => 'none',
+            'Sec-Fetch-User' => '?1',
+            'Cache-Control' => 'max-age=0',
+        ],
+    ]);
+}
+
 function urlExists($url)
 {
     $handle = curl_init($url);
@@ -66,30 +95,10 @@ function chapterGenerator($data)
         // Add delay to avoid rate limiting
         usleep(rand(500000, 1500000)); // Random delay between 0.5-1.5 seconds
 
-        // Create a new Guzzle client with browser-like headers
-        $guzzleClient = new \GuzzleHttp\Client([
-            'timeout' => 30,
-            'verify' => false, // Bypass SSL verification
-            'headers' => [
-                'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Language' => 'en-US,en;q=0.9',
-                'Accept-Encoding' => 'gzip, deflate, br',
-                'Connection' => 'keep-alive',
-                'Upgrade-Insecure-Requests' => '1',
-                'Sec-Fetch-Dest' => 'document',
-                'Sec-Fetch-Mode' => 'navigate',
-                'Sec-Fetch-Site' => 'none',
-                'Sec-Fetch-User' => '?1',
-                'Cache-Control' => 'max-age=0',
-            ],
-        ]);
-
-        // Set the custom Guzzle client to Goutte
-        $client = new \Goutte\Client();
-        $client->setClient($guzzleClient);
-
-        $crawler = $client->request("GET", $novelUrl);
+        // Create Symfony HTTP client and fetch the page
+        $httpClient = createHttpClient();
+        $response = $httpClient->request('GET', $novelUrl);
+        $crawler = new Crawler($response->getContent());
 
         // Expanded list of common selectors for novel content
         $selectors = [
@@ -166,41 +175,49 @@ function tableOfContentGenerator($data)
     $result = [];
 
     if (urlExists($data->translator_url)) {
-        $crawler = Goutte::request("GET", $data->translator_url);
+        try {
+            $httpClient = createHttpClient();
+            $response = $httpClient->request('GET', $data->translator_url);
+            $crawler = new Crawler($response->getContent());
 
-        $processChapter = function ($node) use (&$result, $data) {
-            $label = $node->text();
-            $url = trim($node->attr("href"));
-            $result[] = generateTocChapterInfo($label, $url);
-        };
+            $processChapter = function ($node) use (&$result, $data) {
+                $label = $node->text();
+                $url = trim($node->attr("href"));
+                $result[] = generateTocChapterInfo($label, $url);
+            };
 
-        // Handling different groups
-        switch ($data->group_id) {
-            case 1: // Novel Bin
-                $crawler
-                    ->filter(".list-chapter > li > a")
-                    ->each($processChapter);
-                break;
-        }
-
-        // Remove nulls and potentially adjust chapter numbers
-        $result = array_filter($result, function ($item) {
-            return $item !== null;
-        });
-
-        // Generate chapter numbers if necessary
-        if (
-            array_reduce(
-                $result,
-                function ($carry, $item) {
-                    return $carry || $item["chapter"] > 0;
-                },
-                false
-            ) === false
-        ) {
-            foreach ($result as $key => &$item) {
-                $item["chapter"] = $key + 1;
+            // Handling different groups
+            switch ($data->group_id) {
+                case 1: // Novel Bin
+                    $crawler
+                        ->filter(".list-chapter > li > a")
+                        ->each($processChapter);
+                    break;
             }
+
+            // Remove nulls and potentially adjust chapter numbers
+            $result = array_filter($result, function ($item) {
+                return $item !== null;
+            });
+
+            // Generate chapter numbers if necessary
+            if (
+                array_reduce(
+                    $result,
+                    function ($carry, $item) {
+                        return $carry || $item["chapter"] > 0;
+                    },
+                    false
+                ) === false
+            ) {
+                foreach ($result as $key => &$item) {
+                    $item["chapter"] = $key + 1;
+                }
+            }
+        } catch (TransportExceptionInterface $e) {
+            \Log::error("tableOfContentGenerator transport error: " . $e->getMessage());
+        } catch (\Exception $e) {
+            \Log::error("tableOfContentGenerator error: " . $e->getMessage());
         }
     }
 
@@ -209,45 +226,57 @@ function tableOfContentGenerator($data)
 
 function getMetadata($data)
 {
-    $metadata = [];
+    $metadata = [
+        "description" => "",
+        "author" => "",
+        "no_of_chapters" => 0,
+        "image" => ""
+    ];
 
     // Simplify the sanitization of the name
     $name = strtolower($data->name);
     $name = preg_replace(['/[\s!?\'",]+/', "/-{2,}/"], "-", $name); // Replace specified characters with a single dash
 
-    $crawler = Goutte::request(
-        "GET",
-        "https://www.novelupdates.com/series/{$name}"
-    );
+    try {
+        $httpClient = createHttpClient();
+        $response = $httpClient->request(
+            "GET",
+            "https://www.novelupdates.com/series/{$name}"
+        );
+        $crawler = new Crawler($response->getContent());
 
-    // Description
-    $descriptionFilter = $crawler->filter("#editdescription");
-    $metadata["description"] = $descriptionFilter->count() > 0
-        ? $descriptionFilter->first()->html()
-        : "";
+        // Description
+        $descriptionFilter = $crawler->filter("#editdescription");
+        $metadata["description"] = $descriptionFilter->count() > 0
+            ? $descriptionFilter->first()->html()
+            : "";
 
-    // Author
-    $authorFilter = $crawler->filter("#authtag");
-    $metadata["author"] = $authorFilter->count() > 0
-        ? $authorFilter->first()->text()
-        : "";
+        // Author
+        $authorFilter = $crawler->filter("#authtag");
+        $metadata["author"] = $authorFilter->count() > 0
+            ? $authorFilter->first()->text()
+            : "";
 
-    // Number of Chapters
-    $metadata["no_of_chapters"] = 0;
-    $statusFilter = $crawler->filter("#editstatus");
-    if ($statusFilter->count() > 0) {
-        $statusFilter->each(function ($node) use (&$metadata) {
-            $text = str_replace("Chapter ", "Chapters ", $node->text());
-            preg_match("/(\d+) Chapters/", $text, $matches);
-            $metadata["no_of_chapters"] = $matches[1] ?? 0;
-        });
+        // Number of Chapters
+        $statusFilter = $crawler->filter("#editstatus");
+        if ($statusFilter->count() > 0) {
+            $statusFilter->each(function ($node) use (&$metadata) {
+                $text = str_replace("Chapter ", "Chapters ", $node->text());
+                preg_match("/(\d+) Chapters/", $text, $matches);
+                $metadata["no_of_chapters"] = $matches[1] ?? 0;
+            });
+        }
+
+        // Image
+        $imageFilter = $crawler->filter(".seriesimg > img");
+        $metadata["image"] = $imageFilter->count() > 0
+            ? $imageFilter->first()->attr("src")
+            : "";
+    } catch (TransportExceptionInterface $e) {
+        \Log::error("getMetadata transport error for {$name}: " . $e->getMessage());
+    } catch (\Exception $e) {
+        \Log::error("getMetadata error for {$name}: " . $e->getMessage());
     }
-
-    // Image
-    $imageFilter = $crawler->filter(".seriesimg > img");
-    $metadata["image"] = $imageFilter->count() > 0
-        ? $imageFilter->first()->attr("src")
-        : "";
 
     return $metadata;
 }

@@ -1,23 +1,23 @@
 # Stage 1: Node.js Builder - Build frontend assets
-FROM node:16-alpine AS node-builder
+FROM node:20-alpine AS node-builder
 
 WORKDIR /app
 
 # Copy package files
-COPY package.json package-lock.json* yarn.lock* webpack.mix.js ./
+COPY package.json package-lock.json* yarn.lock* vite.config.js ./
 
-# Install dependencies
+# Install dependencies (prefer yarn if lockfile exists, fallback to npm install if no lockfile)
 RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
-    else npm ci; fi
+    elif [ -f package-lock.json ]; then npm ci; \
+    else npm install; fi
 
 # Copy frontend source files
-COPY resources/assets/ resources/assets/
-COPY resources/views/ resources/views/
-COPY public/ public/
+COPY resources/js/ resources/js/
+COPY resources/css/ resources/css/
 
 # Build production assets
-RUN if [ -f yarn.lock ]; then yarn production; \
-    else npm run production; fi
+RUN if [ -f yarn.lock ]; then yarn build; \
+    else npm run build; fi
 
 
 # Stage 2: Composer Dependencies
@@ -33,7 +33,7 @@ RUN composer install --no-dev --optimize-autoloader --no-interaction --no-script
 
 
 # Stage 3: Final Application Image
-FROM php:8.0-fpm-alpine
+FROM php:8.3-fpm-alpine
 
 # Install system dependencies
 RUN apk add --no-cache \
@@ -75,7 +75,7 @@ RUN apk add --no-cache --virtual .build-deps $PHPIZE_DEPS \
     && apk del .build-deps
 
 # Install RoadRunner binary
-ARG RR_VERSION=2.8.2
+ARG RR_VERSION=2024.3.5
 RUN wget -q https://github.com/roadrunner-server/roadrunner/releases/download/v${RR_VERSION}/roadrunner-${RR_VERSION}-linux-amd64.tar.gz \
     && tar -xzf roadrunner-${RR_VERSION}-linux-amd64.tar.gz \
     && mv roadrunner-${RR_VERSION}-linux-amd64/rr /usr/local/bin/rr \
@@ -92,9 +92,7 @@ COPY . .
 COPY --from=composer-builder /app/vendor ./vendor
 
 # Copy built frontend assets from node builder
-COPY --from=node-builder /app/public/js ./public/js
-COPY --from=node-builder /app/public/css ./public/css
-COPY --from=node-builder /app/public/mix-manifest.json ./public/mix-manifest.json
+COPY --from=node-builder /app/public/build ./public/build
 
 # Publish Voyager assets
 RUN php artisan vendor:publish --provider="TCG\Voyager\VoyagerServiceProvider" --force || true
@@ -103,13 +101,21 @@ RUN php artisan vendor:publish --provider="Intervention\Image\ImageServiceProvid
 # Configure PHP for production
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
-# Create opcache configuration
+# Create opcache configuration with PHP 8.3 JIT optimizations
 RUN echo "opcache.enable=1" >> /usr/local/etc/php/conf.d/opcache.ini \
-    && echo "opcache.memory_consumption=256" >> /usr/local/etc/php/conf.d/opcache.ini \
+    && echo "opcache.memory_consumption=512" >> /usr/local/etc/php/conf.d/opcache.ini \
     && echo "opcache.interned_strings_buffer=16" >> /usr/local/etc/php/conf.d/opcache.ini \
-    && echo "opcache.max_accelerated_files=20000" >> /usr/local/etc/php/conf.d/opcache.ini \
+    && echo "opcache.max_accelerated_files=32531" >> /usr/local/etc/php/conf.d/opcache.ini \
     && echo "opcache.validate_timestamps=0" >> /usr/local/etc/php/conf.d/opcache.ini \
-    && echo "opcache.save_comments=1" >> /usr/local/etc/php/conf.d/opcache.ini
+    && echo "opcache.save_comments=1" >> /usr/local/etc/php/conf.d/opcache.ini \
+    && echo "opcache.jit_buffer_size=256M" >> /usr/local/etc/php/conf.d/opcache.ini \
+    && echo "opcache.jit=1255" >> /usr/local/etc/php/conf.d/opcache.ini
+
+# Create custom PHP configuration
+RUN echo "memory_limit=512M" >> /usr/local/etc/php/conf.d/custom.ini \
+    && echo "max_execution_time=300" >> /usr/local/etc/php/conf.d/custom.ini \
+    && echo "upload_max_filesize=100M" >> /usr/local/etc/php/conf.d/custom.ini \
+    && echo "post_max_size=100M" >> /usr/local/etc/php/conf.d/custom.ini
 
 # Set proper permissions
 RUN chown -R www-data:www-data /var/www/html \

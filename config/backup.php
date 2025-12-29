@@ -35,6 +35,17 @@ return [
                  * Determines if symlinks should be followed.
                  */
                 'follow_links' => false,
+
+                /*
+                 * Determines if it should avoid unreadable folders.
+                 */
+                'ignore_unreadable_directories' => false,
+
+                /*
+                 * This path is used to make files in resulting zip-file relative.
+                 * Set to null to include complete absolute paths.
+                 */
+                'relative_path' => base_path(),
             ],
 
             /*

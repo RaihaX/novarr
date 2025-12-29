@@ -27,4 +27,15 @@ class User extends \TCG\Voyager\Models\User
     protected $hidden = [
         'password', 'remember_token',
     ];
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
+     */
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
+    ];
 }

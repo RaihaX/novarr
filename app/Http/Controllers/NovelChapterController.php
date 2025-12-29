@@ -8,7 +8,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\NewChapters;
 
-use Goutte;
 use DataTables;
 use DOMDocument;
 use SimpleXMLElement;

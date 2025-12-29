@@ -26,9 +26,16 @@ services:
       - DB_USERNAME=novarr_user
       - DB_PASSWORD=${DB_PASSWORD}
       - REDIS_HOST=redis
-      - CACHE_DRIVER=redis
+      - REDIS_CLIENT=phpredis
+      - REDIS_CACHE_DB=1
+      - REDIS_SESSION_DB=2
+      - CACHE_STORE=redis
       - SESSION_DRIVER=redis
+      - SESSION_SAME_SITE=lax
       - QUEUE_CONNECTION=redis
+      - LOG_CHANNEL=stack
+      - LOG_LEVEL=warning
+      - BROADCAST_CONNECTION=log
       - OCTANE_SERVER=roadrunner
     volumes:
       - ./storage:/var/www/html/storage
@@ -125,8 +132,13 @@ services:
       - DB_USERNAME=novarr_user
       - DB_PASSWORD=${DB_PASSWORD}
       - REDIS_HOST=redis
-      - CACHE_DRIVER=redis
+      - REDIS_CLIENT=phpredis
+      - REDIS_CACHE_DB=1
+      - REDIS_SESSION_DB=2
+      - CACHE_STORE=redis
       - QUEUE_CONNECTION=redis
+      - LOG_CHANNEL=stack
+      - LOG_LEVEL=warning
     volumes:
       - ./storage:/var/www/html/storage
       - ./storage/app:/var/www/html/storage/app
@@ -155,8 +167,13 @@ services:
       - DB_USERNAME=novarr_user
       - DB_PASSWORD=${DB_PASSWORD}
       - REDIS_HOST=redis
-      - CACHE_DRIVER=redis
+      - REDIS_CLIENT=phpredis
+      - REDIS_CACHE_DB=1
+      - REDIS_SESSION_DB=2
+      - CACHE_STORE=redis
       - QUEUE_CONNECTION=redis
+      - LOG_CHANNEL=stack
+      - LOG_LEVEL=warning
     volumes:
       - ./storage:/var/www/html/storage
       - ./storage/app:/var/www/html/storage/app

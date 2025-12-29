@@ -4,6 +4,7 @@ namespace App;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class File extends Model
 {
@@ -11,7 +12,18 @@ class File extends Model
 
     protected $fillable = ['file_name', 'file_path'];
 
-    public function file() {
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
+     */
+    protected $casts = [
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
+    ];
+
+    public function file(): MorphTo
+    {
         return $this->morphTo();
     }
 }

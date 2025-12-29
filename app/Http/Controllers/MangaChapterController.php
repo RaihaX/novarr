@@ -9,7 +9,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 use DOMDocument;
-use Goutte;
 use DataTables;
 use Madzipper;
 

@@ -45,7 +45,10 @@ services:
       - DB_USERNAME=novarr_user
       - DB_PASSWORD=${DB_PASSWORD}
       - REDIS_HOST=redis
-      - CACHE_DRIVER=redis
+      - REDIS_CLIENT=phpredis
+      - REDIS_CACHE_DB=1
+      - REDIS_SESSION_DB=2
+      - CACHE_STORE=redis
       - SESSION_DRIVER=redis
       - QUEUE_CONNECTION=redis
       - OCTANE_SERVER=roadrunner

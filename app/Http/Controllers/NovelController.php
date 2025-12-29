@@ -7,13 +7,17 @@ use App\Language;
 use App\Novel;
 use App\NovelChapter;
 use App\File;
+use App\Http\Helpers\CacheHelper;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 use DOMDocument;
-use Goutte;
 use DataTables;
+use Symfony\Component\HttpClient\HttpClient;
+use Symfony\Component\DomCrawler\Crawler;
 use Madzipper;
 
 use Carbon\Carbon;
@@ -39,21 +43,35 @@ class NovelController extends Controller
     public function search_novels(Request $request) {
         $data = array();
 
-        $crawler = Goutte::request('GET', 'https://www.novelupdates.com/?s=' . $request->name . '&post_type=seriesplans');
-        $crawler->filter('.search_title > a')->each(function ($node, $key) use (&$data) {
-            array_push($data, array(
-                'name' => $node->text(),
-                'url' => $node->attr('href')
-            ));
-        });
+        try {
+            $httpClient = createHttpClient();
+            $response = $httpClient->request('GET', 'https://www.novelupdates.com/?s=' . $request->name . '&post_type=seriesplans');
+            $crawler = new Crawler($response->getContent());
+
+            $crawler->filter('.search_title > a')->each(function ($node, $key) use (&$data) {
+                array_push($data, array(
+                    'name' => $node->text(),
+                    'url' => $node->attr('href')
+                ));
+            });
+        } catch (\Exception $e) {
+            \Log::error("search_novels error: " . $e->getMessage());
+        }
 
         return response()->json($data);
     }
 
     public function datatables() {
-        return DataTables::of($this->novels->with(['file' => function($q) {
-            $q->orderBy('id', 'desc');
-        }, 'group'])->orderBy('name')->get())->toJson();
+        // Cache DataTables response for 2 minutes
+        return Cache::remember('datatables_novels', now()->addMinutes(2), function () {
+            $query = Novel::query()
+                ->with(['file' => function($q) {
+                    $q->orderBy('id', 'desc');
+                }, 'group'])
+                ->orderBy('name');
+
+            return DataTables::eloquent($query)->toJson();
+        });
     }
 
     public function update_metadata($id) {
@@ -80,38 +98,74 @@ class NovelController extends Controller
         $data = $this->novels->with(['file' => function($q) {
             $q->orderBy('id', 'desc');
         }, 'group', 'language'])->find($id);
-        $count = NovelChapter::where('novel_id', $id)->where('status', 1)->where('blacklist', 0)->count();
-        $not_downloaded_count = NovelChapter::where('novel_id', $id)->where('status', 0)->where('blacklist', 0)->count();
-        $progress = $data->no_of_chapters == 0 ? 0 : ($count / $data->no_of_chapters) * 100;
-        $new_chapters = NovelChapter::where('novel_id', $id)->where('blacklist', 0)->where('status', 0)->count();
-        $duplicate_chapters = NovelChapter::where('novel_id', $id)->where('blacklist', 0)->groupBy('chapter', 'book')->havingRaw('count(id) > 1')->select('chapter', 'book')->get();
 
-        $latestChapter = NovelChapter::where('blacklist', 0)->where('novel_id', $id)->max('chapter');
+        // Use stable cache key so CacheHelper::clearNovelCache() can invalidate it
+        $cacheKey = "novel_stats_{$id}";
 
-        $chapterArray = array();
-        $existingChapterArray = array();
+        $stats = Cache::remember($cacheKey, now()->addMinutes(5), function () use ($id) {
+            // Consolidate multiple queries into single query with aggregations
+            $aggregates = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->selectRaw('
+                    COUNT(CASE WHEN status = 1 THEN 1 END) as downloaded_count,
+                    COUNT(CASE WHEN status = 0 THEN 1 END) as not_downloaded_count,
+                    MAX(chapter) as latest_chapter
+                ')
+                ->first();
 
-        for ( $i = 1; $i <= $latestChapter; $i++ ) {
-            array_push($chapterArray, $i);
-        }
+            $count = $aggregates->downloaded_count ?? 0;
+            $not_downloaded_count = $aggregates->not_downloaded_count ?? 0;
+            $latestChapter = $aggregates->latest_chapter ?? 0;
 
-        foreach ( NovelChapter::where('novel_id', $id)->where('blacklist', 0)->get(['chapter', 'double_chapter']) as $item ) {
-            array_push($existingChapterArray, intval($item->chapter));
+            // Get duplicate chapters
+            $duplicate_chapters = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->groupBy('chapter', 'book')
+                ->havingRaw('count(id) > 1')
+                ->select('chapter', 'book')
+                ->get();
 
-            if ( $item->double_chapter == 1 ) {
-                array_push($existingChapterArray, intval($item->chapter) + 1);
+            // Get existing chapters in single query
+            $existingChapters = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->select('chapter', 'double_chapter')
+                ->get();
+
+            $chapterArray = [];
+            $existingChapterArray = [];
+
+            for ($i = 1; $i <= $latestChapter; $i++) {
+                $chapterArray[] = $i;
             }
-        }
 
-        $missing_chapters = array_diff($chapterArray, $existingChapterArray);
+            foreach ($existingChapters as $item) {
+                $existingChapterArray[] = intval($item->chapter);
+
+                if ($item->double_chapter == 1) {
+                    $existingChapterArray[] = intval($item->chapter) + 1;
+                }
+            }
+
+            $missing_chapters = array_values(array_diff($chapterArray, $existingChapterArray));
+
+            return [
+                'count' => $count,
+                'not_downloaded_count' => $not_downloaded_count,
+                'new_chapters' => $not_downloaded_count,
+                'duplicate_chapters' => $duplicate_chapters,
+                'missing_chapters' => $missing_chapters,
+            ];
+        });
+
+        $progress = $data->no_of_chapters == 0 ? 0 : ($stats['count'] / $data->no_of_chapters) * 100;
 
         return response()->json([
             'data' => $data,
-            'new_chapters' => $new_chapters,
-            'duplicate_chapters' => $duplicate_chapters,
-            'missing_chapters' => $missing_chapters,
-            'current_chapters' => $count,
-            'current_chapters_not_downloaded' => $not_downloaded_count,
+            'new_chapters' => $stats['new_chapters'],
+            'duplicate_chapters' => $stats['duplicate_chapters'],
+            'missing_chapters' => $stats['missing_chapters'],
+            'current_chapters' => $stats['count'],
+            'current_chapters_not_downloaded' => $stats['not_downloaded_count'],
             'progress' => round($progress)
         ]);
     }
@@ -132,11 +186,9 @@ class NovelController extends Controller
     public function index()
     {
         return view('novels.index', [
-            'novels' => Novel::with(['file' => function($q) {
-                $q->orderBy('id', 'desc');
-            }, 'group', 'language'])->orderBy('name')->get(),
-            'groups' => Group::orderBy('label')->get(),
-            'languages' => Language::orderBy('label')->get()
+            'novels' => Novel::withRelations()->ordered()->get(),
+            'groups' => CacheHelper::getCachedGroups(),
+            'languages' => CacheHelper::getCachedLanguages()
         ]);
     }
 
@@ -209,6 +261,9 @@ class NovelController extends Controller
 
         $object->save();
 
+        // Clear DataTables cache for novels
+        CacheHelper::clearNovelDataTablesCache();
+
         if ( $request->hasFile('image') ) {
             $file_object = new File([
                 'file_name' => $request->file('image')->getClientOriginalName(),
@@ -230,42 +285,78 @@ class NovelController extends Controller
         $data = $this->novels->with(['file' => function($q) {
             $q->orderBy('id', 'desc');
         }, 'group', 'language'])->find($id);
-        $count = NovelChapter::where('novel_id', $id)->where('blacklist', 0)->where('status', 1)->count();
-        $not_downloaded_count = NovelChapter::where('novel_id', $id)->where('blacklist', 0)->where('status', 0)->count();
-        $progress = $data->no_of_chapters == 0 ? 0 : ($count / $data->no_of_chapters) * 100;
-        $new_chapters = NovelChapter::where('novel_id', $id)->where('blacklist', 0)->where('status', 0)->count();
-        $duplicate_chapters = NovelChapter::where('novel_id', $id)->where('blacklist', 0)->groupBy('chapter', 'book')->havingRaw('count(id) > 1')->select('chapter', 'book')->get();
 
-        $latestChapter = NovelChapter::where('blacklist', 0)->where('novel_id', $id)->max('chapter');
+        // Use stable cache key so CacheHelper::clearNovelCache() can invalidate it
+        $cacheKey = "novel_stats_{$id}";
 
-        $chapterArray = array();
-        $existingChapterArray = array();
+        $stats = Cache::remember($cacheKey, now()->addMinutes(5), function () use ($id) {
+            // Consolidate multiple queries into single query with aggregations
+            $aggregates = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->selectRaw('
+                    COUNT(CASE WHEN status = 1 THEN 1 END) as downloaded_count,
+                    COUNT(CASE WHEN status = 0 THEN 1 END) as not_downloaded_count,
+                    MAX(chapter) as latest_chapter
+                ')
+                ->first();
 
-        for ( $i = 1; $i <= $latestChapter; $i++ ) {
-            array_push($chapterArray, $i);
-        }
+            $count = $aggregates->downloaded_count ?? 0;
+            $not_downloaded_count = $aggregates->not_downloaded_count ?? 0;
+            $latestChapter = $aggregates->latest_chapter ?? 0;
 
-        foreach ( NovelChapter::where('novel_id', $id)->where('blacklist', 0)->get(['chapter', 'double_chapter']) as $item ) {
-            array_push($existingChapterArray, intval($item->chapter));
+            // Get duplicate chapters
+            $duplicate_chapters = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->groupBy('chapter', 'book')
+                ->havingRaw('count(id) > 1')
+                ->select('chapter', 'book')
+                ->get();
 
-            if ( $item->double_chapter == 1 ) {
-                array_push($existingChapterArray, intval($item->chapter) + 1);
+            // Get existing chapters in single query
+            $existingChapters = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->select('chapter', 'double_chapter')
+                ->get();
+
+            $chapterArray = [];
+            $existingChapterArray = [];
+
+            for ($i = 1; $i <= $latestChapter; $i++) {
+                $chapterArray[] = $i;
             }
-        }
 
-        $missing_chapters = array_diff($chapterArray, $existingChapterArray);
+            foreach ($existingChapters as $item) {
+                $existingChapterArray[] = intval($item->chapter);
+
+                if ($item->double_chapter == 1) {
+                    $existingChapterArray[] = intval($item->chapter) + 1;
+                }
+            }
+
+            $missing_chapters = array_values(array_diff($chapterArray, $existingChapterArray));
+
+            return [
+                'count' => $count,
+                'not_downloaded_count' => $not_downloaded_count,
+                'new_chapters' => $not_downloaded_count,
+                'duplicate_chapters' => $duplicate_chapters,
+                'missing_chapters' => $missing_chapters,
+            ];
+        });
+
+        $progress = $data->no_of_chapters == 0 ? 0 : ($stats['count'] / $data->no_of_chapters) * 100;
 
         return view('novels.show', [
             'data' => $data,
             'title' => 'Novels',
-            'new_chapters' => $new_chapters,
-            'duplicate_chapters' => $duplicate_chapters,
-            'missing_chapters' => $missing_chapters,
-            'current_chapters' => $count,
-            'current_chapters_not_downloaded' => $not_downloaded_count,
+            'new_chapters' => $stats['new_chapters'],
+            'duplicate_chapters' => $stats['duplicate_chapters'],
+            'missing_chapters' => $stats['missing_chapters'],
+            'current_chapters' => $stats['count'],
+            'current_chapters_not_downloaded' => $stats['not_downloaded_count'],
             'progress' => round($progress),
-            'groups' => Group::orderBy('label')->get(),
-            'languages' => Language::orderBy('label')->get()
+            'groups' => CacheHelper::getCachedGroups(),
+            'languages' => CacheHelper::getCachedLanguages()
         ]);
     }
 
@@ -334,6 +425,10 @@ class NovelController extends Controller
 
         $object->save();
 
+        // Clear cache for this novel and DataTables
+        CacheHelper::clearNovelCache($id);
+        CacheHelper::clearNovelDataTablesCache();
+
         if ( $request->hasFile('image') ) {
             $file_object = new File([
                 'file_name' => $request->file('image')->getClientOriginalName(),
@@ -354,5 +449,9 @@ class NovelController extends Controller
     {
         $object = $this->novels->find($id);
         $object->delete();
+
+        // Clear caches after deletion
+        CacheHelper::clearNovelCache($id);
+        CacheHelper::clearNovelDataTablesCache();
     }
 }

@@ -4,13 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Manga;
 use App\File;
+use App\Http\Helpers\CacheHelper;
 
 use App\NovelChapter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
 use DOMDocument;
-use Goutte;
 use DataTables;
 use Madzipper;
 
@@ -35,9 +36,16 @@ class MangaController extends Controller
     }
 
     public function datatables() {
-        return DataTables::of($this->mangas->with(['file' => function($q) {
-            $q->orderBy('id', 'desc');
-        }])->orderBy('name')->get())->toJson();
+        // Cache DataTables response for 2 minutes
+        return Cache::remember('datatables_mangas', now()->addMinutes(2), function () {
+            $query = Manga::query()
+                ->with(['file' => function($q) {
+                    $q->orderBy('id', 'desc');
+                }])
+                ->orderBy('name');
+
+            return DataTables::eloquent($query)->toJson();
+        });
     }
 
     public function get_manga($id) {
@@ -45,9 +53,16 @@ class MangaController extends Controller
             $q->orderBy('id', 'desc');
         }])->find($id);
 
-        return response()->json([
-            'data' => $data
-        ]);
+        // Use stable cache key so CacheHelper::clearMangaCache() can invalidate it
+        $cacheKey = "manga_{$id}";
+
+        $cachedData = Cache::remember($cacheKey, now()->addMinutes(5), function () use ($data) {
+            return [
+                'data' => $data
+            ];
+        });
+
+        return response()->json($cachedData);
     }
 
     /**
@@ -87,6 +102,9 @@ class MangaController extends Controller
         }
 
         $object->save();
+
+        // Clear DataTables cache for mangas
+        CacheHelper::clearMangaDataTablesCache();
 
         if ( $request->hasFile('image') ) {
             $file_object = new File([
@@ -144,6 +162,10 @@ class MangaController extends Controller
 
         $object->save();
 
+        // Clear cache for this manga and DataTables
+        CacheHelper::clearMangaCache($id);
+        CacheHelper::clearMangaDataTablesCache();
+
         if ( $request->hasFile('image') ) {
             $file_object = new File([
                 'file_name' => $request->file('image')->getClientOriginalName(),
@@ -164,5 +186,9 @@ class MangaController extends Controller
     {
         $object = $this->mangas->find($id);
         $object->delete();
+
+        // Clear caches after deletion
+        CacheHelper::clearMangaCache($id);
+        CacheHelper::clearMangaDataTablesCache();
     }
 }

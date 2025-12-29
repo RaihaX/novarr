@@ -102,8 +102,8 @@ return [
 
         OperationTerminated::class => [
             FlushTemporaryContainerInstances::class,
-            // DisconnectFromDatabases::class,
-            // CollectGarbage::class,
+            DisconnectFromDatabases::class,
+            CollectGarbage::class,
         ],
 
         WorkerErrorOccurred::class => [
@@ -129,6 +129,10 @@ return [
 
     'warm' => [
         ...Octane::defaultServicesToWarm(),
+        'cache',
+        'db',
+        'redis',
+        'view',
     ],
 
     'flush' => [
@@ -203,7 +207,7 @@ return [
     |
     */
 
-    'garbage' => 50,
+    'garbage' => 150,
 
     /*
     |--------------------------------------------------------------------------
@@ -216,6 +220,6 @@ return [
     |
     */
 
-    'max_execution_time' => 30,
+    'max_execution_time' => 60,
 
 ];

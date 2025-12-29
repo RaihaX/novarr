@@ -8,14 +8,14 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 class ExampleTest extends TestCase
 {
     /**
-     * A basic test example.
+     * Test that unauthenticated users are redirected to login.
      *
      * @return void
      */
-    public function testBasicTest()
+    public function testUnauthenticatedUserIsRedirectedToLogin()
     {
         $response = $this->get('/');
 
-        $response->assertStatus(200);
+        $response->assertRedirect('/login');
     }
 }
