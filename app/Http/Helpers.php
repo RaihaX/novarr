@@ -6,57 +6,45 @@ use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 
 /**
- * Fetch page HTML using headless browser with stealth plugin
- * This bypasses Cloudflare and other JavaScript-based protections
+ * Fetch page HTML using FlareSolverr to bypass Cloudflare protection
  */
 function fetchWithBrowser($url, $waitForSelector = null)
 {
     try {
-        \Log::debug("Fetching URL with stealth browser: {$url}");
+        $flareSolverrUrl = env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1');
 
-        $scriptPath = base_path('scripts/fetch-page.cjs');
-        $escapedUrl = escapeshellarg($url);
+        \Log::debug("Fetching URL via FlareSolverr: {$url}");
 
-        // Run the Node.js script with puppeteer-extra stealth plugin
-        $command = "node {$scriptPath} {$escapedUrl} 2>&1";
+        $httpClient = HttpClient::create(['timeout' => 120]);
 
-        $descriptorSpec = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
+        $response = $httpClient->request('POST', $flareSolverrUrl, [
+            'headers' => ['Content-Type' => 'application/json'],
+            'json' => [
+                'cmd' => 'request.get',
+                'url' => $url,
+                'maxTimeout' => 60000,
+            ],
+        ]);
 
-        $process = proc_open($command, $descriptorSpec, $pipes);
+        $data = json_decode($response->getContent(), true);
 
-        if (!is_resource($process)) {
-            \Log::error("Failed to start browser process for URL: {$url}");
+        if ($data['status'] !== 'ok') {
+            \Log::error("FlareSolverr error for URL {$url}: " . ($data['message'] ?? 'Unknown error'));
             return null;
         }
 
-        // Close stdin
-        fclose($pipes[0]);
+        $html = $data['solution']['response'] ?? null;
 
-        // Read stdout with timeout
-        stream_set_timeout($pipes[1], 120);
-        $html = stream_get_contents($pipes[1]);
-        fclose($pipes[1]);
-
-        // Read stderr
-        $stderr = stream_get_contents($pipes[2]);
-        fclose($pipes[2]);
-
-        $exitCode = proc_close($process);
-
-        if ($exitCode !== 0) {
-            \Log::error("Browser process failed for URL {$url}: {$stderr}");
+        if (empty($html)) {
+            \Log::error("FlareSolverr returned empty response for URL: {$url}");
             return null;
         }
 
-        \Log::debug("Successfully fetched URL: {$url} (length: " . strlen($html) . ")");
+        \Log::debug("Successfully fetched URL via FlareSolverr: {$url} (length: " . strlen($html) . ")");
 
         return $html;
     } catch (\Exception $e) {
-        \Log::error("Browser error for URL {$url}: " . $e->getMessage());
+        \Log::error("FlareSolverr error for URL {$url}: " . $e->getMessage());
         return null;
     }
 }
