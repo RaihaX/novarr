@@ -29,16 +29,14 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\PerformanceMonitoring::class,
         ]);
 
-        // Route middleware priority for optimal performance in production
-        if (app()->environment('production')) {
-            $middleware->priority([
-                \Illuminate\Foundation\Http\Middleware\HandlePrecognitiveRequests::class,
-                \Illuminate\Cookie\Middleware\EncryptCookies::class,
-                \Illuminate\Session\Middleware\StartSession::class,
-                \Illuminate\View\Middleware\ShareErrorsFromSession::class,
-                \Illuminate\Routing\Middleware\SubstituteBindings::class,
-            ]);
-        }
+        // Route middleware priority for optimal performance
+        $middleware->priority([
+            \Illuminate\Foundation\Http\Middleware\HandlePrecognitiveRequests::class,
+            \Illuminate\Cookie\Middleware\EncryptCookies::class,
+            \Illuminate\Session\Middleware\StartSession::class,
+            \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+            \Illuminate\Routing\Middleware\SubstituteBindings::class,
+        ]);
 
         // Web middleware group
         $middleware->web(append: [
