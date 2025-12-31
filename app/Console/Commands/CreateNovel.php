@@ -40,9 +40,36 @@ class CreateNovel extends Command
      */
     public function handle()
     {
+        $name = $this->argument("name");
+        $url = $this->argument("url");
+
+        // Check for duplicate novel by name
+        $existingNovel = Novel::where('name', $name)->first();
+
+        if ($existingNovel) {
+            $this->warn("A novel with the name '{$name}' already exists (ID: {$existingNovel->id}).");
+
+            if (!$this->confirm('Do you want to create another novel with the same name?')) {
+                $this->info('Operation cancelled.');
+                return 0;
+            }
+        }
+
+        // Check for duplicate novel by URL
+        $existingByUrl = Novel::where('translator_url', $url)->first();
+
+        if ($existingByUrl) {
+            $this->warn("A novel with the same URL already exists: '{$existingByUrl->name}' (ID: {$existingByUrl->id}).");
+
+            if (!$this->confirm('Do you want to create another novel with the same URL?')) {
+                $this->info('Operation cancelled.');
+                return 0;
+            }
+        }
+
         $object = new Novel();
-        $object->name = $this->argument("name");
-        $object->translator_url = $this->argument("url");
+        $object->name = $name;
+        $object->translator_url = $url;
         $object->group_id = 1;
         $object->save();
 
