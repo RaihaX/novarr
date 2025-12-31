@@ -139,57 +139,83 @@ function chapterGenerator($data)
             return [];
         }
 
-        // Check for Cloudflare challenge
-        if (stripos($html, 'cf-challenge') !== false ||
-            (stripos($html, 'cloudflare') !== false && stripos($html, 'challenge') !== false)) {
+        // Check for Cloudflare challenge page (not just any mention of cloudflare)
+        // Look for specific challenge indicators in the page title/body
+        if (stripos($html, '<title>Just a moment...</title>') !== false ||
+            stripos($html, 'cf-challenge-running') !== false ||
+            stripos($html, 'Verifying you are human') !== false) {
             \Log::error("ChapterGenerator detected Cloudflare challenge page for URL: {$novelUrl}");
             return [];
         }
 
         $crawler = new Crawler($html);
-
-        // Expanded list of common selectors for novel content
-        $selectors = [
-            "#chr-content p",           // Direct paragraphs in chr-content
-            "#chr-content > p",         // Only direct child paragraphs
-            "#chr-content div p",       // Paragraphs inside divs
-            ".chapter-content p",       // Common alternative class
-            ".entry-content p",         // WordPress-style content
-            "div.content p",            // Generic content div
-            "#chapter-content p",       // Alternative ID
-            "article p",                // Article tag paragraphs
-            ".text p",                  // Common text class
-            ".text_story p",            // Novel-specific class
-            "#content p",               // Simple content ID
-        ];
-
         $result = [];
 
-        foreach ($selectors as $selector) {
-            $tempResult = [];
-            try {
-                $crawler->filter($selector)->each(function ($node) use (&$tempResult) {
-                    extractTextRecursively($node, $tempResult);
-                });
-            } catch (\Exception $e) {
-                // Selector might not exist, continue to next one
-                continue;
-            }
+        // First, try to get content from #chr-content which may have br-separated text
+        try {
+            $chrContent = $crawler->filter('#chr-content');
+            if ($chrContent->count() > 0) {
+                // Get the inner HTML and split by <br> tags
+                $innerHtml = $chrContent->html();
 
-            // If we found content with this selector, use it
-            if (count($tempResult) > 10) { // At least 10 paragraphs to be considered valid
-                \Log::debug("ChapterGenerator found content using selector: {$selector} (paragraphs: " . count($tempResult) . ")");
-                $result = $tempResult;
-                break;
+                // Remove ad divs and scripts
+                $innerHtml = preg_replace('/<div[^>]*data-format[^>]*>.*?<\/div>/is', '', $innerHtml);
+                $innerHtml = preg_replace('/<script[^>]*>.*?<\/script>/is', '', $innerHtml);
+
+                // Split by br tags (various formats)
+                $paragraphs = preg_split('/<br\s*\/?>/i', $innerHtml);
+
+                foreach ($paragraphs as $para) {
+                    $text = trim(strip_tags($para));
+                    if (strlen($text) > 10) { // Skip very short fragments
+                        $result[] = "<p>" . htmlspecialchars($text) . "</p>";
+                    }
+                }
+
+                if (count($result) > 10) {
+                    \Log::debug("ChapterGenerator found content using #chr-content br-split (paragraphs: " . count($result) . ")");
+                }
+            }
+        } catch (\Exception $e) {
+            \Log::debug("Failed to extract from #chr-content: " . $e->getMessage());
+        }
+
+        // If br-split didn't work, try traditional p-tag selectors
+        if (count($result) < 10) {
+            $selectors = [
+                "#chr-content p",
+                ".chr-c p",
+                ".chapter-content p",
+                ".entry-content p",
+                "#chapter-content p",
+                "article p",
+                ".text p",
+                "#content p",
+            ];
+
+            foreach ($selectors as $selector) {
+                $tempResult = [];
+                try {
+                    $crawler->filter($selector)->each(function ($node) use (&$tempResult) {
+                        extractTextRecursively($node, $tempResult);
+                    });
+                } catch (\Exception $e) {
+                    continue;
+                }
+
+                if (count($tempResult) > 10) {
+                    \Log::debug("ChapterGenerator found content using selector: {$selector} (paragraphs: " . count($tempResult) . ")");
+                    $result = $tempResult;
+                    break;
+                }
             }
         }
 
-        // If no selector found enough content, log it
         if (count($result) < 10) {
             \Log::warning("ChapterGenerator found insufficient content for URL: {$novelUrl} (paragraphs: " . count($result) . ")");
         }
 
-        $result = array_filter($result, "strlen"); // Remove empty paragraphs
+        $result = array_filter($result, "strlen");
 
         return $result;
     } catch (\Exception $e) {
