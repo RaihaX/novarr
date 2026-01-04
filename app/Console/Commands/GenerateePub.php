@@ -21,6 +21,11 @@ class GenerateePub extends Command
     protected string $bookUuid;
 
     /**
+     * Cover image info for current book
+     */
+    protected ?array $coverInfo = null;
+
+    /**
      * Execute the console command.
      */
     public function handle(): int
@@ -41,6 +46,7 @@ class GenerateePub extends Command
                         ->orderBy("book")
                         ->orderBy("chapter");
                 },
+                "file", // Load cover file relationship
             ]);
 
         if ($novelId == 0) {
@@ -89,6 +95,7 @@ class GenerateePub extends Command
 
         // Generate unique UUID for this book
         $this->bookUuid = (string) Str::uuid();
+        $this->coverInfo = null;
 
         // Validate chapters exist
         if ($novel->chapters->isEmpty()) {
@@ -112,15 +119,19 @@ class GenerateePub extends Command
         $novelDir = storage_path("app/Novel/{$id}");
         $oebpsDir = "{$novelDir}/OEBPS";
         $textDir = "{$oebpsDir}/Text";
+        $imagesDir = "{$oebpsDir}/Images";
         $metaInfDir = "{$novelDir}/META-INF";
 
-        foreach ([$novelDir, $oebpsDir, $textDir, $metaInfDir] as $dir) {
+        foreach ([$novelDir, $oebpsDir, $textDir, $imagesDir, $metaInfDir] as $dir) {
             if (!File::isDirectory($dir)) {
                 File::makeDirectory($dir, 0755, true);
             }
         }
 
-        // Step 1: Generate chapter files with progress
+        // Step 1: Process cover image
+        $this->processCoverImage($novel, $imagesDir);
+
+        // Step 2: Generate chapter files with progress
         $this->info("  Generating chapters...");
         $bar = $this->output->createProgressBar($chapterCount);
         $bar->start();
@@ -152,7 +163,7 @@ class GenerateePub extends Command
             },
         ]);
 
-        // Step 2: Generate metadata files
+        // Step 3: Generate metadata files
         $this->info("  Generating metadata...");
 
         // Mimetype (plain text, no XML declaration)
@@ -160,6 +171,11 @@ class GenerateePub extends Command
 
         // container.xml
         File::put("{$metaInfDir}/container.xml", $this->generateContainerXml());
+
+        // Cover page (if cover exists)
+        if ($this->coverInfo) {
+            File::put("{$textDir}/cover.xhtml", $this->generateCoverXhtml($novel));
+        }
 
         // content.opf (package document)
         File::put("{$oebpsDir}/content.opf", $this->generateContentOpf($novel));
@@ -170,7 +186,7 @@ class GenerateePub extends Command
         // nav.xhtml (ePub 3 navigation)
         File::put("{$textDir}/nav.xhtml", $this->generateNavXhtml($novel));
 
-        // Step 3: Create ePub archive
+        // Step 4: Create ePub archive
         $this->info("  Creating ePub archive...");
 
         if (!$this->createEpub($novelDir, $epubPath)) {
@@ -189,6 +205,116 @@ class GenerateePub extends Command
         // Get file size
         $fileSize = $this->formatBytes(File::size($epubPath));
         $this->info("  Created: {$safeFilename}.epub ({$fileSize})");
+    }
+
+    /**
+     * Process and copy cover image
+     */
+    protected function processCoverImage(Novel $novel, string $imagesDir): void
+    {
+        $coverPath = null;
+
+        // Try to get cover from file relationship first
+        if ($novel->file && $novel->file->file_path) {
+            $storagePath = storage_path("app/public/" . $novel->file->file_path);
+            if (File::exists($storagePath)) {
+                $coverPath = $storagePath;
+            }
+        }
+
+        // Try cover field (Voyager storage)
+        if (!$coverPath && $novel->cover) {
+            // Voyager stores images in storage/app/public/
+            $voyagerPath = storage_path("app/public/" . $novel->cover);
+            if (File::exists($voyagerPath)) {
+                $coverPath = $voyagerPath;
+            }
+        }
+
+        if (!$coverPath) {
+            $this->info("  No cover image found.");
+            return;
+        }
+
+        // Get image info
+        $imageInfo = @getimagesize($coverPath);
+        if (!$imageInfo) {
+            $this->warn("  Cover image is invalid or corrupted.");
+            return;
+        }
+
+        // Determine mime type and extension
+        $mimeType = $imageInfo['mime'];
+        $extension = match ($mimeType) {
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            default => null,
+        };
+
+        if (!$extension) {
+            $this->warn("  Unsupported cover image format: {$mimeType}");
+            return;
+        }
+
+        // Copy cover to OEBPS/Images
+        $coverFilename = "cover.{$extension}";
+        $destPath = "{$imagesDir}/{$coverFilename}";
+
+        if (File::copy($coverPath, $destPath)) {
+            $this->coverInfo = [
+                'filename' => $coverFilename,
+                'mime' => $mimeType,
+                'width' => $imageInfo[0],
+                'height' => $imageInfo[1],
+            ];
+            $this->info("  Cover image added: {$coverFilename}");
+        } else {
+            $this->warn("  Failed to copy cover image.");
+        }
+    }
+
+    /**
+     * Generate cover page XHTML
+     */
+    protected function generateCoverXhtml(Novel $novel): string
+    {
+        $title = htmlspecialchars($novel->name, ENT_QUOTES | ENT_XML1, 'UTF-8');
+        $coverFile = $this->coverInfo['filename'];
+
+        return <<<XHTML
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en" lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Cover</title>
+    <style type="text/css">
+        body {
+            margin: 0;
+            padding: 0;
+            text-align: center;
+        }
+        div.cover {
+            width: 100%;
+            height: 100%;
+            text-align: center;
+        }
+        img {
+            max-width: 100%;
+            max-height: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body epub:type="cover">
+    <div class="cover">
+        <img src="../Images/{$coverFile}" alt="{$title}"/>
+    </div>
+</body>
+</html>
+XHTML;
     }
 
     /**
@@ -247,6 +373,20 @@ XML;
         $description = htmlspecialchars(strip_tags($novel->description ?? ''), ENT_QUOTES | ENT_XML1, 'UTF-8');
         $modifiedDate = Carbon::now()->format('Y-m-d\TH:i:s\Z');
 
+        // Cover metadata
+        $coverMeta = '';
+        $coverManifest = '';
+        $coverSpine = '';
+
+        if ($this->coverInfo) {
+            $coverMeta = '        <meta name="cover" content="cover-image"/>';
+            $coverManifest = <<<MANIFEST
+        <item id="cover-image" href="Images/{$this->coverInfo['filename']}" media-type="{$this->coverInfo['mime']}" properties="cover-image"/>
+        <item id="cover" href="Text/cover.xhtml" media-type="application/xhtml+xml"/>
+MANIFEST;
+            $coverSpine = '        <itemref idref="cover" linear="no"/>';
+        }
+
         // Generate manifest items
         $manifestItems = [];
         $spineItems = [];
@@ -273,16 +413,22 @@ XML;
         <dc:language>en</dc:language>
         <dc:description>{$description}</dc:description>
         <meta property="dcterms:modified">{$modifiedDate}</meta>
+{$coverMeta}
     </metadata>
     <manifest>
         <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
         <item id="nav" href="Text/nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+{$coverManifest}
 {$manifestStr}
     </manifest>
     <spine toc="ncx">
         <itemref idref="nav" linear="no"/>
+{$coverSpine}
 {$spineStr}
     </spine>
+    <guide>
+        <reference type="toc" title="Table of Contents" href="Text/nav.xhtml"/>
+    </guide>
 </package>
 XML;
     }
@@ -349,6 +495,12 @@ XML;
         $firstChapter = $novel->chapters->first();
         $firstChapterFile = $firstChapter ? $this->getChapterFilename($firstChapter) : '';
 
+        // Cover landmark
+        $coverLandmark = '';
+        if ($this->coverInfo) {
+            $coverLandmark = '            <li><a epub:type="cover" href="cover.xhtml">Cover</a></li>';
+        }
+
         return <<<XHTML
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -373,6 +525,7 @@ XML;
     <nav epub:type="landmarks" id="landmarks" hidden="">
         <h2>Landmarks</h2>
         <ol>
+{$coverLandmark}
             <li><a epub:type="toc" href="nav.xhtml">Table of Contents</a></li>
             <li><a epub:type="bodymatter" href="{$firstChapterFile}">Start of Content</a></li>
         </ol>
@@ -397,7 +550,6 @@ XHTML;
         // CRITICAL: mimetype must be the first file, stored uncompressed, with no extra field
         $mimetypePath = "{$novelDir}/mimetype";
         if (File::exists($mimetypePath)) {
-            // Add mimetype file uncompressed
             $zip->addFile($mimetypePath, "mimetype");
             $zip->setCompressionName("mimetype", ZipArchive::CM_STORE);
         }
@@ -419,6 +571,15 @@ XHTML;
         // Add toc.ncx
         if (File::exists("{$oebpsDir}/toc.ncx")) {
             $zip->addFile("{$oebpsDir}/toc.ncx", "OEBPS/toc.ncx");
+        }
+
+        // Add all Images files
+        $imagesDir = "{$oebpsDir}/Images";
+        if (File::isDirectory($imagesDir)) {
+            $files = File::files($imagesDir);
+            foreach ($files as $file) {
+                $zip->addFile($file->getPathname(), "OEBPS/Images/" . $file->getFilename());
+            }
         }
 
         // Add all Text files
@@ -475,6 +636,15 @@ XHTML;
         if ($stat && $stat['name'] !== 'mimetype') {
             $this->warn("  Mimetype is not the first file in archive");
             $valid = false;
+        }
+
+        // Validate cover image if present
+        if ($this->coverInfo) {
+            $coverPath = "OEBPS/Images/{$this->coverInfo['filename']}";
+            if ($zip->locateName($coverPath) === false) {
+                $this->warn("  Cover image missing from archive");
+                $valid = false;
+            }
         }
 
         $zip->close();
