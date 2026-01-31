@@ -629,29 +629,32 @@ function generateTocChapterInfo($label, $url)
         $book = $bookMatches[2];
     }
 
-    // Capture the basic chapter number from the label
-    if (preg_match("/chapter (\d+)/i", $normalizedLabel, $chapterMatches)) {
+    // Capture the FIRST chapter number from the label (unique chapter number)
+    // This is the primary ordering number - matches "Chapter 164" in "Chapter 164 - 106 Title"
+    if (preg_match("/^chapter\s*(\d+)/i", $normalizedLabel, $chapterMatches)) {
         $chapter = $chapterMatches[1];
     } elseif (preg_match("/^(\d+)/", $normalizedLabel, $startChapterMatches)) {
         $chapter = $startChapterMatches[1];
     }
 
-    // Handle chapter splits with priority given to numeric splits in parentheses
-    if (
-        preg_match("/(\d+)\((\d+)\)/", $normalizedLabel, $numericSplitMatches)
-    ) {
-        $chapter = $numericSplitMatches[1]; // Basic chapter number
-        $splitChapterSuffix = $numericSplitMatches[2]; // Numeric split
-    } elseif (
-        preg_match(
-            "/(\d+)[\s–]*([A-Z])[\s–]/i",
-            $normalizedLabel,
-            $letterSplitMatches
-        )
-    ) {
-        $chapter = $letterSplitMatches[1]; // Basic chapter number
-        $splitChapterSuffix =
-            ord(strtoupper($letterSplitMatches[2])) - ord("A") + 1; // Convert letter to numeric
+    // Handle chapter splits - only check patterns IMMEDIATELY after the chapter number
+    // Pattern: "Chapter 164(2)" or "Chapter164(2)" - numeric split in parentheses directly attached
+    if (preg_match("/^chapter\s*(\d+)\s*\((\d+)\)/i", $normalizedLabel, $numericSplitMatches)) {
+        $chapter = $numericSplitMatches[1];
+        $splitChapterSuffix = $numericSplitMatches[2];
+    }
+    // Pattern: "Chapter 164A" or "Chapter 164 A -" - letter split directly after chapter number
+    elseif (preg_match("/^chapter\s*(\d+)\s*([A-Z])(?:\s*[-–]|\s*$)/i", $normalizedLabel, $letterSplitMatches)) {
+        $chapter = $letterSplitMatches[1];
+        $splitChapterSuffix = ord(strtoupper($letterSplitMatches[2])) - ord("A") + 1;
+    }
+    // Pattern: "_2" or "_3" suffix at the END of the label (for multi-part chapters)
+    elseif (preg_match("/_(\d+)$/", $normalizedLabel, $suffixMatches)) {
+        $splitChapterSuffix = $suffixMatches[1];
+    }
+    // Pattern: "(Part 2)" at the end
+    elseif (preg_match("/\(Part\s*(\d+)\)\s*$/i", $normalizedLabel, $partMatches)) {
+        $splitChapterSuffix = $partMatches[1];
     }
 
     // Construct the final chapter designation based on the presence of a split suffix
@@ -660,7 +663,8 @@ function generateTocChapterInfo($label, $url)
     }
 
     // Dynamic check for patterns like "(1) – A –", "(2) – B –", "(3) – C –", etc.
-    if (preg_match("/\((\d+)\)\s*–\s*[A-Z]\s*–/i", $label, $matches)) {
+    // Only at the START of title content, not anywhere in the string
+    if (preg_match("/^chapter\s*\d+[^0-9]*\((\d+)\)\s*–\s*[A-Z]\s*–/i", $label, $matches)) {
         $chapter = $chapter . "." . (int) $matches[1];
     }
 
