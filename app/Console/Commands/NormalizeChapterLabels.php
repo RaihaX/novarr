@@ -8,7 +8,7 @@ use App\Novel;
 
 class NormalizeChapterLabels extends Command
 {
-    protected $signature = 'novel:normalize_labels {novel=0} {--dry-run : Preview changes without saving} {--remove-duplicates : Remove duplicate chapters after normalization}';
+    protected $signature = 'novel:normalize_labels {novel=0} {--dry-run : Preview changes without saving}';
     protected $description = 'Normalize chapter labels and fix chapter numbers for proper sorting.';
 
     /**
@@ -139,11 +139,9 @@ class NormalizeChapterLabels extends Command
 
         $this->info("Total chapters updated: {$updatedCount}");
 
-        // Remove duplicates if requested
-        if ($this->option('remove-duplicates')) {
-            $this->line('');
-            $this->removeDuplicateChapters($novelId, $dryRun);
-        }
+        // Always remove duplicates after normalization
+        $this->line('');
+        $this->removeDuplicateChapters($novelId, $dryRun);
     }
 
     /**
