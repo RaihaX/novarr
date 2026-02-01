@@ -8,7 +8,7 @@ use App\Novel;
 
 class NormalizeChapterLabels extends Command
 {
-    protected $signature = 'novel:normalize_labels {novel=0} {--dry-run : Preview changes without saving}';
+    protected $signature = 'novel:normalize_labels {novel=0} {--dry-run : Preview changes without saving} {--remove-duplicates : Remove duplicate chapters after normalization}';
     protected $description = 'Normalize chapter labels and fix chapter numbers for proper sorting.';
 
     /**
@@ -138,6 +138,69 @@ class NormalizeChapterLabels extends Command
         }
 
         $this->info("Total chapters updated: {$updatedCount}");
+
+        // Remove duplicates if requested
+        if ($this->option('remove-duplicates')) {
+            $this->line('');
+            $this->removeDuplicateChapters($novelId, $dryRun);
+        }
+    }
+
+    /**
+     * Remove duplicate chapters (same novel_id + chapter number)
+     * Keeps the Downloaded version over Pending, or the oldest if same status
+     */
+    private function removeDuplicateChapters($novelId, bool $dryRun): void
+    {
+        $this->info('Checking for duplicate chapters...');
+
+        $query = NovelChapter::query()
+            ->select('novel_id', 'chapter')
+            ->selectRaw('COUNT(*) as count')
+            ->groupBy('novel_id', 'chapter')
+            ->having('count', '>', 1);
+
+        if ($novelId != 0) {
+            $query->where('novel_id', $novelId);
+        }
+
+        $duplicates = $query->get();
+
+        if ($duplicates->isEmpty()) {
+            $this->info('No duplicate chapters found.');
+            return;
+        }
+
+        $this->warn("Found {$duplicates->count()} chapter numbers with duplicates.");
+        $deletedCount = 0;
+
+        foreach ($duplicates as $dup) {
+            // Get all chapters with this novel_id + chapter number
+            $chapters = NovelChapter::where('novel_id', $dup->novel_id)
+                ->where('chapter', $dup->chapter)
+                ->orderByRaw('status DESC') // Downloaded (1) first
+                ->orderBy('download_date', 'asc') // Oldest download first
+                ->orderBy('created_at', 'asc') // Oldest created first
+                ->get();
+
+            // Keep the first one (Downloaded + oldest), delete the rest
+            $keepChapter = $chapters->first();
+            $toDelete = $chapters->slice(1);
+
+            foreach ($toDelete as $chapter) {
+                $deletedCount++;
+                if ($dryRun) {
+                    $statusText = $chapter->status ? 'Downloaded' : 'Pending';
+                    $this->line("Would delete: Chapter {$chapter->chapter} - {$chapter->label} ({$statusText})");
+                    $this->info("  Keeping: {$keepChapter->label} (" . ($keepChapter->status ? 'Downloaded' : 'Pending') . ")");
+                } else {
+                    $chapter->delete(); // Soft delete
+                    $this->warn("Deleted duplicate: Chapter {$chapter->chapter} - {$chapter->label}");
+                }
+            }
+        }
+
+        $this->info("Total duplicate chapters " . ($dryRun ? "to delete" : "deleted") . ": {$deletedCount}");
     }
 
     /**
