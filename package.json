@@ -23,21 +23,5 @@
     },
     "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e",
     "name": "novarr-old",
-    "version": "1.0.0",
-    "description": "<p align=\"center\"><img src=\"https://laravel.com/assets/img/components/logo-laravel.svg\"></p>",
-    "main": "vite.config.js",
-    "directories": {
-        "test": "tests"
-    },
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/RaihaX/novarr.git"
-    },
-    "keywords": [],
-    "author": "",
-    "license": "ISC",
-    "bugs": {
-        "url": "https://github.com/RaihaX/novarr/issues"
-    },
-    "homepage": "https://github.com/RaihaX/novarr#readme"
+    "version": "1.0.0"
 }

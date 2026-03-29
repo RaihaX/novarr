@@ -121,7 +121,7 @@ class CommandController extends Controller
         $params = $this->buildParams($request, $commandConfig);
 
         Log::info("Executing command: {$artisanCommand}", [
-            'user' => auth()->user()->email ?? 'unknown',
+            'user' => 'local',
             'params' => $params,
         ]);
 
@@ -154,7 +154,7 @@ class CommandController extends Controller
             return response()->json(['success' => false, 'message' => 'Command not found'], 404);
         }
 
-        $userId = auth()->id() ?? 'guest';
+        $userId = 'local';
         $rateLimitKey = "{$this->rateLimitPrefix}:{$userId}";
 
         if (RateLimiter::tooManyAttempts($rateLimitKey, $this->maxAsyncPerMinute)) {
