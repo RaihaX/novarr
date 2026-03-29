@@ -5,8 +5,6 @@ namespace App\Http\Controllers;
 use App\Language;
 use Illuminate\Http\Request;
 
-use DataTables;
-
 class LanguageController extends Controller
 {
     /**

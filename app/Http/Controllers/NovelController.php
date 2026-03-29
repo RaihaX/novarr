@@ -2,8 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Group;
-use App\Language;
 use App\Novel;
 use App\NovelChapter;
 use App\File;
@@ -11,16 +9,7 @@ use App\Http\Helpers\CacheHelper;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-
-use DOMDocument;
-use DataTables;
-use Symfony\Component\HttpClient\HttpClient;
-use Symfony\Component\DomCrawler\Crawler;
-use Madzipper;
-
-use Carbon\Carbon;
 
 class NovelController extends Controller
 {
@@ -38,40 +27,6 @@ class NovelController extends Controller
     public function __construct(Novel $novels)
     {
         $this->novels = $novels;
-    }
-
-    public function search_novels(Request $request) {
-        $data = array();
-
-        try {
-            $httpClient = createHttpClient();
-            $response = $httpClient->request('GET', 'https://www.novelupdates.com/?s=' . $request->name . '&post_type=seriesplans');
-            $crawler = new Crawler($response->getContent());
-
-            $crawler->filter('.search_title > a')->each(function ($node, $key) use (&$data) {
-                array_push($data, array(
-                    'name' => $node->text(),
-                    'url' => $node->attr('href')
-                ));
-            });
-        } catch (\Exception $e) {
-            \Log::error("search_novels error: " . $e->getMessage());
-        }
-
-        return response()->json($data);
-    }
-
-    public function datatables() {
-        // Cache DataTables response for 2 minutes
-        return Cache::remember('datatables_novels', now()->addMinutes(2), function () {
-            $query = Novel::query()
-                ->with(['file' => function($q) {
-                    $q->orderBy('id', 'desc');
-                }, 'group'])
-                ->orderBy('name');
-
-            return DataTables::eloquent($query)->toJson();
-        });
     }
 
     public function update_metadata($id) {
@@ -183,12 +138,21 @@ class NovelController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
-    public function index()
+    public function index(Request $request)
     {
+        $query = Novel::withRelations()
+            ->withCount([
+                'chapters',
+                'chapters as downloaded_chapters_count' => fn($q) => $q->where('status', 1)->where('blacklist', 0),
+            ])
+            ->ordered();
+
+        if ($request->filled('search')) {
+            $query->where('name', 'like', '%' . $request->search . '%');
+        }
+
         return view('novels.index', [
-            'novels' => Novel::withRelations()->ordered()->get(),
-            'groups' => CacheHelper::getCachedGroups(),
-            'languages' => CacheHelper::getCachedLanguages()
+            'novels' => $query->paginate(25),
         ]);
     }
 
@@ -346,17 +310,21 @@ class NovelController extends Controller
 
         $progress = $data->no_of_chapters == 0 ? 0 : ($stats['count'] / $data->no_of_chapters) * 100;
 
+        $chapters = NovelChapter::where('novel_id', $id)
+            ->where('blacklist', 0)
+            ->orderBy('book')
+            ->orderBy('chapter')
+            ->paginate(50);
+
         return view('novels.show', [
             'data' => $data,
-            'title' => 'Novels',
+            'chapters' => $chapters,
             'new_chapters' => $stats['new_chapters'],
             'duplicate_chapters' => $stats['duplicate_chapters'],
             'missing_chapters' => $stats['missing_chapters'],
             'current_chapters' => $stats['count'],
             'current_chapters_not_downloaded' => $stats['not_downloaded_count'],
             'progress' => round($progress),
-            'groups' => CacheHelper::getCachedGroups(),
-            'languages' => CacheHelper::getCachedLanguages()
         ]);
     }
 

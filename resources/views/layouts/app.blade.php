@@ -8,7 +8,7 @@
     <title>{{ config('app.name', 'Novarr') }}</title>
 
     <!-- Styles -->
-    @vite(['resources/css/app.scss', 'resources/css/vendor.css', 'resources/js/app.js', 'resources/js/vendor.js'])
+    @vite(['resources/css/app.scss', 'resources/js/app.js'])
     <style>
         body {
             background-color: #f8f9fa;
@@ -39,6 +39,12 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ route('novels.index') }}">Novels</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ route('commands.index') }}">Commands</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ route('logs.index') }}">Logs</a>
+                    </li>
                 </ul>
                 <ul class="navbar-nav">
                     @auth
@@ -47,8 +53,6 @@
                                 {{ Auth::user()->name }}
                             </a>
                             <ul class="dropdown-menu dropdown-menu-end">
-                                <li><a class="dropdown-item" href="{{ url('/admin') }}">Admin Panel</a></li>
-                                <li><hr class="dropdown-divider"></li>
                                 <li>
                                     <form method="POST" action="{{ route('logout') }}">
                                         @csrf

@@ -105,7 +105,8 @@
             </div>
             <div class="card-body">
                 <a href="{{ route('novels.index') }}" class="btn btn-primary me-2">View All Novels</a>
-                <a href="{{ url('/admin') }}" class="btn btn-secondary">Admin Panel</a>
+                <a href="{{ route('commands.index') }}" class="btn btn-success me-2">Commands</a>
+                <a href="{{ route('logs.index') }}" class="btn btn-info me-2">Logs</a>
             </div>
         </div>
     </div>

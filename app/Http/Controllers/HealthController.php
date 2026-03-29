@@ -45,13 +45,6 @@ class HealthController extends Controller
             $allHealthy = false;
         }
 
-        // Check Voyager
-        $voyagerHealth = $this->checkVoyager();
-        $health['services']['voyager'] = $voyagerHealth;
-        if ($voyagerHealth['status'] !== 'healthy') {
-            $allHealthy = false;
-        }
-
         if (!$allHealthy) {
             $health['status'] = 'unhealthy';
             return response()->json($health, 503);
@@ -172,55 +165,5 @@ class HealthController extends Controller
             'status' => 'healthy',
             'path' => $storagePath,
         ];
-    }
-
-    /**
-     * Check Voyager admin panel status.
-     */
-    private function checkVoyager(): array
-    {
-        try {
-            // Check if Voyager tables exist
-            $tablesExist = DB::getSchemaBuilder()->hasTable('data_types')
-                && DB::getSchemaBuilder()->hasTable('data_rows')
-                && DB::getSchemaBuilder()->hasTable('menus')
-                && DB::getSchemaBuilder()->hasTable('roles');
-
-            if (!$tablesExist) {
-                return [
-                    'status' => 'unhealthy',
-                    'error' => 'Voyager tables not found. Run: php artisan voyager:install',
-                ];
-            }
-
-            // Check if admin user exists
-            $adminExists = DB::table('users')
-                ->whereExists(function ($query) {
-                    $query->select(DB::raw(1))
-                        ->from('user_roles')
-                        ->whereColumn('user_roles.user_id', 'users.id')
-                        ->where('user_roles.role_id', 1);
-                })
-                ->exists();
-
-            if (!$adminExists) {
-                return [
-                    'status' => 'healthy',
-                    'warning' => 'No admin user found. Create one with: php artisan voyager:admin your@email.com --create',
-                    'tables_exist' => true,
-                ];
-            }
-
-            return [
-                'status' => 'healthy',
-                'tables_exist' => true,
-                'admin_exists' => true,
-            ];
-        } catch (Exception $e) {
-            return [
-                'status' => 'unhealthy',
-                'error' => $e->getMessage(),
-            ];
-        }
     }
 }

@@ -7,7 +7,6 @@ use App\Novel;
 use App\NovelChapter;
 use Illuminate\Http\Request;
 
-use DataTables;
 use Feeds;
 
 class GroupController extends Controller

@@ -12,7 +12,6 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
 use DOMDocument;
-use DataTables;
 use Madzipper;
 
 use Carbon\Carbon;

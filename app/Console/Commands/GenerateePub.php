@@ -222,12 +222,11 @@ class GenerateePub extends Command
             }
         }
 
-        // Try cover field (Voyager storage)
+        // Try cover field (public storage)
         if (!$coverPath && $novel->cover) {
-            // Voyager stores images in storage/app/public/
-            $voyagerPath = storage_path("app/public/" . $novel->cover);
-            if (File::exists($voyagerPath)) {
-                $coverPath = $voyagerPath;
+            $publicPath = storage_path("app/public/" . $novel->cover);
+            if (File::exists($publicPath)) {
+                $coverPath = $publicPath;
             }
         }
 
