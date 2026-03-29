@@ -205,7 +205,13 @@
                     <tr class="chapter-row">
                         <td class="fw-semibold">{{ $chapter->chapter }}</td>
                         <td class="text-muted">{{ $chapter->book ?: '-' }}</td>
-                        <td>{{ Str::limit($chapter->label, 90) }}</td>
+                        <td>
+                            @if($chapter->status)
+                                <a href="{{ route('chapters.show', $chapter->id) }}" class="text-decoration-none">{{ Str::limit($chapter->label, 90) }}</a>
+                            @else
+                                {{ Str::limit($chapter->label, 90) }}
+                            @endif
+                        </td>
                         <td>
                             @if($chapter->status)
                                 <span class="badge bg-success" style="font-size: 11px;">Downloaded</span>

@@ -2,7 +2,10 @@
 
 @section('content')
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="mb-0">Novels</h1>
+    <div class="d-flex align-items-center gap-3">
+        <h1 class="mb-0">Novels</h1>
+        <a href="{{ route('novels.create') }}" class="btn btn-sm btn-success">+ Add Novel</a>
+    </div>
     <form class="d-flex gap-2" method="GET" action="{{ route('novels.index') }}">
         <select name="status" class="form-select form-select-sm" style="width: 130px;" onchange="this.form.submit()">
             <option value="">All Status</option>

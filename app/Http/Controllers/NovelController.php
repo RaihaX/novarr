@@ -162,9 +162,7 @@ class NovelController extends Controller
 
     public function create()
     {
-        return view('novels.create', [
-
-        ]);
+        return view('novels.create');
     }
 
     /**
@@ -240,6 +238,8 @@ class NovelController extends Controller
 
             $object->file()->save($file_object);
         }
+
+        return redirect()->route('novels.show', $object->id);
     }
 
     /**

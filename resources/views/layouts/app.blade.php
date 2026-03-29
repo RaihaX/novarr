@@ -42,8 +42,11 @@
             --bs-table-bg-type: rgba(255,255,255,0.03);
         }
         .table-hover > tbody > tr:hover > * {
-            color: #fff;
+            color: #e1e1e1;
             --bs-table-bg-state: rgba(255,255,255,0.06);
+        }
+        .table-hover > tbody > tr:hover a {
+            color: #9ec5fe;
         }
         .table-dark {
             --bs-table-bg: #2c3034;
