@@ -151,6 +151,10 @@ class NovelController extends Controller
             $query->where('name', 'like', '%' . $request->search . '%');
         }
 
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
         return view('novels.index', [
             'novels' => $query->paginate(25),
         ]);

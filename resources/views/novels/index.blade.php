@@ -3,27 +3,31 @@
 @section('content')
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="mb-0">Novels</h1>
-    <form class="d-flex" method="GET" action="{{ route('novels.index') }}">
-        <input type="text" name="search" class="form-control form-control-sm me-2" placeholder="Search novels..." value="{{ request('search') }}" style="width: 200px;">
+    <form class="d-flex gap-2" method="GET" action="{{ route('novels.index') }}">
+        <select name="status" class="form-select form-select-sm" style="width: 130px;" onchange="this.form.submit()">
+            <option value="">All Status</option>
+            <option value="0" @selected(request('status') === '0')>Active</option>
+            <option value="1" @selected(request('status') === '1')>Completed</option>
+        </select>
+        <input type="text" name="search" class="form-control form-control-sm" placeholder="Search novels..." value="{{ request('search') }}" style="width: 200px;">
         <button type="submit" class="btn btn-sm btn-primary">Search</button>
-        @if(request('search'))
-            <a href="{{ route('novels.index') }}" class="btn btn-sm btn-outline-secondary ms-1">Clear</a>
+        @if(request('search') || request('status') !== null && request('status') !== '')
+            <a href="{{ route('novels.index') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
         @endif
     </form>
 </div>
 
 <div class="card">
     <div class="table-responsive">
-        <table class="table table-striped table-hover mb-0 align-middle">
-            <thead class="table-dark">
-                <tr>
+        <table class="table table-hover mb-0 align-middle">
+            <thead>
+                <tr style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6c757d;">
                     <th style="width: 50px"></th>
                     <th>Name</th>
-                    <th>Author</th>
-                    <th>Group</th>
+                    <th style="width: 180px">Author</th>
                     <th style="width: 90px">Status</th>
                     <th style="width: 180px">Progress</th>
-                    <th style="width: 100px">Chapters</th>
+                    <th style="width: 110px">Chapters</th>
                 </tr>
             </thead>
             <tbody>
@@ -44,7 +48,6 @@
                             </a>
                         </td>
                         <td class="text-muted">{{ $novel->author ?? '-' }}</td>
-                        <td class="text-muted">{{ $novel->group->label ?? '-' }}</td>
                         <td>
                             @if($novel->status)
                                 <span class="badge bg-info">Completed</span>
@@ -69,7 +72,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="7" class="text-center text-muted py-4">No novels found.</td>
+                        <td colspan="6" class="text-center text-muted py-4">No novels found.</td>
                     </tr>
                 @endforelse
             </tbody>

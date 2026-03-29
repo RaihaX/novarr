@@ -1,111 +1,125 @@
 @extends('layouts.app')
 
+@push('styles')
+<style>
+    .stat-card {
+        border-left: 3px solid;
+        transition: transform 0.15s;
+    }
+    .stat-card:hover { transform: translateY(-2px); }
+    .stat-card.stat-success { border-color: #198754; }
+    .stat-card.stat-warning { border-color: #ffc107; }
+    .stat-card.stat-danger { border-color: #dc3545; }
+    .stat-card.stat-info { border-color: #0d6efd; }
+    .stat-card .stat-value { font-size: 1.5rem; font-weight: 700; line-height: 1; }
+
+    .novel-meta td { padding: 0.35rem 0.75rem !important; font-size: 14px; }
+    .novel-meta .meta-label { color: #6c757d; width: 100px; }
+
+    .cmd-btn {
+        transition: all 0.2s;
+        min-width: 120px;
+    }
+    .cmd-btn:not(:disabled):hover { transform: translateY(-1px); }
+
+    .novel-cover {
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    }
+
+    .chapter-row td { font-size: 13px; }
+
+    #cmdOutputText {
+        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+</style>
+@endpush
+
 @section('content')
 <div class="mb-3">
     <a href="{{ route('novels.index') }}" class="btn btn-outline-secondary btn-sm">&larr; Back to Novels</a>
 </div>
 
+{{-- Hero Section --}}
 <div class="row mb-4">
-    <div class="col-md-3">
-        <div class="card">
-            <div class="card-body text-center">
-                @if($data->file)
-                    <img src="{{ Storage::url($data->file->file_path) }}" alt="{{ $data->name }}" class="img-fluid rounded mb-3" style="max-height: 280px;">
-                @else
-                    <div class="rounded d-flex align-items-center justify-content-center mb-3" style="height: 200px; background: #2c3034;">
-                        <span class="text-muted">No Cover</span>
-                    </div>
-                @endif
-                <div class="d-grid gap-2">
-                    <a href="{{ route('novels.download_epub', $data->id) }}" class="btn btn-primary btn-sm">Download ePub</a>
-                    <a href="{{ route('novels.get_metadata', $data->id) }}" class="btn btn-outline-secondary btn-sm">Update Metadata</a>
-                </div>
+    <div class="col-md-2">
+        @if($data->file)
+            <img src="{{ Storage::url($data->file->file_path) }}" alt="{{ $data->name }}" class="novel-cover img-fluid w-100 mb-3">
+        @else
+            <div class="novel-cover d-flex align-items-center justify-content-center w-100 mb-3" style="height: 220px; background: #2c3034;">
+                <span class="text-muted">No Cover</span>
             </div>
-        </div>
+        @endif
     </div>
 
-    <div class="col-md-9">
-        <div class="card mb-3">
-            <div class="card-header">
-                <h3 class="mb-0">{{ $data->name }}</h3>
-            </div>
-            <div class="card-body">
-                <table class="table table-sm mb-0" style="border: none;">
-                    <tbody>
-                        <tr>
-                            <td class="text-muted" style="width: 120px; border: none;">Author</td>
-                            <td style="border: none;">{{ $data->author ?? 'Unknown' }}</td>
-                            <td class="text-muted" style="width: 120px; border: none;">Status</td>
-                            <td style="border: none;">
-                                @if($data->status)
-                                    <span class="badge bg-info">Completed</span>
-                                @else
-                                    <span class="badge bg-success">Active</span>
-                                @endif
-                            </td>
-                        </tr>
-                        <tr>
-                            <td class="text-muted" style="border: none;">Group</td>
-                            <td style="border: none;">{{ $data->group->label ?? '-' }}</td>
-                            <td class="text-muted" style="border: none;">Language</td>
-                            <td style="border: none;">{{ $data->language->label ?? '-' }}</td>
-                        </tr>
-                        @if($data->external_url)
-                            <tr>
-                                <td class="text-muted" style="border: none;">URL</td>
-                                <td colspan="3" style="border: none;"><a href="{{ $data->external_url }}" target="_blank">{{ Str::limit($data->external_url, 60) }}</a></td>
-                            </tr>
-                        @endif
-                    </tbody>
-                </table>
+    <div class="col-md-10">
+        <div class="d-flex align-items-start justify-content-between mb-2">
+            <div>
+                <h2 class="mb-1">{{ $data->name }}</h2>
+                <span class="text-muted">by {{ $data->author ?? 'Unknown' }}</span>
+                @if($data->status)
+                    <span class="badge bg-info ms-2">Completed</span>
+                @else
+                    <span class="badge bg-success ms-2">Active</span>
+                @endif
             </div>
         </div>
 
-        <div class="row g-3 mb-3">
-            <div class="col-3">
-                <div class="card text-center">
-                    <div class="card-body py-2">
-                        <div class="h4 mb-0 text-success">{{ $current_chapters }}</div>
+        <div class="row g-2 mb-3" style="font-size: 13px;">
+            @if($data->group && $data->group->label)
+                <div class="col-auto"><span class="text-muted">Group:</span> {{ $data->group->label }}</div>
+            @endif
+            @if($data->language && $data->language->label)
+                <div class="col-auto"><span class="text-muted ms-3">Language:</span> {{ $data->language->label }}</div>
+            @endif
+            @if($data->external_url)
+                <div class="col-auto"><span class="text-muted ms-3">Source:</span> <a href="{{ $data->external_url }}" target="_blank">{{ parse_url($data->external_url, PHP_URL_HOST) }}</a></div>
+            @endif
+        </div>
+
+        {{-- Stats --}}
+        <div class="row g-2 mb-3">
+            <div class="col">
+                <div class="card stat-card stat-success">
+                    <div class="card-body py-2 px-3">
+                        <div class="stat-value text-success">{{ $current_chapters }}</div>
                         <small class="text-muted">Downloaded</small>
                     </div>
                 </div>
             </div>
-            <div class="col-3">
-                <div class="card text-center">
-                    <div class="card-body py-2">
-                        <div class="h4 mb-0 text-warning">{{ $current_chapters_not_downloaded }}</div>
+            <div class="col">
+                <div class="card stat-card stat-warning">
+                    <div class="card-body py-2 px-3">
+                        <div class="stat-value text-warning">{{ $current_chapters_not_downloaded }}</div>
                         <small class="text-muted">Pending</small>
                     </div>
                 </div>
             </div>
-            <div class="col-3">
-                <div class="card text-center">
-                    <div class="card-body py-2">
-                        <div class="h4 mb-0 text-danger">{{ count($missing_chapters) }}</div>
+            <div class="col">
+                <div class="card stat-card stat-danger">
+                    <div class="card-body py-2 px-3">
+                        <div class="stat-value text-danger">{{ count($missing_chapters) }}</div>
                         <small class="text-muted">Missing</small>
                     </div>
                 </div>
             </div>
-            <div class="col-3">
-                <div class="card text-center">
-                    <div class="card-body py-2">
-                        <div class="h4 mb-0 text-info">{{ $progress }}%</div>
+            <div class="col">
+                <div class="card stat-card stat-info">
+                    <div class="card-body py-2 px-3">
+                        <div class="stat-value text-info">{{ $progress }}%</div>
                         <small class="text-muted">Progress</small>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="progress mb-3" style="height: 10px;">
-            <div class="progress-bar {{ $progress >= 100 ? 'bg-success' : 'bg-info' }}" style="width: {{ $progress }}%"></div>
+        <div class="progress mb-3" style="height: 6px; border-radius: 3px;">
+            <div class="progress-bar {{ $progress >= 100 ? 'bg-success' : 'bg-info' }}" style="width: {{ $progress }}%; border-radius: 3px;"></div>
         </div>
 
         @if($data->description)
-            <div class="card mb-3">
-                <div class="card-header"><h6 class="mb-0">Description</h6></div>
-                <div class="card-body" style="line-height: 1.7; font-size: 14px;">
-                    {!! $data->description !!}
-                </div>
+            <div style="font-size: 13px; line-height: 1.7; color: #adb5bd; max-height: 120px; overflow-y: auto;">
+                {!! $data->description !!}
             </div>
         @endif
     </div>
@@ -113,103 +127,97 @@
 
 {{-- Quick Actions --}}
 <div class="card mb-4">
-    <div class="card-header">
-        <h5 class="mb-0">Quick Actions</h5>
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">Quick Actions</h6>
+        <small class="text-muted">Commands run in background</small>
     </div>
-    <div class="card-body">
-        <div class="row g-2">
-            <div class="col-auto">
-                <button class="btn btn-sm btn-outline-primary cmd-btn" data-command="toc" data-novel="{{ $data->id }}">
-                    <span class="cmd-label">Scrape TOC</span>
-                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running...</span>
-                    <span class="cmd-done d-none">Done</span>
-                    <span class="cmd-fail d-none">Failed</span>
-                </button>
-            </div>
-            <div class="col-auto">
-                <button class="btn btn-sm btn-outline-primary cmd-btn" data-command="chapter" data-novel="{{ $data->id }}">
-                    <span class="cmd-label">Download Chapters</span>
-                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running...</span>
-                    <span class="cmd-done d-none">Done</span>
-                    <span class="cmd-fail d-none">Failed</span>
-                </button>
-            </div>
-            <div class="col-auto">
-                <button class="btn btn-sm btn-outline-success cmd-btn" data-command="epub" data-novel="{{ $data->id }}">
-                    <span class="cmd-label">Generate ePub</span>
-                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running...</span>
-                    <span class="cmd-done d-none">Done</span>
-                    <span class="cmd-fail d-none">Failed</span>
-                </button>
-            </div>
-            <div class="col-auto">
-                <button class="btn btn-sm btn-outline-info cmd-btn" data-command="normalize_labels" data-novel="{{ $data->id }}">
-                    <span class="cmd-label">Normalize Labels</span>
-                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running...</span>
-                    <span class="cmd-done d-none">Done</span>
-                    <span class="cmd-fail d-none">Failed</span>
-                </button>
-            </div>
-            <div class="col-auto">
-                <button class="btn btn-sm btn-outline-warning cmd-btn" data-command="chapter_cleanser" data-novel="{{ $data->id }}">
-                    <span class="cmd-label">Cleanse Chapters</span>
-                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running...</span>
-                    <span class="cmd-done d-none">Done</span>
-                    <span class="cmd-fail d-none">Failed</span>
-                </button>
-            </div>
-            <div class="col-auto">
-                <button class="btn btn-sm btn-outline-danger cmd-btn" data-command="chapter_cleaner" data-novel="{{ $data->id }}">
-                    <span class="cmd-label">Clean Chapters</span>
-                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running...</span>
-                    <span class="cmd-done d-none">Done</span>
-                    <span class="cmd-fail d-none">Failed</span>
-                </button>
-            </div>
+    <div class="card-body py-2">
+        <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-sm btn-primary cmd-btn" data-command="toc" data-novel="{{ $data->id }}">
+                <span class="cmd-label">Scrape TOC</span>
+                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                <span class="cmd-done d-none">Done</span>
+                <span class="cmd-fail d-none">Failed</span>
+            </button>
+            <button class="btn btn-sm btn-primary cmd-btn" data-command="chapter" data-novel="{{ $data->id }}">
+                <span class="cmd-label">Download Chapters</span>
+                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                <span class="cmd-done d-none">Done</span>
+                <span class="cmd-fail d-none">Failed</span>
+            </button>
+
+            <div class="vr mx-1" style="opacity: 0.2;"></div>
+
+            <button class="btn btn-sm btn-outline-success cmd-btn" data-command="epub" data-novel="{{ $data->id }}">
+                <span class="cmd-label">Generate ePub</span>
+                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                <span class="cmd-done d-none">Done</span>
+                <span class="cmd-fail d-none">Failed</span>
+            </button>
+            <a href="{{ route('novels.download_epub', $data->id) }}" class="btn btn-sm btn-success">Download ePub</a>
+
+            <div class="vr mx-1" style="opacity: 0.2;"></div>
+
+            <button class="btn btn-sm btn-outline-info cmd-btn" data-command="normalize_labels" data-novel="{{ $data->id }}">
+                <span class="cmd-label">Normalize Labels</span>
+                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                <span class="cmd-done d-none">Done</span>
+                <span class="cmd-fail d-none">Failed</span>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary cmd-btn" data-command="chapter_cleanser" data-novel="{{ $data->id }}">
+                <span class="cmd-label">Cleanse Chapters</span>
+                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                <span class="cmd-done d-none">Done</span>
+                <span class="cmd-fail d-none">Failed</span>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary cmd-btn" data-command="chapter_cleaner" data-novel="{{ $data->id }}">
+                <span class="cmd-label">Clean Chapters</span>
+                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                <span class="cmd-done d-none">Done</span>
+                <span class="cmd-fail d-none">Failed</span>
+            </button>
         </div>
     </div>
     <div id="cmdOutput" class="d-none">
-        <div class="card-footer p-0">
-            <pre id="cmdOutputText" class="mb-0 p-3" style="max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; background: #111; color: #ccc; border-radius: 0;"></pre>
-        </div>
+        <pre id="cmdOutputText" class="mb-0 p-3" style="max-height: 250px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; background: #0d1117; color: #8b949e; border-top: 1px solid rgba(255,255,255,0.05); border-radius: 0 0 6px 6px;"></pre>
     </div>
 </div>
 
 {{-- Chapters Table --}}
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">Chapters</h5>
-        <span class="badge bg-secondary">{{ $chapters->total() }} total</span>
+        <h6 class="mb-0">Chapters</h6>
+        <span class="badge bg-secondary">{{ $chapters->total() }}</span>
     </div>
     <div class="table-responsive">
-        <table class="table table-striped table-sm mb-0 align-middle">
-            <thead class="table-dark">
-                <tr>
-                    <th style="width: 80px">Chapter</th>
-                    <th style="width: 60px">Book</th>
+        <table class="table table-sm table-hover mb-0 align-middle">
+            <thead>
+                <tr style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6c757d;">
+                    <th style="width: 70px">Ch.</th>
+                    <th style="width: 50px">Book</th>
                     <th>Label</th>
-                    <th style="width: 100px">Status</th>
-                    <th style="width: 140px">Download Date</th>
+                    <th style="width: 95px">Status</th>
+                    <th style="width: 130px">Downloaded</th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($chapters as $chapter)
-                    <tr>
-                        <td>{{ $chapter->chapter }}</td>
-                        <td>{{ $chapter->book ?: '-' }}</td>
-                        <td>{{ Str::limit($chapter->label, 80) }}</td>
+                    <tr class="chapter-row">
+                        <td class="fw-semibold">{{ $chapter->chapter }}</td>
+                        <td class="text-muted">{{ $chapter->book ?: '-' }}</td>
+                        <td>{{ Str::limit($chapter->label, 90) }}</td>
                         <td>
                             @if($chapter->status)
-                                <span class="badge bg-success">Downloaded</span>
+                                <span class="badge bg-success" style="font-size: 11px;">Downloaded</span>
                             @else
-                                <span class="badge bg-warning text-dark">Pending</span>
+                                <span class="badge bg-warning text-dark" style="font-size: 11px;">Pending</span>
                             @endif
                         </td>
-                        <td class="text-muted">{{ $chapter->download_date ? $chapter->download_date->format('Y-m-d H:i') : '-' }}</td>
+                        <td class="text-muted" style="font-size: 12px;">{{ $chapter->download_date ? $chapter->download_date->format('Y-m-d H:i') : '-' }}</td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="5" class="text-center text-muted py-3">No chapters found.</td>
+                        <td colspan="5" class="text-center text-muted py-4">No chapters found.</td>
                     </tr>
                 @endforelse
             </tbody>
@@ -243,17 +251,18 @@
         const outputPanel = document.getElementById('cmdOutput');
         const outputText = document.getElementById('cmdOutputText');
 
-        // Reset state
+        // Store original classes to restore later
+        if (!btn.dataset.origClass) btn.dataset.origClass = btn.className;
+
+        // Set running state
         label.classList.add('d-none');
         done.classList.add('d-none');
         fail.classList.add('d-none');
         spinner.classList.remove('d-none');
         btn.disabled = true;
-        btn.classList.remove('btn-outline-success', 'btn-outline-danger');
 
-        // Show output panel
         outputPanel.classList.remove('d-none');
-        outputText.textContent = `Running ${command}...`;
+        outputText.textContent = `> ${command} --novel=${novelId}\nQueuing...`;
 
         fetch('{{ route("commands.execute-async") }}', {
             method: 'POST',
@@ -267,20 +276,20 @@
         .then(r => r.json())
         .then(data => {
             if (data.success && data.job_id) {
-                outputText.textContent = `Command queued (${data.job_id}). Waiting for result...`;
-                pollStatus(data.job_id, btn);
+                outputText.textContent = `> ${command} --novel=${novelId}\nRunning...`;
+                pollStatus(data.job_id, btn, command, novelId);
             } else {
-                finishCommand(btn, false, data.message || 'Failed to queue');
-                outputText.textContent = data.message || 'Failed to queue command';
+                finishCommand(btn, false);
+                outputText.textContent = `> ${command}\n${data.message || 'Failed to queue'}`;
             }
         })
         .catch(err => {
             finishCommand(btn, false);
-            outputText.textContent = 'Error: ' + err.message;
+            outputText.textContent = `> ${command}\nError: ${err.message}`;
         });
     }
 
-    function pollStatus(jobId, btn) {
+    function pollStatus(jobId, btn, command, novelId) {
         const outputText = document.getElementById('cmdOutputText');
         const interval = setInterval(() => {
             fetch('{{ url("commands/status") }}/' + jobId, {
@@ -292,13 +301,15 @@
                     clearInterval(interval);
                     const result = data.result;
                     finishCommand(btn, result.success);
-                    outputText.textContent = result.output || result.error || 'Completed';
+                    outputText.textContent = `> ${command} --novel=${novelId}\n${result.output || result.error || 'Done'}`;
+                    // Auto-scroll output
+                    outputText.scrollTop = outputText.scrollHeight;
                 }
             })
             .catch(() => {
                 clearInterval(interval);
                 finishCommand(btn, false);
-                outputText.textContent = 'Lost connection while polling.';
+                outputText.textContent = `> ${command}\nLost connection while polling.`;
             });
         }, 2000);
     }
@@ -308,26 +319,24 @@
         const done = btn.querySelector('.cmd-done');
         const fail = btn.querySelector('.cmd-fail');
         const label = btn.querySelector('.cmd-label');
+        const origClass = btn.dataset.origClass;
 
         spinner.classList.add('d-none');
         btn.disabled = false;
 
         if (success) {
             done.classList.remove('d-none');
-            btn.classList.remove('btn-outline-primary', 'btn-outline-info', 'btn-outline-warning', 'btn-outline-danger');
-            btn.classList.add('btn-outline-success');
+            btn.className = 'btn btn-sm btn-success cmd-btn';
         } else {
             fail.classList.remove('d-none');
-            btn.classList.remove('btn-outline-primary', 'btn-outline-info', 'btn-outline-warning', 'btn-outline-success');
-            btn.classList.add('btn-outline-danger');
+            btn.className = 'btn btn-sm btn-danger cmd-btn';
         }
 
-        // After 4 seconds, revert back to the label
         setTimeout(() => {
             done.classList.add('d-none');
             fail.classList.add('d-none');
             label.classList.remove('d-none');
-            // Restore original class from data attribute or keep current
+            if (origClass) btn.className = origClass;
         }, 4000);
     }
 </script>
