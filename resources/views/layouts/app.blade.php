@@ -36,14 +36,19 @@
             border-top: 1px solid rgba(255,255,255,0.1);
         }
         .table {
+            --bs-table-color: #e1e1e1;
+            --bs-table-bg: transparent;
             color: #e1e1e1;
         }
-        .table-striped > tbody > tr:nth-of-type(odd) > * {
+        .table > :not(caption) > * > * {
             color: #e1e1e1;
+            --bs-table-color-state: #e1e1e1;
+            --bs-table-color-type: #e1e1e1;
+        }
+        .table-striped > tbody > tr:nth-of-type(odd) > * {
             --bs-table-bg-type: rgba(255,255,255,0.03);
         }
         .table-hover > tbody > tr:hover > * {
-            color: #e1e1e1;
             --bs-table-bg-state: rgba(255,255,255,0.06);
         }
         .table-hover > tbody > tr:hover a {
