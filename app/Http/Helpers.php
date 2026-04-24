@@ -134,10 +134,14 @@ function downloadCoverImage($imageUrl, $novelId)
         mkdir($destDir, 0755, true);
     }
 
-    if (!rename($tmp, $destDir . $filename)) {
-        @copy($tmp, $destDir . $filename);
+    $destPath = $destDir . $filename;
+    if (!rename($tmp, $destPath)) {
+        @copy($tmp, $destPath);
         @unlink($tmp);
     }
+
+    // Ensure web server (www-data) can read regardless of the umask of whoever runs the command.
+    @chmod($destPath, 0644);
 
     return [
         'filename' => $filename,
