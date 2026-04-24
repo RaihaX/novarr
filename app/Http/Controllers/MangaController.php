@@ -106,9 +106,11 @@ class MangaController extends Controller
         CacheHelper::clearMangaDataTablesCache();
 
         if ( $request->hasFile('image') ) {
+            $storedPath = $request->file('image')->store('', ['disk' => 'public']);
+            @chmod(storage_path('app/public/' . $storedPath), 0644);
             $file_object = new File([
                 'file_name' => $request->file('image')->getClientOriginalName(),
-                'file_path' => $request->file('image')->store('public')
+                'file_path' => 'public/' . $storedPath,
             ]);
 
             $object->file()->save($file_object);
@@ -166,9 +168,11 @@ class MangaController extends Controller
         CacheHelper::clearMangaDataTablesCache();
 
         if ( $request->hasFile('image') ) {
+            $storedPath = $request->file('image')->store('', ['disk' => 'public']);
+            @chmod(storage_path('app/public/' . $storedPath), 0644);
             $file_object = new File([
                 'file_name' => $request->file('image')->getClientOriginalName(),
-                'file_path' => $request->file('image')->store('public')
+                'file_path' => 'public/' . $storedPath,
             ]);
 
             $object->file()->save($file_object);
