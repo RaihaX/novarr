@@ -214,11 +214,19 @@ class GenerateePub extends Command
     {
         $coverPath = null;
 
-        // Try to get cover from file relationship first
+        // Try to get cover from file relationship first.
+        // file_path is stored as "public/{hash}.jpg" — actual file lives at storage/app/public/{hash}.jpg,
+        // so resolve via storage_path("app/" . file_path). Also accept a bare filename for forward-compat.
         if ($novel->file && $novel->file->file_path) {
-            $storagePath = storage_path("app/public/" . $novel->file->file_path);
-            if (File::exists($storagePath)) {
-                $coverPath = $storagePath;
+            $candidates = [
+                storage_path("app/" . $novel->file->file_path),
+                storage_path("app/public/" . $novel->file->file_path),
+            ];
+            foreach ($candidates as $candidate) {
+                if (File::exists($candidate)) {
+                    $coverPath = $candidate;
+                    break;
+                }
             }
         }
 
@@ -648,6 +656,23 @@ XHTML;
             if ($zip->locateName($coverPath) === false) {
                 $this->warn("  Cover image missing from archive");
                 $valid = false;
+            }
+
+            // Parse content.opf and verify cover wiring (manifest properties, ePub2 meta, spine, guide).
+            $opf = $zip->getFromName('OEBPS/content.opf');
+            if ($opf !== false) {
+                $checks = [
+                    'manifest properties="cover-image"' => '/<item[^>]+id="cover-image"[^>]+properties="cover-image"/',
+                    'ePub2 <meta name="cover">' => '/<meta\s+name="cover"\s+content="cover-image"\s*\/>/',
+                    'cover in spine' => '/<itemref\s+idref="cover"[^>]*\/>/',
+                    'cover guide reference' => '/<reference\s+type="cover"[^>]+href="Text\/cover\.xhtml"/',
+                ];
+                foreach ($checks as $label => $pattern) {
+                    if (!preg_match($pattern, $opf)) {
+                        $this->warn("  OPF missing: {$label}");
+                        $valid = false;
+                    }
+                }
             }
         }
 

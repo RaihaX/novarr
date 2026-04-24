@@ -43,59 +43,67 @@ class UpdateMetadata extends Command
         foreach (Novel::with("file")->get() as $item) {
             $this->info($item->name);
 
+            // Detect invalid/missing cover on disk; drop the stale File record so fallback runs.
+            $hasValidCover = false;
+            if (isset($item->file->id) && $item->file->file_path) {
+                $coverPath = storage_path("app/public/" . $item->file->file_path);
+                // file_path may be stored as "public/abc.jpg" — strip the leading "public/" if present
+                if (!file_exists($coverPath)) {
+                    $coverPath = storage_path("app/" . $item->file->file_path);
+                }
+                if (file_exists($coverPath) && @getimagesize($coverPath)) {
+                    $hasValidCover = true;
+                } else {
+                    $this->warn("  Existing cover invalid or missing on disk — re-fetching.");
+                    $item->file->delete();
+                    $item->unsetRelation('file');
+                }
+            }
+
             $metadata = getMetadata($item);
+
+            $needsFallback = empty($metadata["image"])
+                || empty($metadata["description"])
+                || empty($metadata["author"])
+                || empty($metadata["no_of_chapters"]);
+
+            if ($needsFallback) {
+                $fallback = getMetadataFromNovelBin($item);
+                foreach (["description", "author", "no_of_chapters", "image"] as $key) {
+                    if (empty($metadata[$key]) && !empty($fallback[$key])) {
+                        $metadata[$key] = $fallback[$key];
+                    }
+                }
+            }
 
             $novel = Novel::find($item->id);
 
-            if (
-                isset($metadata["description"]) &&
-                $metadata["description"] != ""
-            ) {
+            if (!empty($metadata["description"])) {
                 $novel->description = $metadata["description"];
             }
 
-            if (isset($metadata["author"]) && $metadata["author"] != "") {
+            if (!empty($metadata["author"])) {
                 $novel->author = $metadata["author"];
             }
 
-            if (
-                isset($metadata["no_of_chapters"]) &&
-                $metadata["no_of_chapters"] > 0
-            ) {
+            if (!empty($metadata["no_of_chapters"])) {
                 $novel->no_of_chapters = $metadata["no_of_chapters"];
             }
 
             $novel->save();
 
-            if (!isset($item->file->id)) {
-                if (isset($metadata["image"])) {
-                    $file = new File();
-                    $url_headers = @get_headers($metadata["image"]);
+            if (!$hasValidCover && !empty($metadata["image"])) {
+                $downloaded = downloadCoverImage($metadata["image"], $novel->id);
 
-                    if (
-                        !$url_headers ||
-                        $url_headers[0] == "HTTP/1.1 200 OK" ||
-                        $url_headers[0] == "HTTP/1.0 200 OK"
-                    ) {
-                        $image = file_get_contents($metadata["image"]);
-                        $basename = basename($metadata["image"]);
-                        $basename = explode(".", $basename);
-                        $filename =
-                            md5($novel->id . date("now")) . "." . $basename[1];
-
-                        $path = "public/" . $filename;
-                        file_put_contents(
-                            storage_path("app/public/") . $filename,
-                            $image
-                        );
-
-                        $file_object = new File([
-                            "file_name" => basename($metadata["image"]),
-                            "file_path" => $path,
-                        ]);
-
-                        $novel->file()->save($file_object);
-                    }
+                if ($downloaded) {
+                    $file_object = new File([
+                        "file_name" => $downloaded["basename"],
+                        "file_path" => "public/" . $downloaded["filename"],
+                    ]);
+                    $novel->file()->save($file_object);
+                    $this->info("  Cover saved: {$downloaded['filename']}");
+                } else {
+                    $this->warn("  Cover image download failed.");
                 }
             }
         }

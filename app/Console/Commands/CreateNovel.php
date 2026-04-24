@@ -75,49 +75,47 @@ class CreateNovel extends Command
 
         $metadata = getMetadata($object);
 
-        if (isset($metadata["description"]) && $metadata["description"] != "") {
+        $needsFallback = empty($metadata["image"])
+            || empty($metadata["description"])
+            || empty($metadata["author"])
+            || empty($metadata["no_of_chapters"]);
+
+        if ($needsFallback) {
+            $this->info("  Fetching fallback metadata from novelbin...");
+            $fallback = getMetadataFromNovelBin($object);
+            foreach (["description", "author", "no_of_chapters", "image"] as $key) {
+                if (empty($metadata[$key]) && !empty($fallback[$key])) {
+                    $metadata[$key] = $fallback[$key];
+                }
+            }
+        }
+
+        if (!empty($metadata["description"])) {
             $object->description = $metadata["description"];
         }
 
-        if (isset($metadata["author"]) && $metadata["author"] != "") {
+        if (!empty($metadata["author"])) {
             $object->author = $metadata["author"];
         }
 
-        if (
-            isset($metadata["no_of_chapters"]) &&
-            $metadata["no_of_chapters"] > 0
-        ) {
+        if (!empty($metadata["no_of_chapters"])) {
             $object->no_of_chapters = $metadata["no_of_chapters"];
         }
 
         $object->save();
 
-        if (isset($metadata["image"]) && !empty($metadata["image"])) {
-            $file = new File();
-            $url_headers = @get_headers($metadata["image"]);
+        if (!empty($metadata["image"])) {
+            $downloaded = downloadCoverImage($metadata["image"], $object->id);
 
-            if (
-                !$url_headers ||
-                $url_headers[0] == "HTTP/1.1 200 OK" ||
-                $url_headers[0] == "HTTP/1.0 200 OK"
-            ) {
-                $image = file_get_contents($metadata["image"]);
-                $basename = basename($metadata["image"]);
-                $basename = explode(".", $basename);
-                $filename = md5($object->id . date("now")) . "." . $basename[1];
-
-                $path = "public/" . $filename;
-                file_put_contents(
-                    storage_path("app/public/") . $filename,
-                    $image
-                );
-
+            if ($downloaded) {
                 $file_object = new File([
-                    "file_name" => basename($metadata["image"]),
-                    "file_path" => $path,
+                    "file_name" => $downloaded["basename"],
+                    "file_path" => "public/" . $downloaded["filename"],
                 ]);
-
                 $object->file()->save($file_object);
+                $this->info("  Cover saved: {$downloaded['filename']}");
+            } else {
+                $this->warn("  Cover image download failed.");
             }
         }
 

@@ -75,6 +75,77 @@ function createHttpClient()
 }
 
 /**
+ * Download a cover image to storage/app/public/ with validation.
+ * Returns [filename, original_basename] on success, null on failure.
+ */
+function downloadCoverImage($imageUrl, $novelId)
+{
+    if (empty($imageUrl)) {
+        return null;
+    }
+
+    try {
+        $httpClient = createHttpClient();
+        $response = $httpClient->request('GET', $imageUrl);
+
+        if ($response->getStatusCode() !== 200) {
+            \Log::warning("downloadCoverImage non-200 status for {$imageUrl}: " . $response->getStatusCode());
+            return null;
+        }
+
+        $bytes = $response->getContent(false);
+    } catch (\Exception $e) {
+        \Log::error("downloadCoverImage fetch failed for {$imageUrl}: " . $e->getMessage());
+        return null;
+    }
+
+    if (empty($bytes)) {
+        return null;
+    }
+
+    // Validate via getimagesize on a temp file
+    $tmp = tempnam(sys_get_temp_dir(), 'novelcover_');
+    file_put_contents($tmp, $bytes);
+    $info = @getimagesize($tmp);
+
+    if (!$info) {
+        @unlink($tmp);
+        \Log::warning("downloadCoverImage invalid image data from {$imageUrl}");
+        return null;
+    }
+
+    $extMap = [
+        IMAGETYPE_JPEG => 'jpg',
+        IMAGETYPE_PNG => 'png',
+        IMAGETYPE_GIF => 'gif',
+        IMAGETYPE_WEBP => 'webp',
+    ];
+    $ext = $extMap[$info[2]] ?? null;
+
+    if (!$ext) {
+        @unlink($tmp);
+        \Log::warning("downloadCoverImage unsupported image type {$info['mime']} from {$imageUrl}");
+        return null;
+    }
+
+    $filename = md5($novelId . microtime(true)) . '.' . $ext;
+    $destDir = storage_path('app/public/');
+    if (!is_dir($destDir)) {
+        mkdir($destDir, 0755, true);
+    }
+
+    if (!rename($tmp, $destDir . $filename)) {
+        @copy($tmp, $destDir . $filename);
+        @unlink($tmp);
+    }
+
+    return [
+        'filename' => $filename,
+        'basename' => basename(parse_url($imageUrl, PHP_URL_PATH) ?: $imageUrl),
+    ];
+}
+
+/**
  * Check if URL exists using headless browser
  * Returns true if page loads successfully without Cloudflare challenge
  */
@@ -342,6 +413,102 @@ function getMetadata($data)
         \Log::error("getMetadata transport error for {$name}: " . $e->getMessage());
     } catch (\Exception $e) {
         \Log::error("getMetadata error for {$name}: " . $e->getMessage());
+    }
+
+    return $metadata;
+}
+
+/**
+ * Fetch novel metadata from novelbin.com as a fallback source.
+ * Tries translator_url first if it's already a novelbin URL, then falls back
+ * to building a slug from the novel name.
+ */
+function getMetadataFromNovelBin($data)
+{
+    $metadata = [
+        "description" => "",
+        "author" => "",
+        "no_of_chapters" => 0,
+        "image" => "",
+    ];
+
+    $candidateUrls = [];
+
+    if (!empty($data->translator_url) && stripos($data->translator_url, "novelbin") !== false) {
+        $candidateUrls[] = rtrim($data->translator_url, "/");
+    }
+
+    if (!empty($data->name)) {
+        $slug = strtolower($data->name);
+        $slug = preg_replace(['/[\s!?\'",]+/', "/-{2,}/"], "-", $slug);
+        $slug = trim($slug, "-");
+        $candidateUrls[] = "https://novelbin.com/b/{$slug}";
+    }
+
+    foreach (array_unique($candidateUrls) as $url) {
+        try {
+            $html = fetchWithBrowser($url, '.book-img');
+
+            if (empty($html)) {
+                \Log::warning("getMetadataFromNovelBin empty response for {$url}");
+                continue;
+            }
+
+            $crawler = new Crawler($html);
+
+            // Cover image — novelbin lazy-loads, so check common attribute variants
+            $imageFilter = $crawler->filter('.book-img img, .book-cover img, .book img');
+            if ($imageFilter->count() > 0) {
+                $node = $imageFilter->first();
+                foreach (['data-src', 'data-cfsrc', 'src'] as $attr) {
+                    $value = $node->attr($attr);
+                    if (!empty($value) && stripos($value, 'data:image') !== 0) {
+                        $metadata["image"] = $value;
+                        break;
+                    }
+                }
+            }
+
+            // Description
+            $descFilter = $crawler->filter('.desc-text, #tab-description .desc-text, .desc');
+            if ($descFilter->count() > 0) {
+                $metadata["description"] = trim($descFilter->first()->html());
+            }
+
+            // Author + chapter count — both live under ul.info-meta > li with an h3 label
+            $infoFilter = $crawler->filter('ul.info-meta > li, .info-holder .info > div > li, .info > .meta > p');
+            $infoFilter->each(function ($node) use (&$metadata) {
+                $label = strtolower(trim($node->filter('h3, b')->count() > 0 ? $node->filter('h3, b')->first()->text() : ''));
+                $text = trim($node->text());
+
+                if (str_contains($label, 'author')) {
+                    $authorNode = $node->filter('a');
+                    $metadata["author"] = $authorNode->count() > 0
+                        ? trim($authorNode->first()->text())
+                        : trim(str_ireplace('author', '', $text));
+                }
+
+                if (str_contains($label, 'chapter') || stripos($text, 'Latest Chapter') !== false) {
+                    if (preg_match('/(\d+)/', $text, $matches)) {
+                        $metadata["no_of_chapters"] = (int) $matches[1];
+                    }
+                }
+            });
+
+            \Log::debug("getMetadataFromNovelBin fetched from {$url}", [
+                'has_image' => !empty($metadata['image']),
+                'has_description' => !empty($metadata['description']),
+                'has_author' => !empty($metadata['author']),
+                'no_of_chapters' => $metadata['no_of_chapters'],
+            ]);
+
+            // Stop on the first URL that yields any useful field
+            if (!empty($metadata['image']) || !empty($metadata['description']) || !empty($metadata['author'])) {
+                break;
+            }
+        } catch (\Exception $e) {
+            \Log::error("getMetadataFromNovelBin error for {$url}: " . $e->getMessage());
+        }
     }
 
     return $metadata;
