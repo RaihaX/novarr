@@ -121,6 +121,16 @@
             <div style="font-size: 13px; line-height: 1.7; color: #adb5bd; max-height: 120px; overflow-y: auto;">
                 {!! $data->description !!}
             </div>
+        @else
+            <div class="d-flex align-items-center gap-2" style="font-size: 13px; color: #6c757d;">
+                <em>No summary available.</em>
+                <button class="btn btn-sm btn-outline-secondary cmd-btn" data-command="metadata" data-novel="{{ $data->id }}" style="font-size: 11px; padding: 2px 8px;">
+                    <span class="cmd-label">Refresh metadata</span>
+                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                    <span class="cmd-done d-none">Done</span>
+                    <span class="cmd-fail d-none">Failed</span>
+                </button>
+            </div>
         @endif
     </div>
 </div>

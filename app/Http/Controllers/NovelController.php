@@ -112,7 +112,7 @@ class NovelController extends Controller
             ];
         });
 
-        $progress = $data->no_of_chapters == 0 ? 0 : ($stats['count'] / $data->no_of_chapters) * 100;
+        $progress = $this->calculateProgress($data, $stats);
 
         return response()->json([
             'data' => $data,
@@ -314,7 +314,7 @@ class NovelController extends Controller
             ];
         });
 
-        $progress = $data->no_of_chapters == 0 ? 0 : ($stats['count'] / $data->no_of_chapters) * 100;
+        $progress = $this->calculateProgress($data, $stats);
 
         $chapters = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
@@ -429,5 +429,24 @@ class NovelController extends Controller
         // Clear caches after deletion
         CacheHelper::clearNovelCache($id);
         CacheHelper::clearNovelDataTablesCache();
+    }
+
+    /**
+     * Compute download progress percentage.
+     * Denominator: the largest of metadata's no_of_chapters vs the actual row count
+     * (downloaded + pending). This avoids >100% when metadata is stale or never populated.
+     */
+    protected function calculateProgress($novel, array $stats): int
+    {
+        $total = max(
+            (int) ($novel->no_of_chapters ?? 0),
+            (int) $stats['count'] + (int) $stats['not_downloaded_count']
+        );
+
+        if ($total <= 0) {
+            return 0;
+        }
+
+        return (int) min(100, round(($stats['count'] / $total) * 100));
     }
 }

@@ -14,7 +14,7 @@ class UpdateMetadata extends Command
      *
      * @var string
      */
-    protected $signature = "novel:metadata";
+    protected $signature = "novel:metadata {novel?}";
 
     /**
      * The console command description.
@@ -40,7 +40,14 @@ class UpdateMetadata extends Command
      */
     public function handle()
     {
-        foreach (Novel::with("file")->get() as $item) {
+        $novelId = $this->argument("novel");
+
+        $query = Novel::with("file");
+        if ($novelId) {
+            $query->where("id", $novelId);
+        }
+
+        foreach ($query->get() as $item) {
             $this->info($item->name);
 
             // Detect invalid/missing cover on disk; drop the stale File record so fallback runs.

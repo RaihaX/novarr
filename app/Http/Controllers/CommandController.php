@@ -41,7 +41,7 @@ class CommandController extends Controller
             'name' => 'Update Metadata',
             'description' => 'Update novel metadata from external sources',
             'command' => 'novel:metadata',
-            'params' => [],
+            'params' => ['novel_id'],
         ],
         'normalize_labels' => [
             'name' => 'Normalize Chapter Labels',
