@@ -168,6 +168,12 @@
 
             <div class="vr mx-1" style="opacity: 0.2;"></div>
 
+            <button class="btn btn-sm btn-outline-warning cmd-btn" data-command="metadata" data-novel="{{ $data->id }}">
+                <span class="cmd-label">Refresh Metadata</span>
+                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                <span class="cmd-done d-none">Done</span>
+                <span class="cmd-fail d-none">Failed</span>
+            </button>
             <button class="btn btn-sm btn-outline-info cmd-btn" data-command="normalize_labels" data-novel="{{ $data->id }}">
                 <span class="cmd-label">Normalize Labels</span>
                 <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
