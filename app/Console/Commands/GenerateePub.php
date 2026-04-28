@@ -289,10 +289,10 @@ class GenerateePub extends Command
     {
         $title = htmlspecialchars($novel->name, ENT_QUOTES | ENT_XML1, 'UTF-8');
         $coverFile = $this->coverInfo['filename'];
-        $width = $this->coverInfo['width'];
-        $height = $this->coverInfo['height'];
 
-        // Using SVG wrapper for better scaling in readers like Calibre
+        // Plain <img> tag — Amazon's Send-to-Kindle converter does not reliably
+        // extract covers from SVG-wrapped XHTML. <img> renders correctly in
+        // Calibre/Apple Books too.
         return <<<XHTML
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -305,18 +305,19 @@ class GenerateePub extends Command
             height: 100%;
             margin: 0;
             padding: 0;
-            overflow: hidden;
+            text-align: center;
         }
-        svg {
-            width: 100%;
-            height: 100%;
+        img {
+            max-width: 100%;
+            max-height: 100%;
+            height: auto;
         }
     </style>
 </head>
 <body epub:type="cover">
-    <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="100%" height="100%" viewBox="0 0 {$width} {$height}" preserveAspectRatio="xMidYMid meet">
-        <image width="{$width}" height="{$height}" xlink:href="../Images/{$coverFile}"/>
-    </svg>
+    <div>
+        <img src="../Images/{$coverFile}" alt="{$title}"/>
+    </div>
 </body>
 </html>
 XHTML;
@@ -390,7 +391,7 @@ XML;
             // Manifest items for cover image and cover page
             $coverManifest = <<<MANIFEST
         <item id="cover-image" href="Images/{$this->coverInfo['filename']}" media-type="{$this->coverInfo['mime']}" properties="cover-image"/>
-        <item id="cover" href="Text/cover.xhtml" media-type="application/xhtml+xml" properties="svg"/>
+        <item id="cover" href="Text/cover.xhtml" media-type="application/xhtml+xml"/>
 MANIFEST;
             // Cover must be first in spine and linear="yes" for Calibre
             $coverSpine = '        <itemref idref="cover" linear="yes"/>';
