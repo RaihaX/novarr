@@ -37,6 +37,12 @@ class CommandController extends Controller
             'command' => 'novel:epub',
             'params' => ['novel_id'],
         ],
+        'send_to_kindle' => [
+            'name' => 'Send to Kindle',
+            'description' => 'Email the generated ePub to your Kindle address',
+            'command' => 'novel:send-to-kindle',
+            'params' => ['novel_id'],
+        ],
         'metadata' => [
             'name' => 'Update Metadata',
             'description' => 'Update novel metadata from external sources',

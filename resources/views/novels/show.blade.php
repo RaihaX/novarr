@@ -165,6 +165,12 @@
                 <span class="cmd-fail d-none">Failed</span>
             </button>
             <a href="{{ route('novels.download_epub', $data->id) }}" class="btn btn-sm btn-success">Download ePub</a>
+            <button class="btn btn-sm btn-outline-success cmd-btn" data-command="send_to_kindle" data-novel="{{ $data->id }}" title="Email this novel's ePub to your Kindle">
+                <span class="cmd-label">Send to Kindle</span>
+                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Sending</span>
+                <span class="cmd-done d-none">Sent</span>
+                <span class="cmd-fail d-none">Failed</span>
+            </button>
 
             <div class="vr mx-1" style="opacity: 0.2;"></div>
 

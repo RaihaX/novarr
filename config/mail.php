@@ -113,6 +113,8 @@ return [
         'name' => env('MAIL_FROM_NAME', 'Example'),
     ],
 
+    'kindle_email' => env('KINDLE_EMAIL'),
+
     /*
     |--------------------------------------------------------------------------
     | Markdown Mail Settings
