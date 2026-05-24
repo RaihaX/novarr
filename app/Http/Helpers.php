@@ -100,17 +100,36 @@ function downloadCoverImage($imageUrl, $novelId)
     }
 
     if (empty($bytes)) {
+        \Log::warning("downloadCoverImage empty response body from {$imageUrl}");
+        return null;
+    }
+
+    // Detect HTML challenge / error pages early so we don't waste a temp file
+    // and so the log line tells the operator what actually happened.
+    $head = ltrim(substr($bytes, 0, 256));
+    if (stripos($head, '<!doctype') === 0 || stripos($head, '<html') === 0) {
+        \Log::warning("downloadCoverImage received HTML (likely Cloudflare challenge) from {$imageUrl}");
         return null;
     }
 
     // Validate via getimagesize on a temp file
     $tmp = tempnam(sys_get_temp_dir(), 'novelcover_');
-    file_put_contents($tmp, $bytes);
+    if ($tmp === false) {
+        \Log::error("downloadCoverImage tempnam failed for {$imageUrl}");
+        return null;
+    }
+
+    if (file_put_contents($tmp, $bytes) === false) {
+        @unlink($tmp);
+        \Log::error("downloadCoverImage failed writing temp file for {$imageUrl}");
+        return null;
+    }
+
     $info = @getimagesize($tmp);
 
     if (!$info) {
         @unlink($tmp);
-        \Log::warning("downloadCoverImage invalid image data from {$imageUrl}");
+        \Log::warning("downloadCoverImage invalid image data from {$imageUrl} (bytes: " . strlen($bytes) . ")");
         return null;
     }
 
@@ -130,14 +149,31 @@ function downloadCoverImage($imageUrl, $novelId)
 
     $filename = md5($novelId . microtime(true)) . '.' . $ext;
     $destDir = storage_path('app/public/');
-    if (!is_dir($destDir)) {
-        mkdir($destDir, 0755, true);
+    if (!is_dir($destDir) && !mkdir($destDir, 0755, true) && !is_dir($destDir)) {
+        @unlink($tmp);
+        \Log::error("downloadCoverImage could not create destination directory {$destDir}");
+        return null;
     }
 
     $destPath = $destDir . $filename;
-    if (!rename($tmp, $destPath)) {
-        @copy($tmp, $destPath);
+
+    // rename() fails across filesystems (tempnam often lives on tmpfs while storage/
+    // is on the project disk), so fall back to copy. Don't silence the copy — we
+    // need the error if it fails, otherwise we hand back a "success" for a file
+    // that isn't actually on disk and the caller writes a dangling File row.
+    if (!@rename($tmp, $destPath)) {
+        if (!copy($tmp, $destPath)) {
+            @unlink($tmp);
+            \Log::error("downloadCoverImage failed to write cover to {$destPath} for {$imageUrl}");
+            return null;
+        }
         @unlink($tmp);
+    }
+
+    // Confirm the file actually landed before reporting success.
+    if (!file_exists($destPath) || filesize($destPath) < 100) {
+        \Log::error("downloadCoverImage post-write verification failed for {$destPath}");
+        return null;
     }
 
     // Ensure web server (www-data) can read regardless of the umask of whoever runs the command.
@@ -233,18 +269,22 @@ function chapterGenerator($data)
                 // Get the inner HTML and split by <br> tags
                 $innerHtml = $chrContent->html();
 
-                // Remove ad divs and scripts
-                $innerHtml = preg_replace('/<div[^>]*data-format[^>]*>.*?<\/div>/is', '', $innerHtml);
-                $innerHtml = preg_replace('/<script[^>]*>.*?<\/script>/is', '', $innerHtml);
+                // Strip non-content nodes before extracting text. <style> matters here
+                // because strip_tags() would otherwise turn CSS rules into a paragraph.
+                $innerHtml = stripChapterNoise($innerHtml);
 
                 // Split by br tags (various formats)
                 $paragraphs = preg_split('/<br\s*\/?>/i', $innerHtml);
 
                 foreach ($paragraphs as $para) {
                     $text = trim(strip_tags($para));
-                    if (strlen($text) > 10) { // Skip very short fragments
-                        $result[] = "<p>" . htmlspecialchars($text) . "</p>";
+                    if (strlen($text) <= 10) { // Skip very short fragments
+                        continue;
                     }
+                    if (isChapterSpamLine($text)) {
+                        continue;
+                    }
+                    $result[] = "<p>" . htmlspecialchars($text) . "</p>";
                 }
 
                 if (count($result) > 10) {
@@ -301,8 +341,9 @@ function chapterGenerator($data)
 
 function extractTextRecursively($node, &$result)
 {
-    if (trim($node->text()) != "") {
-        $result[] = "<p>" . htmlspecialchars($node->text()) . "</p>"; // Ensure text is properly escaped
+    $text = trim($node->text());
+    if ($text != "" && !isChapterSpamLine($text)) {
+        $result[] = "<p>" . htmlspecialchars($text) . "</p>"; // Ensure text is properly escaped
     }
 
     // Check if the node has children that are paragraphs and recurse
@@ -311,6 +352,57 @@ function extractTextRecursively($node, &$result)
             extractTextRecursively($child, $result);
         }
     });
+}
+
+/**
+ * Strip noise nodes (<script>, <style>, ad / recommendation widgets) from a
+ * chapter HTML fragment before paragraph extraction.
+ */
+function stripChapterNoise($html)
+{
+    // <script> and <style> — strip_tags() would otherwise turn their bodies into text.
+    $html = preg_replace('/<script\b[^>]*>.*?<\/script>/is', '', $html);
+    $html = preg_replace('/<style\b[^>]*>.*?<\/style>/is', '', $html);
+
+    // Inline ad slots used by novelbin et al.
+    $html = preg_replace('/<div[^>]*data-format[^>]*>.*?<\/div>/is', '', $html);
+
+    // Taboola / Outbrain / generic recommendation widget containers. These tend to
+    // have id/class fragments like trc_rbox, taboola, outbrain, OUTBRAIN_, ulplugin,
+    // recommend, sponsored.
+    $widgetPattern = '/<(div|section|aside|iframe)\b[^>]*(?:id|class)\s*=\s*"[^"]*(taboola|outbrain|trc[_-]?rbox|ulplugin|recommend|sponsored|ad-slot|ads-wrapper|adv-box)[^"]*"[^>]*>.*?<\/\1>/is';
+    $previous = null;
+    while ($previous !== $html) {
+        $previous = $html;
+        $html = preg_replace($widgetPattern, '', $html);
+    }
+
+    return $html;
+}
+
+/**
+ * Match a paragraph of text against known ad/recommendation widget signatures.
+ * Used as a defence-in-depth filter after stripChapterNoise().
+ */
+function isChapterSpamLine($text)
+{
+    static $markers = [
+        'Sponsored',
+        'Read MoreUndo',
+        'Play NowUndo',
+        'taboola',
+        'Outbrain',
+        'pf-config-',
+        '!important',
+    ];
+
+    foreach ($markers as $marker) {
+        if (stripos($text, $marker) !== false) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function tableOfContentGenerator($data)
