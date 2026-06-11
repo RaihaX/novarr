@@ -22,6 +22,7 @@ class Novel extends Model
         "cover",
         "translator_url",
         "status",
+        "completed_at",
         "group_id",
         "language_id",
         "last_update",
@@ -42,6 +43,7 @@ class Novel extends Model
      */
     protected $casts = [
         'last_update' => 'datetime',
+        'completed_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',

@@ -115,6 +115,8 @@ return [
 
     'kindle_email' => env('KINDLE_EMAIL'),
 
+    'summary_email' => env('MAIL_SUMMARY_EMAIL'),
+
     /*
     |--------------------------------------------------------------------------
     | Markdown Mail Settings

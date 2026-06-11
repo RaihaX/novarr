@@ -463,7 +463,10 @@ function getMetadata($data)
         "description" => "",
         "author" => "",
         "no_of_chapters" => 0,
-        "image" => ""
+        "image" => "",
+        "status_text" => "",
+        "completed" => false,
+        "fully_translated" => null,
     ];
 
     // Simplify the sanitization of the name
@@ -490,14 +493,24 @@ function getMetadata($data)
             ? $authorFilter->first()->text()
             : "";
 
-        // Number of Chapters
+        // Number of Chapters + status in country of origin (e.g. "1234 Chapters (Completed)")
         $statusFilter = $crawler->filter("#editstatus");
         if ($statusFilter->count() > 0) {
             $statusFilter->each(function ($node) use (&$metadata) {
+                $metadata["status_text"] = trim($node->text());
                 $text = str_replace("Chapter ", "Chapters ", $node->text());
                 preg_match("/(\d+) Chapters/", $text, $matches);
                 $metadata["no_of_chapters"] = $matches[1] ?? 0;
             });
+            $metadata["completed"] =
+                stripos($metadata["status_text"], "complete") !== false;
+        }
+
+        // Fully Translated flag ("Yes" / "No")
+        $translatedFilter = $crawler->filter("#showtranslated");
+        if ($translatedFilter->count() > 0) {
+            $metadata["fully_translated"] =
+                stripos(trim($translatedFilter->first()->text()), "yes") !== false;
         }
 
         // Image
