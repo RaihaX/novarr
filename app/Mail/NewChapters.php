@@ -30,8 +30,31 @@ class NewChapters extends Mailable
      */
     public function build()
     {
-        return $this->subject('Web Novel Manager – New Chapters')->view('emails.newchapters')->with([
+        return $this->subject($this->summarySubject())->view('emails.newchapters')->with([
             'data' => $this->mailData,
         ]);
+    }
+
+    /**
+     * Summarise the payload in the subject, e.g.
+     * "Novarr Daily Summary – 12 new chapters, 1 novel completed".
+     */
+    protected function summarySubject(): string
+    {
+        $chapters = $this->mailData['chapters']
+            ?? (is_array($this->mailData) && array_is_list($this->mailData) ? $this->mailData : []);
+        $completed = $this->mailData['completed'] ?? [];
+
+        $parts = [];
+
+        if (($count = count($chapters)) > 0) {
+            $parts[] = $count . ' new chapter' . ($count === 1 ? '' : 's');
+        }
+
+        if (($count = count($completed)) > 0) {
+            $parts[] = $count . ' novel' . ($count === 1 ? '' : 's') . ' completed';
+        }
+
+        return 'Novarr Daily Summary' . ($parts ? ' – ' . implode(', ', $parts) : '');
     }
 }
