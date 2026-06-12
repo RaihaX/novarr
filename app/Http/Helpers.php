@@ -8,45 +8,53 @@ use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 /**
  * Fetch page HTML using FlareSolverr to bypass Cloudflare protection
  */
-function fetchWithBrowser($url, $waitForSelector = null)
+function fetchWithBrowser($url, $waitForSelector = null, $maxAttempts = 3)
 {
-    try {
-        $flareSolverrUrl = env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1');
+    $flareSolverrUrl = env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1');
+    $lastError = null;
 
-        \Log::debug("Fetching URL via FlareSolverr: {$url}");
+    for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+        try {
+            \Log::debug("Fetching URL via FlareSolverr (attempt {$attempt}/{$maxAttempts}): {$url}");
 
-        $httpClient = HttpClient::create(['timeout' => 120]);
+            $httpClient = HttpClient::create(['timeout' => 120]);
 
-        $response = $httpClient->request('POST', $flareSolverrUrl, [
-            'headers' => ['Content-Type' => 'application/json'],
-            'json' => [
-                'cmd' => 'request.get',
-                'url' => $url,
-                'maxTimeout' => 60000,
-            ],
-        ]);
+            $response = $httpClient->request('POST', $flareSolverrUrl, [
+                'headers' => ['Content-Type' => 'application/json'],
+                'json' => [
+                    'cmd' => 'request.get',
+                    'url' => $url,
+                    'maxTimeout' => 60000,
+                ],
+            ]);
 
-        $data = json_decode($response->getContent(), true);
+            $data = json_decode($response->getContent(), true);
 
-        if ($data['status'] !== 'ok') {
-            \Log::error("FlareSolverr error for URL {$url}: " . ($data['message'] ?? 'Unknown error'));
-            return null;
+            if (($data['status'] ?? null) !== 'ok') {
+                $lastError = $data['message'] ?? 'Unknown error';
+            } else {
+                $html = $data['solution']['response'] ?? null;
+
+                if (!empty($html)) {
+                    \Log::debug("Successfully fetched URL via FlareSolverr: {$url} (length: " . strlen($html) . ")");
+                    return $html;
+                }
+
+                $lastError = 'empty response body';
+            }
+        } catch (\Exception $e) {
+            $lastError = $e->getMessage();
         }
 
-        $html = $data['solution']['response'] ?? null;
-
-        if (empty($html)) {
-            \Log::error("FlareSolverr returned empty response for URL: {$url}");
-            return null;
+        if ($attempt < $maxAttempts) {
+            $delay = 2 ** $attempt; // 2s, 4s
+            \Log::warning("FlareSolverr attempt {$attempt} failed for {$url} ({$lastError}); retrying in {$delay}s");
+            sleep($delay);
         }
-
-        \Log::debug("Successfully fetched URL via FlareSolverr: {$url} (length: " . strlen($html) . ")");
-
-        return $html;
-    } catch (\Exception $e) {
-        \Log::error("FlareSolverr error for URL {$url}: " . $e->getMessage());
-        return null;
     }
+
+    \Log::error("FlareSolverr failed after {$maxAttempts} attempts for URL {$url}: {$lastError}");
+    return null;
 }
 
 /**
@@ -60,7 +68,7 @@ function createHttpClient()
         'verify_peer' => false,
         'verify_host' => false,
         'headers' => [
-            'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
             'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
             'Accept-Language' => 'en-US,en;q=0.9',
             'Connection' => 'keep-alive',
@@ -327,7 +335,16 @@ function chapterGenerator($data)
         }
 
         if (count($result) < 10) {
-            \Log::warning("ChapterGenerator found insufficient content for URL: {$novelUrl} (paragraphs: " . count($result) . ")");
+            // The page fetched fine but no selector matched enough content —
+            // the strongest signal that the site changed its markup. Error
+            // level so the operator actually sees it, with enough context to
+            // diagnose without re-fetching.
+            \Log::error(
+                "ChapterGenerator found insufficient content for URL: {$novelUrl} "
+                . "(paragraphs: " . count($result) . ", html length: " . strlen($html) . "). "
+                . "Site markup may have changed. First 300 chars of body: "
+                . substr(trim(strip_tags($html)), 0, 300)
+            );
         }
 
         $result = array_filter($result, "strlen");

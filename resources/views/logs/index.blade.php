@@ -23,7 +23,7 @@
                         <td>
                             <a href="{{ route('logs.show', $file['name']) }}" class="btn btn-sm btn-outline-primary">View</a>
                             <a href="{{ route('logs.download', $file['name']) }}" class="btn btn-sm btn-outline-secondary">Download</a>
-                            <button class="btn btn-sm btn-outline-danger" onclick="deleteLog('{{ $file['name'] }}')">Delete</button>
+                            <button class="btn btn-sm btn-outline-danger log-delete-btn" data-filename="{{ $file['name'] }}">Delete</button>
                         </td>
                     </tr>
                 @empty
@@ -39,22 +39,31 @@
 
 @push('scripts')
 <script>
-    function deleteLog(filename) {
-        if (!confirm('Delete ' + filename + '?')) return;
+    document.querySelectorAll('.log-delete-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const filename = btn.dataset.filename;
 
-        fetch('/logs/' + filename, {
-            method: 'DELETE',
-            headers: {
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                'Accept': 'application/json',
-            },
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) location.reload();
-            else alert(data.message);
-        })
-        .catch(err => alert('Error: ' + err.message));
-    }
+            if (!confirm('Delete ' + filename + '?')) return;
+
+            try {
+                const response = await fetch('/logs/' + encodeURIComponent(filename), {
+                    method: 'DELETE',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                    },
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    location.reload();
+                } else {
+                    Novarr.showToast(data.message || 'Failed to delete log.', 'danger');
+                }
+            } catch (err) {
+                Novarr.showToast('Error: ' + err.message, 'danger');
+            }
+        });
+    });
 </script>
 @endpush

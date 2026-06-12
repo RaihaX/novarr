@@ -32,7 +32,7 @@ class NovelController extends Controller
     public function update_metadata($id) {
         $data = $this->novels->find($id);
 
-        $metadata = __getMetadata($data);
+        $metadata = getMetadata($data);
 
         if ( isset($metadata["description"]) && $metadata["description"] != "" ) {
             $data->description = $metadata["description"];
@@ -52,7 +52,7 @@ class NovelController extends Controller
     public function get_novel($id) {
         $data = $this->novels->with(['file' => function($q) {
             $q->orderBy('id', 'desc');
-        }, 'group', 'language'])->find($id);
+        }, 'group', 'language'])->findOrFail($id);
 
         // Use stable cache key so CacheHelper::clearNovelCache() can invalidate it
         $cacheKey = "novel_stats_{$id}";
@@ -173,6 +173,22 @@ class NovelController extends Controller
      */
     public function store(Request $request)
     {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'author' => 'nullable|string|max:255',
+            'translator' => 'nullable|string|max:255',
+            'translator_url' => 'nullable|url|max:2048',
+            'chapter_url' => 'nullable|url|max:2048',
+            'alternative_url' => 'nullable|url|max:2048',
+            'no_of_chapters' => 'nullable|integer|min:0',
+            'status' => 'nullable|boolean',
+            'group_id' => 'nullable|integer|exists:groups,id',
+            'language_id' => 'nullable|integer|exists:languages,id',
+            'unique_id' => 'nullable|string|max:255',
+            'image' => 'nullable|image|max:10240',
+        ]);
+
         $object = $this->novels;
 
         if ( $request->has('name') ) {
@@ -200,7 +216,7 @@ class NovelController extends Controller
         }
 
         if ( $request->has('no_of_chapters') ) {
-            $object->no_of_chapters = $request->no_of_chapters == "" ? 0 : $request->nof_of_chapters;
+            $object->no_of_chapters = $request->no_of_chapters == "" ? 0 : $request->no_of_chapters;
         }
 
         if ( $request->has('status') ) {
@@ -254,7 +270,7 @@ class NovelController extends Controller
     {
         $data = $this->novels->with(['file' => function($q) {
             $q->orderBy('id', 'desc');
-        }, 'group', 'language'])->find($id);
+        }, 'group', 'language'])->findOrFail($id);
 
         // Use stable cache key so CacheHelper::clearNovelCache() can invalidate it
         $cacheKey = "novel_stats_{$id}";
@@ -343,7 +359,23 @@ class NovelController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $object = $this->novels->find($id);
+        $request->validate([
+            'name' => 'sometimes|required|string|max:255',
+            'description' => 'nullable|string',
+            'author' => 'nullable|string|max:255',
+            'translator' => 'nullable|string|max:255',
+            'translator_url' => 'nullable|url|max:2048',
+            'chapter_url' => 'nullable|url|max:2048',
+            'alternative_url' => 'nullable|url|max:2048',
+            'no_of_chapters' => 'nullable|integer|min:0',
+            'status' => 'nullable|boolean',
+            'group_id' => 'nullable|integer|exists:groups,id',
+            'language_id' => 'nullable|integer|exists:languages,id',
+            'unique_id' => 'nullable|string|max:255',
+            'image' => 'nullable|image|max:10240',
+        ]);
+
+        $object = $this->novels->findOrFail($id);
 
         if ( $request->has('name') ) {
             $object->name = $request->name;

@@ -48,6 +48,7 @@ class Novel extends Model
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
         'status' => 'boolean',
+        'scrape_failures' => 'integer',
         'no_of_chapters' => 'integer',
         'no_of_views' => 'integer',
         'rating' => 'float',

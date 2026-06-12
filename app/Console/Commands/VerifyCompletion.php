@@ -102,8 +102,14 @@ class VerifyCompletion extends Command
             }
         }
 
+        // Check gaps from the earliest chapter we actually have, not from 1 —
+        // novels whose numbering starts mid-series (or with a chapter-0
+        // prologue) would otherwise report hundreds of false missing chapters
+        // and never auto-complete.
+        $firstChapter = max(1, empty($existing) ? 1 : min($existing));
+
         $missing = $latestChapter >= 1
-            ? array_diff(range(1, (int) $latestChapter), $existing)
+            ? array_diff(range($firstChapter, (int) $latestChapter), $existing)
             : [];
 
         return [

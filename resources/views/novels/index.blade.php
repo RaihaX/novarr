@@ -7,12 +7,12 @@
         <a href="{{ route('novels.create') }}" class="btn btn-sm btn-success">+ Add Novel</a>
     </div>
     <form class="d-flex gap-2" method="GET" action="{{ route('novels.index') }}">
-        <select name="status" class="form-select form-select-sm" style="width: 130px;" onchange="this.form.submit()">
+        <select name="status" aria-label="Filter by status" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
             <option value="">All Status</option>
             <option value="0" @selected(request('status') === '0')>Active</option>
             <option value="1" @selected(request('status') === '1')>Completed</option>
         </select>
-        <input type="text" name="search" class="form-control form-control-sm" placeholder="Search novels..." value="{{ request('search') }}" style="width: 200px;">
+        <input type="search" name="search" aria-label="Search novels" class="form-control form-control-sm w-auto" placeholder="Search novels..." value="{{ request('search') }}">
         <button type="submit" class="btn btn-sm btn-primary">Search</button>
         @if(request('search') || request('status') !== null && request('status') !== '')
             <a href="{{ route('novels.index') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
@@ -24,7 +24,7 @@
     <div class="table-responsive">
         <table class="table table-hover mb-0 align-middle">
             <thead>
-                <tr style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6c757d;">
+                <tr class="table-head-label">
                     <th style="width: 50px"></th>
                     <th>Name</th>
                     <th style="width: 180px">Author</th>
@@ -38,11 +38,9 @@
                     <tr>
                         <td>
                             @if($novel->file)
-                                <img src="{{ Storage::url($novel->file->file_path) }}" alt="" style="width: 36px; height: 50px; object-fit: cover; border-radius: 3px;">
+                                <img src="{{ Storage::url($novel->file->file_path) }}" alt="Cover of {{ $novel->name }}" loading="lazy" class="cover-thumb">
                             @else
-                                <div style="width: 36px; height: 50px; background: #2c3034; border-radius: 3px; display: flex; align-items: center; justify-content: center;">
-                                    <small class="text-muted" style="font-size: 10px;">N/A</small>
-                                </div>
+                                <div class="cover-placeholder">N/A</div>
                             @endif
                         </td>
                         <td>

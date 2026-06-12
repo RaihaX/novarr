@@ -69,6 +69,9 @@ class ChapterScraper extends Command
 
     private function processNovel($novel, &$newChapters)
     {
+        $succeeded = 0;
+        $failed = 0;
+
         if (count($novel->chapters) > 0) {
             foreach ($novel->chapters as $item) {
                 Log::debug("Processing chapter: {$item->label}");
@@ -83,6 +86,7 @@ class ChapterScraper extends Command
                     Log::info("Successfully downloaded chapter: {$item->label} ({$wordCount} words)");
                     $this->info("  ✓ Downloaded: {$item->label} ({$wordCount} words)");
 
+                    $succeeded++;
                     $this->updateChapter($item, $description);
                     $this->addChapterToArray($novel, $item, $newChapters);
 
@@ -92,6 +96,7 @@ class ChapterScraper extends Command
                     $this->info("  Waiting {$readingDelay} seconds to simulate human reading...");
                     sleep($readingDelay);
                 } else {
+                    $failed++;
                     $this->error("  ✗ Skipped: Only {$wordCount} words (need >250)");
                     if ($wordCount == 0) {
                         $this->warn("    Likely failed to fetch or parse content");
@@ -101,6 +106,29 @@ class ChapterScraper extends Command
                     );
                 }
             }
+        }
+
+        $this->trackScrapeHealth($novel, $succeeded, $failed);
+    }
+
+    /**
+     * Keep a consecutive-failure counter per novel so runs where every
+     * pending chapter fails (site change, dead source) get surfaced in the
+     * daily summary email instead of failing silently forever.
+     */
+    private function trackScrapeHealth($novel, int $succeeded, int $failed): void
+    {
+        if ($succeeded > 0) {
+            if ($novel->scrape_failures > 0) {
+                Log::info("Scrape recovered for {$novel->name} after {$novel->scrape_failures} failed run(s).");
+            }
+            $novel->scrape_failures = 0;
+            $novel->save();
+        } elseif ($failed > 0) {
+            $novel->scrape_failures = $novel->scrape_failures + 1;
+            $novel->save();
+
+            Log::warning("All {$failed} pending chapter(s) failed for {$novel->name} (consecutive failed runs: {$novel->scrape_failures}).");
         }
     }
 

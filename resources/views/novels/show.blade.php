@@ -261,110 +261,55 @@
 
 @push('scripts')
 <script>
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-
     document.querySelectorAll('.cmd-btn').forEach(btn => {
         btn.addEventListener('click', () => runCommand(btn));
     });
 
-    function runCommand(btn) {
+    async function runCommand(btn) {
         if (btn.disabled) return;
 
         const command = btn.dataset.command;
         const novelId = btn.dataset.novel;
-        const label = btn.querySelector('.cmd-label');
-        const spinner = btn.querySelector('.cmd-spinner');
-        const done = btn.querySelector('.cmd-done');
-        const fail = btn.querySelector('.cmd-fail');
-        const outputPanel = document.getElementById('cmdOutput');
         const outputText = document.getElementById('cmdOutputText');
 
-        // Store original classes to restore later
         if (!btn.dataset.origClass) btn.dataset.origClass = btn.className;
 
-        // Set running state
-        label.classList.add('d-none');
-        done.classList.add('d-none');
-        fail.classList.add('d-none');
-        spinner.classList.remove('d-none');
-        btn.disabled = true;
+        setButtonState(btn, 'running');
+        document.getElementById('cmdOutput').classList.remove('d-none');
+        outputText.textContent = `> ${command} --novel=${novelId}\nRunning...`;
 
-        outputPanel.classList.remove('d-none');
-        outputText.textContent = `> ${command} --novel=${novelId}\nQueuing...`;
-
-        fetch('{{ route("commands.execute-async") }}', {
-            method: 'POST',
-            headers: {
-                'X-CSRF-TOKEN': csrfToken,
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ command: command, novel_id: novelId }),
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success && data.job_id) {
-                outputText.textContent = `> ${command} --novel=${novelId}\nRunning...`;
-                pollStatus(data.job_id, btn, command, novelId);
-            } else {
-                finishCommand(btn, false);
-                outputText.textContent = `> ${command}\n${data.message || 'Failed to queue'}`;
-            }
-        })
-        .catch(err => {
-            finishCommand(btn, false);
+        try {
+            const result = await Novarr.executeCommand({ command, novel_id: novelId });
+            setButtonState(btn, result.success ? 'done' : 'fail');
+            outputText.textContent = `> ${command} --novel=${novelId}\n${result.output || result.error || 'Done'}`;
+            outputText.scrollTop = outputText.scrollHeight;
+        } catch (err) {
+            setButtonState(btn, 'fail');
             outputText.textContent = `> ${command}\nError: ${err.message}`;
-        });
+            Novarr.showToast(err.message, 'danger');
+        }
     }
 
-    function pollStatus(jobId, btn, command, novelId) {
-        const outputText = document.getElementById('cmdOutputText');
-        const interval = setInterval(() => {
-            fetch('{{ url("commands/status") }}/' + jobId, {
-                headers: { 'Accept': 'application/json' }
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'completed') {
-                    clearInterval(interval);
-                    const result = data.result;
-                    finishCommand(btn, result.success);
-                    outputText.textContent = `> ${command} --novel=${novelId}\n${result.output || result.error || 'Done'}`;
-                    // Auto-scroll output
-                    outputText.scrollTop = outputText.scrollHeight;
-                }
-            })
-            .catch(() => {
-                clearInterval(interval);
-                finishCommand(btn, false);
-                outputText.textContent = `> ${command}\nLost connection while polling.`;
-            });
-        }, 2000);
-    }
+    function setButtonState(btn, state) {
+        const show = cls => btn.querySelector(cls).classList.remove('d-none');
+        const hide = cls => btn.querySelector(cls).classList.add('d-none');
 
-    function finishCommand(btn, success) {
-        const spinner = btn.querySelector('.cmd-spinner');
-        const done = btn.querySelector('.cmd-done');
-        const fail = btn.querySelector('.cmd-fail');
-        const label = btn.querySelector('.cmd-label');
-        const origClass = btn.dataset.origClass;
+        ['.cmd-label', '.cmd-spinner', '.cmd-done', '.cmd-fail'].forEach(hide);
 
-        spinner.classList.add('d-none');
-        btn.disabled = false;
-
-        if (success) {
-            done.classList.remove('d-none');
-            btn.className = 'btn btn-sm btn-success cmd-btn';
-        } else {
-            fail.classList.remove('d-none');
-            btn.className = 'btn btn-sm btn-danger cmd-btn';
+        if (state === 'running') {
+            show('.cmd-spinner');
+            btn.disabled = true;
+            return;
         }
 
+        btn.disabled = false;
+        show(state === 'done' ? '.cmd-done' : '.cmd-fail');
+        btn.className = `btn btn-sm ${state === 'done' ? 'btn-success' : 'btn-danger'} cmd-btn`;
+
         setTimeout(() => {
-            done.classList.add('d-none');
-            fail.classList.add('d-none');
-            label.classList.remove('d-none');
-            if (origClass) btn.className = origClass;
+            ['.cmd-done', '.cmd-fail'].forEach(hide);
+            show('.cmd-label');
+            if (btn.dataset.origClass) btn.className = btn.dataset.origClass;
         }, 4000);
     }
 </script>

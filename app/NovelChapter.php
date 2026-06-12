@@ -44,13 +44,11 @@ class NovelChapter extends Model
 
     public function getDescriptionAttribute($value): string
     {
-        $value = str_replace("<p>", "[[p]]", $value);
-        $value = str_replace("</p>", "[[/p]]", $value);
-        $value = str_replace(">", "", $value);
-        $value = str_replace("<", "", $value);
-        $value = str_replace("<p>&nbsp;</p>", "", $value);
-        $value = str_replace("[[p]]", "<p>", $value);
-        $value = str_replace("[[/p]]", "</p>", $value);
+        // Whitelist basic formatting tags; self-close <br>/<hr> so the
+        // output stays valid XHTML for ePub generation.
+        $value = strip_tags($value ?? '', '<p><br><hr><em><strong><i><b><u><s>');
+        $value = preg_replace('/<(br|hr)\s*\/?>/i', '<$1/>', $value);
+        $value = str_replace('<p>&nbsp;</p>', '', $value);
 
         return $value;
     }

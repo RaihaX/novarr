@@ -12,6 +12,7 @@
     // the legacy path passes a flat array of chapter rows.
     $chapters = $data['chapters'] ?? (is_array($data) && array_is_list($data) ? $data : []);
     $completed = $data['completed'] ?? [];
+    $attention = $data['attention'] ?? [];
     $since = $data['since'] ?? null;
     $byNovel = collect($chapters)->groupBy('novel');
 
@@ -81,6 +82,23 @@
                                             @if (!empty($novel['completed_at']))
                                                 <br><span style="font-size: 12px; color: #059669;">Completed {{ \Illuminate\Support\Carbon::parse($novel['completed_at'])->timezone(config('app.timezone'))->format('j M Y') }}</span>
                                             @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </table>
+                        @endif
+
+                        {{-- Novels needing attention --}}
+                        @if (count($attention) > 0)
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                                <tr>
+                                    <td style="font-size: 16px; font-weight: 700; color: #1f2937; padding-bottom: 10px;">⚠️ Needs attention</td>
+                                </tr>
+                                @foreach ($attention as $novel)
+                                    <tr>
+                                        <td bgcolor="#fffbeb" style="background-color: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 6px; padding: 12px 16px; {{ $loop->last ? '' : 'border-bottom: 6px solid #ffffff;' }}">
+                                            <span style="font-size: 14px; font-weight: 600; color: #92400e;">{{ $novel['name'] }}</span>
+                                            <br><span style="font-size: 12px; color: #b45309;">{{ $novel['reason'] }}</span>
                                         </td>
                                     </tr>
                                 @endforeach

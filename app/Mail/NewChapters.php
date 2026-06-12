@@ -55,6 +55,10 @@ class NewChapters extends Mailable
             $parts[] = $count . ' novel' . ($count === 1 ? '' : 's') . ' completed';
         }
 
+        if (($count = count($this->mailData['attention'] ?? [])) > 0) {
+            $parts[] = $count . ' need' . ($count === 1 ? 's' : '') . ' attention';
+        }
+
         return 'Novarr Daily Summary' . ($parts ? ' – ' . implode(', ', $parts) : '');
     }
 }

@@ -7,15 +7,17 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class ExampleTest extends TestCase
 {
+    use RefreshDatabase;
+
     /**
-     * Test that unauthenticated users are redirected to login.
+     * The dashboard loads for everyone — the app has no authentication layer.
      *
      * @return void
      */
-    public function testUnauthenticatedUserIsRedirectedToLogin()
+    public function testDashboardLoads()
     {
         $response = $this->get('/');
 
-        $response->assertRedirect('/login');
+        $response->assertOk();
     }
 }

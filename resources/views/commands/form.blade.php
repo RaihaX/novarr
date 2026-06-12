@@ -54,8 +54,8 @@
             @endif
 
             <div class="d-flex gap-2">
-                <button type="button" id="btnExecute" class="btn btn-primary" onclick="executeCommand(false)">Execute Now</button>
-                <button type="button" id="btnAsync" class="btn btn-outline-primary" onclick="executeCommand(true)">Run in Background</button>
+                <button type="button" id="btnExecute" class="btn btn-primary">Execute Now</button>
+                <button type="button" id="btnAsync" class="btn btn-outline-primary">Run in Background</button>
             </div>
         </form>
     </div>
@@ -67,99 +67,44 @@
         <span id="statusBadge" class="badge"></span>
     </div>
     <div class="card-body">
-        <pre id="commandOutput" class="bg-dark text-light p-3 rounded" style="max-height: 500px; overflow-y: auto; white-space: pre-wrap; font-size: 13px;"></pre>
+        <pre id="commandOutput" class="command-output bg-dark text-light p-3 rounded"></pre>
     </div>
 </div>
 @endsection
 
 @push('scripts')
 <script>
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+    const output = document.getElementById('commandOutput');
+    const badge = document.getElementById('statusBadge');
+    const buttons = [document.getElementById('btnExecute'), document.getElementById('btnAsync')];
 
-    function executeCommand(async) {
-        const form = document.getElementById('commandForm');
-        const formData = new FormData(form);
-        const outputPanel = document.getElementById('outputPanel');
-        const output = document.getElementById('commandOutput');
-        const badge = document.getElementById('statusBadge');
-        const btnExecute = document.getElementById('btnExecute');
-        const btnAsync = document.getElementById('btnAsync');
+    buttons[0].addEventListener('click', () => run(false));
+    buttons[1].addEventListener('click', () => run(true));
 
-        outputPanel.classList.remove('d-none');
-        output.textContent = 'Running...';
-        badge.className = 'badge bg-warning text-dark';
-        badge.textContent = 'Running';
-        btnExecute.disabled = true;
-        btnAsync.disabled = true;
+    function setStatus(text, badgeClass) {
+        badge.className = 'badge ' + badgeClass;
+        badge.textContent = text;
+    }
 
-        const url = async ? '{{ route("commands.execute-async") }}' : '{{ route("commands.execute") }}';
+    async function run(background) {
+        const payload = Object.fromEntries(new FormData(document.getElementById('commandForm')));
 
-        fetch(url, {
-            method: 'POST',
-            headers: {
-                'X-CSRF-TOKEN': csrfToken,
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(Object.fromEntries(formData)),
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (async && data.success && data.job_id) {
-                output.textContent = 'Command queued. Polling for results...';
-                pollStatus(data.job_id);
-            } else {
-                showResult(data);
-            }
-        })
-        .catch(err => {
+        document.getElementById('outputPanel').classList.remove('d-none');
+        output.textContent = background ? 'Command queued. Polling for results...' : 'Running...';
+        setStatus('Running', 'bg-warning text-dark');
+        buttons.forEach(b => b.disabled = true);
+
+        try {
+            const result = await Novarr.executeCommand(payload, { background });
+            output.textContent = result.output || result.error || result.message || 'No output';
+            setStatus(result.success ? 'Success' : 'Failed', result.success ? 'bg-success' : 'bg-danger');
+        } catch (err) {
             output.textContent = 'Error: ' + err.message;
-            badge.className = 'badge bg-danger';
-            badge.textContent = 'Error';
-            btnExecute.disabled = false;
-            btnAsync.disabled = false;
-        });
-    }
-
-    function pollStatus(jobId) {
-        const interval = setInterval(() => {
-            fetch('{{ url("commands/status") }}/' + jobId, {
-                headers: { 'Accept': 'application/json' }
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'completed') {
-                    clearInterval(interval);
-                    showResult(data.result);
-                }
-            })
-            .catch(() => {
-                clearInterval(interval);
-                document.getElementById('commandOutput').textContent = 'Error polling status.';
-                document.getElementById('statusBadge').className = 'badge bg-danger';
-                document.getElementById('statusBadge').textContent = 'Error';
-                document.getElementById('btnExecute').disabled = false;
-                document.getElementById('btnAsync').disabled = false;
-            });
-        }, 2000);
-    }
-
-    function showResult(data) {
-        const output = document.getElementById('commandOutput');
-        const badge = document.getElementById('statusBadge');
-
-        output.textContent = data.output || data.error || data.message || 'No output';
-
-        if (data.success) {
-            badge.className = 'badge bg-success';
-            badge.textContent = 'Success';
-        } else {
-            badge.className = 'badge bg-danger';
-            badge.textContent = 'Failed';
+            setStatus('Error', 'bg-danger');
+            Novarr.showToast(err.message, 'danger');
+        } finally {
+            buttons.forEach(b => b.disabled = false);
         }
-
-        document.getElementById('btnExecute').disabled = false;
-        document.getElementById('btnAsync').disabled = false;
     }
 </script>
 @endpush

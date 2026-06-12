@@ -1,8 +1,17 @@
-
-// Body
-$body-bg: #f5f8fa;
-
 // Typography
 $font-family-sans-serif: "Raleway", sans-serif;
 $font-size-base: 0.9rem;
 $line-height-base: 1.6;
+
+// Novarr dark palette — single source of truth for theme colors.
+// Bootstrap's data-bs-theme="dark" provides the component theming; these
+// cover the app-specific tweaks layered on top in app.scss.
+$novarr-body-bg: #1a1d21;
+$novarr-surface: #212529;
+$novarr-surface-alt: #2c3034;
+$novarr-border: rgba(255, 255, 255, 0.1);
+$novarr-text: #e1e1e1;
+$novarr-muted: #8b929a;
+$novarr-link: #6ea8fe;
+$novarr-link-hover: #9ec5fe;
+$novarr-code: #e685b5;
