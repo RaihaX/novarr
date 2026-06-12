@@ -585,8 +585,8 @@ class NovelChapterController extends Controller
             }
         });
 
-        if ( count($newChapters) > 0 ) {
-            Mail::to("reyhan.thee@icloud.com")->send(new NewChapters($newChapters));
+        if ( count($newChapters) > 0 && ($summaryEmail = config('mail.summary_email')) ) {
+            Mail::to($summaryEmail)->send(new NewChapters($newChapters));
         }
     }
 

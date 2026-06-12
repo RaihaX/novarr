@@ -55,6 +55,12 @@ class SendToKindle extends Command
             $this->warn('Warning: ePub exceeds 50 MB — Amazon may reject it.');
         }
 
+        // Resend caps total message size at 40 MB, and base64 encoding adds
+        // ~37% overhead, so ePubs over ~28 MB will be rejected by the API.
+        if ($sizeMb > 28 && config('mail.default') === 'resend') {
+            $this->warn('Warning: ePub exceeds ~28 MB — Resend (40 MB total, base64-encoded) may reject it. Consider MAIL_MAILER=smtp for this send.');
+        }
+
         try {
             Mail::to($kindleEmail)->send(new SendToKindleMailable($epubPath, $novel->name));
         } catch (\Throwable $e) {
