@@ -370,6 +370,7 @@ function chapterGenerator($data)
                 ".chapter-content p",
                 ".entry-content p",
                 "#chapter-content p",
+                ".reader-page p",   // Empire Novel
                 "article p",
                 ".text p",
                 "#content p",
@@ -486,6 +487,11 @@ function tableOfContentGenerator($data)
     $result = [];
 
     try {
+        // Empire Novel: detected by URL, paginated chapter list.
+        if (stripos($data->translator_url ?? "", "empirenovel.com") !== false) {
+            return finalizeTocResult(empireNovelToc($data->translator_url));
+        }
+
         // Novel Bin pages only embed the newest ~30 chapters; the complete
         // list lives behind an AJAX endpoint keyed by the URL slug. Try it
         // first and fall back to parsing the page.
@@ -631,6 +637,120 @@ function novelBinChapterArchive(string $novelUrl): array
         \Log::error("novelBinChapterArchive error for {$url}: " . $e->getMessage());
         return [];
     }
+}
+
+/**
+ * Full chapter list for an Empire Novel novel. The novel page paginates the
+ * chapter list (?page=N, newest first); walk every page and return chapters
+ * in ascending order with absolute URLs. All fetches go through FlareSolverr
+ * (the site is behind Cloudflare).
+ */
+function empireNovelToc(string $novelUrl): array
+{
+    $base = "https://www.empirenovel.com";
+    $novelPath = parse_url($novelUrl, PHP_URL_PATH) ?: "";
+    $novelUrl = $base . $novelPath; // normalise to canonical host/path
+    $result = [];
+
+    $firstHtml = fetchWithBrowser($novelUrl . "?page=1");
+    if (empty($firstHtml)) {
+        \Log::error("empireNovelToc: could not fetch {$novelUrl}");
+        return [];
+    }
+
+    // Highest ?page=N in the pagination is the last page.
+    preg_match_all('/[?&]page=(\d+)/', $firstHtml, $m);
+    $lastPage = $m[1] ? max(array_map('intval', $m[1])) : 1;
+    $lastPage = min($lastPage, 2000); // hard safety cap
+
+    $parsePage = function (string $html) use (&$result, $novelPath) {
+        $crawler = new Crawler($html);
+        $crawler->filter('a[href*="' . $novelPath . '/"]')->each(function ($node) use (&$result, $novelPath) {
+            $href = $node->attr('href');
+            // Only chapter links: /novel/{slug}/{numericId}
+            if (!preg_match('#' . preg_quote($novelPath, '#') . '/(\d+)$#', $href)) {
+                return;
+            }
+            // Normalise non-breaking spaces (the list renders "Chapter&nbsp;
+            // 7174") before collapsing whitespace.
+            $text = str_replace("\u{a0}", ' ', $node->text());
+            $text = trim(preg_replace('/\s+/u', ' ', $text));
+            // Label is like "First Chapter Chapter 1" / "Chapter 4173" — pull
+            // the chapter number from anywhere in it.
+            if (!preg_match('/chapter\s*([\d.]+)/i', $text, $m)) {
+                return;
+            }
+            $url = str_starts_with($href, 'http') ? $href : 'https://www.empirenovel.com' . $href;
+            $result[] = [
+                'label' => 'Chapter ' . $m[1],
+                'book' => 0,
+                'url' => $url,
+                'chapter' => $m[1],
+            ];
+        });
+    };
+
+    $parsePage($firstHtml);
+    for ($page = 2; $page <= $lastPage; $page++) {
+        $html = fetchWithBrowser($novelUrl . "?page=" . $page);
+        if (empty($html)) {
+            \Log::warning("empireNovelToc: page {$page} failed for {$novelUrl}; stopping");
+            break;
+        }
+        $parsePage($html);
+    }
+
+    // Dedupe by URL and sort ascending by chapter number.
+    $seen = [];
+    $unique = [];
+    foreach ($result as $row) {
+        if ($row && !isset($seen[$row['url']])) {
+            $seen[$row['url']] = true;
+            $unique[] = $row;
+        }
+    }
+    usort($unique, fn($a, $b) => ($a['chapter'] <=> $b['chapter']));
+
+    \Log::info("empireNovelToc: parsed " . count($unique) . " chapters across {$lastPage} page(s) for {$novelUrl}");
+
+    return $unique;
+}
+
+/**
+ * Metadata for an Empire Novel novel page (cover, summary, chapter count).
+ */
+function getMetadataFromEmpireNovel(string $novelUrl): array
+{
+    $metadata = ["description" => "", "author" => "", "no_of_chapters" => 0, "image" => "", "genres" => []];
+
+    $html = fetchWithBrowser($novelUrl);
+    if (empty($html)) {
+        return $metadata;
+    }
+
+    try {
+        $crawler = new Crawler($html);
+
+        $og = $crawler->filterXPath('//meta[@property="og:image"]');
+        if ($og->count() > 0) {
+            $metadata["image"] = $og->attr("content") ?? "";
+        }
+
+        $desc = $crawler->filterXPath('//meta[@name="description"]');
+        if ($desc->count() > 0) {
+            $metadata["description"] = trim($desc->attr("content") ?? "");
+        }
+
+        // Chapter count: highest ?page=N × ~30, refined by parsing later; use
+        // the largest "Chapter N" label visible as a floor.
+        if (preg_match_all('/Chapter\s+([\d.]+)/i', $html, $m)) {
+            $metadata["no_of_chapters"] = (int) max(array_map('floatval', $m[1]));
+        }
+    } catch (\Throwable $e) {
+        \Log::error("getMetadataFromEmpireNovel error for {$novelUrl}: " . $e->getMessage());
+    }
+
+    return $metadata;
 }
 
 function getMetadata($data)

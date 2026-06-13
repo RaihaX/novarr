@@ -73,7 +73,11 @@ class CreateNovel extends Command
         $object->group_id = 1;
         $object->save();
 
-        $metadata = getMetadata($object);
+        $isEmpire = stripos($url, 'empirenovel.com') !== false;
+
+        // For Empire Novel novels, prefer the source page's own metadata
+        // (NovelUpdates/NovelBin won't have a matching slug).
+        $metadata = $isEmpire ? getMetadataFromEmpireNovel($url) : getMetadata($object);
 
         $coverCandidates = array_filter([$metadata["image"] ?? null]);
 
@@ -82,7 +86,7 @@ class CreateNovel extends Command
             || empty($metadata["author"])
             || empty($metadata["no_of_chapters"]);
 
-        if ($needsFallback) {
+        if ($needsFallback && !$isEmpire) {
             $this->info("  Fetching fallback metadata from novelbin...");
             $fallback = getMetadataFromNovelBin($object);
 

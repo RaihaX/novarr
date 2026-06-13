@@ -28,37 +28,45 @@ class DiscoverController extends Controller
     public function browse(Request $request)
     {
         $data = $request->validate([
+            'source' => 'nullable|in:novelbin,empirenovel',
             'type' => 'required|in:search,popular,completed',
             'q' => 'required_if:type,search|nullable|string|max:100',
         ]);
 
-        $url = match ($data['type']) {
-            'search' => self::BASE . '/search?keyword=' . urlencode($data['q']),
-            'popular' => self::BASE . '/sort/top-hot-novel',
-            'completed' => self::BASE . '/sort/completed',
-        };
+        $source = $data['source'] ?? 'novelbin';
 
-        // Browse lists barely change — cache them. Searches are cached
-        // briefly to absorb repeated keystroke submissions. A broken cache
-        // store (e.g. unwritable storage/framework/cache) must not take the
-        // feature down, so fall back to an uncached fetch.
-        $ttl = $data['type'] === 'search' ? 600 : 3600;
+        // Empire Novel only exposes a live search endpoint (no browse lists).
+        if ($source === 'empirenovel') {
+            if ($data['type'] !== 'search') {
+                return response()->json(['success' => true, 'items' => []]);
+            }
+            $items = $this->searchEmpireNovel($data['q']);
+            $sourceLabel = 'empirenovel.com';
+        } else {
+            $url = match ($data['type']) {
+                'search' => self::BASE . '/search?keyword=' . urlencode($data['q']),
+                'popular' => self::BASE . '/sort/top-hot-novel',
+                'completed' => self::BASE . '/sort/completed',
+            };
 
-        // Bump the version segment whenever the parser/output shape changes
-        // so stale cached lists don't survive a deploy.
-        $cacheKey = 'discover_v2_' . md5($url);
+            // Browse lists barely change — cache them. Searches are cached
+            // briefly. A broken cache store must not take the feature down.
+            $ttl = $data['type'] === 'search' ? 600 : 3600;
+            $cacheKey = 'discover_v2_' . md5($url);
 
-        try {
-            $items = Cache::remember($cacheKey, $ttl, fn() => $this->fetchList($url));
-        } catch (\Throwable $e) {
-            Log::warning('Discover: cache store unavailable (' . $e->getMessage() . ') — fetching uncached');
-            $items = $this->fetchList($url);
+            try {
+                $items = Cache::remember($cacheKey, $ttl, fn() => $this->fetchList($url));
+            } catch (\Throwable $e) {
+                Log::warning('Discover: cache store unavailable (' . $e->getMessage() . ') — fetching uncached');
+                $items = $this->fetchList($url);
+            }
+            $sourceLabel = 'novelbin.me';
         }
 
         if ($items === null) {
             return response()->json([
                 'success' => false,
-                'message' => 'Could not reach novelbin.me — try again shortly.',
+                'message' => "Could not reach {$sourceLabel} — try again shortly.",
             ], 502);
         }
 
@@ -74,6 +82,51 @@ class DiscoverController extends Controller
         }
 
         return response()->json(['success' => true, 'items' => $items]);
+    }
+
+    /**
+     * Search empirenovel.com via its live-search JSON endpoint (behind
+     * Cloudflare, so via FlareSolverr). Returns null on failure.
+     */
+    protected function searchEmpireNovel(string $q): ?array
+    {
+        $cacheKey = 'discover_en_' . md5($q);
+
+        $fetch = function () use ($q) {
+            $url = 'https://www.empirenovel.com/search-live?q=' . urlencode($q);
+            $html = fetchWithBrowser($url);
+            if (empty($html)) {
+                return null;
+            }
+
+            // FlareSolverr wraps the JSON body in HTML; pull the JSON array out.
+            if (!preg_match('/(\[.*\])/s', $html, $m)) {
+                return [];
+            }
+            $rows = json_decode($m[1], true);
+            if (!is_array($rows)) {
+                return [];
+            }
+
+            return collect($rows)->map(function ($r) {
+                $slug = $r['slug'] ?? null;
+                if (!$slug) {
+                    return null;
+                }
+                return [
+                    'name' => $r['name'] ?? $slug,
+                    'url' => 'https://www.empirenovel.com/novel/' . $slug,
+                    'cover' => "https://www.empirenovel.com/uploads/novel/{$slug}/cover/cover_250x350.jpg",
+                    'author' => '',
+                ];
+            })->filter()->values()->all();
+        };
+
+        try {
+            return Cache::remember($cacheKey, 600, $fetch);
+        } catch (\Throwable $e) {
+            return $fetch();
+        }
     }
 
     /**

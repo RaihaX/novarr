@@ -67,8 +67,15 @@ class UpdateMetadata extends Command
                 }
             }
 
-            $this->line("  NovelUpdates: https://www.novelupdates.com/series/" . novelSlug($item->name) . "/");
-            $metadata = getMetadata($item);
+            $isEmpire = stripos($item->translator_url ?? '', 'empirenovel.com') !== false;
+
+            if ($isEmpire) {
+                $this->line("  Empire Novel: {$item->translator_url}");
+                $metadata = getMetadataFromEmpireNovel($item->translator_url);
+            } else {
+                $this->line("  NovelUpdates: https://www.novelupdates.com/series/" . novelSlug($item->name) . "/");
+                $metadata = getMetadata($item);
+            }
             $this->reportFetch($metadata);
 
             $coverCandidates = array_filter([$metadata["image"] ?? null]);
@@ -78,7 +85,7 @@ class UpdateMetadata extends Command
                 || empty($metadata["author"])
                 || empty($metadata["no_of_chapters"]);
 
-            if ($needsFallback) {
+            if ($needsFallback && !$isEmpire) {
                 $fallback = getMetadataFromNovelBin($item);
                 $this->line("  Falling back to NovelBin: " . implode(", ", $fallback["tried_urls"] ?? []));
 

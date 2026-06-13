@@ -7,18 +7,22 @@
         <a href="{{ route('novels.create') }}" class="btn btn-sm btn-outline-secondary">Manual add</a>
     </div>
     <div class="d-flex flex-wrap gap-2 align-items-center">
-        <div class="btn-group" role="group" aria-label="Browse mode">
+        <select id="discoverSource" class="form-select form-select-sm w-auto" aria-label="Source">
+            <option value="novelbin">novelbin.me</option>
+            <option value="empirenovel">empirenovel.com</option>
+        </select>
+        <div class="btn-group" role="group" aria-label="Browse mode" id="discoverTabs">
             <button type="button" class="btn btn-sm btn-outline-secondary discover-tab active" data-type="popular">Popular</button>
             <button type="button" class="btn btn-sm btn-outline-secondary discover-tab" data-type="completed">Completed</button>
         </div>
         <form id="discoverSearch" class="d-flex gap-2 flex-nowrap">
-            <input type="search" id="discoverQuery" aria-label="Search novelbin" class="form-control form-control-sm" placeholder="Search novelbin.me..." minlength="2">
+            <input type="search" id="discoverQuery" aria-label="Search source" class="form-control form-control-sm" placeholder="Search…" minlength="2">
             <button type="submit" class="btn btn-sm btn-primary">Search</button>
         </form>
     </div>
 </div>
 
-<p class="text-muted" style="font-size: 13px;">Results from novelbin.me — adding a novel queues a background command that fetches metadata and the cover, then you can scrape its TOC from the novel page.</p>
+<p class="text-muted" style="font-size: 13px;">Adding a novel queues a background command that fetches metadata and the cover, then you can scrape its TOC from the novel page.</p>
 
 <div id="discoverStatus" class="text-muted py-5 text-center">Loading…</div>
 <div id="discoverResults" class="poster-grid mb-4"></div>
@@ -31,13 +35,17 @@
     const resultsEl = document.getElementById('discoverResults');
     const statusEl = document.getElementById('discoverStatus');
     const tabs = document.querySelectorAll('.discover-tab');
+    const sourceEl = document.getElementById('discoverSource');
+    const tabsEl = document.getElementById('discoverTabs');
+
+    const source = () => sourceEl.value;
 
     async function loadList(type, q = '') {
         statusEl.textContent = 'Loading…';
         statusEl.classList.remove('d-none');
         resultsEl.innerHTML = '';
 
-        const params = new URLSearchParams({ type });
+        const params = new URLSearchParams({ type, source: source() });
         if (q) params.set('q', q);
 
         try {
@@ -182,6 +190,22 @@
         if (q.length < 2) return;
         tabs.forEach(t => t.classList.remove('active'));
         loadList('search', q);
+    });
+
+    // empirenovel has no browse lists — search only.
+    sourceEl.addEventListener('change', () => {
+        const isEmpire = source() === 'empirenovel';
+        tabsEl.classList.toggle('d-none', isEmpire);
+        document.getElementById('discoverQuery').placeholder = isEmpire ? 'Search empirenovel.com…' : 'Search novelbin.me…';
+        document.getElementById('discoverQuery').value = '';
+        if (isEmpire) {
+            statusEl.textContent = 'Search empirenovel.com to find a novel to add.';
+            statusEl.classList.remove('d-none');
+            resultsEl.innerHTML = '';
+        } else {
+            tabs.forEach((t, i) => t.classList.toggle('active', i === 0));
+            loadList('popular');
+        }
     });
 
     loadList('popular');
