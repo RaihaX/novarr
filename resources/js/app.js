@@ -20,3 +20,11 @@ document.addEventListener('turbo:load', () => {
     initTagPickers();
     initNavSearch();
 });
+
+// Register the service worker (PWA / offline). Only works in a secure
+// context (HTTPS / localhost); silently no-ops over plain http.
+if ('serviceWorker' in navigator && window.isSecureContext) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+}

@@ -8,6 +8,15 @@
     <title>{{ config('app.name', 'Novarr') }}</title>
     <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
 
+    {{-- PWA --}}
+    <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
+    <meta name="theme-color" content="#16181d">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Novarr">
+    <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
+
     {{-- Theme lives in resources/css/app.scss on top of Bootstrap's native dark mode --}}
     @vite(['resources/css/app.scss', 'resources/js/app.js'])
     @stack('styles')

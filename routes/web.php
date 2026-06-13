@@ -18,6 +18,7 @@ use App\Http\Controllers\LogController;
 
 // Dashboard
 Route::get('/', [HomeController::class, 'index'])->name('home');
+Route::view('/offline', 'offline')->name('offline');
 
 // Novels
 Route::get('/novels', [NovelController::class, 'index'])->name('novels.index');
