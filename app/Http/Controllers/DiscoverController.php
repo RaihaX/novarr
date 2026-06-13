@@ -39,11 +39,18 @@ class DiscoverController extends Controller
         };
 
         // Browse lists barely change — cache them. Searches are cached
-        // briefly to absorb repeated keystroke submissions.
+        // briefly to absorb repeated keystroke submissions. A broken cache
+        // store (e.g. unwritable storage/framework/cache) must not take the
+        // feature down, so fall back to an uncached fetch.
         $ttl = $data['type'] === 'search' ? 600 : 3600;
         $cacheKey = 'discover_' . md5($url);
 
-        $items = Cache::remember($cacheKey, $ttl, fn() => $this->fetchList($url));
+        try {
+            $items = Cache::remember($cacheKey, $ttl, fn() => $this->fetchList($url));
+        } catch (\Throwable $e) {
+            Log::warning('Discover: cache store unavailable (' . $e->getMessage() . ') — fetching uncached');
+            $items = $this->fetchList($url);
+        }
 
         if ($items === null) {
             return response()->json([

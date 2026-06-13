@@ -11,7 +11,7 @@
             <button type="button" class="btn btn-sm btn-outline-secondary discover-tab active" data-type="popular">Popular</button>
             <button type="button" class="btn btn-sm btn-outline-secondary discover-tab" data-type="completed">Completed</button>
         </div>
-        <form id="discoverSearch" class="d-flex gap-2">
+        <form id="discoverSearch" class="d-flex gap-2 flex-nowrap">
             <input type="search" id="discoverQuery" aria-label="Search novelbin" class="form-control form-control-sm" placeholder="Search novelbin.me..." minlength="2">
             <button type="submit" class="btn btn-sm btn-primary">Search</button>
         </form>
@@ -73,6 +73,14 @@
             img.src = item.cover;
             img.alt = 'Cover of ' + item.name;
             img.loading = 'lazy';
+            img.addEventListener('error', () => {
+                const ph = document.createElement('div');
+                ph.className = 'poster-cover-placeholder';
+                const span = document.createElement('span');
+                span.textContent = item.name;
+                ph.appendChild(span);
+                img.replaceWith(ph);
+            });
             coverWrap.appendChild(img);
         } else {
             const ph = document.createElement('div');
@@ -101,7 +109,7 @@
 
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'btn btn-sm w-100 mt-2 ' + (item.in_library ? 'btn-outline-secondary' : 'btn-success');
+        btn.className = 'btn btn-sm w-100 poster-add ' + (item.in_library ? 'btn-outline-secondary' : 'btn-success');
         btn.textContent = item.in_library ? 'Already added' : '+ Add';
         btn.disabled = item.in_library;
         btn.addEventListener('click', () => addNovel(btn, item));
@@ -122,22 +130,22 @@
             });
 
             if (result.success && !(result.output || '').includes('cancelled')) {
-                btn.className = 'btn btn-sm w-100 mt-2 btn-outline-secondary';
+                btn.className = 'btn btn-sm w-100 poster-add btn-outline-secondary';
                 btn.textContent = 'Added ✓';
                 Novarr.showToast(`"${item.name}" added — metadata and cover fetched. Open it to scrape the TOC.`, 'success');
             } else if ((result.output || '').includes('already exists')) {
-                btn.className = 'btn btn-sm w-100 mt-2 btn-outline-secondary';
+                btn.className = 'btn btn-sm w-100 poster-add btn-outline-secondary';
                 btn.textContent = 'Already added';
                 Novarr.showToast(`"${item.name}" is already in your library.`, 'warning');
             } else {
                 btn.disabled = false;
-                btn.className = 'btn btn-sm w-100 mt-2 btn-success';
+                btn.className = 'btn btn-sm w-100 poster-add btn-success';
                 btn.textContent = '+ Add';
                 Novarr.showToast(result.error || result.message || 'Failed to add novel.', 'danger');
             }
         } catch (err) {
             btn.disabled = false;
-            btn.className = 'btn btn-sm w-100 mt-2 btn-success';
+            btn.className = 'btn btn-sm w-100 poster-add btn-success';
             btn.textContent = '+ Add';
             Novarr.showToast('Error: ' + err.message, 'danger');
         }

@@ -243,7 +243,8 @@ a.dash-stat:hover {
 }
 
 .poster-card {
-    display: block;
+    display: flex;
+    flex-direction: column;
     text-decoration: none;
     color: $novarr-text;
 
@@ -334,6 +335,20 @@ a.dash-stat:hover {
 .poster-meta {
     font-size: 11px;
     color: $novarr-muted;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-height: 1.2em;
+}
+
+// Add button on discover cards: pinned to the bottom so a row of cards
+// stays aligned regardless of title/author wrapping.
+.poster-card .poster-add {
+    margin-top: auto !important;
+}
+
+.poster-card .poster-meta {
+    margin-bottom: 0.5rem;
 }
 
 // Uppercase column-header style used on list tables
