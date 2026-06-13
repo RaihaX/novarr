@@ -28,6 +28,9 @@ Route::get('/novels/{id}', [NovelController::class, 'show'])->name('novels.show'
 Route::get('/novels/{id}/edit', [NovelController::class, 'edit'])->name('novels.edit');
 Route::put('/novels/{id}', [NovelController::class, 'update'])->name('novels.update');
 Route::post('/novels/{id}/toggle-pause', [NovelController::class, 'togglePause'])->name('novels.toggle_pause');
+Route::post('/novels/{id}/tags', [NovelController::class, 'syncTags'])->name('novels.sync_tags');
+Route::get('/novels/{id}/jump', [NovelController::class, 'jumpChapter'])->name('novels.jump_chapter');
+Route::post('/novels/{id}/remove-duplicates', [NovelController::class, 'removeDuplicates'])->name('novels.remove_duplicates');
 Route::delete('/novels/{id}', [NovelController::class, 'destroy'])->name('novels.destroy');
 Route::get('/novels/{id}/epub', [NovelController::class, 'download_epub'])->name('novels.download_epub');
 Route::get('/novels/{id}/metadata', [NovelController::class, 'update_metadata'])->name('novels.get_metadata');

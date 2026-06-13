@@ -156,8 +156,7 @@ class NovelController extends Controller
             ->withCount([
                 'chapters',
                 'chapters as downloaded_chapters_count' => fn($q) => $q->where('status', 1)->where('blacklist', 0),
-            ])
-            ->ordered();
+            ]);
 
         if ($request->filled('search')) {
             $query->where('name', 'like', '%' . $request->search . '%');
@@ -166,6 +165,29 @@ class NovelController extends Controller
         if ($request->filled('status')) {
             $query->where('status', $request->status);
         }
+
+        if ($request->filled('tag')) {
+            $query->whereHas('tags', fn($q) => $q->where('tags.id', $request->tag));
+        }
+
+        // Sort: explicit ?sort= wins, otherwise the last choice in session.
+        $sort = $request->query('sort');
+        if (!in_array($sort, ['name', 'progress', 'updated', 'chapters'], true)) {
+            $sort = session('novels_sort', 'name');
+        }
+        session(['novels_sort' => $sort]);
+
+        match ($sort) {
+            'progress' => $query->orderByRaw('(downloaded_chapters_count / NULLIF(chapters_count, 0)) DESC'),
+            'chapters' => $query->orderByDesc('chapters_count'),
+            'updated' => $query->orderByDesc(
+                NovelChapter::select('download_date')
+                    ->whereColumn('novel_id', 'novels.id')
+                    ->orderByDesc('download_date')
+                    ->limit(1)
+            ),
+            default => $query->orderBy('name'),
+        };
 
         // List/grid toggle: explicit ?view= wins, otherwise the last choice
         // remembered in the session.
@@ -183,6 +205,9 @@ class NovelController extends Controller
                 ['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id']
             ),
             'view' => $view,
+            'sort' => $sort,
+            'tags' => \App\Tag::orderBy('name')->get(['id', 'name']),
+            'activeTag' => $request->query('tag'),
         ]);
     }
 
@@ -196,6 +221,87 @@ class NovelController extends Controller
         return view('novels.edit', [
             'novel' => $this->novels->findOrFail($id),
             'groups' => \App\Group::orderBy('label')->get(['id', 'label']),
+        ]);
+    }
+
+    /**
+     * Jump to a chapter by its number — opens the reader for the matching
+     * chapter, so big novels don't require paging through the table.
+     */
+    public function jumpChapter(Request $request, $id)
+    {
+        $number = (float) $request->query('n');
+
+        $chapter = NovelChapter::where('novel_id', $id)
+            ->where('blacklist', 0)
+            ->where('chapter', $number)
+            ->orderByDesc('status')
+            ->first(['id']);
+
+        if (!$chapter) {
+            return redirect()->route('novels.show', $id)
+                ->with('status', "No chapter {$request->query('n')} found.");
+        }
+
+        return redirect()->route('chapters.show', $chapter->id);
+    }
+
+    /**
+     * Remove duplicate chapters (same novel + chapter + book), keeping the
+     * best copy: prefer a downloaded one, then the earliest.
+     */
+    public function removeDuplicates($id)
+    {
+        $groups = NovelChapter::where('novel_id', $id)
+            ->where('blacklist', 0)
+            ->select('chapter', 'book')
+            ->groupBy('chapter', 'book')
+            ->havingRaw('count(id) > 1')
+            ->get();
+
+        $removed = 0;
+
+        foreach ($groups as $group) {
+            $dupes = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->where('chapter', $group->chapter)
+                ->where('book', $group->book)
+                ->orderByDesc('status')
+                ->orderBy('id')
+                ->get();
+
+            // Keep the first, soft-delete the rest.
+            foreach ($dupes->slice(1) as $dupe) {
+                $dupe->delete();
+                $removed++;
+            }
+        }
+
+        CacheHelper::clearNovelCache($id);
+
+        return response()->json(['success' => true, 'removed' => $removed]);
+    }
+
+    /**
+     * Replace a novel's tags from a comma-separated list, creating any new
+     * tag names on the fly.
+     */
+    public function syncTags(Request $request, $id)
+    {
+        $novel = $this->novels->findOrFail($id);
+
+        $names = collect(explode(',', $request->input('tags', '')))
+            ->map(fn($n) => trim($n))
+            ->filter()
+            ->unique()
+            ->take(20);
+
+        $ids = $names->map(fn($name) => \App\Tag::firstOrCreate(['name' => $name])->id)->all();
+        $novel->tags()->sync($ids);
+
+        return response()->json([
+            'success' => true,
+            'tags' => $novel->tags()->orderBy('name')->pluck('name'),
         ]);
     }
 
@@ -359,7 +465,7 @@ class NovelController extends Controller
     {
         $data = $this->novels->with(['file' => function($q) {
             $q->orderBy('id', 'desc');
-        }, 'group', 'language'])->findOrFail($id);
+        }, 'group', 'language', 'tags'])->findOrFail($id);
 
         // Use stable cache key so CacheHelper::clearNovelCache() can invalidate it
         $cacheKey = "novel_stats_{$id}";

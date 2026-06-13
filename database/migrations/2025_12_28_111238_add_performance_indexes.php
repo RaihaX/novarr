@@ -26,16 +26,6 @@ return new class extends Migration
             $table->index('group_id', 'idx_novel_group_id');
             $table->index('language_id', 'idx_novel_language_id');
         });
-
-        // Add indexes to mangas table
-        Schema::table('mangas', function (Blueprint $table) {
-            $table->index('name', 'idx_manga_name');
-        });
-
-        // Add indexes to manga_chapters table
-        Schema::table('manga_chapters', function (Blueprint $table) {
-            $table->index('manga_id', 'idx_manga_chapter_manga_id');
-        });
     }
 
     /**
@@ -55,14 +45,6 @@ return new class extends Migration
             $table->dropIndex('idx_novel_name');
             $table->dropIndex('idx_novel_group_id');
             $table->dropIndex('idx_novel_language_id');
-        });
-
-        Schema::table('mangas', function (Blueprint $table) {
-            $table->dropIndex('idx_manga_name');
-        });
-
-        Schema::table('manga_chapters', function (Blueprint $table) {
-            $table->dropIndex('idx_manga_chapter_manga_id');
         });
     }
 };

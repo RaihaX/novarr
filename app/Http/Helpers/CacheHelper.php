@@ -58,27 +58,14 @@ class CacheHelper
     }
 
     /**
-     * Clear manga-specific cache.
-     * Clears the stable cache key used by MangaController::get_manga().
-     *
-     * @param int $mangaId
-     * @return void
-     */
-    public static function clearMangaCache(int $mangaId)
-    {
-        Cache::forget("manga_{$mangaId}");
-    }
-
-    /**
      * Clear all DataTables caches.
-     * Call this when novel/manga/chapter data changes.
+     * Call this when novel/chapter data changes.
      *
      * @return void
      */
     public static function clearDataTablesCaches()
     {
         Cache::forget('datatables_novels');
-        Cache::forget('datatables_mangas');
         Cache::forget('datatables_latest_chapters');
         Cache::forget('datatables_missing_chapters');
     }
@@ -93,15 +80,5 @@ class CacheHelper
         Cache::forget('datatables_novels');
         Cache::forget('datatables_latest_chapters');
         Cache::forget('datatables_missing_chapters');
-    }
-
-    /**
-     * Clear manga-related DataTables cache.
-     *
-     * @return void
-     */
-    public static function clearMangaDataTablesCache()
-    {
-        Cache::forget('datatables_mangas');
     }
 }

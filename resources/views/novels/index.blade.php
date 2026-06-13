@@ -18,14 +18,28 @@
             </a>
         </div>
         <form method="GET" action="{{ route('novels.index') }}">
+            <select name="sort" aria-label="Sort" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+                <option value="name" @selected($sort === 'name')>A–Z</option>
+                <option value="progress" @selected($sort === 'progress')>Progress</option>
+                <option value="updated" @selected($sort === 'updated')>Recently updated</option>
+                <option value="chapters" @selected($sort === 'chapters')>Chapter count</option>
+            </select>
             <select name="status" aria-label="Filter by status" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
                 <option value="">All Status</option>
                 <option value="0" @selected(request('status') === '0')>Active</option>
                 <option value="1" @selected(request('status') === '1')>Completed</option>
             </select>
+            @if($tags->isNotEmpty())
+                <select name="tag" aria-label="Filter by tag" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+                    <option value="">All tags</option>
+                    @foreach($tags as $tag)
+                        <option value="{{ $tag->id }}" @selected((string) $activeTag === (string) $tag->id)>{{ $tag->name }}</option>
+                    @endforeach
+                </select>
+            @endif
             <input type="search" name="search" aria-label="Search novels" class="form-control form-control-sm w-auto" placeholder="Search novels..." value="{{ request('search') }}">
             <button type="submit" class="btn btn-sm btn-primary">Search</button>
-            @if(request('search') || request('status') !== null && request('status') !== '')
+            @if(request('search') || request()->filled('status') || request()->filled('tag'))
                 <a href="{{ route('novels.index') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
             @endif
         </form>

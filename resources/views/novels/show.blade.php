@@ -93,6 +93,23 @@
             @endif
         </div>
 
+        {{-- Tags --}}
+        <div class="mb-3 d-flex align-items-center gap-2 flex-wrap" style="font-size: 13px;">
+            <span class="text-muted">Tags:</span>
+            <span id="tagList">
+                @forelse($data->tags as $tag)
+                    <a href="{{ route('novels.index', ['tag' => $tag->id]) }}" class="badge bg-secondary text-decoration-none">{{ $tag->name }}</a>
+                @empty
+                    <span class="text-muted fst-italic" id="noTags">none</span>
+                @endforelse
+            </span>
+            <button type="button" id="editTags" class="btn btn-link btn-sm p-0" style="font-size: 12px;">Edit</button>
+            <span id="tagEditor" class="d-none d-flex gap-2 align-items-center">
+                <input type="text" id="tagInput" class="form-control form-control-sm" style="width: 280px;" value="{{ $data->tags->pluck('name')->implode(', ') }}" placeholder="comma, separated, tags">
+                <button type="button" id="saveTags" class="btn btn-sm btn-primary" data-id="{{ $data->id }}">Save</button>
+            </span>
+        </div>
+
         {{-- Stats --}}
         <div class="row g-2 mb-3">
             <div class="col">
@@ -231,14 +248,21 @@
 
 {{-- Chapters Table --}}
 <div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <h6 class="mb-0">Chapters</h6>
-        <div class="d-flex gap-2 align-items-center">
+        <div class="d-flex gap-2 align-items-center flex-wrap">
             <div id="chBulkBar" class="d-none align-items-center gap-2">
                 <span id="chBulkCount" class="text-muted" style="font-size: 12px;"></span>
                 <button type="button" id="chMarkRead" class="btn btn-sm btn-outline-success">Mark read</button>
                 <button type="button" id="chMarkUnread" class="btn btn-sm btn-outline-secondary">Mark unread</button>
             </div>
+            @if(count($duplicate_chapters) > 0)
+                <button type="button" id="removeDupes" class="btn btn-sm btn-outline-warning" data-id="{{ $data->id }}" title="{{ count($duplicate_chapters) }} duplicate chapter group(s) detected">Remove {{ count($duplicate_chapters) }} duplicate(s)</button>
+            @endif
+            <form method="GET" action="{{ route('novels.jump_chapter', $data->id) }}" class="d-flex gap-1">
+                <input type="number" name="n" step="any" min="0" class="form-control form-control-sm" style="width: 90px;" placeholder="Ch. #" aria-label="Jump to chapter">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Go</button>
+            </form>
             <span class="badge bg-secondary">{{ $chapters->total() }}</span>
         </div>
     </div>
@@ -365,6 +389,69 @@
                 }
             } catch (err) {
                 pauseToggle.disabled = false;
+                Novarr.showToast('Error: ' + err.message, 'danger');
+            }
+        });
+    }
+
+    // ---- Tag editing ----
+    const editTags = document.getElementById('editTags');
+    if (editTags) {
+        editTags.addEventListener('click', () => {
+            document.getElementById('tagEditor').classList.toggle('d-none');
+            document.getElementById('tagEditor').classList.toggle('d-flex');
+        });
+        document.getElementById('saveTags').addEventListener('click', async (e) => {
+            const btn = e.target;
+            btn.disabled = true;
+            try {
+                const response = await fetch(`/novels/${btn.dataset.id}/tags`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ tags: document.getElementById('tagInput').value }),
+                });
+                const data = await response.json();
+                if (data.success) {
+                    location.reload();
+                } else {
+                    Novarr.showToast('Failed to save tags.', 'danger');
+                }
+            } catch (err) {
+                Novarr.showToast('Error: ' + err.message, 'danger');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    }
+
+    // ---- Remove duplicate chapters ----
+    const removeDupes = document.getElementById('removeDupes');
+    if (removeDupes) {
+        removeDupes.addEventListener('click', async () => {
+            if (!confirm('Remove duplicate chapters, keeping the best copy of each?')) return;
+            removeDupes.disabled = true;
+            try {
+                const response = await fetch(`/novels/${removeDupes.dataset.id}/remove-duplicates`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                    },
+                });
+                const data = await response.json();
+                if (data.success) {
+                    Novarr.showToast(`Removed ${data.removed} duplicate chapter(s).`, 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    removeDupes.disabled = false;
+                    Novarr.showToast('Failed to remove duplicates.', 'danger');
+                }
+            } catch (err) {
+                removeDupes.disabled = false;
                 Novarr.showToast('Error: ' + err.message, 'danger');
             }
         });

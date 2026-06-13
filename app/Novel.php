@@ -73,6 +73,11 @@ class Novel extends Model
         return $this->belongsTo(Group::class);
     }
 
+    public function tags(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(Tag::class, 'novel_tag');
+    }
+
     public function language(): BelongsTo
     {
         return $this->belongsTo(Language::class);
