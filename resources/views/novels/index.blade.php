@@ -1,12 +1,12 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-toolbar">
     <div class="d-flex align-items-center gap-3">
         <h1 class="mb-0">Novels</h1>
         <a href="{{ route('novels.create') }}" class="btn btn-sm btn-success">+ Add Novel</a>
     </div>
-    <form class="d-flex gap-2" method="GET" action="{{ route('novels.index') }}">
+    <form method="GET" action="{{ route('novels.index') }}">
         <select name="status" aria-label="Filter by status" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
             <option value="">All Status</option>
             <option value="0" @selected(request('status') === '0')>Active</option>
@@ -21,7 +21,38 @@
 </div>
 
 <div class="card">
-    <div class="table-responsive">
+    {{-- Mobile: compact card list --}}
+    <div class="d-md-none">
+        @forelse($novels as $novel)
+            @php
+                $total = $novel->chapters_count ?? 0;
+                $downloaded = $novel->downloaded_chapters_count ?? 0;
+                $pct = $total > 0 ? round(($downloaded / $total) * 100) : 0;
+            @endphp
+            <a href="{{ route('novels.show', $novel->id) }}" class="novel-card">
+                @if($novel->file)
+                    <img src="{{ Storage::url($novel->file->file_path) }}" alt="Cover of {{ $novel->name }}" loading="lazy" class="cover-thumb">
+                @else
+                    <div class="cover-placeholder">N/A</div>
+                @endif
+                <div class="novel-card-body">
+                    <div class="novel-card-title">{{ $novel->name }}</div>
+                    <div class="novel-card-meta mb-1">{{ $novel->author ?? 'Unknown author' }} · {{ $downloaded }}/{{ $total }}</div>
+                    <div class="progress" style="height: 5px;">
+                        <div class="progress-bar {{ $pct >= 100 ? 'bg-success' : 'bg-info' }}" style="width: {{ $pct }}%"></div>
+                    </div>
+                </div>
+                @if($novel->status)
+                    <span class="badge bg-info">Done</span>
+                @endif
+            </a>
+        @empty
+            <p class="text-center text-muted py-4 mb-0">No novels found.</p>
+        @endforelse
+    </div>
+
+    {{-- Desktop: full table --}}
+    <div class="table-responsive d-none d-md-block">
         <table class="table table-hover mb-0 align-middle">
             <thead>
                 <tr class="table-head-label">

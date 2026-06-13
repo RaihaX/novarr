@@ -155,8 +155,10 @@ class NovelController extends Controller
             $query->where('status', $request->status);
         }
 
+        // Only what the list renders (plus relation keys) — novels.* would
+        // drag the longtext description along for every row.
         return view('novels.index', [
-            'novels' => $query->paginate(25),
+            'novels' => $query->paginate(25, ['id', 'name', 'author', 'status', 'group_id', 'language_id']),
         ]);
     }
 

@@ -42,9 +42,9 @@
 
 {{-- Hero Section --}}
 <div class="row mb-4">
-    <div class="col-md-2">
+    <div class="col-5 col-sm-4 col-md-2 mx-auto mx-md-0">
         @if($data->file)
-            <img src="{{ Storage::url($data->file->file_path) }}" alt="{{ $data->name }}" class="novel-cover img-fluid w-100 mb-3">
+            <img src="{{ Storage::url($data->file->file_path) }}" alt="Cover of {{ $data->name }}" class="novel-cover img-fluid w-100 mb-3">
         @else
             <div class="novel-cover d-flex align-items-center justify-content-center w-100 mb-3" style="height: 220px; background: #2c3034;">
                 <span class="text-muted">No Cover</span>
@@ -52,7 +52,7 @@
         @endif
     </div>
 
-    <div class="col-md-10">
+    <div class="col-12 col-md-10">
         <div class="d-flex align-items-start justify-content-between mb-2">
             <div>
                 <h2 class="mb-1">{{ $data->name }}</h2>

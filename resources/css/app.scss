@@ -1,5 +1,5 @@
 // Fonts
-@import url("https://fonts.googleapis.com/css?family=Raleway:300,400,600");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
 // Variables
 @import "variables";
@@ -14,19 +14,44 @@
 body {
     background-color: $novarr-body-bg;
     color: $novarr-text;
+    -webkit-font-smoothing: antialiased;
 }
 
+// Sticky, translucent navbar with backdrop blur
 .navbar {
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+    background-color: rgba(22, 24, 29, 0.85) !important;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid $novarr-border;
+
+    .nav-link {
+        border-radius: $border-radius;
+        padding-inline: 0.85rem;
+        transition: background-color 0.15s ease, color 0.15s ease;
+
+        &:hover {
+            background-color: rgba(255, 255, 255, 0.06);
+        }
+
+        &.active {
+            background-color: rgba(110, 168, 254, 0.15);
+            color: $novarr-link-hover;
+            font-weight: 600;
+        }
+    }
 }
 
 .navbar-brand {
-    font-weight: bold;
+    font-weight: 700;
     letter-spacing: 1px;
 }
 
 a {
     color: $novarr-link;
+    text-underline-offset: 3px;
 
     &:hover {
         color: $novarr-link-hover;
@@ -37,11 +62,48 @@ a {
     color: $novarr-link-hover;
 }
 
+// Cards: flatter borders, gentle elevation
+.card {
+    background-color: $novarr-surface;
+    border: 1px solid $novarr-border;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.card-header {
+    background-color: rgba(255, 255, 255, 0.03);
+    border-bottom-color: $novarr-border;
+}
+
+.table {
+    th, td {
+        padding-block: 0.65rem;
+    }
+}
+
+.badge {
+    border-radius: 50rem;
+    font-weight: 500;
+    padding: 0.35em 0.75em;
+}
+
 code {
     color: $novarr-code;
     background-color: rgba(255, 255, 255, 0.05);
     padding: 2px 5px;
     border-radius: 3px;
+}
+
+// Visible keyboard-focus ring everywhere
+:focus-visible {
+    outline: 2px solid $novarr-link;
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        transition: none !important;
+        animation: none !important;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -55,7 +117,7 @@ code {
     width: 36px;
     height: 50px;
     object-fit: cover;
-    border-radius: 3px;
+    border-radius: 4px;
     overflow: hidden;
     font-size: 10px;
     color: $novarr-muted;
@@ -65,12 +127,57 @@ code {
     width: 36px;
     height: 50px;
     background: $novarr-surface-alt;
-    border-radius: 3px;
+    border-radius: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 10px;
     color: $novarr-muted;
+}
+
+// Mobile novel cards (novels index < md)
+.novel-card {
+    display: flex;
+    gap: 0.85rem;
+    align-items: center;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid $novarr-border;
+    text-decoration: none;
+    color: $novarr-text;
+    transition: background-color 0.15s ease;
+
+    &:active, &:hover {
+        background-color: rgba(255, 255, 255, 0.04);
+        color: $novarr-text;
+    }
+
+    &:last-child {
+        border-bottom: 0;
+    }
+
+    .cover-thumb, .cover-placeholder {
+        width: 44px;
+        height: 62px;
+        flex-shrink: 0;
+    }
+
+    .novel-card-body {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .novel-card-title {
+        font-weight: 600;
+        color: $novarr-link;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .novel-card-meta {
+        font-size: 12px;
+        color: $novarr-muted;
+    }
 }
 
 // Uppercase column-header style used on list tables
@@ -79,6 +186,65 @@ code {
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: $novarr-muted;
+}
+
+// Page toolbar (heading + filters) that wraps gracefully on small screens
+.page-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+
+    form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    @include media-breakpoint-down(md) {
+        form {
+            width: 100%;
+
+            input[type="search"] {
+                flex: 1;
+            }
+        }
+    }
+}
+
+// Reading view
+.chapter-content {
+    font-size: clamp(16px, 2.5vw, 18px);
+    line-height: 1.9;
+    color: #d6d6d6;
+    max-width: 720px;
+    margin: 0 auto;
+    overflow-wrap: break-word;
+
+    p {
+        margin-bottom: 1em;
+    }
+}
+
+.chapter-nav {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+
+    .btn {
+        @include media-breakpoint-up(md) {
+            min-width: 140px;
+        }
+    }
+
+    @include media-breakpoint-down(md) {
+        .btn {
+            flex: 1;
+        }
+    }
 }
 
 // Command output panels

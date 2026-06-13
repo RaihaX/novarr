@@ -1,17 +1,25 @@
-// Typography
-$font-family-sans-serif: "Raleway", sans-serif;
+// Typography — Inter with system-ui fallbacks
+$font-family-sans-serif: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 $font-size-base: 0.9rem;
 $line-height-base: 1.6;
+$headings-font-weight: 600;
+
+// Softer, larger radii across Bootstrap components
+$border-radius: 0.5rem;
+$border-radius-sm: 0.375rem;
+$border-radius-lg: 0.75rem;
+$card-border-radius: 0.75rem;
 
 // Novarr dark palette — single source of truth for theme colors.
 // Bootstrap's data-bs-theme="dark" provides the component theming; these
 // cover the app-specific tweaks layered on top in app.scss.
-$novarr-body-bg: #1a1d21;
-$novarr-surface: #212529;
+$novarr-body-bg: #16181d;
+$novarr-surface: #1e2128;
 $novarr-surface-alt: #2c3034;
-$novarr-border: rgba(255, 255, 255, 0.1);
+$novarr-border: rgba(255, 255, 255, 0.08);
 $novarr-text: #e1e1e1;
 $novarr-muted: #8b929a;
 $novarr-link: #6ea8fe;
 $novarr-link-hover: #9ec5fe;
 $novarr-code: #e685b5;
+$novarr-accent: #0d6efd;

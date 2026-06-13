@@ -52,7 +52,7 @@
     <div class="col-md-6 mb-4">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0"><span class="badge bg-success me-2">{{ $latest_chapters->total() }}</span> Latest Chapters</h5>
+                <h5 class="mb-0"><span class="badge bg-success me-2" title="Chapters added in the last 24 hours">{{ $added_today }}</span> Latest Chapters <small class="text-muted fw-normal">(last 24h)</small></h5>
             </div>
             <div class="table-responsive">
                 @if($latest_chapters->count() > 0)
