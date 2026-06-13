@@ -403,6 +403,7 @@ class NovelController extends Controller
             'author' => 'nullable|string|max:255',
             'translator' => 'nullable|string|max:255',
             'translator_url' => 'nullable|url|max:2048',
+            'novelupdates_url' => 'nullable|url|max:2048',
             'chapter_url' => 'nullable|url|max:2048',
             'alternative_url' => 'nullable|url|max:2048',
             'no_of_chapters' => 'nullable|integer|min:0',
@@ -433,6 +434,10 @@ class NovelController extends Controller
 
         if ( $request->has('translator_url') ) {
             $object->translator_url = $request->translator_url;
+        }
+
+        if ( $request->has('novelupdates_url') ) {
+            $object->novelupdates_url = $request->novelupdates_url ?: null;
         }
 
         if ( $request->has('chapter_url') ) {
@@ -629,6 +634,7 @@ class NovelController extends Controller
             'author' => 'nullable|string|max:255',
             'translator' => 'nullable|string|max:255',
             'translator_url' => 'nullable|url|max:2048',
+            'novelupdates_url' => 'nullable|url|max:2048',
             'chapter_url' => 'nullable|url|max:2048',
             'alternative_url' => 'nullable|url|max:2048',
             'no_of_chapters' => 'nullable|integer|min:0',
@@ -659,6 +665,10 @@ class NovelController extends Controller
 
         if ( $request->has('translator_url') ) {
             $object->translator_url = $request->translator_url;
+        }
+
+        if ( $request->has('novelupdates_url') ) {
+            $object->novelupdates_url = $request->novelupdates_url ?: null;
         }
 
         if ( $request->has('chapter_url') ) {

@@ -918,104 +918,137 @@ function getMetadataFromNovelFull(string $novelUrl): array
     return $metadata;
 }
 
-function getMetadata($data)
+/**
+ * Resolve the NovelUpdates series URL for a title by querying their live
+ * search (the endpoint their search box uses). Matches associated names /
+ * aliases, so e.g. "Outside of Time" resolves to the "Beyond the Timescape"
+ * series. Returns null when nothing matches.
+ */
+function resolveNovelUpdatesUrl(string $name): ?string
 {
-    $metadata = [
-        "description" => "",
-        "author" => "",
-        "no_of_chapters" => 0,
-        "image" => "",
-        "status_text" => "",
-        "completed" => false,
-        "fully_translated" => null,
-        "genres" => [],
-    ];
-
-    $name = novelSlug($data->name);
-    $url = "https://www.novelupdates.com/series/{$name}/";
+    $flareSolverrUrl = setting('flaresolverr_url', env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'));
 
     try {
-        // NovelUpdates sits behind Cloudflare: a plain HTTP request works from
-        // residential IPs but gets challenged from others, which silently
-        // empties every field. Use FlareSolverr (same path the chapter
-        // scraper relies on) and only fall back to a direct request.
-        $html = fetchWithBrowser($url);
+        $response = HttpClient::create(['timeout' => 60])->request('POST', $flareSolverrUrl, [
+            'headers' => ['Content-Type' => 'application/json'],
+            'json' => [
+                'cmd' => 'request.post',
+                'url' => 'https://www.novelupdates.com/wp-admin/admin-ajax.php',
+                // NovelUpdates' search requires %20-encoded spaces (rawurlencode);
+                // http_build_query's + form gives an empty result.
+                'postData' => 'action=nd_ajaxsearchmain&strType=desktop&strOne=' . rawurlencode($name),
+                'maxTimeout' => 60000,
+            ],
+        ]);
 
+        $data = json_decode($response->getContent(), true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+        $html = $data['solution']['response'] ?? '';
+
+        if (preg_match('#href="(https://www\.novelupdates\.com/series/[a-z0-9-]+/?)"#i', $html, $m)) {
+            return rtrim($m[1], '/') . '/';
+        }
+    } catch (\Throwable $e) {
+        \Log::warning("resolveNovelUpdatesUrl failed for '{$name}': " . $e->getMessage());
+    }
+
+    return null;
+}
+
+/**
+ * Fetch and parse a single NovelUpdates series page into the metadata array.
+ */
+function fetchNovelUpdatesMetadata(string $url): array
+{
+    $metadata = [
+        "description" => "", "author" => "", "no_of_chapters" => 0, "image" => "",
+        "status_text" => "", "completed" => false, "fully_translated" => null, "genres" => [],
+    ];
+
+    try {
+        // NovelUpdates sits behind Cloudflare — use FlareSolverr, falling back
+        // to a direct request.
+        $html = fetchWithBrowser($url);
         if (empty($html)) {
-            \Log::warning("getMetadata: FlareSolverr failed for {$url}; falling back to direct fetch");
             $html = createHttpClient()->request("GET", $url)->getContent();
         }
 
         if (stripos($html, '<title>Just a moment...</title>') !== false ||
             stripos($html, 'Verifying you are human') !== false) {
-            \Log::error("getMetadata: Cloudflare challenge page for {$url} — metadata unavailable");
+            \Log::error("fetchNovelUpdatesMetadata: Cloudflare challenge for {$url}");
             return $metadata;
         }
 
         $crawler = new Crawler($html);
 
-        // Description
-        $descriptionFilter = $crawler->filter("#editdescription");
-        $metadata["description"] = $descriptionFilter->count() > 0
-            ? $descriptionFilter->first()->html()
-            : "";
+        $desc = $crawler->filter("#editdescription");
+        $metadata["description"] = $desc->count() > 0 ? $desc->first()->html() : "";
 
-        // Author
-        $authorFilter = $crawler->filter("#authtag");
-        $metadata["author"] = $authorFilter->count() > 0
-            ? $authorFilter->first()->text()
-            : "";
+        $author = $crawler->filter("#authtag");
+        $metadata["author"] = $author->count() > 0 ? $author->first()->text() : "";
 
-        // Number of Chapters + status in country of origin (e.g. "1234 Chapters (Completed)")
-        $statusFilter = $crawler->filter("#editstatus");
-        if ($statusFilter->count() > 0) {
-            $statusFilter->each(function ($node) use (&$metadata) {
+        $status = $crawler->filter("#editstatus");
+        if ($status->count() > 0) {
+            $status->each(function ($node) use (&$metadata) {
                 $metadata["status_text"] = trim($node->text());
                 $text = str_replace("Chapter ", "Chapters ", $node->text());
                 preg_match("/(\d+) Chapters/", $text, $matches);
                 $metadata["no_of_chapters"] = $matches[1] ?? 0;
             });
-            $metadata["completed"] =
-                stripos($metadata["status_text"], "complete") !== false;
+            $metadata["completed"] = stripos($metadata["status_text"], "complete") !== false;
         }
 
-        // Fully Translated flag ("Yes" / "No")
-        $translatedFilter = $crawler->filter("#showtranslated");
-        if ($translatedFilter->count() > 0) {
-            $metadata["fully_translated"] =
-                stripos(trim($translatedFilter->first()->text()), "yes") !== false;
+        $translated = $crawler->filter("#showtranslated");
+        if ($translated->count() > 0) {
+            $metadata["fully_translated"] = stripos(trim($translated->first()->text()), "yes") !== false;
         }
 
-        // Image
-        $imageFilter = $crawler->filter(".seriesimg > img");
-        $metadata["image"] = $imageFilter->count() > 0
-            ? $imageFilter->first()->attr("src")
-            : "";
+        $img = $crawler->filter(".seriesimg > img");
+        $metadata["image"] = $img->count() > 0 ? $img->first()->attr("src") : "";
 
-        // Genres — the #seriesgenre block holds the broad genres (Action,
-        // Fantasy, Xuanhuan…); the granular #showtags list is deliberately
-        // skipped to keep tags meaningful.
-        $genreFilter = $crawler->filter("#seriesgenre a.genre");
-        if ($genreFilter->count() > 0) {
-            $metadata["genres"] = normalizeGenres(
-                $genreFilter->each(fn($n) => $n->text())
-            );
+        $genres = $crawler->filter("#seriesgenre a.genre");
+        if ($genres->count() > 0) {
+            $metadata["genres"] = normalizeGenres($genres->each(fn($n) => $n->text()));
         }
+    } catch (\Throwable $e) {
+        \Log::error("fetchNovelUpdatesMetadata error for {$url}: " . $e->getMessage());
+    }
 
-        if (empty($metadata["description"])) {
-            $title = $crawler->filter("title")->count() > 0
-                ? trim($crawler->filter("title")->first()->text())
-                : "(no title)";
-            \Log::warning(
-                "getMetadata: no description found for {$url} "
-                . "(html length: " . strlen($html) . ", page title: {$title}). "
-                . "Wrong slug or NovelUpdates markup change."
-            );
+    return $metadata;
+}
+
+/**
+ * NovelUpdates metadata for a novel. Uses the novel's saved novelupdates_url
+ * when set; otherwise guesses from the name slug, and if that misses (e.g.
+ * the title is an alias) falls back to NovelUpdates' search and persists the
+ * resolved URL so future refreshes are deterministic.
+ */
+function getMetadata($data)
+{
+    // 1. Explicit override saved on the novel.
+    if (!empty($data->novelupdates_url)) {
+        return fetchNovelUpdatesMetadata($data->novelupdates_url);
+    }
+
+    // 2. Direct slug guess.
+    $url = "https://www.novelupdates.com/series/" . novelSlug($data->name) . "/";
+    $metadata = fetchNovelUpdatesMetadata($url);
+
+    if (!empty($metadata["description"])) {
+        return $metadata;
+    }
+
+    // 3. Slug missed — resolve via search (handles aliases) and remember it.
+    \Log::info("getMetadata: slug '{$url}' missed for '{$data->name}'; trying NovelUpdates search");
+    $resolved = resolveNovelUpdatesUrl($data->name);
+    if ($resolved && $resolved !== $url) {
+        $found = fetchNovelUpdatesMetadata($resolved);
+        if (!empty($found["description"])) {
+            if (($data->exists ?? false)) {
+                $data->forceFill(['novelupdates_url' => $resolved])->saveQuietly();
+            }
+            \Log::info("getMetadata: resolved '{$data->name}' -> {$resolved}");
+            return $found;
         }
-    } catch (TransportExceptionInterface $e) {
-        \Log::error("getMetadata transport error for {$name}: " . $e->getMessage());
-    } catch (\Exception $e) {
-        \Log::error("getMetadata error for {$name}: " . $e->getMessage());
     }
 
     return $metadata;

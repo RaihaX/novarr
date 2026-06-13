@@ -21,6 +21,7 @@ class Novel extends Model
         "description",
         "cover",
         "translator_url",
+        "novelupdates_url",
         "status",
         "completed_at",
         "group_id",

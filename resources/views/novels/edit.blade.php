@@ -56,6 +56,12 @@
                         <input type="url" name="translator_url" id="translator_url" class="form-control" value="{{ old('translator_url', $novel->translator_url) }}">
                     </div>
 
+                    <div class="mb-3">
+                        <label for="novelupdates_url" class="form-label">NovelUpdates URL <span class="text-muted">(optional — overrides metadata lookup for aliased titles)</span></label>
+                        <input type="url" name="novelupdates_url" id="novelupdates_url" class="form-control" value="{{ old('novelupdates_url', $novel->novelupdates_url) }}" placeholder="https://www.novelupdates.com/series/…">
+                        <div class="form-text">Set this when the title differs from NovelUpdates (e.g. an alias). Leave blank to auto-resolve. Run Refresh Metadata after saving.</div>
+                    </div>
+
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label for="chapter_url" class="form-label">Chapter URL base</label>
