@@ -195,6 +195,8 @@
 
 @push('scripts')
 <script>
+(function(){
+
     document.querySelectorAll('.ignore-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
             btn.disabled = true;
@@ -222,5 +224,7 @@
             }
         });
     });
+
+})();
 </script>
 @endpush

@@ -1,4 +1,5 @@
 import './bootstrap';
+import '@hotwired/turbo';
 
 import { executeCommand, pollJobStatus } from './commands';
 import { showToast } from './toast';
@@ -9,7 +10,9 @@ import { initNavSearch } from './navsearch';
 // (inline scripts are not part of the Vite module graph).
 window.Novarr = { executeCommand, pollJobStatus, showToast, initTagPickers };
 
-document.addEventListener('DOMContentLoaded', () => {
+// turbo:load fires on the first load and after every Turbo navigation, so
+// page chrome (tag pickers, navbar search) is re-bound on each visit.
+document.addEventListener('turbo:load', () => {
     initTagPickers();
     initNavSearch();
 });

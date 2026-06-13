@@ -74,6 +74,8 @@
 
 @push('scripts')
 <script>
+(function(){
+
     const output = document.getElementById('commandOutput');
     const badge = document.getElementById('statusBadge');
     const buttons = [document.getElementById('btnExecute'), document.getElementById('btnAsync')];
@@ -106,5 +108,7 @@
             buttons.forEach(b => b.disabled = false);
         }
     }
+
+})();
 </script>
 @endpush

@@ -40,6 +40,8 @@
 
 @push('scripts')
 <script>
+(function(){
+
     document.querySelectorAll('.log-clear-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
             const filename = btn.dataset.filename;
@@ -93,5 +95,7 @@
             }
         });
     });
+
+})();
 </script>
 @endpush

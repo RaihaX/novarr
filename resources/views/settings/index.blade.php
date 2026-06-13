@@ -62,6 +62,8 @@
 
 @push('scripts')
 <script>
+(function(){
+
     const csrf = document.querySelector('meta[name="csrf-token"]').content;
 
     async function runTest(btn, url, body) {
@@ -96,5 +98,7 @@
         runTest(e.target, '{{ route('settings.test_notification') }}', {
             notification_webhook_url: document.getElementById('notification_webhook_url').value,
         }));
+
+})();
 </script>
 @endpush

@@ -26,6 +26,8 @@
 
 @push('scripts')
 <script>
+(function(){
+
     const resultsEl = document.getElementById('discoverResults');
     const statusEl = document.getElementById('discoverStatus');
     const tabs = document.querySelectorAll('.discover-tab');
@@ -183,5 +185,7 @@
     });
 
     loadList('popular');
+
+})();
 </script>
 @endpush

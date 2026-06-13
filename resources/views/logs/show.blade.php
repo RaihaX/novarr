@@ -124,6 +124,8 @@
 
 @push('scripts')
 <script>
+(function(){
+
     const levelColors = {
         emergency: 'danger', alert: 'danger', critical: 'danger', error: 'danger',
         warning: 'warning', notice: 'info', info: 'info', debug: 'secondary',
@@ -208,5 +210,7 @@
             Novarr.showToast('Error: ' + err.message, 'danger');
         }
     });
+
+})();
 </script>
 @endpush
