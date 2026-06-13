@@ -67,7 +67,9 @@ class UpdateMetadata extends Command
                 }
             }
 
+            $this->line("  NovelUpdates: https://www.novelupdates.com/series/" . novelSlug($item->name) . "/");
             $metadata = getMetadata($item);
+            $this->reportFetch($metadata);
 
             $needsFallback = empty($metadata["image"])
                 || empty($metadata["description"])
@@ -75,12 +77,18 @@ class UpdateMetadata extends Command
                 || empty($metadata["no_of_chapters"]);
 
             if ($needsFallback) {
+                $this->line("  Falling back to NovelBin: https://novelbin.com/b/" . novelSlug($item->name));
                 $fallback = getMetadataFromNovelBin($item);
                 foreach (["description", "author", "no_of_chapters", "image"] as $key) {
                     if (empty($metadata[$key]) && !empty($fallback[$key])) {
                         $metadata[$key] = $fallback[$key];
                     }
                 }
+                $this->reportFetch($metadata);
+            }
+
+            if (empty($metadata["description"])) {
+                $this->warn("  ✗ No description found on either source — check the URLs above in a browser.");
             }
 
             $novel = Novel::find($item->id);
@@ -114,5 +122,20 @@ class UpdateMetadata extends Command
                 }
             }
         }
+    }
+
+    /**
+     * One-line summary of what a metadata fetch returned, so an all-novels
+     * run shows exactly what was found (or missed) per source as it goes.
+     */
+    private function reportFetch(array $metadata): void
+    {
+        $this->line(sprintf(
+            "    description: %s | author: %s | chapters: %s | cover: %s",
+            !empty($metadata["description"]) ? strlen($metadata["description"]) . " chars" : "—",
+            !empty($metadata["author"]) ? $metadata["author"] : "—",
+            !empty($metadata["no_of_chapters"]) ? $metadata["no_of_chapters"] : "—",
+            !empty($metadata["image"]) ? "yes" : "—"
+        ));
     }
 }

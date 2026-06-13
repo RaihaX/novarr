@@ -65,9 +65,12 @@
                     <span class="badge bg-success ms-2">Active</span>
                 @endif
             </div>
-            <button type="button" id="pauseToggle" class="btn btn-sm {{ $data->paused_at ? 'btn-success' : 'btn-outline-secondary' }}" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
-                {{ $data->paused_at ? 'Resume downloads' : 'Pause downloads' }}
-            </button>
+            <div class="d-flex gap-2">
+                <button type="button" id="pauseToggle" class="btn btn-sm {{ $data->paused_at ? 'btn-success' : 'btn-outline-secondary' }}" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
+                    {{ $data->paused_at ? 'Resume downloads' : 'Pause downloads' }}
+                </button>
+                <button type="button" id="deleteNovel" class="btn btn-sm btn-outline-danger" data-id="{{ $data->id }}" data-name="{{ $data->name }}">Delete</button>
+            </div>
         </div>
 
         <div class="row g-2 mb-3" style="font-size: 13px;">
@@ -286,6 +289,33 @@
     document.querySelectorAll('.cmd-btn').forEach(btn => {
         btn.addEventListener('click', () => runCommand(btn));
     });
+
+    const deleteBtn = document.getElementById('deleteNovel');
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', async () => {
+            if (!confirm(`Delete "${deleteBtn.dataset.name}" and all of its chapters? This cannot be undone from the UI.`)) return;
+            deleteBtn.disabled = true;
+            try {
+                const response = await fetch(`/novels/${deleteBtn.dataset.id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                    },
+                });
+                const data = await response.json();
+                if (data.success) {
+                    window.location.href = '{{ route('novels.index') }}';
+                } else {
+                    deleteBtn.disabled = false;
+                    Novarr.showToast('Failed to delete novel.', 'danger');
+                }
+            } catch (err) {
+                deleteBtn.disabled = false;
+                Novarr.showToast('Error: ' + err.message, 'danger');
+            }
+        });
+    }
 
     const pauseToggle = document.getElementById('pauseToggle');
     if (pauseToggle) {

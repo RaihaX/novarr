@@ -4,7 +4,7 @@
 <div class="page-toolbar">
     <div class="d-flex align-items-center gap-3">
         <h1 class="mb-0">Novels</h1>
-        <a href="{{ route('novels.create') }}" class="btn btn-sm btn-success">+ Add Novel</a>
+        <a href="{{ route('novels.discover') }}" class="btn btn-sm btn-success">+ Add Novel</a>
     </div>
     <div class="d-flex flex-wrap gap-2 align-items-center">
         <div class="btn-group" role="group" aria-label="View mode">
@@ -68,6 +68,12 @@
         {{ $novels->appends(request()->query())->links() }}
     @endif
 @else
+<div id="bulkBar" class="d-none align-items-center gap-2 mb-3 p-2 px-3 card flex-row">
+    <span id="bulkCount" class="fw-semibold"></span>
+    <button type="button" id="bulkComplete" class="btn btn-sm btn-outline-info">Mark complete</button>
+    <button type="button" id="bulkDelete" class="btn btn-sm btn-outline-danger">Delete</button>
+    <button type="button" id="bulkClear" class="btn btn-sm btn-link text-decoration-none ms-auto">Clear selection</button>
+</div>
 <div class="card">
     {{-- Mobile: compact card list --}}
     <div class="d-md-none">
@@ -106,17 +112,20 @@
         <table class="table table-hover mb-0 align-middle">
             <thead>
                 <tr class="table-head-label">
+                    <th style="width: 34px"><input type="checkbox" id="selectAll" class="form-check-input" aria-label="Select all novels"></th>
                     <th style="width: 50px"></th>
                     <th>Name</th>
                     <th style="width: 180px">Author</th>
                     <th style="width: 90px">Status</th>
                     <th style="width: 180px">Progress</th>
                     <th style="width: 110px">Chapters</th>
+                    <th style="width: 46px"><span class="visually-hidden">Actions</span></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($novels as $novel)
                     <tr>
+                        <td><input type="checkbox" class="form-check-input novel-check" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}"></td>
                         <td>
                             @if($novel->file)
                                 <img src="{{ Storage::url($novel->file->file_path) }}" alt="Cover of {{ $novel->name }}" loading="lazy" class="cover-thumb">
@@ -153,10 +162,15 @@
                             </div>
                         </td>
                         <td class="text-muted">{{ $downloaded }} / {{ $total }}</td>
+                        <td class="text-end">
+                            <button type="button" class="btn btn-sm btn-outline-danger novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
+                                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.5 1h3a.5.5 0 0 1 .5.5V2h4v1.5H2V2h4v-.5a.5.5 0 0 1 .5-.5zM3 4.5h10L12.2 14a1.5 1.5 0 0 1-1.5 1.4H5.3A1.5 1.5 0 0 1 3.8 14L3 4.5z"/></svg>
+                            </button>
+                        </td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="6" class="text-center text-muted py-4">No novels found.</td>
+                        <td colspan="8" class="text-center text-muted py-4">No novels found.</td>
                     </tr>
                 @endforelse
             </tbody>
@@ -170,3 +184,101 @@
 </div>
 @endif
 @endsection
+
+@push('scripts')
+<script>
+    // --- Bulk selection ---
+    const bulkBar = document.getElementById('bulkBar');
+    const selectAll = document.getElementById('selectAll');
+    const checks = () => [...document.querySelectorAll('.novel-check')];
+    const selected = () => checks().filter(c => c.checked).map(c => c.value);
+
+    function refreshBulkBar() {
+        const n = selected().length;
+        if (bulkBar) {
+            bulkBar.classList.toggle('d-none', n === 0);
+            bulkBar.classList.toggle('d-flex', n > 0);
+            document.getElementById('bulkCount').textContent = `${n} selected`;
+        }
+        if (selectAll) {
+            selectAll.checked = n > 0 && n === checks().length;
+            selectAll.indeterminate = n > 0 && n < checks().length;
+        }
+    }
+
+    checks().forEach(c => c.addEventListener('change', refreshBulkBar));
+    selectAll?.addEventListener('change', () => {
+        checks().forEach(c => c.checked = selectAll.checked);
+        refreshBulkBar();
+    });
+    document.getElementById('bulkClear')?.addEventListener('click', () => {
+        checks().forEach(c => c.checked = false);
+        refreshBulkBar();
+    });
+
+    async function bulkAction(action) {
+        const ids = selected();
+        if (!ids.length) return;
+
+        if (action === 'delete' && !confirm(`Delete ${ids.length} novel(s) and all of their chapters? This cannot be undone from the UI.`)) return;
+        if (action === 'complete' && !confirm(`Mark ${ids.length} novel(s) as complete?`)) return;
+
+        try {
+            const response = await fetch('{{ route('novels.bulk') }}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ action, ids }),
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                location.reload();
+            } else {
+                Novarr.showToast(data.message || 'Bulk action failed.', 'danger');
+            }
+        } catch (err) {
+            Novarr.showToast('Error: ' + err.message, 'danger');
+        }
+    }
+
+    document.getElementById('bulkDelete')?.addEventListener('click', () => bulkAction('delete'));
+    document.getElementById('bulkComplete')?.addEventListener('click', () => bulkAction('complete'));
+
+    // --- Single delete ---
+    document.querySelectorAll('.novel-delete-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const name = btn.dataset.name;
+
+            if (!confirm(`Delete "${name}" and all of its chapters? This cannot be undone from the UI.`)) return;
+
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`/novels/${btn.dataset.id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                    },
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    btn.closest('tr').remove();
+                    Novarr.showToast(`Deleted "${name}".`, 'success');
+                } else {
+                    btn.disabled = false;
+                    Novarr.showToast('Failed to delete novel.', 'danger');
+                }
+            } catch (err) {
+                btn.disabled = false;
+                Novarr.showToast('Error: ' + err.message, 'danger');
+            }
+        });
+    });
+</script>
+@endpush

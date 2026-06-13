@@ -180,6 +180,41 @@ class NovelController extends Controller
     }
 
     /**
+     * Bulk actions from the novels list: delete (novel + chapters,
+     * soft-deleted) or mark as complete.
+     */
+    public function bulk(Request $request)
+    {
+        $data = $request->validate([
+            'action' => 'required|in:delete,complete',
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:novels,id',
+        ]);
+
+        foreach ($data['ids'] as $id) {
+            if ($data['action'] === 'delete') {
+                NovelChapter::where('novel_id', $id)->delete();
+                Novel::find($id)?->delete();
+            } else {
+                $novel = Novel::find($id);
+                if ($novel && !$novel->status) {
+                    $novel->status = 1;
+                    $novel->completed_at = now();
+                    $novel->save();
+                }
+            }
+
+            CacheHelper::clearNovelCache($id);
+        }
+
+        CacheHelper::clearNovelDataTablesCache();
+        Cache::forget('dashboard_stats');
+        Cache::forget('dashboard_attention');
+
+        return response()->json(['success' => true, 'count' => count($data['ids'])]);
+    }
+
+    /**
      * Pause/resume automatic scraping for a novel ("ignore" on the
      * dashboard). Paused novels are skipped by the scheduled sweeps and by
      * needs-attention alerts; explicit per-novel commands still run.
@@ -513,12 +548,20 @@ class NovelController extends Controller
      */
     public function destroy($id)
     {
-        $object = $this->novels->find($id);
+        $object = $this->novels->findOrFail($id);
+
+        // Soft-delete the chapters too — orphaned chapters would otherwise
+        // keep counting toward pending/missing stats on the dashboard.
+        NovelChapter::where('novel_id', $id)->delete();
         $object->delete();
 
         // Clear caches after deletion
         CacheHelper::clearNovelCache($id);
         CacheHelper::clearNovelDataTablesCache();
+        Cache::forget('dashboard_stats');
+        Cache::forget('dashboard_attention');
+
+        return response()->json(['success' => true]);
     }
 
     /**

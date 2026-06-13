@@ -4,6 +4,7 @@ use App\Http\Controllers\HomeController;
 use App\Http\Controllers\NovelController;
 use App\Http\Controllers\NovelChapterController;
 use App\Http\Controllers\CommandController;
+use App\Http\Controllers\DiscoverController;
 use App\Http\Controllers\LogController;
 
 /*
@@ -18,9 +19,13 @@ Route::get('/', [HomeController::class, 'index'])->name('home');
 // Novels
 Route::get('/novels', [NovelController::class, 'index'])->name('novels.index');
 Route::get('/novels/create', [NovelController::class, 'create'])->name('novels.create');
+Route::get('/novels/discover', [DiscoverController::class, 'index'])->name('novels.discover');
+Route::get('/novels/discover/browse', [DiscoverController::class, 'browse'])->name('novels.discover.browse');
 Route::post('/novels', [NovelController::class, 'store'])->name('novels.store');
+Route::post('/novels/bulk', [NovelController::class, 'bulk'])->name('novels.bulk');
 Route::get('/novels/{id}', [NovelController::class, 'show'])->name('novels.show');
 Route::post('/novels/{id}/toggle-pause', [NovelController::class, 'togglePause'])->name('novels.toggle_pause');
+Route::delete('/novels/{id}', [NovelController::class, 'destroy'])->name('novels.destroy');
 Route::get('/novels/{id}/epub', [NovelController::class, 'download_epub'])->name('novels.download_epub');
 Route::get('/novels/{id}/metadata', [NovelController::class, 'update_metadata'])->name('novels.get_metadata');
 
