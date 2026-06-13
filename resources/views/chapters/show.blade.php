@@ -60,9 +60,12 @@
                     @endif
                 </div>
             </div>
-            <button type="button" id="readToggle" class="btn btn-sm {{ $chapter->read_at ? 'btn-success' : 'btn-outline-secondary' }}" data-id="{{ $chapter->id }}">
-                {{ $chapter->read_at ? '✓ Read' : 'Mark read' }}
-            </button>
+            <div class="d-flex gap-2 flex-shrink-0">
+                <button type="button" id="readThrough" class="btn btn-sm btn-outline-secondary" data-id="{{ $chapter->id }}" title="Mark this and all earlier chapters as read">Mark to here</button>
+                <button type="button" id="readToggle" class="btn btn-sm {{ $chapter->read_at ? 'btn-success' : 'btn-outline-secondary' }}" data-id="{{ $chapter->id }}">
+                    {{ $chapter->read_at ? '✓ Read' : 'Mark read' }}
+                </button>
+            </div>
         </div>
     </div>
     <div class="card-body">
@@ -151,6 +154,51 @@
         if (e.target.matches('input, textarea, select')) return;
         if (e.key === 'ArrowLeft' && prevUrl) window.location.href = prevUrl;
         if (e.key === 'ArrowRight' && nextUrl) window.location.href = nextUrl;
+    });
+
+    // ---- Resume scroll position per chapter ----
+    const scrollKey = 'reader_scroll_{{ $chapter->id }}';
+    const savedScroll = parseInt(localStorage.getItem(scrollKey) || '0', 10);
+    if (savedScroll > 200) {
+        window.scrollTo(0, savedScroll);
+    }
+    let scrollSaveTimer = null;
+    window.addEventListener('scroll', () => {
+        clearTimeout(scrollSaveTimer);
+        scrollSaveTimer = setTimeout(() => {
+            // Near the bottom? consider it finished and forget the position.
+            const atBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 100;
+            if (atBottom) {
+                localStorage.removeItem(scrollKey);
+            } else {
+                localStorage.setItem(scrollKey, String(Math.round(window.scrollY)));
+            }
+        }, 250);
+    });
+
+    // ---- "Mark to here" (this + all earlier chapters) ----
+    const readThrough = document.getElementById('readThrough');
+    readThrough.addEventListener('click', async () => {
+        readThrough.disabled = true;
+        try {
+            const response = await fetch(`/chapters/${readThrough.dataset.id}/read-through`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/json',
+                },
+            });
+            const data = await response.json();
+            if (data.success) {
+                Novarr.showToast(`Marked ${data.marked} earlier chapter(s) as read.`, 'success');
+                document.getElementById('readToggle').className = 'btn btn-sm btn-success';
+                document.getElementById('readToggle').textContent = '✓ Read';
+            }
+        } catch (err) {
+            Novarr.showToast('Error: ' + err.message, 'danger');
+        } finally {
+            readThrough.disabled = false;
+        }
     });
 
     // ---- Manual read/unread toggle ----

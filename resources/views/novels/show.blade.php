@@ -233,12 +233,20 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h6 class="mb-0">Chapters</h6>
-        <span class="badge bg-secondary">{{ $chapters->total() }}</span>
+        <div class="d-flex gap-2 align-items-center">
+            <div id="chBulkBar" class="d-none align-items-center gap-2">
+                <span id="chBulkCount" class="text-muted" style="font-size: 12px;"></span>
+                <button type="button" id="chMarkRead" class="btn btn-sm btn-outline-success">Mark read</button>
+                <button type="button" id="chMarkUnread" class="btn btn-sm btn-outline-secondary">Mark unread</button>
+            </div>
+            <span class="badge bg-secondary">{{ $chapters->total() }}</span>
+        </div>
     </div>
     <div class="table-responsive">
         <table class="table table-sm table-hover mb-0 align-middle">
             <thead>
                 <tr style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6c757d;">
+                    <th style="width: 34px"><input type="checkbox" id="chSelectAll" class="form-check-input" aria-label="Select all chapters"></th>
                     <th style="width: 70px">Ch.</th>
                     <th style="width: 50px">Book</th>
                     <th>Label</th>
@@ -249,6 +257,7 @@
             <tbody>
                 @forelse($chapters as $chapter)
                     <tr class="chapter-row">
+                        <td><input type="checkbox" class="form-check-input ch-check" value="{{ $chapter->id }}" aria-label="Select chapter {{ $chapter->chapter }}"></td>
                         <td class="fw-semibold">{{ $chapter->chapter }}</td>
                         <td class="text-muted">{{ $chapter->book ?: '-' }}</td>
                         <td>
@@ -272,7 +281,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="5" class="text-center text-muted py-4">No chapters found.</td>
+                        <td colspan="6" class="text-center text-muted py-4">No chapters found.</td>
                     </tr>
                 @endforelse
             </tbody>
@@ -360,6 +369,56 @@
             }
         });
     }
+
+    // ---- Chapter bulk read/unread ----
+    const chChecks = () => [...document.querySelectorAll('.ch-check')];
+    const chSelected = () => chChecks().filter(c => c.checked).map(c => c.value);
+    const chBulkBar = document.getElementById('chBulkBar');
+    const chSelectAll = document.getElementById('chSelectAll');
+
+    function refreshChBulk() {
+        const n = chSelected().length;
+        chBulkBar.classList.toggle('d-none', n === 0);
+        chBulkBar.classList.toggle('d-flex', n > 0);
+        document.getElementById('chBulkCount').textContent = `${n} selected`;
+        if (chSelectAll) {
+            chSelectAll.checked = n > 0 && n === chChecks().length;
+            chSelectAll.indeterminate = n > 0 && n < chChecks().length;
+        }
+    }
+
+    chChecks().forEach(c => c.addEventListener('change', refreshChBulk));
+    chSelectAll?.addEventListener('change', () => {
+        chChecks().forEach(c => c.checked = chSelectAll.checked);
+        refreshChBulk();
+    });
+
+    async function bulkRead(read) {
+        const ids = chSelected();
+        if (!ids.length) return;
+        try {
+            const response = await fetch('{{ route('chapters.bulk_read') }}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ ids, read }),
+            });
+            const data = await response.json();
+            if (data.success) {
+                location.reload();
+            } else {
+                Novarr.showToast(data.message || 'Failed to update chapters.', 'danger');
+            }
+        } catch (err) {
+            Novarr.showToast('Error: ' + err.message, 'danger');
+        }
+    }
+
+    document.getElementById('chMarkRead')?.addEventListener('click', () => bulkRead(true));
+    document.getElementById('chMarkUnread')?.addEventListener('click', () => bulkRead(false));
 
     async function runCommand(btn) {
         if (btn.disabled) return;

@@ -35,6 +35,8 @@ Route::get('/novels/{id}/metadata', [NovelController::class, 'update_metadata'])
 // Chapters
 Route::get('/chapters/{id}', [NovelChapterController::class, 'show'])->name('chapters.show');
 Route::post('/chapters/{id}/toggle-read', [NovelChapterController::class, 'toggleRead'])->name('chapters.toggle_read');
+Route::post('/chapters/{id}/read-through', [NovelChapterController::class, 'readThrough'])->name('chapters.read_through');
+Route::post('/chapters/bulk-read', [NovelChapterController::class, 'bulkRead'])->name('chapters.bulk_read');
 
 // Commands (status route BEFORE wildcard {command})
 Route::get('/commands', [CommandController::class, 'index'])->name('commands.index');
@@ -46,6 +48,8 @@ Route::get('/commands/{command}', [CommandController::class, 'showForm'])->name(
 // Logs
 Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
 Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
+Route::post('/settings/test-email', [SettingsController::class, 'testEmail'])->name('settings.test_email');
+Route::post('/settings/test-flaresolverr', [SettingsController::class, 'testFlareSolverr'])->name('settings.test_flaresolverr');
 
 Route::get('/logs', [LogController::class, 'index'])->name('logs.index');
 Route::get('/logs/{filename}/tail', [LogController::class, 'tail'])->name('logs.tail');
