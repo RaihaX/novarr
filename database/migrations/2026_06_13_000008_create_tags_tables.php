@@ -18,13 +18,20 @@ return new class extends Migration
             });
         }
 
-        if (!Schema::hasTable('novel_tag')) {
-            Schema::create('novel_tag', function (Blueprint $table) {
-                $table->foreignId('novel_id')->constrained()->cascadeOnDelete();
-                $table->foreignId('tag_id')->constrained('tags')->cascadeOnDelete();
-                $table->primary(['novel_id', 'tag_id']);
-            });
-        }
+        // A partial run may have left this table behind — drop it so we
+        // recreate cleanly with the right (FK-free) shape.
+        Schema::dropIfExists('novel_tag');
+
+        Schema::create('novel_tag', function (Blueprint $table) {
+            // No foreign-key constraints: novels.id on older installs is a
+            // plain INT while these default to BIGINT, which makes MySQL
+            // reject the FK (errno 150). The pivot is managed in app code,
+            // so a composite primary key + tag index is enough.
+            $table->unsignedBigInteger('novel_id');
+            $table->unsignedBigInteger('tag_id');
+            $table->primary(['novel_id', 'tag_id']);
+            $table->index('tag_id');
+        });
     }
 
     public function down(): void
