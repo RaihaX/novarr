@@ -75,6 +75,8 @@ class CreateNovel extends Command
 
         $metadata = getMetadata($object);
 
+        $coverCandidates = array_filter([$metadata["image"] ?? null]);
+
         $needsFallback = empty($metadata["image"])
             || empty($metadata["description"])
             || empty($metadata["author"])
@@ -83,6 +85,11 @@ class CreateNovel extends Command
         if ($needsFallback) {
             $this->info("  Fetching fallback metadata from novelbin...");
             $fallback = getMetadataFromNovelBin($object);
+
+            if (!empty($fallback["image"])) {
+                $coverCandidates[] = $fallback["image"];
+            }
+
             foreach (["description", "author", "no_of_chapters", "image"] as $key) {
                 if (empty($metadata[$key]) && !empty($fallback[$key])) {
                     $metadata[$key] = $fallback[$key];
@@ -104,8 +111,8 @@ class CreateNovel extends Command
 
         $object->save();
 
-        if (!empty($metadata["image"])) {
-            $downloaded = downloadCoverImage($metadata["image"], $object->id);
+        foreach (array_unique($coverCandidates) as $imageUrl) {
+            $downloaded = downloadCoverImage($imageUrl, $object->id);
 
             if ($downloaded) {
                 $file_object = new File([
@@ -114,9 +121,10 @@ class CreateNovel extends Command
                 ]);
                 $object->file()->save($file_object);
                 $this->info("  Cover saved: {$downloaded['filename']}");
-            } else {
-                $this->warn("  Cover image download failed.");
+                break;
             }
+
+            $this->warn("  Cover download failed from {$imageUrl}.");
         }
 
         $this->info("New Novel ID: {$object->id}");

@@ -40,6 +40,10 @@
     <a href="{{ route('novels.index') }}" class="btn btn-outline-secondary btn-sm">&larr; Back to Novels</a>
 </div>
 
+@if(session('status'))
+    <div class="alert alert-success py-2">{{ session('status') }}</div>
+@endif
+
 {{-- Hero Section --}}
 <div class="row mb-4">
     <div class="col-5 col-sm-4 col-md-2 mx-auto mx-md-0">
@@ -66,6 +70,7 @@
                 @endif
             </div>
             <div class="d-flex gap-2">
+                <a href="{{ route('novels.edit', $data->id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
                 <button type="button" id="pauseToggle" class="btn btn-sm {{ $data->paused_at ? 'btn-success' : 'btn-outline-secondary' }}" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
                     {{ $data->paused_at ? 'Resume downloads' : 'Pause downloads' }}
                 </button>

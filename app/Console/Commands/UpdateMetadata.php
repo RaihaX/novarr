@@ -71,14 +71,21 @@ class UpdateMetadata extends Command
             $metadata = getMetadata($item);
             $this->reportFetch($metadata);
 
+            $coverCandidates = array_filter([$metadata["image"] ?? null]);
+
             $needsFallback = empty($metadata["image"])
                 || empty($metadata["description"])
                 || empty($metadata["author"])
                 || empty($metadata["no_of_chapters"]);
 
             if ($needsFallback) {
-                $this->line("  Falling back to NovelBin: https://novelbin.com/b/" . novelSlug($item->name));
                 $fallback = getMetadataFromNovelBin($item);
+                $this->line("  Falling back to NovelBin: " . implode(", ", $fallback["tried_urls"] ?? []));
+
+                if (!empty($fallback["image"])) {
+                    $coverCandidates[] = $fallback["image"];
+                }
+
                 foreach (["description", "author", "no_of_chapters", "image"] as $key) {
                     if (empty($metadata[$key]) && !empty($fallback[$key])) {
                         $metadata[$key] = $fallback[$key];
@@ -107,18 +114,28 @@ class UpdateMetadata extends Command
 
             $novel->save();
 
-            if (!$hasValidCover && !empty($metadata["image"])) {
-                $downloaded = downloadCoverImage($metadata["image"], $novel->id);
+            if (!$hasValidCover && !empty($coverCandidates)) {
+                $saved = false;
 
-                if ($downloaded) {
-                    $file_object = new File([
-                        "file_name" => $downloaded["basename"],
-                        "file_path" => "public/" . $downloaded["filename"],
-                    ]);
-                    $novel->file()->save($file_object);
-                    $this->info("  Cover saved: {$downloaded['filename']}");
-                } else {
-                    $this->warn("  Cover image download failed.");
+                foreach (array_unique($coverCandidates) as $imageUrl) {
+                    $downloaded = downloadCoverImage($imageUrl, $novel->id);
+
+                    if ($downloaded) {
+                        $file_object = new File([
+                            "file_name" => $downloaded["basename"],
+                            "file_path" => "public/" . $downloaded["filename"],
+                        ]);
+                        $novel->file()->save($file_object);
+                        $this->info("  Cover saved: {$downloaded['filename']}");
+                        $saved = true;
+                        break;
+                    }
+
+                    $this->warn("  Cover download failed from {$imageUrl}" . (count($coverCandidates) > 1 ? " — trying next source" : ""));
+                }
+
+                if (!$saved) {
+                    $this->warn("  ✗ No cover could be downloaded.");
                 }
             }
         }

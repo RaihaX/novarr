@@ -24,6 +24,8 @@ Route::get('/novels/discover/browse', [DiscoverController::class, 'browse'])->na
 Route::post('/novels', [NovelController::class, 'store'])->name('novels.store');
 Route::post('/novels/bulk', [NovelController::class, 'bulk'])->name('novels.bulk');
 Route::get('/novels/{id}', [NovelController::class, 'show'])->name('novels.show');
+Route::get('/novels/{id}/edit', [NovelController::class, 'edit'])->name('novels.edit');
+Route::put('/novels/{id}', [NovelController::class, 'update'])->name('novels.update');
 Route::post('/novels/{id}/toggle-pause', [NovelController::class, 'togglePause'])->name('novels.toggle_pause');
 Route::delete('/novels/{id}', [NovelController::class, 'destroy'])->name('novels.destroy');
 Route::get('/novels/{id}/epub', [NovelController::class, 'download_epub'])->name('novels.download_epub');

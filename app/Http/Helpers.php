@@ -508,15 +508,35 @@ function finalizeTocResult(array $result): array
 }
 
 /**
+ * Extract [host, slug] from any Novel Bin URL shape: a novel page
+ * (…/novel-book/slug, …/b/slug) or an AJAX endpoint
+ * (…/ajax/chapter-archive?novelId=slug).
+ */
+function novelBinSlugAndHost(string $url): array
+{
+    $host = parse_url($url, PHP_URL_HOST) ?: "";
+    $slug = "";
+
+    parse_str(parse_url($url, PHP_URL_QUERY) ?: "", $query);
+
+    if (!empty($query["novelId"])) {
+        $slug = $query["novelId"];
+    } else {
+        $path = parse_url($url, PHP_URL_PATH) ?: "";
+        $slug = basename(rtrim($path, "/"));
+    }
+
+    return [$host, $slug];
+}
+
+/**
  * Fetch the complete chapter list for a Novel Bin novel via its AJAX
  * archive endpoint (the novel page itself only embeds the newest ~30).
  */
 function novelBinChapterArchive(string $novelUrl): array
 {
-    $path = parse_url($novelUrl, PHP_URL_PATH) ?: "";
-    $slug = basename(rtrim($path, "/"));
+    [$host, $slug] = novelBinSlugAndHost($novelUrl);
     $scheme = parse_url($novelUrl, PHP_URL_SCHEME) ?: "https";
-    $host = parse_url($novelUrl, PHP_URL_HOST);
 
     if ($slug === "" || empty($host)) {
         return [];
@@ -688,12 +708,27 @@ function getMetadataFromNovelBin($data)
     $candidateUrls = [];
 
     if (!empty($data->translator_url) && stripos($data->translator_url, "novelbin") !== false) {
-        $candidateUrls[] = rtrim($data->translator_url, "/");
+        if (stripos($data->translator_url, "/ajax/") !== false) {
+            // translator_url points at an AJAX endpoint (used for chapter
+            // lists) — derive the actual novel page from its slug.
+            [$host, $slug] = novelBinSlugAndHost($data->translator_url);
+            if ($slug !== "" && $host !== "") {
+                $candidateUrls[] = "https://{$host}/novel-book/{$slug}";
+                $candidateUrls[] = "https://novelbin.me/novel-book/{$slug}";
+                $candidateUrls[] = "https://novelbin.com/b/{$slug}";
+            }
+        } else {
+            $candidateUrls[] = rtrim($data->translator_url, "/");
+        }
     }
 
     if (!empty($data->name)) {
-        $candidateUrls[] = "https://novelbin.com/b/" . novelSlug($data->name);
+        $slug = novelSlug($data->name);
+        $candidateUrls[] = "https://novelbin.me/novel-book/{$slug}";
+        $candidateUrls[] = "https://novelbin.com/b/{$slug}";
     }
+
+    $metadata["tried_urls"] = array_values(array_unique($candidateUrls));
 
     foreach (array_unique($candidateUrls) as $url) {
         try {

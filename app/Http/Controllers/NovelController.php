@@ -179,6 +179,14 @@ class NovelController extends Controller
         return view('novels.create');
     }
 
+    public function edit($id)
+    {
+        return view('novels.edit', [
+            'novel' => $this->novels->findOrFail($id),
+            'groups' => \App\Group::orderBy('label')->get(['id', 'label']),
+        ]);
+    }
+
     /**
      * Bulk actions from the novels list: delete (novel + chapters,
      * soft-deleted) or mark as complete.
@@ -538,6 +546,8 @@ class NovelController extends Controller
 
             $object->file()->save($file_object);
         }
+
+        return redirect()->route('novels.show', $id)->with('status', 'Novel updated.');
     }
 
     /**
