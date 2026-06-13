@@ -75,11 +75,28 @@ class CreateNovel extends Command
 
         $isEmpire = stripos($url, 'empirenovel.com') !== false;
 
-        // For Empire Novel novels, prefer the source page's own metadata
-        // (NovelUpdates/NovelBin won't have a matching slug).
-        $metadata = $isEmpire ? getMetadataFromEmpireNovel($url) : getMetadata($object);
+        if ($isEmpire) {
+            // Empire Novel's own cover is Cloudflare-blocked, so source the
+            // cover (and richer description/genres) from NovelUpdates, but
+            // keep Empire Novel's chapter count (the source we actually scrape).
+            $en = getMetadataFromEmpireNovel($url);
+            $this->info("  Empire Novel: chapters={$en['no_of_chapters']}; sourcing cover from NovelUpdates…");
+            $metadata = getMetadata($object);
 
-        $coverCandidates = array_filter([$metadata["image"] ?? null]);
+            if (!empty($en["no_of_chapters"])) {
+                $metadata["no_of_chapters"] = $en["no_of_chapters"];
+            }
+            foreach (["description", "author", "genres"] as $key) {
+                if (empty($metadata[$key]) && !empty($en[$key])) {
+                    $metadata[$key] = $en[$key];
+                }
+            }
+            // NovelUpdates cover first (fetchable), Empire Novel as last resort.
+            $coverCandidates = array_filter([$metadata["image"] ?? null, $en["image"] ?? null]);
+        } else {
+            $metadata = getMetadata($object);
+            $coverCandidates = array_filter([$metadata["image"] ?? null]);
+        }
 
         $needsFallback = empty($metadata["image"])
             || empty($metadata["description"])
