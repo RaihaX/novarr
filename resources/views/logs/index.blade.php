@@ -23,6 +23,7 @@
                         <td>
                             <a href="{{ route('logs.show', $file['name']) }}" class="btn btn-sm btn-outline-primary">View</a>
                             <a href="{{ route('logs.download', $file['name']) }}" class="btn btn-sm btn-outline-secondary">Download</a>
+                            <button class="btn btn-sm btn-outline-warning log-clear-btn" data-filename="{{ $file['name'] }}">Clear</button>
                             <button class="btn btn-sm btn-outline-danger log-delete-btn" data-filename="{{ $file['name'] }}">Delete</button>
                         </td>
                     </tr>
@@ -39,6 +40,33 @@
 
 @push('scripts')
 <script>
+    document.querySelectorAll('.log-clear-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const filename = btn.dataset.filename;
+
+            if (!confirm('Clear ' + filename + '? The file is kept but all entries are removed.')) return;
+
+            try {
+                const response = await fetch('/logs/' + encodeURIComponent(filename) + '/clear', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                    },
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    location.reload();
+                } else {
+                    Novarr.showToast(data.message || 'Failed to clear log.', 'danger');
+                }
+            } catch (err) {
+                Novarr.showToast('Error: ' + err.message, 'danger');
+            }
+        });
+    });
+
     document.querySelectorAll('.log-delete-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
             const filename = btn.dataset.filename;

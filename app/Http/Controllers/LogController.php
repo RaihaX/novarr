@@ -81,6 +81,26 @@ class LogController extends Controller
         return Response::download($filePath, $filename, ['Content-Type' => 'text/plain']);
     }
 
+    /**
+     * Truncate a log file to empty (keep the file, drop the contents).
+     */
+    public function clear(string $filename)
+    {
+        $filename = $this->sanitizeFilename($filename);
+        $filePath = $this->logPath . '/' . $filename;
+
+        if (!File::exists($filePath)) {
+            return response()->json(['success' => false, 'message' => 'Log file not found'], 404);
+        }
+
+        try {
+            File::put($filePath, '');
+            return response()->json(['success' => true, 'message' => 'Log file cleared']);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Failed: ' . $e->getMessage()], 500);
+        }
+    }
+
     public function destroy(string $filename)
     {
         $filename = $this->sanitizeFilename($filename);

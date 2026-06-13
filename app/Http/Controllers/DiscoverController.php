@@ -43,7 +43,10 @@ class DiscoverController extends Controller
         // store (e.g. unwritable storage/framework/cache) must not take the
         // feature down, so fall back to an uncached fetch.
         $ttl = $data['type'] === 'search' ? 600 : 3600;
-        $cacheKey = 'discover_' . md5($url);
+
+        // Bump the version segment whenever the parser/output shape changes
+        // so stale cached lists don't survive a deploy.
+        $cacheKey = 'discover_v2_' . md5($url);
 
         try {
             $items = Cache::remember($cacheKey, $ttl, fn() => $this->fetchList($url));

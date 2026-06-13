@@ -6,7 +6,14 @@
         <a href="{{ route('logs.index') }}" class="btn btn-outline-secondary btn-sm">&larr; Back to Logs</a>
         <span class="ms-2 fw-bold">{{ $filename }}</span>
     </div>
-    <a href="{{ route('logs.download', $filename) }}" class="btn btn-outline-primary btn-sm">Download</a>
+    <div class="d-flex gap-2 align-items-center">
+        <div class="form-check form-switch mb-0 me-2">
+            <input class="form-check-input" type="checkbox" id="liveTail">
+            <label class="form-check-label" for="liveTail" style="font-size: 13px;">Live tail</label>
+        </div>
+        <a href="{{ route('logs.download', $filename) }}" class="btn btn-outline-primary btn-sm">Download</a>
+        <button type="button" id="clearLog" class="btn btn-outline-warning btn-sm">Clear log</button>
+    </div>
 </div>
 
 <div class="card mb-3">
@@ -43,7 +50,7 @@
                     <th>Message</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="logBody">
                 @forelse($entries as $entry)
                     <tr>
                         <td class="text-nowrap"><code>{{ $entry['timestamp'] }}</code></td>
@@ -63,7 +70,16 @@
                             @endphp
                             <span class="badge bg-{{ $color }}">{{ $entry['level'] }}</span>
                         </td>
-                        <td><pre class="mb-0" style="white-space: pre-wrap; font-size: 12px;">{{ Str::limit($entry['message'], 500) }}</pre></td>
+                        <td>
+                            @if(mb_strlen($entry['message']) > 400)
+                                <details class="log-entry">
+                                    <summary>{{ Str::limit($entry['message'], 200) }} <span class="text-muted">(expand)</span></summary>
+                                    <pre class="log-pre mt-2">{{ $entry['message'] }}</pre>
+                                </details>
+                            @else
+                                <pre class="log-pre">{{ $entry['message'] }}</pre>
+                            @endif
+                        </td>
                     </tr>
                 @empty
                     <tr>
@@ -98,3 +114,93 @@
     @endif
 </div>
 @endsection
+
+
+@push('scripts')
+<script>
+    const levelColors = {
+        emergency: 'danger', alert: 'danger', critical: 'danger', error: 'danger',
+        warning: 'warning', notice: 'info', info: 'info', debug: 'secondary',
+    };
+    const tbody = document.getElementById('logBody');
+    const liveToggle = document.getElementById('liveTail');
+    let liveTimer = null;
+
+    function renderEntries(entries) {
+        tbody.innerHTML = '';
+
+        for (const entry of entries) {
+            const tr = document.createElement('tr');
+
+            const tsTd = document.createElement('td');
+            tsTd.className = 'text-nowrap';
+            const code = document.createElement('code');
+            code.textContent = entry.timestamp;
+            tsTd.appendChild(code);
+
+            const lvlTd = document.createElement('td');
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-' + (levelColors[entry.level] || 'secondary');
+            badge.textContent = entry.level;
+            lvlTd.appendChild(badge);
+
+            const msgTd = document.createElement('td');
+            const pre = document.createElement('pre');
+            pre.className = 'log-pre';
+            pre.textContent = entry.message;
+            msgTd.appendChild(pre);
+
+            tr.append(tsTd, lvlTd, msgTd);
+            tbody.appendChild(tr);
+        }
+
+        if (!entries.length) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">Log is empty.</td></tr>';
+        }
+    }
+
+    async function refreshTail() {
+        try {
+            const response = await fetch('{{ route('logs.tail', $filename) }}', { headers: { 'Accept': 'application/json' } });
+            const data = await response.json();
+            if (data.success) renderEntries(data.entries);
+        } catch (e) {
+            // keep polling; transient errors are fine
+        }
+    }
+
+    liveToggle.addEventListener('change', () => {
+        if (liveToggle.checked) {
+            refreshTail();
+            liveTimer = setInterval(refreshTail, 3000);
+            Novarr.showToast('Live tail on — showing the latest 100 entries, refreshed every 3s.', 'info');
+        } else {
+            clearInterval(liveTimer);
+            location.reload();
+        }
+    });
+
+    document.getElementById('clearLog').addEventListener('click', async () => {
+        if (!confirm('Clear {{ $filename }}? The file is kept but all entries are removed.')) return;
+
+        try {
+            const response = await fetch('{{ route('logs.clear', $filename) }}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/json',
+                },
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                location.reload();
+            } else {
+                Novarr.showToast(data.message || 'Failed to clear log.', 'danger');
+            }
+        } catch (err) {
+            Novarr.showToast('Error: ' + err.message, 'danger');
+        }
+    });
+</script>
+@endpush

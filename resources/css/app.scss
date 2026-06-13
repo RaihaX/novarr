@@ -418,6 +418,21 @@ a.dash-stat:hover {
     }
 }
 
+// Log viewer
+.log-pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    margin: 0;
+}
+
+details.log-entry summary {
+    cursor: pointer;
+    font-family: var(--bs-font-monospace);
+    font-size: 12px;
+    list-style-position: outside;
+}
+
 // Command output panels
 .command-output {
     max-height: 500px;

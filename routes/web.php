@@ -42,6 +42,7 @@ Route::get('/commands/{command}', [CommandController::class, 'showForm'])->name(
 // Logs
 Route::get('/logs', [LogController::class, 'index'])->name('logs.index');
 Route::get('/logs/{filename}/tail', [LogController::class, 'tail'])->name('logs.tail');
+Route::post('/logs/{filename}/clear', [LogController::class, 'clear'])->name('logs.clear');
 Route::get('/logs/{filename}/download', [LogController::class, 'download'])->name('logs.download');
 Route::delete('/logs/{filename}', [LogController::class, 'destroy'])->name('logs.destroy');
 Route::get('/logs/{filename}', [LogController::class, 'show'])->name('logs.show');
