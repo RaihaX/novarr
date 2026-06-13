@@ -70,6 +70,9 @@
                 @endif
             </div>
             <div class="d-flex gap-2">
+                @if($continue_chapter_id)
+                    <a href="{{ route('chapters.show', $continue_chapter_id) }}" class="btn btn-sm btn-primary">{{ $read_count > 0 ? 'Continue reading' : 'Start reading' }}</a>
+                @endif
                 <a href="{{ route('novels.edit', $data->id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
                 <button type="button" id="pauseToggle" class="btn btn-sm {{ $data->paused_at ? 'btn-success' : 'btn-outline-secondary' }}" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
                     {{ $data->paused_at ? 'Resume downloads' : 'Pause downloads' }}
@@ -126,9 +129,16 @@
             </div>
         </div>
 
-        <div class="progress mb-3" style="height: 6px; border-radius: 3px;">
+        <div class="progress mb-2" style="height: 6px; border-radius: 3px;">
             <div class="progress-bar {{ $progress >= 100 ? 'bg-success' : 'bg-info' }}" style="width: {{ $progress }}%; border-radius: 3px;"></div>
         </div>
+
+        @if($current_chapters > 0)
+            <div class="text-muted mb-3" style="font-size: 12px;">
+                Read {{ $read_count }} / {{ $current_chapters }} downloaded
+                ({{ $current_chapters > 0 ? round($read_count / $current_chapters * 100) : 0 }}%)
+            </div>
+        @endif
 
         @if($synopsis)
             <div class="synopsis" id="synopsis">
@@ -242,8 +252,11 @@
                         <td class="fw-semibold">{{ $chapter->chapter }}</td>
                         <td class="text-muted">{{ $chapter->book ?: '-' }}</td>
                         <td>
+                            @if($chapter->read_at)
+                                <span class="text-success me-1" title="Read {{ $chapter->read_at->format('Y-m-d H:i') }}">✓</span>
+                            @endif
                             @if($chapter->status)
-                                <a href="{{ route('chapters.show', $chapter->id) }}" class="text-decoration-none">{{ Str::limit($chapter->label, 90) }}</a>
+                                <a href="{{ route('chapters.show', $chapter->id) }}" class="text-decoration-none {{ $chapter->read_at ? 'text-muted' : '' }}">{{ Str::limit($chapter->label, 90) }}</a>
                             @else
                                 {{ Str::limit($chapter->label, 90) }}
                             @endif

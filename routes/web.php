@@ -5,6 +5,7 @@ use App\Http\Controllers\NovelController;
 use App\Http\Controllers\NovelChapterController;
 use App\Http\Controllers\CommandController;
 use App\Http\Controllers\DiscoverController;
+use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\LogController;
 
 /*
@@ -33,6 +34,7 @@ Route::get('/novels/{id}/metadata', [NovelController::class, 'update_metadata'])
 
 // Chapters
 Route::get('/chapters/{id}', [NovelChapterController::class, 'show'])->name('chapters.show');
+Route::post('/chapters/{id}/toggle-read', [NovelChapterController::class, 'toggleRead'])->name('chapters.toggle_read');
 
 // Commands (status route BEFORE wildcard {command})
 Route::get('/commands', [CommandController::class, 'index'])->name('commands.index');
@@ -42,6 +44,9 @@ Route::get('/commands/status/{jobId}', [CommandController::class, 'status'])->na
 Route::get('/commands/{command}', [CommandController::class, 'showForm'])->name('commands.form');
 
 // Logs
+Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
+Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
+
 Route::get('/logs', [LogController::class, 'index'])->name('logs.index');
 Route::get('/logs/{filename}/tail', [LogController::class, 'tail'])->name('logs.tail');
 Route::post('/logs/{filename}/clear', [LogController::class, 'clear'])->name('logs.clear');

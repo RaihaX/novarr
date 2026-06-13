@@ -5,12 +5,28 @@ use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 
+if (!function_exists('setting')) {
+    /**
+     * Read a value from the DB-backed settings store, falling back to the
+     * given default. Tolerant of the table not existing yet (fresh install
+     * / mid-migration) so boot never breaks.
+     */
+    function setting(string $key, $default = null)
+    {
+        try {
+            return \App\Setting::get($key, $default);
+        } catch (\Throwable $e) {
+            return $default;
+        }
+    }
+}
+
 /**
  * Fetch page HTML using FlareSolverr to bypass Cloudflare protection
  */
 function fetchWithBrowser($url, $waitForSelector = null, $maxAttempts = 3)
 {
-    $flareSolverrUrl = env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1');
+    $flareSolverrUrl = setting('flaresolverr_url', env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'));
     $lastError = null;
 
     for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {

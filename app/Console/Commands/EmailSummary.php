@@ -20,7 +20,7 @@ class EmailSummary extends Command
 
     public function handle()
     {
-        $to = $this->option("to") ?: config("mail.summary_email");
+        $to = $this->option("to") ?: setting("summary_email", config("mail.summary_email"));
 
         if (empty($to)) {
             $this->error("No recipient configured. Set MAIL_SUMMARY_EMAIL or pass --to.");

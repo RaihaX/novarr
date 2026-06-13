@@ -16,7 +16,7 @@ class SendToKindle extends Command
     public function handle(): int
     {
         $novelId = (int) $this->argument('novel');
-        $kindleEmail = $this->option('to') ?: config('mail.kindle_email');
+        $kindleEmail = $this->option('to') ?: setting('kindle_email', config('mail.kindle_email'));
 
         if (empty($kindleEmail)) {
             $this->error('No Kindle email configured. Set KINDLE_EMAIL in .env or pass --to=name@kindle.com');

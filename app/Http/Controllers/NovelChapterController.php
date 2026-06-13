@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\NovelChapter;
+use App\Http\Helpers\CacheHelper;
+use Illuminate\Http\Request;
 
 class NovelChapterController extends Controller
 {
@@ -42,10 +44,31 @@ class NovelChapterController extends Controller
             ->orderBy('book')->orderBy('chapter')
             ->first(['id', 'chapter', 'label']);
 
+        // Opening a downloaded chapter marks it read.
+        if ($chapter->status && $chapter->read_at === null) {
+            $chapter->forceFill(['read_at' => now()])->saveQuietly();
+            CacheHelper::clearNovelCache($chapter->novel_id);
+        }
+
         return view('chapters.show', [
             'chapter' => $chapter,
             'prev' => $prev,
             'next' => $next,
+        ]);
+    }
+
+    /**
+     * Manually toggle a chapter's read state (override the auto-mark).
+     */
+    public function toggleRead(Request $request, $id)
+    {
+        $chapter = $this->novelchapters->findOrFail($id);
+        $chapter->forceFill(['read_at' => $chapter->read_at ? null : now()])->saveQuietly();
+        CacheHelper::clearNovelCache($chapter->novel_id);
+
+        return response()->json([
+            'success' => true,
+            'read' => $chapter->read_at !== null,
         ]);
     }
 }

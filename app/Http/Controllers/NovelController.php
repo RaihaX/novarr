@@ -64,13 +64,23 @@ class NovelController extends Controller
                 ->selectRaw('
                     COUNT(CASE WHEN status = 1 THEN 1 END) as downloaded_count,
                     COUNT(CASE WHEN status = 0 THEN 1 END) as not_downloaded_count,
+                    COUNT(CASE WHEN status = 1 AND read_at IS NOT NULL THEN 1 END) as read_count,
                     MAX(chapter) as latest_chapter
                 ')
                 ->first();
 
             $count = $aggregates->downloaded_count ?? 0;
             $not_downloaded_count = $aggregates->not_downloaded_count ?? 0;
+            $read_count = $aggregates->read_count ?? 0;
             $latestChapter = $aggregates->latest_chapter ?? 0;
+
+            // First downloaded-but-unread chapter — the "continue reading" target.
+            $continueChapterId = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->where('status', 1)
+                ->whereNull('read_at')
+                ->orderBy('book')->orderBy('chapter')
+                ->value('id');
 
             // Get duplicate chapters
             $duplicate_chapters = NovelChapter::where('novel_id', $id)
@@ -106,6 +116,8 @@ class NovelController extends Controller
             return [
                 'count' => $count,
                 'not_downloaded_count' => $not_downloaded_count,
+                'read_count' => $read_count,
+                'continue_chapter_id' => $continueChapterId,
                 'new_chapters' => $not_downloaded_count,
                 'duplicate_chapters' => $duplicate_chapters,
                 'missing_chapters' => $missing_chapters,
@@ -359,13 +371,23 @@ class NovelController extends Controller
                 ->selectRaw('
                     COUNT(CASE WHEN status = 1 THEN 1 END) as downloaded_count,
                     COUNT(CASE WHEN status = 0 THEN 1 END) as not_downloaded_count,
+                    COUNT(CASE WHEN status = 1 AND read_at IS NOT NULL THEN 1 END) as read_count,
                     MAX(chapter) as latest_chapter
                 ')
                 ->first();
 
             $count = $aggregates->downloaded_count ?? 0;
             $not_downloaded_count = $aggregates->not_downloaded_count ?? 0;
+            $read_count = $aggregates->read_count ?? 0;
             $latestChapter = $aggregates->latest_chapter ?? 0;
+
+            // First downloaded-but-unread chapter — the "continue reading" target.
+            $continueChapterId = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->where('status', 1)
+                ->whereNull('read_at')
+                ->orderBy('book')->orderBy('chapter')
+                ->value('id');
 
             // Get duplicate chapters
             $duplicate_chapters = NovelChapter::where('novel_id', $id)
@@ -401,6 +423,8 @@ class NovelController extends Controller
             return [
                 'count' => $count,
                 'not_downloaded_count' => $not_downloaded_count,
+                'read_count' => $read_count,
+                'continue_chapter_id' => $continueChapterId,
                 'new_chapters' => $not_downloaded_count,
                 'duplicate_chapters' => $duplicate_chapters,
                 'missing_chapters' => $missing_chapters,
@@ -413,7 +437,7 @@ class NovelController extends Controller
             ->where('blacklist', 0)
             ->orderBy('book')
             ->orderBy('chapter')
-            ->paginate(50, ['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'download_date']);
+            ->paginate(50, ['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'download_date', 'read_at']);
 
         return view('novels.show', [
             'data' => $data,
@@ -424,6 +448,8 @@ class NovelController extends Controller
             'missing_chapters' => $stats['missing_chapters'],
             'current_chapters' => $stats['count'],
             'current_chapters_not_downloaded' => $stats['not_downloaded_count'],
+            'read_count' => $stats['read_count'] ?? 0,
+            'continue_chapter_id' => $stats['continue_chapter_id'] ?? null,
             'progress' => round($progress),
         ]);
     }

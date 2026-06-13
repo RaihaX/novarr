@@ -57,7 +57,8 @@ Schedule::command('novel:verify-completion')
     ->withoutOverlapping();
 
 // Email a summary of the last 24 hours of downloads and completions.
+// Send time is configurable from Settings (falls back to 08:00).
 Schedule::command('novel:email-summary')
-    ->dailyAt('08:00')
+    ->dailyAt(setting('summary_time', '08:00'))
     ->name('email_chapter_summary')
     ->withoutOverlapping();

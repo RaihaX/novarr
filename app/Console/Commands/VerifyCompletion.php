@@ -201,7 +201,7 @@ class VerifyCompletion extends Command
             return;
         }
 
-        if (empty(config("mail.kindle_email"))) {
+        if (empty(setting("kindle_email", config("mail.kindle_email")))) {
             $this->warn("  KINDLE_EMAIL not configured — skipping Send to Kindle.");
             return;
         }

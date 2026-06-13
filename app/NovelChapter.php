@@ -29,6 +29,7 @@ class NovelChapter extends Model
      */
     protected $casts = [
         'download_date' => 'datetime',
+        'read_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
