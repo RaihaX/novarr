@@ -40,6 +40,12 @@
     </div>
 </div>
 
+@if($truncated)
+    <div class="alert alert-secondary py-2" style="font-size: 13px;">
+        Large file — showing entries from the most recent 5&nbsp;MB only. Use Download for the full history.
+    </div>
+@endif
+
 <div class="card">
     <div class="table-responsive">
         <table class="table table-sm table-striped mb-0" style="font-size: 13px;">

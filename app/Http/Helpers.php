@@ -439,6 +439,22 @@ function tableOfContentGenerator($data)
     $result = [];
 
     try {
+        // Novel Bin pages only embed the newest ~30 chapters; the complete
+        // list lives behind an AJAX endpoint keyed by the URL slug. Try it
+        // first and fall back to parsing the page.
+        if (
+            $data->group_id == 1 &&
+            stripos($data->translator_url ?? "", "novelbin") !== false
+        ) {
+            $result = novelBinChapterArchive($data->translator_url);
+
+            if (!empty($result)) {
+                return finalizeTocResult($result);
+            }
+
+            \Log::warning("tableOfContentGenerator: novelbin archive empty for {$data->translator_url}; falling back to page parse");
+        }
+
         $html = fetchWithBrowser($data->translator_url, '.list-chapter');
 
         if ($html !== null) {
@@ -459,31 +475,95 @@ function tableOfContentGenerator($data)
                     break;
             }
 
-            // Remove nulls and potentially adjust chapter numbers
-            $result = array_filter($result, function ($item) {
-                return $item !== null;
-            });
-
-            // Generate chapter numbers if necessary
-            if (
-                array_reduce(
-                    $result,
-                    function ($carry, $item) {
-                        return $carry || $item["chapter"] > 0;
-                    },
-                    false
-                ) === false
-            ) {
-                foreach ($result as $key => &$item) {
-                    $item["chapter"] = $key + 1;
-                }
-            }
+            $result = finalizeTocResult($result);
         }
     } catch (\Exception $e) {
         \Log::error("tableOfContentGenerator error: " . $e->getMessage());
     }
 
     return $result;
+}
+
+/**
+ * Drop null entries and backfill sequential chapter numbers when none of
+ * the labels carried one.
+ */
+function finalizeTocResult(array $result): array
+{
+    $result = array_values(array_filter($result, fn($item) => $item !== null));
+
+    $hasNumbers = array_reduce(
+        $result,
+        fn($carry, $item) => $carry || $item["chapter"] > 0,
+        false
+    );
+
+    if (!$hasNumbers) {
+        foreach ($result as $key => &$item) {
+            $item["chapter"] = $key + 1;
+        }
+    }
+
+    return $result;
+}
+
+/**
+ * Fetch the complete chapter list for a Novel Bin novel via its AJAX
+ * archive endpoint (the novel page itself only embeds the newest ~30).
+ */
+function novelBinChapterArchive(string $novelUrl): array
+{
+    $path = parse_url($novelUrl, PHP_URL_PATH) ?: "";
+    $slug = basename(rtrim($path, "/"));
+    $scheme = parse_url($novelUrl, PHP_URL_SCHEME) ?: "https";
+    $host = parse_url($novelUrl, PHP_URL_HOST);
+
+    if ($slug === "" || empty($host)) {
+        return [];
+    }
+
+    $url = "{$scheme}://{$host}/ajax/chapter-option?novelId=" . urlencode($slug);
+
+    try {
+        $html = null;
+
+        try {
+            $response = createHttpClient()->request("GET", $url);
+            if ($response->getStatusCode() === 200) {
+                $html = $response->getContent(false);
+            }
+        } catch (\Throwable $e) {
+            \Log::warning("novelBinChapterArchive direct fetch failed for {$url}: " . $e->getMessage());
+        }
+
+        if (empty($html) || stripos($html, "Just a moment...") !== false) {
+            $html = fetchWithBrowser($url);
+        }
+
+        if (empty($html)) {
+            return [];
+        }
+
+        $crawler = new Crawler($html);
+        $result = [];
+
+        $crawler->filter("option")->each(function ($node) use (&$result) {
+            $chapterUrl = trim($node->attr("value") ?? "");
+            $label = trim(preg_replace('/\s+/', " ", $node->text()));
+
+            if ($chapterUrl !== "" && $label !== "") {
+                $result[] = generateTocChapterInfo($label, $chapterUrl);
+            }
+        });
+
+        $result = array_values(array_filter($result));
+        \Log::info("novelBinChapterArchive: parsed " . count($result) . " chapters from {$url}");
+
+        return $result;
+    } catch (\Throwable $e) {
+        \Log::error("novelBinChapterArchive error for {$url}: " . $e->getMessage());
+        return [];
+    }
 }
 
 function getMetadata($data)

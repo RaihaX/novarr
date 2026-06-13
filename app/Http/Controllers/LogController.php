@@ -8,6 +8,14 @@ use Illuminate\Support\Facades\Response;
 
 class LogController extends Controller
 {
+    /**
+     * Only parse the most recent portion of huge log files. Parsing a
+     * multi-hundred-MB laravel.log into an array exhausts memory and 500s
+     * the page; the tail is what anyone browses anyway (Download serves
+     * the full file).
+     */
+    protected const PARSE_WINDOW_BYTES = 5 * 1024 * 1024;
+
     protected $logPath;
     protected $linesPerPage = 100;
 
@@ -44,6 +52,7 @@ class LogController extends Controller
             'currentPage' => $result['currentPage'],
             'totalPages' => $result['totalPages'],
             'totalEntries' => $result['totalEntries'],
+            'truncated' => $result['truncated'],
             'level' => $level,
             'search' => $search,
             'levels' => ['all', 'emergency', 'alert', 'critical', 'error', 'warning', 'notice', 'info', 'debug'],
@@ -120,7 +129,16 @@ class LogController extends Controller
 
     protected function streamParseLogFile(string $filePath, string $level, string $search, int $page, int $perPage): array
     {
+        $size = File::size($filePath);
+        $truncated = $size > self::PARSE_WINDOW_BYTES;
+
         $file = new \SplFileObject($filePath, 'r');
+
+        if ($truncated) {
+            $file->fseek($size - self::PARSE_WINDOW_BYTES);
+            $file->fgets(); // discard the partial line at the seek point
+        }
+
         $entries = [];
         $currentEntry = '';
         $entryPattern = '/^\[(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}\.?\d*[+-]?\d*:?\d*)\]/';
@@ -159,6 +177,7 @@ class LogController extends Controller
             'currentPage' => $page,
             'totalPages' => $totalPages,
             'totalEntries' => $totalEntries,
+            'truncated' => $truncated,
         ];
     }
 
@@ -231,20 +250,29 @@ class LogController extends Controller
         return array_reverse($entries);
     }
 
+    /**
+     * Read the last N lines by walking backwards from EOF in chunks — the
+     * previous implementation scanned the whole file line-by-line, which
+     * crawled on a large log.
+     */
     protected function getLastLines(string $filePath, int $lines): array
     {
-        $file = new \SplFileObject($filePath, 'r');
-        $file->seek(PHP_INT_MAX);
-        $totalLines = $file->key();
-        $startLine = max(0, $totalLines - $lines);
-        $result = [];
+        $handle = fopen($filePath, 'rb');
+        $pos = File::size($filePath);
+        $buffer = '';
+        $chunkSize = 8192;
+        $maxBuffer = 2 * 1024 * 1024;
 
-        $file->seek($startLine);
-        while (!$file->eof()) {
-            $result[] = $file->fgets();
+        while ($pos > 0 && substr_count($buffer, "\n") <= $lines && strlen($buffer) < $maxBuffer) {
+            $read = min($chunkSize, $pos);
+            $pos -= $read;
+            fseek($handle, $pos);
+            $buffer = fread($handle, $read) . $buffer;
         }
 
-        return $result;
+        fclose($handle);
+
+        return array_slice(explode("\n", $buffer), -($lines + 1));
     }
 
     protected function getLogFiles(): array
