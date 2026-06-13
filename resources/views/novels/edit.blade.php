@@ -72,6 +72,11 @@
                         <textarea name="description" id="description" class="form-control" rows="5">{{ old('description', $novel->description) }}</textarea>
                     </div>
 
+                    <div class="mb-3">
+                        <label class="form-label">Tags</label>
+                        @include('partials.tag-picker', ['selectedIds' => $novel->tags->pluck('id')->all()])
+                    </div>
+
                     <div class="mb-4">
                         <label for="image" class="form-label">Replace cover image <span class="text-muted">(optional)</span></label>
                         <input type="file" name="image" id="image" class="form-control" accept="image/*">

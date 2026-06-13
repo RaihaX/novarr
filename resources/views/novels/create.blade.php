@@ -59,6 +59,11 @@
                         <input type="url" name="translator_url" id="translator_url" class="form-control" value="{{ old('translator_url') }}" placeholder="https://...">
                     </div>
 
+                    <div class="mb-3">
+                        <label class="form-label">Tags</label>
+                        @include('partials.tag-picker', ['selectedIds' => []])
+                    </div>
+
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn btn-primary">Create Novel</button>
                         <a href="{{ route('novels.index') }}" class="btn btn-outline-secondary">Cancel</a>

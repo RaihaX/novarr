@@ -219,7 +219,7 @@ class NovelController extends Controller
     public function edit($id)
     {
         return view('novels.edit', [
-            'novel' => $this->novels->findOrFail($id),
+            'novel' => $this->novels->with('tags')->findOrFail($id),
             'groups' => \App\Group::orderBy('label')->get(['id', 'label']),
         ]);
     }
@@ -290,19 +290,28 @@ class NovelController extends Controller
     {
         $novel = $this->novels->findOrFail($id);
 
-        $names = collect(explode(',', $request->input('tags', '')))
-            ->map(fn($n) => trim($n))
-            ->filter()
-            ->unique()
-            ->take(20);
+        $data = $request->validate([
+            'tags' => 'array',
+            'tags.*' => 'integer|exists:tags,id',
+        ]);
 
-        $ids = $names->map(fn($name) => \App\Tag::firstOrCreate(['name' => $name])->id)->all();
-        $novel->tags()->sync($ids);
+        $novel->tags()->sync($data['tags'] ?? []);
 
         return response()->json([
             'success' => true,
             'tags' => $novel->tags()->orderBy('name')->pluck('name'),
         ]);
+    }
+
+    /**
+     * Create a tag from the picker's "add new" box, returning its id/name.
+     */
+    public function storeTag(Request $request)
+    {
+        $data = $request->validate(['name' => 'required|string|max:50']);
+        $tag = \App\Tag::firstOrCreate(['name' => trim($data['name'])]);
+
+        return response()->json(['success' => true, 'id' => $tag->id, 'name' => $tag->name]);
     }
 
     /**
@@ -451,6 +460,8 @@ class NovelController extends Controller
 
             $object->file()->save($file_object);
         }
+
+        $object->tags()->sync($request->input('tags', []));
 
         return redirect()->route('novels.show', $object->id);
     }
@@ -677,6 +688,10 @@ class NovelController extends Controller
             ]);
 
             $object->file()->save($file_object);
+        }
+
+        if ($request->has('tags')) {
+            $object->tags()->sync($request->input('tags', []));
         }
 
         return redirect()->route('novels.show', $id)->with('status', 'Novel updated.');

@@ -454,6 +454,56 @@ details.log-entry summary {
     list-style-position: outside;
 }
 
+// Multi-select tag picker
+.tag-picker {
+    position: relative;
+    max-width: 520px;
+
+    .tag-picker-toggle {
+        cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .tag-picker-menu {
+        position: absolute;
+        z-index: 1050;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .tag-picker-options {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        max-height: 180px;
+        overflow-y: auto;
+    }
+
+    .tag-picker-option {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 4px 6px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        margin: 0;
+
+        &:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        input {
+            cursor: pointer;
+        }
+    }
+}
+
 // Reader focus mode — hide app chrome for distraction-free reading
 body.reader-focus {
     .navbar,

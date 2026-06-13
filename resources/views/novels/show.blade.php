@@ -105,11 +105,11 @@
                 <button type="button" id="editTags" class="btn btn-sm btn-outline-secondary py-0 px-2 ms-1" style="font-size: 12px;">Edit tags</button>
             </div>
             <div id="tagEditor" class="d-none">
-                <label for="tagInput" class="text-muted d-block mb-1">Tags <span class="fst-italic">(comma-separated)</span></label>
-                <div class="input-group input-group-sm" style="max-width: 520px;">
-                    <input type="text" id="tagInput" class="form-control" value="{{ $data->tags->pluck('name')->implode(', ') }}" placeholder="e.g. Action, Cultivation, Romance">
-                    <button type="button" id="saveTags" class="btn btn-primary" data-id="{{ $data->id }}">Save</button>
-                    <button type="button" id="cancelTags" class="btn btn-outline-secondary">Cancel</button>
+                <label class="text-muted d-block mb-1">Tags</label>
+                <div class="d-flex gap-2 align-items-start flex-wrap">
+                    @include('partials.tag-picker', ['selectedIds' => $data->tags->pluck('id')->all()])
+                    <button type="button" id="saveTags" class="btn btn-sm btn-primary" data-id="{{ $data->id }}">Save</button>
+                    <button type="button" id="cancelTags" class="btn btn-sm btn-outline-secondary">Cancel</button>
                 </div>
             </div>
         </div>
@@ -414,6 +414,7 @@
             const btn = e.target;
             btn.disabled = true;
             try {
+                const tagIds = [...document.querySelectorAll('#tagEditor input[name="tags[]"]:checked')].map(c => c.value);
                 const response = await fetch(`/novels/${btn.dataset.id}/tags`, {
                     method: 'POST',
                     headers: {
@@ -421,7 +422,7 @@
                         'Accept': 'application/json',
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ tags: document.getElementById('tagInput').value }),
+                    body: JSON.stringify({ tags: tagIds }),
                 });
                 const data = await response.json();
                 if (data.success) {

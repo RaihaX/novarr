@@ -30,6 +30,7 @@ Route::get('/novels/{id}/edit', [NovelController::class, 'edit'])->name('novels.
 Route::put('/novels/{id}', [NovelController::class, 'update'])->name('novels.update');
 Route::post('/novels/{id}/toggle-pause', [NovelController::class, 'togglePause'])->name('novels.toggle_pause');
 Route::post('/novels/{id}/tags', [NovelController::class, 'syncTags'])->name('novels.sync_tags');
+Route::post('/tags', [NovelController::class, 'storeTag'])->name('tags.store');
 Route::get('/novels/{id}/jump', [NovelController::class, 'jumpChapter'])->name('novels.jump_chapter');
 Route::post('/novels/{id}/remove-duplicates', [NovelController::class, 'removeDuplicates'])->name('novels.remove_duplicates');
 Route::delete('/novels/{id}', [NovelController::class, 'destroy'])->name('novels.destroy');
