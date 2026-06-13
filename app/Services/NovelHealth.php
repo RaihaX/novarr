@@ -21,6 +21,7 @@ class NovelHealth
         $attention = [];
 
         $failing = Novel::where('status', 0)
+            ->whereNull('paused_at')
             ->where('scrape_failures', '>=', 3)
             ->orderBy('name')
             ->get(['id', 'name', 'scrape_failures', 'translator_url']);
@@ -35,6 +36,7 @@ class NovelHealth
         }
 
         $stalled = Novel::where('status', 0)
+            ->whereNull('paused_at')
             ->whereHas('chapters', fn($q) => $q->where('status', 0)->where('blacklist', 0))
             ->orderBy('name')
             ->get(['id', 'name', 'translator_url']);

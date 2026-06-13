@@ -20,6 +20,7 @@ Route::get('/novels', [NovelController::class, 'index'])->name('novels.index');
 Route::get('/novels/create', [NovelController::class, 'create'])->name('novels.create');
 Route::post('/novels', [NovelController::class, 'store'])->name('novels.store');
 Route::get('/novels/{id}', [NovelController::class, 'show'])->name('novels.show');
+Route::post('/novels/{id}/toggle-pause', [NovelController::class, 'togglePause'])->name('novels.toggle_pause');
 Route::get('/novels/{id}/epub', [NovelController::class, 'download_epub'])->name('novels.download_epub');
 Route::get('/novels/{id}/metadata', [NovelController::class, 'update_metadata'])->name('novels.get_metadata');
 

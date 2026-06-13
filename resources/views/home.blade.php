@@ -53,9 +53,12 @@
                         <a href="{{ route('novels.show', $item['id']) }}" class="fw-semibold text-decoration-none">{{ $item['name'] }}</a>
                         <div class="text-muted" style="font-size: 12px;">{{ $item['reason'] }}</div>
                     </div>
-                    @if(!empty($item['url']))
-                        <a href="{{ $item['url'] }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-warning">Test source ↗</a>
-                    @endif
+                    <div class="d-flex gap-2">
+                        @if(!empty($item['url']))
+                            <a href="{{ $item['url'] }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-warning">Test source ↗</a>
+                        @endif
+                        <button type="button" class="btn btn-sm btn-outline-secondary ignore-btn" data-id="{{ $item['id'] }}" title="Pause automatic downloads for this novel">Ignore</button>
+                    </div>
                 </div>
             @endforeach
         </div>
@@ -156,3 +159,35 @@
     </div>
 </div>
 @endsection
+
+@push('scripts')
+<script>
+    document.querySelectorAll('.ignore-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`/novels/${btn.dataset.id}/toggle-pause`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                    },
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    btn.closest('.list-group-item').remove();
+                    Novarr.showToast('Novel paused — automatic downloads will skip it. Resume from the novel page.', 'success');
+                } else {
+                    btn.disabled = false;
+                    Novarr.showToast('Failed to pause novel.', 'danger');
+                }
+            } catch (err) {
+                btn.disabled = false;
+                Novarr.showToast('Error: ' + err.message, 'danger');
+            }
+        });
+    });
+</script>
+@endpush

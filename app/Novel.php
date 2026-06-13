@@ -44,6 +44,7 @@ class Novel extends Model
     protected $casts = [
         'last_update' => 'datetime',
         'completed_at' => 'datetime',
+        'paused_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',

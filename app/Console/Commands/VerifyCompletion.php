@@ -30,6 +30,9 @@ class VerifyCompletion extends Command
 
         $novels = Novel::where("status", 0)
             ->when($novelId !== 0, fn($q) => $q->where("id", $novelId))
+            // Paused novels are skipped in the automatic sweep but still run
+            // when a specific novel is requested explicitly.
+            ->when($novelId === 0, fn($q) => $q->whereNull("paused_at"))
             ->where("group_id", "!=", 37)
             ->orderBy("name")
             ->get();

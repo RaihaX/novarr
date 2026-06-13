@@ -45,6 +45,10 @@ class ChapterScraper extends Command
 
         if ($novelId != 0) {
             $query->where("id", $novelId);
+        } else {
+            // Paused novels are skipped in the automatic sweep but still run
+            // when a specific novel is requested explicitly.
+            $query->whereNull("paused_at");
         }
 
         $query

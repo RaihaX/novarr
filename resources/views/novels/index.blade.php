@@ -50,6 +50,8 @@
                     @endif
                     @if($novel->status)
                         <span class="poster-badge badge bg-info">Done</span>
+                    @elseif($novel->paused_at)
+                        <span class="poster-badge badge bg-secondary">Paused</span>
                     @endif
                     <div class="poster-progress">
                         <div class="poster-progress-bar {{ $pct >= 100 ? 'is-complete' : '' }}" style="width: {{ $pct }}%"></div>
@@ -90,6 +92,8 @@
                 </div>
                 @if($novel->status)
                     <span class="badge bg-info">Done</span>
+                @elseif($novel->paused_at)
+                    <span class="badge bg-secondary">Paused</span>
                 @endif
             </a>
         @empty
@@ -129,6 +133,8 @@
                         <td>
                             @if($novel->status)
                                 <span class="badge bg-info">Completed</span>
+                            @elseif($novel->paused_at)
+                                <span class="badge bg-secondary">Paused</span>
                             @else
                                 <span class="badge bg-success">Active</span>
                             @endif

@@ -498,17 +498,28 @@ function getMetadata($data)
         "fully_translated" => null,
     ];
 
-    // Simplify the sanitization of the name
-    $name = strtolower($data->name);
-    $name = preg_replace(['/[\s!?\'",]+/', "/-{2,}/"], "-", $name); // Replace specified characters with a single dash
+    $name = novelSlug($data->name);
+    $url = "https://www.novelupdates.com/series/{$name}/";
 
     try {
-        $httpClient = createHttpClient();
-        $response = $httpClient->request(
-            "GET",
-            "https://www.novelupdates.com/series/{$name}"
-        );
-        $crawler = new Crawler($response->getContent());
+        // NovelUpdates sits behind Cloudflare: a plain HTTP request works from
+        // residential IPs but gets challenged from others, which silently
+        // empties every field. Use FlareSolverr (same path the chapter
+        // scraper relies on) and only fall back to a direct request.
+        $html = fetchWithBrowser($url);
+
+        if (empty($html)) {
+            \Log::warning("getMetadata: FlareSolverr failed for {$url}; falling back to direct fetch");
+            $html = createHttpClient()->request("GET", $url)->getContent();
+        }
+
+        if (stripos($html, '<title>Just a moment...</title>') !== false ||
+            stripos($html, 'Verifying you are human') !== false) {
+            \Log::error("getMetadata: Cloudflare challenge page for {$url} — metadata unavailable");
+            return $metadata;
+        }
+
+        $crawler = new Crawler($html);
 
         // Description
         $descriptionFilter = $crawler->filter("#editdescription");
@@ -547,6 +558,17 @@ function getMetadata($data)
         $metadata["image"] = $imageFilter->count() > 0
             ? $imageFilter->first()->attr("src")
             : "";
+
+        if (empty($metadata["description"])) {
+            $title = $crawler->filter("title")->count() > 0
+                ? trim($crawler->filter("title")->first()->text())
+                : "(no title)";
+            \Log::warning(
+                "getMetadata: no description found for {$url} "
+                . "(html length: " . strlen($html) . ", page title: {$title}). "
+                . "Wrong slug or NovelUpdates markup change."
+            );
+        }
     } catch (TransportExceptionInterface $e) {
         \Log::error("getMetadata transport error for {$name}: " . $e->getMessage());
     } catch (\Exception $e) {
@@ -554,6 +576,19 @@ function getMetadata($data)
     }
 
     return $metadata;
+}
+
+/**
+ * Build a NovelUpdates/NovelBin-style slug from a novel name: apostrophes
+ * and quotes vanish ("The King's Avatar" -> the-kings-avatar), every other
+ * non-alphanumeric run becomes a single dash.
+ */
+function novelSlug($name)
+{
+    $slug = strtolower($name);
+    $slug = str_replace(["'", "\u{2019}", '"', "\u{201C}", "\u{201D}"], "", $slug);
+
+    return trim(preg_replace("/[^a-z0-9]+/", "-", $slug), "-");
 }
 
 /**
@@ -577,10 +612,7 @@ function getMetadataFromNovelBin($data)
     }
 
     if (!empty($data->name)) {
-        $slug = strtolower($data->name);
-        $slug = preg_replace(['/[\s!?\'",]+/', "/-{2,}/"], "-", $slug);
-        $slug = trim($slug, "-");
-        $candidateUrls[] = "https://novelbin.com/b/{$slug}";
+        $candidateUrls[] = "https://novelbin.com/b/" . novelSlug($data->name);
     }
 
     foreach (array_unique($candidateUrls) as $url) {

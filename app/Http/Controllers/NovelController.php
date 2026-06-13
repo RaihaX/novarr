@@ -168,7 +168,7 @@ class NovelController extends Controller
         return view('novels.index', [
             'novels' => $query->paginate(
                 $view === 'grid' ? 48 : 25,
-                ['id', 'name', 'author', 'status', 'group_id', 'language_id']
+                ['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id']
             ),
             'view' => $view,
         ]);
@@ -177,6 +177,26 @@ class NovelController extends Controller
     public function create()
     {
         return view('novels.create');
+    }
+
+    /**
+     * Pause/resume automatic scraping for a novel ("ignore" on the
+     * dashboard). Paused novels are skipped by the scheduled sweeps and by
+     * needs-attention alerts; explicit per-novel commands still run.
+     */
+    public function togglePause($id)
+    {
+        $novel = $this->novels->findOrFail($id);
+        $novel->paused_at = $novel->paused_at ? null : now();
+        $novel->save();
+
+        Cache::forget('dashboard_attention');
+        CacheHelper::clearNovelCache($id);
+
+        return response()->json([
+            'success' => true,
+            'paused' => (bool) $novel->paused_at,
+        ]);
     }
 
     /**

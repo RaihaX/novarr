@@ -24,6 +24,9 @@ class NovelScraper extends Command
             ->when($novelId != 0, function ($query) use ($novelId) {
                 return $query->where("id", $novelId);
             })
+            // Paused novels are skipped in the automatic sweep but still run
+            // when a specific novel is requested explicitly.
+            ->when($novelId == 0, fn($query) => $query->whereNull("paused_at"))
             ->where("group_id", "!=", 37)
             ->orderBy("name", "asc")
             ->get();

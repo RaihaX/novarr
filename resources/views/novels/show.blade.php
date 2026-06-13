@@ -59,10 +59,15 @@
                 <span class="text-muted">by {{ $data->author ?? 'Unknown' }}</span>
                 @if($data->status)
                     <span class="badge bg-info ms-2">Completed</span>
+                @elseif($data->paused_at)
+                    <span class="badge bg-secondary ms-2" title="Paused {{ $data->paused_at->format('j M Y') }} — automatic downloads skip this novel">Paused</span>
                 @else
                     <span class="badge bg-success ms-2">Active</span>
                 @endif
             </div>
+            <button type="button" id="pauseToggle" class="btn btn-sm {{ $data->paused_at ? 'btn-success' : 'btn-outline-secondary' }}" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
+                {{ $data->paused_at ? 'Resume downloads' : 'Pause downloads' }}
+            </button>
         </div>
 
         <div class="row g-2 mb-3" style="font-size: 13px;">
@@ -281,6 +286,32 @@
     document.querySelectorAll('.cmd-btn').forEach(btn => {
         btn.addEventListener('click', () => runCommand(btn));
     });
+
+    const pauseToggle = document.getElementById('pauseToggle');
+    if (pauseToggle) {
+        pauseToggle.addEventListener('click', async () => {
+            pauseToggle.disabled = true;
+            try {
+                const response = await fetch(`/novels/${pauseToggle.dataset.id}/toggle-pause`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                    },
+                });
+                const data = await response.json();
+                if (data.success) {
+                    location.reload();
+                } else {
+                    pauseToggle.disabled = false;
+                    Novarr.showToast('Failed to update pause state.', 'danger');
+                }
+            } catch (err) {
+                pauseToggle.disabled = false;
+                Novarr.showToast('Error: ' + err.message, 'danger');
+            }
+        });
+    }
 
     async function runCommand(btn) {
         if (btn.disabled) return;
