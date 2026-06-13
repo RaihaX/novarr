@@ -21,6 +21,37 @@ if (!function_exists('setting')) {
     }
 }
 
+if (!function_exists('notify_webhook')) {
+    /**
+     * Send a short message to the configured notification webhook.
+     * Discord webhooks get a JSON {content}; everything else (ntfy, generic)
+     * gets the raw text body. No-op when no webhook is configured.
+     */
+    function notify_webhook(string $message): bool
+    {
+        $url = setting('notification_webhook_url', env('NOTIFICATION_WEBHOOK_URL'));
+
+        if (empty($url)) {
+            return false;
+        }
+
+        try {
+            $isDiscord = stripos($url, 'discord.com') !== false || stripos($url, 'discordapp.com') !== false;
+
+            $options = $isDiscord
+                ? ['headers' => ['Content-Type' => 'application/json'], 'json' => ['content' => $message]]
+                : ['headers' => ['Content-Type' => 'text/plain'], 'body' => $message];
+
+            HttpClient::create(['timeout' => 10])->request('POST', $url, $options)->getStatusCode();
+
+            return true;
+        } catch (\Throwable $e) {
+            \Log::warning('notify_webhook failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
 /**
  * Fetch page HTML using FlareSolverr to bypass Cloudflare protection
  */

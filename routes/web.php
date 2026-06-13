@@ -60,6 +60,7 @@ Route::get('/settings', [SettingsController::class, 'index'])->name('settings.in
 Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
 Route::post('/settings/test-email', [SettingsController::class, 'testEmail'])->name('settings.test_email');
 Route::post('/settings/test-flaresolverr', [SettingsController::class, 'testFlareSolverr'])->name('settings.test_flaresolverr');
+Route::post('/settings/test-notification', [SettingsController::class, 'testNotification'])->name('settings.test_notification');
 
 Route::get('/logs', [LogController::class, 'index'])->name('logs.index');
 Route::get('/logs/{filename}/tail', [LogController::class, 'tail'])->name('logs.tail');

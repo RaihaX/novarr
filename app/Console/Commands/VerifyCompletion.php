@@ -177,6 +177,8 @@ class VerifyCompletion extends Command
         Log::info("Novel marked complete: {$novel->name} (ID {$novel->id}), latest chapter {$local["latest_chapter"]}, {$local["downloaded"]} downloaded{$suffix}");
         $this->info("  ✓ Marked complete: {$novel->name}{$suffix}");
 
+        notify_webhook("📚 Completed: {$novel->name} ({$local["downloaded"]} chapters)");
+
         $this->postCompletionTasks($novel);
     }
 
@@ -197,7 +199,7 @@ class VerifyCompletion extends Command
             return; // No ePub — nothing to send to Kindle.
         }
 
-        if ($this->option("no-kindle")) {
+        if ($this->option("no-kindle") || setting("auto_kindle", "1") !== "1") {
             return;
         }
 

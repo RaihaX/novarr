@@ -94,10 +94,13 @@ class ChapterScraper extends Command
                     $this->updateChapter($item, $description);
                     $this->addChapterToArray($novel, $item, $newChapters);
 
-                    // Emulate fast human reading time - random delay between 30-90 seconds
-                    $readingDelay = rand(30, 90); // 30 seconds to 1.5 minutes
-                    Log::info("Waiting {$readingDelay} seconds before next chapter (simulating fast reader)...");
-                    $this->info("  Waiting {$readingDelay} seconds to simulate human reading...");
+                    // Polite, human-like delay between chapters. Range is
+                    // configurable from Settings (defaults 30–90s).
+                    $min = max(1, (int) setting('scrape_min_delay', 30));
+                    $max = max($min, (int) setting('scrape_max_delay', 90));
+                    $readingDelay = rand($min, $max);
+                    Log::info("Waiting {$readingDelay} seconds before next chapter...");
+                    $this->info("  Waiting {$readingDelay} seconds before next chapter...");
                     sleep($readingDelay);
                 } else {
                     $failed++;
@@ -133,6 +136,12 @@ class ChapterScraper extends Command
             $novel->save();
 
             Log::warning("All {$failed} pending chapter(s) failed for {$novel->name} (consecutive failed runs: {$novel->scrape_failures}).");
+
+            // Alert once when it first crosses the attention threshold, so a
+            // dead source pings the webhook rather than only the daily email.
+            if ($novel->scrape_failures == 3) {
+                notify_webhook("⚠️ {$novel->name} — scraping has failed 3 runs in a row; the source may have changed.");
+            }
         }
     }
 

@@ -454,6 +454,15 @@ details.log-entry summary {
     list-style-position: outside;
 }
 
+// Reader focus mode — hide app chrome for distraction-free reading
+body.reader-focus {
+    .navbar,
+    #readerToolbar,
+    .chapter-nav {
+        display: none !important;
+    }
+}
+
 // Command output panels
 .command-output {
     max-height: 500px;

@@ -39,6 +39,30 @@ class SettingsController extends Controller
                 'type' => 'time',
                 'default' => '08:00',
             ],
+            'notification_webhook_url' => [
+                'label' => 'Notification webhook',
+                'help' => 'Optional Discord webhook or ntfy topic URL — pinged when a novel completes or a source starts failing.',
+                'type' => 'url',
+                'default' => env('NOTIFICATION_WEBHOOK_URL'),
+            ],
+            'scrape_min_delay' => [
+                'label' => 'Min delay between chapters (s)',
+                'help' => 'Lower bound of the polite random pause between chapter downloads.',
+                'type' => 'number',
+                'default' => '30',
+            ],
+            'scrape_max_delay' => [
+                'label' => 'Max delay between chapters (s)',
+                'help' => 'Upper bound of the random pause. Higher = gentler on the source site.',
+                'type' => 'number',
+                'default' => '90',
+            ],
+            'auto_kindle' => [
+                'label' => 'Auto-send completed novels to Kindle',
+                'help' => 'When a novel is marked complete, email its ePub to your Kindle automatically.',
+                'type' => 'checkbox',
+                'default' => '1',
+            ],
         ];
     }
 
@@ -55,20 +79,49 @@ class SettingsController extends Controller
 
     public function update(Request $request)
     {
-        $rules = [
+        $data = $request->validate([
             'kindle_email' => 'nullable|email',
             'summary_email' => 'nullable|email',
             'flaresolverr_url' => 'nullable|url',
             'summary_time' => 'nullable|date_format:H:i',
-        ];
+            'notification_webhook_url' => 'nullable|url',
+            'scrape_min_delay' => 'nullable|integer|min:0|max:600',
+            'scrape_max_delay' => 'nullable|integer|min:0|max:600',
+            'auto_kindle' => 'nullable',
+        ]);
 
-        $data = $request->validate($rules);
-
-        foreach (array_keys($this->fields()) as $key) {
-            Setting::put($key, $data[$key] ?? null);
+        foreach ($this->fields() as $key => $meta) {
+            if (($meta['type'] ?? null) === 'checkbox') {
+                // Unchecked boxes aren't posted — store explicit 0/1.
+                Setting::put($key, $request->boolean($key) ? '1' : '0');
+            } else {
+                Setting::put($key, $data[$key] ?? null);
+            }
         }
 
         return redirect()->route('settings.index')->with('status', 'Settings saved.');
+    }
+
+    /**
+     * Send a test message to the configured notification webhook.
+     */
+    public function testNotification(Request $request)
+    {
+        $url = $request->input('notification_webhook_url')
+            ?: Setting::get('notification_webhook_url', env('NOTIFICATION_WEBHOOK_URL'));
+
+        if (empty($url)) {
+            return response()->json(['success' => false, 'message' => 'No webhook URL configured.'], 422);
+        }
+
+        // notify_webhook reads the saved setting; temporarily honour the
+        // posted URL so you can test before saving.
+        Setting::put('notification_webhook_url', $url);
+        $ok = notify_webhook('🔔 Test notification from Novarr — your webhook is working.');
+
+        return $ok
+            ? response()->json(['success' => true, 'message' => 'Test notification sent.'])
+            : response()->json(['success' => false, 'message' => 'Webhook post failed — check the URL.'], 502);
     }
 
     /**

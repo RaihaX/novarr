@@ -25,20 +25,29 @@
                     @csrf
 
                     @foreach($fields as $key => $field)
-                        <div class="mb-3">
-                            <label for="{{ $key }}" class="form-label">{{ $field['label'] }}</label>
-                            <input type="{{ $field['type'] }}" name="{{ $key }}" id="{{ $key }}"
-                                   class="form-control"
-                                   value="{{ old($key, $field['value']) }}"
-                                   @if(!empty($field['default'])) placeholder="{{ $field['default'] }}" @endif>
-                            <div class="form-text">{{ $field['help'] }}</div>
-                        </div>
+                        @if($field['type'] === 'checkbox')
+                            <div class="mb-3 form-check form-switch">
+                                <input type="checkbox" name="{{ $key }}" id="{{ $key }}" class="form-check-input" value="1" @checked(old($key, $field['value']) === '1' || old($key, $field['value']) === 1)>
+                                <label for="{{ $key }}" class="form-check-label">{{ $field['label'] }}</label>
+                                <div class="form-text">{{ $field['help'] }}</div>
+                            </div>
+                        @else
+                            <div class="mb-3">
+                                <label for="{{ $key }}" class="form-label">{{ $field['label'] }}</label>
+                                <input type="{{ $field['type'] }}" name="{{ $key }}" id="{{ $key }}"
+                                       class="form-control"
+                                       value="{{ old($key, $field['value']) }}"
+                                       @if(!empty($field['default'])) placeholder="{{ $field['default'] }}" @endif>
+                                <div class="form-text">{{ $field['help'] }}</div>
+                            </div>
+                        @endif
                     @endforeach
 
                     <div class="d-flex flex-wrap gap-2">
                         <button type="submit" class="btn btn-primary">Save settings</button>
                         <button type="button" id="testEmail" class="btn btn-outline-secondary">Send test email</button>
                         <button type="button" id="testFlare" class="btn btn-outline-secondary">Test FlareSolverr</button>
+                        <button type="button" id="testNotify" class="btn btn-outline-secondary">Test notification</button>
                     </div>
                 </form>
             </div>
@@ -81,6 +90,11 @@
     document.getElementById('testFlare').addEventListener('click', (e) =>
         runTest(e.target, '{{ route('settings.test_flaresolverr') }}', {
             flaresolverr_url: document.getElementById('flaresolverr_url').value,
+        }));
+
+    document.getElementById('testNotify').addEventListener('click', (e) =>
+        runTest(e.target, '{{ route('settings.test_notification') }}', {
+            notification_webhook_url: document.getElementById('notification_webhook_url').value,
         }));
 </script>
 @endpush

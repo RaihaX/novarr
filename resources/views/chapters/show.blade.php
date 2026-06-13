@@ -1,9 +1,16 @@
 @extends('layouts.app')
 
+@push('styles')
+@if($next)
+    <link rel="prefetch" href="{{ route('chapters.show', $next->id) }}">
+@endif
+@endpush
+
 @section('content')
-<div class="mb-3 d-flex flex-wrap gap-2 justify-content-between align-items-center">
+<div class="mb-3 d-flex flex-wrap gap-2 justify-content-between align-items-center" id="readerToolbar">
     <a href="{{ route('novels.show', $chapter->novel_id) }}" class="btn btn-outline-secondary btn-sm text-truncate" style="max-width: 100%;">&larr; {{ $chapter->novel->name ?? 'Back' }}</a>
     <div class="d-flex gap-2 align-items-center">
+        <button type="button" id="focusBtn" class="btn btn-sm btn-outline-secondary" title="Focus mode (hide chrome)" aria-label="Focus mode">⛶</button>
         <button type="button" id="readerSettingsBtn" class="btn btn-sm btn-outline-secondary" title="Reading settings" aria-label="Reading settings">Aa</button>
         @if($prev)
             <a href="{{ route('chapters.show', $prev->id) }}" class="btn btn-sm btn-outline-secondary">&larr; Ch. {{ $prev->chapter }}</a>
@@ -38,6 +45,13 @@
                 <button type="button" class="btn btn-outline-secondary" data-theme="dark">Dark</button>
                 <button type="button" class="btn btn-outline-secondary" data-theme="sepia">Sepia</button>
                 <button type="button" class="btn btn-outline-secondary" data-theme="light">Light</button>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <span class="text-muted">Font</span>
+            <div class="btn-group btn-group-sm" id="familyGroup">
+                <button type="button" class="btn btn-outline-secondary" data-family="sans">Sans</button>
+                <button type="button" class="btn btn-outline-secondary" data-family="serif">Serif</button>
             </div>
         </div>
     </div>
@@ -98,8 +112,13 @@
         font: parseInt(localStorage.getItem('reader_font') || '18', 10),
         width: localStorage.getItem('reader_width') || 'medium',
         theme: localStorage.getItem('reader_theme') || 'dark',
+        family: localStorage.getItem('reader_family') || 'sans',
     };
 
+    const families = {
+        sans: "var(--bs-body-font-family)",
+        serif: "Georgia, 'Times New Roman', serif",
+    };
     const widths = { narrow: '600px', medium: '760px', wide: '960px' };
     const themes = {
         dark:  { bg: '', fg: '' },                       // inherit app theme
@@ -111,6 +130,7 @@
         if (content) {
             content.style.fontSize = prefs.font + 'px';
             content.style.maxWidth = widths[prefs.width] || widths.medium;
+            content.style.fontFamily = families[prefs.family] || families.sans;
         }
         const t = themes[prefs.theme] || themes.dark;
         if (card) {
@@ -123,6 +143,8 @@
             b.classList.toggle('active', b.dataset.width === prefs.width));
         document.querySelectorAll('#themeGroup [data-theme]').forEach(b =>
             b.classList.toggle('active', b.dataset.theme === prefs.theme));
+        document.querySelectorAll('#familyGroup [data-family]').forEach(b =>
+            b.classList.toggle('active', b.dataset.family === prefs.family));
     }
 
     document.getElementById('readerSettingsBtn').addEventListener('click', () => {
@@ -144,6 +166,24 @@
         localStorage.setItem('reader_theme', prefs.theme);
         applyPrefs();
     }));
+    document.querySelectorAll('[data-family]').forEach(btn => btn.addEventListener('click', () => {
+        prefs.family = btn.dataset.family;
+        localStorage.setItem('reader_family', prefs.family);
+        applyPrefs();
+    }));
+
+    // ---- Focus mode: hide navbar + toolbar, persisted ----
+    const focusBtn = document.getElementById('focusBtn');
+    function applyFocus() {
+        const on = localStorage.getItem('reader_focus') === '1';
+        document.body.classList.toggle('reader-focus', on);
+        focusBtn.classList.toggle('active', on);
+    }
+    focusBtn.addEventListener('click', () => {
+        localStorage.setItem('reader_focus', localStorage.getItem('reader_focus') === '1' ? '0' : '1');
+        applyFocus();
+    });
+    applyFocus();
 
     applyPrefs();
 
