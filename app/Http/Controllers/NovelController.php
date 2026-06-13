@@ -155,10 +155,22 @@ class NovelController extends Controller
             $query->where('status', $request->status);
         }
 
+        // List/grid toggle: explicit ?view= wins, otherwise the last choice
+        // remembered in the session.
+        $view = $request->query('view');
+        if (!in_array($view, ['list', 'grid'], true)) {
+            $view = session('novels_view', 'list');
+        }
+        session(['novels_view' => $view]);
+
         // Only what the list renders (plus relation keys) — novels.* would
         // drag the longtext description along for every row.
         return view('novels.index', [
-            'novels' => $query->paginate(25, ['id', 'name', 'author', 'status', 'group_id', 'language_id']),
+            'novels' => $query->paginate(
+                $view === 'grid' ? 48 : 25,
+                ['id', 'name', 'author', 'status', 'group_id', 'language_id']
+            ),
+            'view' => $view,
         ]);
     }
 
@@ -338,10 +350,11 @@ class NovelController extends Controller
             ->where('blacklist', 0)
             ->orderBy('book')
             ->orderBy('chapter')
-            ->paginate(50);
+            ->paginate(50, ['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'download_date']);
 
         return view('novels.show', [
             'data' => $data,
+            'synopsis' => $this->cleanSynopsis($data->description, $data->name),
             'chapters' => $chapters,
             'new_chapters' => $stats['new_chapters'],
             'duplicate_chapters' => $stats['duplicate_chapters'],
@@ -350,6 +363,29 @@ class NovelController extends Controller
             'current_chapters_not_downloaded' => $stats['not_downloaded_count'],
             'progress' => round($progress),
         ]);
+    }
+
+    /**
+     * Scraped descriptions sometimes contain only heading junk or just the
+     * novel's own title. Strip the noise and return null when nothing real
+     * remains, so the view can fall back to "No summary available".
+     */
+    protected function cleanSynopsis(?string $html, string $name): ?string
+    {
+        if (empty($html)) {
+            return null;
+        }
+
+        $html = preg_replace('/<h[1-6][^>]*>.*?<\/h[1-6]>/is', '', $html);
+        $html = trim($html);
+
+        $text = trim(html_entity_decode(strip_tags($html)));
+
+        if ($text === '' || mb_strlen($text) < 20 || mb_strtolower($text) === mb_strtolower(trim($name))) {
+            return null;
+        }
+
+        return $html;
     }
 
     /**

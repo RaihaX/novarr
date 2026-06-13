@@ -180,6 +180,137 @@ code {
     }
 }
 
+// Synopsis with clamped preview + read-more (novel detail page)
+.synopsis-body {
+    font-size: 13px;
+    line-height: 1.7;
+    color: #adb5bd;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+
+    &.expanded {
+        display: block;
+        -webkit-line-clamp: unset;
+    }
+
+    p:last-child {
+        margin-bottom: 0;
+    }
+}
+
+.synopsis-toggle {
+    font-size: 12px;
+    text-decoration: none;
+}
+
+// Poster grid (novels index grid view, Sonarr-style)
+.poster-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 1rem;
+
+    @include media-breakpoint-up(md) {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 1.25rem;
+    }
+}
+
+.poster-card {
+    display: block;
+    text-decoration: none;
+    color: $novarr-text;
+
+    &:hover {
+        color: $novarr-text;
+
+        .poster-cover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+        }
+
+        .poster-title {
+            color: $novarr-link-hover;
+        }
+    }
+}
+
+.poster-cover {
+    position: relative;
+    aspect-ratio: 2 / 3;
+    border-radius: $border-radius;
+    overflow: hidden;
+    background: $novarr-surface-alt;
+    border: 1px solid $novarr-border;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+    img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+}
+
+.poster-cover-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem;
+    text-align: center;
+
+    span {
+        font-size: 12px;
+        font-weight: 600;
+        color: $novarr-muted;
+        display: -webkit-box;
+        -webkit-line-clamp: 4;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+}
+
+.poster-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+}
+
+.poster-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 4px;
+    background: rgba(0, 0, 0, 0.55);
+
+    .poster-progress-bar {
+        height: 100%;
+        background: var(--bs-info);
+
+        &.is-complete {
+            background: var(--bs-success);
+        }
+    }
+}
+
+.poster-title {
+    margin-top: 0.5rem;
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.poster-meta {
+    font-size: 11px;
+    color: $novarr-muted;
+}
+
 // Uppercase column-header style used on list tables
 .table-head-label {
     font-size: 12px;

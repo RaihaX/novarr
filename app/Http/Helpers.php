@@ -226,15 +226,20 @@ function urlExists($url)
     }
 }
 
-function chapterGenerator($data)
+/**
+ * Resolve the URL a chapter is (or would be) scraped from. Shared by the
+ * scraper and by the daily summary email so failure reports link to the
+ * exact URL that is failing.
+ */
+function chapterSourceUrl($data)
 {
-    $novelUrl = preg_match("/^http/", $data->url)
+    $novelUrl = preg_match("/^http/", $data->url ?? "")
         ? $data->url
-        : $data->novel->group->url . $data->url;
+        : ($data->novel->group->url ?? "") . $data->url;
 
     if (
         !empty($data->novel->alternative_url) &&
-        in_array($data->novel->group->id, [1, 3, 6])
+        in_array($data->novel->group->id ?? 0, [1, 3, 6])
     ) {
         $chapter =
             $data->novel->id == 72
@@ -242,6 +247,13 @@ function chapterGenerator($data)
                 : floor($data->chapter);
         $novelUrl = $data->novel->alternative_url . $chapter;
     }
+
+    return $novelUrl;
+}
+
+function chapterGenerator($data)
+{
+    $novelUrl = chapterSourceUrl($data);
 
     \Log::debug("ChapterGenerator attempting to fetch URL: {$novelUrl}");
 

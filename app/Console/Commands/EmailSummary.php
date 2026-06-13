@@ -105,12 +105,13 @@ class EmailSummary extends Command
         $failing = Novel::where("status", 0)
             ->where("scrape_failures", ">=", 3)
             ->orderBy("name")
-            ->get(["id", "name", "scrape_failures"]);
+            ->get(["id", "name", "scrape_failures", "translator_url"]);
 
         foreach ($failing as $novel) {
             $attention[$novel->id] = [
                 "name" => $novel->name,
                 "reason" => "{$novel->scrape_failures} consecutive scrape runs failed — the source site may have changed",
+                "url" => $this->sourceUrlFor($novel),
             ];
         }
 
@@ -135,10 +136,32 @@ class EmailSummary extends Command
                     "name" => $novel->name,
                     "reason" => "{$pending} pending chapter(s) but no successful download since "
                         . ($lastDownload ? Carbon::parse($lastDownload)->format("j M Y") : "ever"),
+                    "url" => $this->sourceUrlFor($novel),
                 ];
             }
         }
 
         return array_values($attention);
+    }
+
+    /**
+     * The URL the scraper is failing on: the next pending chapter's resolved
+     * source URL, falling back to the novel's translator page.
+     */
+    private function sourceUrlFor(Novel $novel): ?string
+    {
+        $chapter = NovelChapter::with("novel.group")
+            ->where("novel_id", $novel->id)
+            ->where("status", 0)
+            ->where("blacklist", 0)
+            ->orderBy("book")
+            ->orderBy("chapter")
+            ->first(["id", "novel_id", "chapter", "book", "url"]);
+
+        if ($chapter && $chapter->novel) {
+            return chapterSourceUrl($chapter);
+        }
+
+        return $novel->translator_url ?: null;
     }
 }

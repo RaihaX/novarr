@@ -117,9 +117,10 @@
             <div class="progress-bar {{ $progress >= 100 ? 'bg-success' : 'bg-info' }}" style="width: {{ $progress }}%; border-radius: 3px;"></div>
         </div>
 
-        @if($data->description)
-            <div style="font-size: 13px; line-height: 1.7; color: #adb5bd; max-height: 120px; overflow-y: auto;">
-                {!! $data->description !!}
+        @if($synopsis)
+            <div class="synopsis" id="synopsis">
+                <div class="synopsis-body" id="synopsisBody">{!! $synopsis !!}</div>
+                <button type="button" class="btn btn-link btn-sm p-0 synopsis-toggle d-none" id="synopsisToggle" aria-expanded="false">Read more</button>
             </div>
         @else
             <div class="d-flex align-items-center gap-2" style="font-size: 13px; color: #6c757d;">
@@ -261,6 +262,22 @@
 
 @push('scripts')
 <script>
+    // Synopsis read-more: only show the toggle when the text actually clamps.
+    const synopsisBody = document.getElementById('synopsisBody');
+    const synopsisToggle = document.getElementById('synopsisToggle');
+
+    if (synopsisBody && synopsisToggle) {
+        if (synopsisBody.scrollHeight > synopsisBody.clientHeight + 2) {
+            synopsisToggle.classList.remove('d-none');
+        }
+
+        synopsisToggle.addEventListener('click', () => {
+            const expanded = synopsisBody.classList.toggle('expanded');
+            synopsisToggle.textContent = expanded ? 'Read less' : 'Read more';
+            synopsisToggle.setAttribute('aria-expanded', expanded);
+        });
+    }
+
     document.querySelectorAll('.cmd-btn').forEach(btn => {
         btn.addEventListener('click', () => runCommand(btn));
     });

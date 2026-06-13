@@ -14,7 +14,7 @@
     $completed = $data['completed'] ?? [];
     $attention = $data['attention'] ?? [];
     $since = $data['since'] ?? null;
-    $byNovel = collect($chapters)->groupBy('novel');
+    $byNovel = collect($chapters)->groupBy('novel')->sortKeys(SORT_NATURAL | SORT_FLAG_CASE);
 
     $fmtChapter = fn ($item) => (($item['book'] ?? 0) > 0 ? 'B' . $item['book'] . ' · ' : '')
         . rtrim(rtrim(number_format((float) $item['chapter'], 2, '.', ''), '0'), '.');
@@ -99,6 +99,9 @@
                                         <td bgcolor="#fffbeb" style="background-color: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 6px; padding: 12px 16px; {{ $loop->last ? '' : 'border-bottom: 6px solid #ffffff;' }}">
                                             <span style="font-size: 14px; font-weight: 600; color: #92400e;">{{ $novel['name'] }}</span>
                                             <br><span style="font-size: 12px; color: #b45309;">{{ $novel['reason'] }}</span>
+                                            @if (!empty($novel['url']))
+                                                <br><a href="{{ $novel['url'] }}" style="font-size: 12px; color: #92400e; word-break: break-all;">Test source: {{ \Illuminate\Support\Str::limit($novel['url'], 70) }}</a>
+                                            @endif
                                         </td>
                                     </tr>
                                 @endforeach
