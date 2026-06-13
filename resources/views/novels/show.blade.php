@@ -361,11 +361,20 @@
         document.getElementById('cmdOutput').classList.remove('d-none');
         outputText.textContent = `> ${command} --novel=${novelId}\nRunning...`;
 
+        // Commands that change the chapter list or stats shown on this page —
+        // reload after they finish so the page reflects the new data.
+        const reloadAfter = ['toc', 'chapter', 'metadata', 'normalize_labels', 'calculate_chapter', 'chapter_cleanser', 'chapter_cleaner'];
+
         try {
             const result = await Novarr.executeCommand({ command, novel_id: novelId });
             setButtonState(btn, result.success ? 'done' : 'fail');
             outputText.textContent = `> ${command} --novel=${novelId}\n${result.output || result.error || 'Done'}`;
             outputText.scrollTop = outputText.scrollHeight;
+
+            if (result.success && reloadAfter.includes(command)) {
+                Novarr.showToast('Done — refreshing the page…', 'success');
+                setTimeout(() => location.reload(), 1200);
+            }
         } catch (err) {
             setButtonState(btn, 'fail');
             outputText.textContent = `> ${command}\nError: ${err.message}`;

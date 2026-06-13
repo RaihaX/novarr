@@ -104,8 +104,12 @@
                 @endif
             </div>
             @if($missing_chapters->hasPages())
-                <div class="card-footer">
-                    {{ $missing_chapters->appends(request()->query())->links() }}
+                <div class="card-footer d-flex justify-content-between align-items-center">
+                    <span class="text-muted" style="font-size: 12px;">Page {{ $missing_chapters->currentPage() }} of {{ $missing_chapters->lastPage() }}</span>
+                    <div class="btn-group btn-group-sm">
+                        <a class="btn btn-outline-secondary {{ $missing_chapters->onFirstPage() ? 'disabled' : '' }}" href="{{ $missing_chapters->appends(request()->query())->previousPageUrl() }}">&laquo; Prev</a>
+                        <a class="btn btn-outline-secondary {{ $missing_chapters->hasMorePages() ? '' : 'disabled' }}" href="{{ $missing_chapters->appends(request()->query())->nextPageUrl() }}">Next &raquo;</a>
+                    </div>
                 </div>
             @endif
         </div>
@@ -151,8 +155,12 @@
                 @endif
             </div>
             @if($latest_chapters->hasPages())
-                <div class="card-footer">
-                    {{ $latest_chapters->appends(request()->query())->links() }}
+                <div class="card-footer d-flex justify-content-between align-items-center">
+                    <span class="text-muted" style="font-size: 12px;">Page {{ $latest_chapters->currentPage() }}</span>
+                    <div class="btn-group btn-group-sm">
+                        <a class="btn btn-outline-secondary {{ $latest_chapters->onFirstPage() ? 'disabled' : '' }}" href="{{ $latest_chapters->appends(request()->query())->previousPageUrl() }}">&laquo; Prev</a>
+                        <a class="btn btn-outline-secondary {{ $latest_chapters->hasMorePages() ? '' : 'disabled' }}" href="{{ $latest_chapters->appends(request()->query())->nextPageUrl() }}">Next &raquo;</a>
+                    </div>
                 </div>
             @endif
         </div>

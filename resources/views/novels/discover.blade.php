@@ -136,8 +136,18 @@
             });
 
             if (result.success && !(result.output || '').includes('cancelled')) {
-                btn.className = 'btn btn-sm w-100 poster-add btn-outline-secondary';
-                btn.textContent = 'Added ✓';
+                // Command prints "New Novel ID: 70" — link straight to it.
+                const idMatch = (result.output || '').match(/New Novel ID:\s*(\d+)/);
+                if (idMatch) {
+                    const link = document.createElement('a');
+                    link.href = `/novels/${idMatch[1]}`;
+                    link.className = 'btn btn-sm w-100 poster-add btn-info';
+                    link.textContent = 'Open novel →';
+                    btn.replaceWith(link);
+                } else {
+                    btn.className = 'btn btn-sm w-100 poster-add btn-outline-secondary';
+                    btn.textContent = 'Added ✓';
+                }
                 Novarr.showToast(`"${item.name}" added — metadata and cover fetched. Open it to scrape the TOC.`, 'success');
             } else if ((result.output || '').includes('already exists')) {
                 btn.className = 'btn btn-sm w-100 poster-add btn-outline-secondary';
