@@ -352,23 +352,29 @@ a.dash-stat:hover {
     right: 6px;
 }
 
-// Hover-revealed delete on grid posters; always visible on touch devices
-.poster-delete {
+// Hover-revealed actions (complete + delete) on grid posters; always
+// visible on touch devices.
+.poster-actions {
     position: absolute;
     top: 6px;
     left: 6px;
-    padding: 2px 7px;
+    display: flex;
+    gap: 4px;
     opacity: 0;
     transition: opacity 0.15s ease;
+
+    .poster-action {
+        padding: 2px 7px;
+    }
 }
 
-.poster-cover:hover .poster-delete,
-.poster-delete:focus-visible {
+.poster-cover:hover .poster-actions,
+.poster-actions:focus-within {
     opacity: 1;
 }
 
 @media (hover: none) {
-    .poster-delete {
+    .poster-actions {
         opacity: 0.85;
     }
 }

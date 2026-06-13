@@ -18,7 +18,7 @@ class HomeController extends Controller
     {
         // Only the columns the dashboard renders — description is a longtext
         // and must never be pulled for list views.
-        $columns = ['id', 'novel_id', 'chapter', 'label', 'created_at'];
+        $columns = ['id', 'novel_id', 'chapter', 'label', 'created_at', 'download_date'];
 
         $missing_chapters = NovelChapter::with('novel:id,name')
             ->where('status', 0)
@@ -26,9 +26,13 @@ class HomeController extends Controller
             ->orderBy('created_at', 'desc')
             ->paginate(10, $columns, 'missing_page');
 
+        // Most recently *downloaded* chapters (by download time), so the panel
+        // reflects the every-10-minute scraper's actual activity.
         $latest_chapters = NovelChapter::with('novel:id,name')
+            ->where('status', 1)
             ->where('blacklist', 0)
-            ->orderBy('created_at', 'desc')
+            ->whereNotNull('download_date')
+            ->orderByDesc('download_date')
             ->simplePaginate(10, $columns, 'latest_page');
 
         // All indexed counts; cached briefly so dashboard refreshes stay cheap.

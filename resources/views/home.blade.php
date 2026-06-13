@@ -143,7 +143,7 @@
     <div class="col-md-6 mb-4">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0"><span class="badge bg-success me-2" title="Chapters added in the last 24 hours">{{ $stats['downloaded_today'] }}</span> Latest Chapters <small class="text-muted fw-normal">(last 24h)</small></h5>
+                <h5 class="mb-0"><span class="badge bg-success me-2" title="Chapters downloaded in the last 24 hours">{{ $stats['downloaded_today'] }}</span> Recently Downloaded</h5>
             </div>
             <div class="table-responsive">
                 @if($latest_chapters->count() > 0)
@@ -168,7 +168,7 @@
                                     </td>
                                     <td>{{ $chapter->chapter }}</td>
                                     <td class="text-truncate" style="max-width: 200px;">{{ $chapter->label }}</td>
-                                    <td class="text-nowrap">{{ $chapter->created_at->diffForHumans() }}</td>
+                                    <td class="text-nowrap" title="{{ optional($chapter->download_date)->format('Y-m-d H:i') }}">{{ optional($chapter->download_date)->diffForHumans() ?? '—' }}</td>
                                 </tr>
                             @endforeach
                         </tbody>

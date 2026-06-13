@@ -67,9 +67,14 @@
                     @elseif($novel->paused_at)
                         <span class="poster-badge badge bg-secondary">Paused</span>
                     @endif
-                    <button type="button" class="btn btn-sm btn-danger poster-delete novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
-                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.5 1h3a.5.5 0 0 1 .5.5V2h4v1.5H2V2h4v-.5a.5.5 0 0 1 .5-.5zM3 4.5h10L12.2 14a1.5 1.5 0 0 1-1.5 1.4H5.3A1.5 1.5 0 0 1 3.8 14L3 4.5z"/></svg>
-                    </button>
+                    <div class="poster-actions">
+                        <button type="button" class="btn btn-sm btn-success poster-action novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 4.5 6 12 2.5 8.5l1-1L6 10l6.5-6.5z"/></svg>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-danger poster-action novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.5 1h3a.5.5 0 0 1 .5.5V2h4v1.5H2V2h4v-.5a.5.5 0 0 1 .5-.5zM3 4.5h10L12.2 14a1.5 1.5 0 0 1-1.5 1.4H5.3A1.5 1.5 0 0 1 3.8 14L3 4.5z"/></svg>
+                        </button>
+                    </div>
                     <div class="poster-progress">
                         <div class="poster-progress-bar {{ $pct >= 100 ? 'is-complete' : '' }}" style="width: {{ $pct }}%"></div>
                     </div>
@@ -179,7 +184,10 @@
                             </div>
                         </td>
                         <td class="text-muted">{{ $downloaded }} / {{ $total }}</td>
-                        <td class="text-end">
+                        <td class="text-end text-nowrap">
+                            <button type="button" class="btn btn-sm btn-outline-success novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
+                                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 4.5 6 12 2.5 8.5l1-1L6 10l6.5-6.5z"/></svg>
+                            </button>
                             <button type="button" class="btn btn-sm btn-outline-danger novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
                                 <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.5 1h3a.5.5 0 0 1 .5.5V2h4v1.5H2V2h4v-.5a.5.5 0 0 1 .5-.5zM3 4.5h10L12.2 14a1.5 1.5 0 0 1-1.5 1.4H5.3A1.5 1.5 0 0 1 3.8 14L3 4.5z"/></svg>
                             </button>
@@ -266,6 +274,35 @@
 
     document.getElementById('bulkDelete')?.addEventListener('click', () => bulkAction('delete'));
     document.getElementById('bulkComplete')?.addEventListener('click', () => bulkAction('complete'));
+
+    // --- Toggle complete (grid + list) ---
+    document.querySelectorAll('.novel-complete-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            btn.disabled = true;
+            try {
+                const response = await fetch(`/novels/${btn.dataset.id}/toggle-complete`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                    },
+                });
+                const data = await response.json();
+                if (data.success) {
+                    Novarr.showToast(data.completed ? 'Marked complete.' : 'Marked active.', 'success');
+                    setTimeout(() => location.reload(), 600);
+                } else {
+                    btn.disabled = false;
+                    Novarr.showToast('Failed to update.', 'danger');
+                }
+            } catch (err) {
+                btn.disabled = false;
+                Novarr.showToast('Error: ' + err.message, 'danger');
+            }
+        });
+    });
 
     // --- Single delete ---
     document.querySelectorAll('.novel-delete-btn').forEach(btn => {

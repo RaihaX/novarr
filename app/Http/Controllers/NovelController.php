@@ -370,6 +370,26 @@ class NovelController extends Controller
     }
 
     /**
+     * Toggle a novel's completed status (mark complete / reopen).
+     */
+    public function toggleComplete($id)
+    {
+        $novel = $this->novels->findOrFail($id);
+        $novel->status = $novel->status ? 0 : 1;
+        $novel->completed_at = $novel->status ? now() : null;
+        $novel->save();
+
+        CacheHelper::clearNovelCache($id);
+        CacheHelper::clearNovelDataTablesCache();
+        Cache::forget('dashboard_stats');
+
+        return response()->json([
+            'success' => true,
+            'completed' => (bool) $novel->status,
+        ]);
+    }
+
+    /**
      * Store a newly created resource in storage.
      *
      * @param  \Illuminate\Http\Request  $request
