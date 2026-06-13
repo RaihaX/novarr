@@ -54,7 +54,7 @@
         @if($failed_jobs->count())
             <table class="table table-sm table-striped mb-0" style="font-size: 13px;">
                 <thead>
-                    <tr><th>Queue</th><th>Failed</th><th>Error</th><th style="width: 140px;"></th></tr>
+                    <tr><th>Queue</th><th>Failed</th><th>Error</th><th style="width: 200px;"></th></tr>
                 </thead>
                 <tbody>
                     @foreach($failed_jobs as $job)
@@ -62,7 +62,8 @@
                             <td>{{ $job->queue }}</td>
                             <td class="text-nowrap text-muted">{{ \Carbon\Carbon::parse($job->failed_at)->diffForHumans() }}</td>
                             <td><code style="font-size: 12px;">{{ Str::limit($job->exception, 120) }}</code></td>
-                            <td class="text-end">
+                            <td class="text-end text-nowrap">
+                                <button type="button" class="btn btn-sm btn-outline-secondary job-details" data-uuid="{{ $job->uuid }}">Details</button>
                                 <button type="button" class="btn btn-sm btn-outline-success job-retry" data-uuid="{{ $job->uuid }}">Retry</button>
                                 <button type="button" class="btn btn-sm btn-outline-danger job-forget" data-uuid="{{ $job->uuid }}">Delete</button>
                             </td>
@@ -75,12 +76,68 @@
         @endif
     </div>
 </div>
+
+{{-- Failed job detail modal --}}
+<div class="modal fade" id="jobModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Failed Job</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <dl class="row mb-3" style="font-size: 13px;">
+                    <dt class="col-sm-3">Command</dt><dd class="col-sm-9"><code id="jmCommand"></code></dd>
+                    <dt class="col-sm-3">Params</dt><dd class="col-sm-9"><code id="jmParams"></code></dd>
+                    <dt class="col-sm-3">Queue</dt><dd class="col-sm-9" id="jmQueue"></dd>
+                    <dt class="col-sm-3">Failed</dt><dd class="col-sm-9" id="jmFailed"></dd>
+                </dl>
+                <label class="text-muted" style="font-size: 12px;">Exception</label>
+                <pre id="jmException" class="log-pre p-3 rounded" style="background:#0d1117; max-height: 50vh; overflow:auto;"></pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-success" id="jmRetry">Retry</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 @endsection
 
 @push('scripts')
 <script>
     const csrf = document.querySelector('meta[name="csrf-token"]').content;
     const post = (url) => fetch(url, { method: 'POST', headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' } }).then(r => r.json());
+
+    // Details modal — instantiate lazily (window.bootstrap is set by the
+    // deferred module, which runs after this inline script on first load).
+    let modalUuid = null;
+    const modalEl = document.getElementById('jobModal');
+    const getModal = () => window.bootstrap.Modal.getOrCreateInstance(modalEl);
+
+    document.querySelectorAll('.job-details').forEach(b => b.addEventListener('click', async () => {
+        try {
+            const data = await fetch(`/health/job/${b.dataset.uuid}`, { headers: { 'Accept': 'application/json' } }).then(r => r.json());
+            if (!data.success) { Novarr.showToast('Could not load job.', 'danger'); return; }
+            modalUuid = data.uuid;
+            document.getElementById('jmCommand').textContent = data.command || '—';
+            document.getElementById('jmParams').textContent = data.params || '—';
+            document.getElementById('jmQueue').textContent = data.queue;
+            document.getElementById('jmFailed').textContent = data.failed_at;
+            document.getElementById('jmException').textContent = data.exception;
+            getModal().show();
+        } catch (err) {
+            Novarr.showToast('Error: ' + err.message, 'danger');
+        }
+    }));
+
+    document.getElementById('jmRetry')?.addEventListener('click', async () => {
+        if (!modalUuid) return;
+        await post(`/health/retry/${modalUuid}`);
+        Novarr.showToast('Job re-queued.', 'success');
+        getModal().hide();
+        document.querySelector(`tr[data-uuid="${modalUuid}"]`)?.remove();
+    });
 
     document.querySelectorAll('.job-retry').forEach(b => b.addEventListener('click', async () => {
         await post(`/health/retry/${b.dataset.uuid}`);

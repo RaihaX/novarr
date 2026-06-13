@@ -39,7 +39,7 @@ Schedule::call(fn() => cache()->put('scheduler_last_run', now()->toDateTimeStrin
 // dedicated worker process: the cron-driven scheduler starts a worker every
 // minute and it exits as soon as the queue is empty. withoutOverlapping
 // prevents pile-up while a long command (e.g. a full chapter scrape) runs.
-Schedule::command('queue:work --queue=commands,default --stop-when-empty')
+Schedule::command('queue:work --queue=commands,default --stop-when-empty --timeout=3600')
     ->everyMinute()
     ->name('drain_queue')
     ->withoutOverlapping();

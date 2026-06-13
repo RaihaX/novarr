@@ -1,5 +1,9 @@
 import './bootstrap';
 import '@hotwired/turbo';
+import * as bootstrap from 'bootstrap';
+
+// Expose Bootstrap so inline page scripts can drive modals/toasts.
+window.bootstrap = bootstrap;
 
 import { executeCommand, pollJobStatus } from './commands';
 import { showToast } from './toast';

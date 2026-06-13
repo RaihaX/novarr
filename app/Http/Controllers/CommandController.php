@@ -178,50 +178,23 @@ class CommandController extends Controller
         $requestData = $request->all();
         $jobId = uniqid('cmd_', true);
 
-        Log::info("Queuing async command: {$artisanCommand}", ['job_id' => $jobId]);
+        $params = [];
+        if (in_array('novel_id', $commandConfig['params'])) {
+            $params['novel'] = (int) ($requestData['novel_id'] ?? 0);
+        }
+        if (in_array('name', $commandConfig['params']) && !empty($requestData['name'])) {
+            $params['name'] = $requestData['name'];
+        }
+        if (in_array('url', $commandConfig['params']) && !empty($requestData['url'])) {
+            $params['url'] = $requestData['url'];
+        }
+        if (in_array('dry_run', $commandConfig['params']) && !empty($requestData['dry_run'])) {
+            $params['--dry-run'] = true;
+        }
 
-        dispatch(function () use ($artisanCommand, $requestData, $jobId, $commandConfig) {
-            $params = [];
-            if (in_array('novel_id', $commandConfig['params'])) {
-                $params['novel'] = (int) ($requestData['novel_id'] ?? 0);
-            }
-            if (in_array('name', $commandConfig['params']) && !empty($requestData['name'])) {
-                $params['name'] = $requestData['name'];
-            }
-            if (in_array('url', $commandConfig['params']) && !empty($requestData['url'])) {
-                $params['url'] = $requestData['url'];
-            }
-            if (in_array('dry_run', $commandConfig['params']) && !empty($requestData['dry_run'])) {
-                $params['--dry-run'] = true;
-            }
+        Log::info("Queuing async command: {$artisanCommand}", ['job_id' => $jobId, 'params' => $params]);
 
-            try {
-                $exitCode = Artisan::call($artisanCommand, $params);
-                $output = Artisan::output();
-
-                // Keep the tail only — some commands (novel:info) emit
-                // megabytes, which bloats the cache store and can kill the
-                // status response.
-                if (strlen($output) > 65536) {
-                    $output = "… (output truncated, showing last 64 KB)\n" . substr($output, -65536);
-                }
-
-                cache()->put("command_result_{$jobId}", [
-                    'success' => $exitCode === 0,
-                    'exit_code' => $exitCode,
-                    'output' => $output,
-                    'completed_at' => now()->toIso8601String(),
-                ], now()->addHours(1));
-            } catch (\Exception $e) {
-                cache()->put("command_result_{$jobId}", [
-                    'success' => false,
-                    'exit_code' => 1,
-                    'error' => $e->getMessage(),
-                    'output' => '',
-                    'completed_at' => now()->toIso8601String(),
-                ], now()->addHours(1));
-            }
-        })->onQueue('commands');
+        \App\Jobs\RunNovelCommand::dispatch($artisanCommand, $params, $jobId)->onQueue('commands');
 
         return response()->json([
             'success' => true,

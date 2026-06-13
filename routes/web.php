@@ -56,6 +56,7 @@ Route::get('/search', [SearchController::class, 'index'])->name('search.index');
 Route::get('/search/suggest', [SearchController::class, 'suggest'])->name('search.suggest');
 
 Route::get('/health', [SystemHealthController::class, 'index'])->name('health.index');
+Route::get('/health/job/{uuid}', [SystemHealthController::class, 'failedJob'])->name('health.job');
 Route::post('/health/retry/{uuid}', [SystemHealthController::class, 'retry'])->name('health.retry');
 Route::post('/health/retry-all', [SystemHealthController::class, 'retryAll'])->name('health.retry_all');
 Route::post('/health/forget/{uuid}', [SystemHealthController::class, 'forget'])->name('health.forget');
