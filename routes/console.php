@@ -29,6 +29,15 @@ Artisan::command('inspire', function () {
 |
 */
 
+// Drain queued jobs (background commands from the web UI) without needing a
+// dedicated worker process: the cron-driven scheduler starts a worker every
+// minute and it exits as soon as the queue is empty. withoutOverlapping
+// prevents pile-up while a long command (e.g. a full chapter scrape) runs.
+Schedule::command('queue:work --queue=commands,default --stop-when-empty')
+    ->everyMinute()
+    ->name('drain_queue')
+    ->withoutOverlapping();
+
 // Refresh the table of contents for all active (non-complete) novels once a day.
 Schedule::command('novel:toc')
     ->dailyAt('01:00')

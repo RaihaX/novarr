@@ -1,0 +1,87 @@
+<?php
+
+namespace App\Services;
+
+use App\Novel;
+use App\NovelChapter;
+use Carbon\Carbon;
+
+class NovelHealth
+{
+    /**
+     * Active novels that look unhealthy: repeated all-failed scrape runs, or
+     * pending chapters that haven't progressed in over a week (stalled).
+     * Shared by the daily summary email and the dashboard so both always
+     * report the same problems.
+     *
+     * @return array<int, array{id: int, name: string, reason: string, url: ?string}>
+     */
+    public function needingAttention(): array
+    {
+        $attention = [];
+
+        $failing = Novel::where('status', 0)
+            ->where('scrape_failures', '>=', 3)
+            ->orderBy('name')
+            ->get(['id', 'name', 'scrape_failures', 'translator_url']);
+
+        foreach ($failing as $novel) {
+            $attention[$novel->id] = [
+                'id' => $novel->id,
+                'name' => $novel->name,
+                'reason' => "{$novel->scrape_failures} consecutive scrape runs failed — the source site may have changed",
+                'url' => $this->sourceUrlFor($novel),
+            ];
+        }
+
+        $stalled = Novel::where('status', 0)
+            ->whereHas('chapters', fn($q) => $q->where('status', 0)->where('blacklist', 0))
+            ->orderBy('name')
+            ->get(['id', 'name', 'translator_url']);
+
+        foreach ($stalled as $novel) {
+            if (isset($attention[$novel->id])) {
+                continue;
+            }
+
+            $lastDownload = NovelChapter::where('novel_id', $novel->id)
+                ->where('status', 1)
+                ->max('download_date');
+
+            if ($lastDownload === null || Carbon::parse($lastDownload)->lt(Carbon::now()->subDays(7))) {
+                $pending = NovelChapter::where('novel_id', $novel->id)
+                    ->where('status', 0)->where('blacklist', 0)->count();
+                $attention[$novel->id] = [
+                    'id' => $novel->id,
+                    'name' => $novel->name,
+                    'reason' => "{$pending} pending chapter(s) but no successful download since "
+                        . ($lastDownload ? Carbon::parse($lastDownload)->format('j M Y') : 'ever'),
+                    'url' => $this->sourceUrlFor($novel),
+                ];
+            }
+        }
+
+        return array_values($attention);
+    }
+
+    /**
+     * The URL the scraper is failing on: the next pending chapter's resolved
+     * source URL, falling back to the novel's translator page.
+     */
+    public function sourceUrlFor(Novel $novel): ?string
+    {
+        $chapter = NovelChapter::with('novel.group')
+            ->where('novel_id', $novel->id)
+            ->where('status', 0)
+            ->where('blacklist', 0)
+            ->orderBy('book')
+            ->orderBy('chapter')
+            ->first(['id', 'novel_id', 'chapter', 'book', 'url']);
+
+        if ($chapter && $chapter->novel) {
+            return chapterSourceUrl($chapter);
+        }
+
+        return $novel->translator_url ?: null;
+    }
+}

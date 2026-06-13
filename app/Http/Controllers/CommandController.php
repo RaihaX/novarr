@@ -199,6 +199,13 @@ class CommandController extends Controller
                 $exitCode = Artisan::call($artisanCommand, $params);
                 $output = Artisan::output();
 
+                // Keep the tail only — some commands (novel:info) emit
+                // megabytes, which bloats the cache store and can kill the
+                // status response.
+                if (strlen($output) > 65536) {
+                    $output = "… (output truncated, showing last 64 KB)\n" . substr($output, -65536);
+                }
+
                 cache()->put("command_result_{$jobId}", [
                     'success' => $exitCode === 0,
                     'exit_code' => $exitCode,
