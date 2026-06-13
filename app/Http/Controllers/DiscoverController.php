@@ -141,10 +141,17 @@ class DiscoverController extends Controller
                     }
                 }
 
+                // List pages serve tiny resized thumbnails
+                // (…/novel_200_89/slug.jpg) that look terrible upscaled; the
+                // full-size original lives at …/novel/slug.jpg. Keep the
+                // thumbnail as a client-side fallback.
+                $fullCover = preg_replace('#/novel_\d+_\d+/#', '/novel/', $cover);
+
                 $items[] = [
                     'name' => $name,
                     'url' => str_starts_with($href, 'http') ? $href : self::BASE . $href,
-                    'cover' => $cover,
+                    'cover' => $fullCover,
+                    'cover_thumb' => $cover !== $fullCover ? $cover : '',
                     'author' => $author,
                 ];
             });

@@ -74,6 +74,12 @@
             img.alt = 'Cover of ' + item.name;
             img.loading = 'lazy';
             img.addEventListener('error', () => {
+                // Full-size cover missing? Retry the list thumbnail once,
+                // then give up and show the placeholder tile.
+                if (item.cover_thumb && img.src !== item.cover_thumb) {
+                    img.src = item.cover_thumb;
+                    return;
+                }
                 const ph = document.createElement('div');
                 ph.className = 'poster-cover-placeholder';
                 const span = document.createElement('span');
