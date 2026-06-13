@@ -67,52 +67,11 @@ class UpdateMetadata extends Command
                 }
             }
 
-            $isEmpire = stripos($item->translator_url ?? '', 'empirenovel.com') !== false;
-
-            if ($isEmpire) {
-                // Empire Novel covers are Cloudflare-blocked — take the cover
-                // and richer description/genres from NovelUpdates, but keep
-                // Empire Novel's chapter count.
-                $this->line("  Empire Novel: {$item->translator_url} (cover via NovelUpdates)");
-                $en = getMetadataFromEmpireNovel($item->translator_url);
-                $metadata = getMetadata($item);
-                if (!empty($en["no_of_chapters"])) {
-                    $metadata["no_of_chapters"] = $en["no_of_chapters"];
-                }
-                foreach (["description", "author", "genres"] as $key) {
-                    if (empty($metadata[$key]) && !empty($en[$key])) {
-                        $metadata[$key] = $en[$key];
-                    }
-                }
-                $this->reportFetch($metadata);
-                $coverCandidates = array_filter([$metadata["image"] ?? null, $en["image"] ?? null]);
-            } else {
-                $this->line("  NovelUpdates: https://www.novelupdates.com/series/" . novelSlug($item->name) . "/");
-                $metadata = getMetadata($item);
-                $this->reportFetch($metadata);
-                $coverCandidates = array_filter([$metadata["image"] ?? null]);
-            }
-
-            $needsFallback = empty($metadata["image"])
-                || empty($metadata["description"])
-                || empty($metadata["author"])
-                || empty($metadata["no_of_chapters"]);
-
-            if ($needsFallback && !$isEmpire) {
-                $fallback = getMetadataFromNovelBin($item);
-                $this->line("  Falling back to NovelBin: " . implode(", ", $fallback["tried_urls"] ?? []));
-
-                if (!empty($fallback["image"])) {
-                    $coverCandidates[] = $fallback["image"];
-                }
-
-                foreach (["description", "author", "no_of_chapters", "image", "genres"] as $key) {
-                    if (empty($metadata[$key]) && !empty($fallback[$key])) {
-                        $metadata[$key] = $fallback[$key];
-                    }
-                }
-                $this->reportFetch($metadata);
-            }
+            $source = \App\Sources\SourceResolver::for($item);
+            $this->line("  Source: {$source->name()}");
+            $metadata = $source->metadata($item);
+            $coverCandidates = $metadata["cover_candidates"] ?? array_filter([$metadata["image"] ?? null]);
+            $this->reportFetch($metadata);
 
             if (empty($metadata["description"])) {
                 $this->warn("  ✗ No description found on either source — check the URLs above in a browser.");

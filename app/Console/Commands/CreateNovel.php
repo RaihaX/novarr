@@ -73,50 +73,10 @@ class CreateNovel extends Command
         $object->group_id = 1;
         $object->save();
 
-        $isEmpire = stripos($url, 'empirenovel.com') !== false;
-
-        if ($isEmpire) {
-            // Empire Novel's own cover is Cloudflare-blocked, so source the
-            // cover (and richer description/genres) from NovelUpdates, but
-            // keep Empire Novel's chapter count (the source we actually scrape).
-            $en = getMetadataFromEmpireNovel($url);
-            $this->info("  Empire Novel: chapters={$en['no_of_chapters']}; sourcing cover from NovelUpdates…");
-            $metadata = getMetadata($object);
-
-            if (!empty($en["no_of_chapters"])) {
-                $metadata["no_of_chapters"] = $en["no_of_chapters"];
-            }
-            foreach (["description", "author", "genres"] as $key) {
-                if (empty($metadata[$key]) && !empty($en[$key])) {
-                    $metadata[$key] = $en[$key];
-                }
-            }
-            // NovelUpdates cover first (fetchable), Empire Novel as last resort.
-            $coverCandidates = array_filter([$metadata["image"] ?? null, $en["image"] ?? null]);
-        } else {
-            $metadata = getMetadata($object);
-            $coverCandidates = array_filter([$metadata["image"] ?? null]);
-        }
-
-        $needsFallback = empty($metadata["image"])
-            || empty($metadata["description"])
-            || empty($metadata["author"])
-            || empty($metadata["no_of_chapters"]);
-
-        if ($needsFallback && !$isEmpire) {
-            $this->info("  Fetching fallback metadata from novelbin...");
-            $fallback = getMetadataFromNovelBin($object);
-
-            if (!empty($fallback["image"])) {
-                $coverCandidates[] = $fallback["image"];
-            }
-
-            foreach (["description", "author", "no_of_chapters", "image", "genres"] as $key) {
-                if (empty($metadata[$key]) && !empty($fallback[$key])) {
-                    $metadata[$key] = $fallback[$key];
-                }
-            }
-        }
+        $source = \App\Sources\SourceResolver::for($object);
+        $this->info("  Source: {$source->name()} — fetching metadata…");
+        $metadata = $source->metadata($object);
+        $coverCandidates = $metadata["cover_candidates"] ?? array_filter([$metadata["image"] ?? null]);
 
         if (!empty($metadata["description"])) {
             $object->description = $metadata["description"];

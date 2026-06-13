@@ -531,49 +531,11 @@ function tableOfContentGenerator($data)
     $result = [];
 
     try {
-        // Empire Novel: detected by URL, paginated chapter list.
-        if (stripos($data->translator_url ?? "", "empirenovel.com") !== false) {
-            return finalizeTocResult(empireNovelToc($data->translator_url));
-        }
-
-        // Novel Bin pages only embed the newest ~30 chapters; the complete
-        // list lives behind an AJAX endpoint keyed by the URL slug. Try it
-        // first and fall back to parsing the page.
-        if (
-            $data->group_id == 1 &&
-            stripos($data->translator_url ?? "", "novelbin") !== false
-        ) {
-            $result = novelBinChapterArchive($data->translator_url);
-
-            if (!empty($result)) {
-                return finalizeTocResult($result);
-            }
-
-            \Log::warning("tableOfContentGenerator: novelbin archive empty for {$data->translator_url}; falling back to page parse");
-        }
-
-        $html = fetchWithBrowser($data->translator_url, '.list-chapter');
-
-        if ($html !== null) {
-            $crawler = new Crawler($html);
-
-            $processChapter = function ($node) use (&$result, $data) {
-                $label = $node->text();
-                $url = trim($node->attr("href"));
-                $result[] = generateTocChapterInfo($label, $url);
-            };
-
-            // Handling different groups
-            switch ($data->group_id) {
-                case 1: // Novel Bin
-                    $crawler
-                        ->filter(".list-chapter > li > a")
-                        ->each($processChapter);
-                    break;
-            }
-
-            $result = finalizeTocResult($result);
-        }
+        // Per-source TOC (see App\Sources). The resolver picks the adapter by
+        // the novel's URL; NovelBinSource is the default.
+        $result = finalizeTocResult(
+            \App\Sources\SourceResolver::for($data)->tableOfContents($data)
+        );
     } catch (\Exception $e) {
         \Log::error("tableOfContentGenerator error: " . $e->getMessage());
     }
