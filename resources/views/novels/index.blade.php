@@ -53,6 +53,9 @@
                     @elseif($novel->paused_at)
                         <span class="poster-badge badge bg-secondary">Paused</span>
                     @endif
+                    <button type="button" class="btn btn-sm btn-danger poster-delete novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.5 1h3a.5.5 0 0 1 .5.5V2h4v1.5H2V2h4v-.5a.5.5 0 0 1 .5-.5zM3 4.5h10L12.2 14a1.5 1.5 0 0 1-1.5 1.4H5.3A1.5 1.5 0 0 1 3.8 14L3 4.5z"/></svg>
+                    </button>
                     <div class="poster-progress">
                         <div class="poster-progress-bar {{ $pct >= 100 ? 'is-complete' : '' }}" style="width: {{ $pct }}%"></div>
                     </div>
@@ -250,7 +253,11 @@
 
     // --- Single delete ---
     document.querySelectorAll('.novel-delete-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
+        btn.addEventListener('click', async (e) => {
+            // Grid buttons live inside the poster link — don't navigate.
+            e.preventDefault();
+            e.stopPropagation();
+
             const name = btn.dataset.name;
 
             if (!confirm(`Delete "${name}" and all of its chapters? This cannot be undone from the UI.`)) return;
@@ -268,7 +275,7 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    btn.closest('tr').remove();
+                    (btn.closest('tr') ?? btn.closest('.poster-card'))?.remove();
                     Novarr.showToast(`Deleted "${name}".`, 'success');
                 } else {
                     btn.disabled = false;
