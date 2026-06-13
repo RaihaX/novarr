@@ -53,6 +53,50 @@ if (!function_exists('notify_webhook')) {
 }
 
 /**
+ * Like fetchWithBrowser() but also returns the Cloudflare clearance cookie
+ * and user-agent, so subsequent same-site pages can be fetched with a plain
+ * (fast) HTTP client carrying the cf_clearance cookie instead of a full
+ * browser render each time.
+ *
+ * @return array{html: string, cf_clearance: ?string, user_agent: ?string}|null
+ */
+function fetchWithBrowserSession($url)
+{
+    $flareSolverrUrl = setting('flaresolverr_url', env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'));
+
+    try {
+        $response = HttpClient::create(['timeout' => 120])->request('POST', $flareSolverrUrl, [
+            'headers' => ['Content-Type' => 'application/json'],
+            'json' => ['cmd' => 'request.get', 'url' => $url, 'maxTimeout' => 60000],
+        ]);
+        // FlareSolverr embeds page HTML (with raw control chars) in the JSON;
+        // decode leniently.
+        $data = json_decode($response->getContent(), true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+
+        if (($data['status'] ?? null) !== 'ok' || empty($data['solution']['response'])) {
+            return null;
+        }
+
+        $cf = null;
+        foreach ($data['solution']['cookies'] ?? [] as $cookie) {
+            if (($cookie['name'] ?? '') === 'cf_clearance') {
+                $cf = $cookie['value'];
+                break;
+            }
+        }
+
+        return [
+            'html' => $data['solution']['response'],
+            'cf_clearance' => $cf,
+            'user_agent' => $data['solution']['userAgent'] ?? null,
+        ];
+    } catch (\Throwable $e) {
+        \Log::error("fetchWithBrowserSession error for {$url}: " . $e->getMessage());
+        return null;
+    }
+}
+
+/**
  * Fetch page HTML using FlareSolverr to bypass Cloudflare protection
  */
 function fetchWithBrowser($url, $waitForSelector = null, $maxAttempts = 3)
@@ -652,11 +696,43 @@ function empireNovelToc(string $novelUrl): array
     $novelUrl = $base . $novelPath; // normalise to canonical host/path
     $result = [];
 
-    $firstHtml = fetchWithBrowser($novelUrl . "?page=1");
-    if (empty($firstHtml)) {
+    // Page 1 via FlareSolverr to clear Cloudflare and grab the clearance
+    // cookie, which lets the remaining pages be fetched with a plain (fast)
+    // client — ~0.4s each vs ~7s through the headless browser.
+    $session = fetchWithBrowserSession($novelUrl . "?page=1");
+    if (empty($session['html'])) {
         \Log::error("empireNovelToc: could not fetch {$novelUrl}");
         return [];
     }
+    $firstHtml = $session['html'];
+
+    $cfClient = null;
+    if (!empty($session['cf_clearance']) && !empty($session['user_agent'])) {
+        $cfClient = HttpClient::create([
+            'timeout' => 30,
+            'headers' => [
+                'User-Agent' => $session['user_agent'],
+                'Cookie' => 'cf_clearance=' . $session['cf_clearance'],
+            ],
+        ]);
+    }
+
+    // Fetch a page: plain client with the clearance cookie, falling back to
+    // FlareSolverr if that 403s (cookie expired / not available).
+    $fetchPage = function (int $page) use ($novelUrl, $cfClient) {
+        $url = $novelUrl . "?page=" . $page;
+        if ($cfClient) {
+            try {
+                $resp = $cfClient->request('GET', $url);
+                if ($resp->getStatusCode() === 200) {
+                    return $resp->getContent(false);
+                }
+            } catch (\Throwable $e) {
+                // fall through to FlareSolverr
+            }
+        }
+        return fetchWithBrowser($url);
+    };
 
     // Highest ?page=N in the pagination is the last page.
     preg_match_all('/[?&]page=(\d+)/', $firstHtml, $m);
@@ -692,7 +768,7 @@ function empireNovelToc(string $novelUrl): array
 
     $parsePage($firstHtml);
     for ($page = 2; $page <= $lastPage; $page++) {
-        $html = fetchWithBrowser($novelUrl . "?page=" . $page);
+        $html = $fetchPage($page);
         if (empty($html)) {
             \Log::warning("empireNovelToc: page {$page} failed for {$novelUrl}; stopping");
             break;
