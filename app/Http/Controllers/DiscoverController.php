@@ -28,7 +28,7 @@ class DiscoverController extends Controller
     public function browse(Request $request)
     {
         $data = $request->validate([
-            'source' => 'nullable|in:novelbin,empirenovel',
+            'source' => 'nullable|in:novelbin,empirenovel,novelfull',
             'type' => 'required|in:search,popular,completed',
             'q' => 'required_if:type,search|nullable|string|max:100',
         ]);
@@ -42,6 +42,12 @@ class DiscoverController extends Controller
             }
             $items = $this->searchEmpireNovel($data['q']);
             $sourceLabel = 'empirenovel.com';
+        } elseif ($source === 'novelfull') {
+            if ($data['type'] !== 'search') {
+                return response()->json(['success' => true, 'items' => []]);
+            }
+            $items = $this->searchNovelFull($data['q']);
+            $sourceLabel = 'novelfull.com';
         } else {
             $url = match ($data['type']) {
                 'search' => self::BASE . '/search?keyword=' . urlencode($data['q']),
@@ -120,6 +126,45 @@ class DiscoverController extends Controller
                     'author' => '',
                 ];
             })->filter()->values()->all();
+        };
+
+        try {
+            return Cache::remember($cacheKey, 600, $fetch);
+        } catch (\Throwable $e) {
+            return $fetch();
+        }
+    }
+
+    /**
+     * Search novelfull.com (Cloudflare-protected, via FlareSolverr). Results
+     * are <h3 class="truyen-title"><a href="/slug.html" title="…">.
+     */
+    protected function searchNovelFull(string $q): ?array
+    {
+        $cacheKey = 'discover_nf_' . md5($q);
+
+        $fetch = function () use ($q) {
+            $html = fetchWithBrowser('https://novelfull.com/search?keyword=' . urlencode($q));
+            if (empty($html)) {
+                return null;
+            }
+
+            $items = [];
+            (new Crawler($html))->filter('h3.truyen-title a')->each(function ($node) use (&$items) {
+                $href = $node->attr('href');
+                $name = trim($node->attr('title') ?: $node->text());
+                if (!$href || !$name || !str_ends_with($href, '.html')) {
+                    return;
+                }
+                $items[] = [
+                    'name' => $name,
+                    'url' => 'https://novelfull.com' . $href,
+                    'cover' => '',
+                    'author' => '',
+                ];
+            });
+
+            return $items;
         };
 
         try {

@@ -791,6 +791,133 @@ function getMetadataFromEmpireNovel(string $novelUrl): array
     return $metadata;
 }
 
+/**
+ * Full chapter list for a novelfull.com novel. Like Novel Bin it exposes an
+ * AJAX chapter-option endpoint that returns every chapter in one request,
+ * but keyed by the numeric data-novel-id from the novel page rather than the
+ * slug. Cloudflare-protected, so fetched via FlareSolverr (clearance reused
+ * for the AJAX call).
+ */
+function novelFullToc(string $novelUrl): array
+{
+    $host = parse_url($novelUrl, PHP_URL_HOST) ?: 'novelfull.com';
+    $scheme = parse_url($novelUrl, PHP_URL_SCHEME) ?: 'https';
+    $origin = "{$scheme}://{$host}";
+
+    $session = fetchWithBrowserSession($novelUrl);
+    if (empty($session['html'])) {
+        \Log::error("novelFullToc: could not fetch {$novelUrl}");
+        return [];
+    }
+
+    if (!preg_match('/data-novel-id="(\d+)"/', $session['html'], $m)) {
+        \Log::warning("novelFullToc: no data-novel-id on {$novelUrl}");
+        return [];
+    }
+    $ajaxUrl = "{$origin}/ajax/chapter-option?novelId=" . $m[1];
+
+    // Reuse the clearance cookie for the AJAX call; fall back to FlareSolverr.
+    $html = null;
+    if (!empty($session['cf_clearance']) && !empty($session['user_agent'])) {
+        try {
+            $resp = HttpClient::create([
+                'timeout' => 30,
+                'headers' => [
+                    'User-Agent' => $session['user_agent'],
+                    'Cookie' => 'cf_clearance=' . $session['cf_clearance'],
+                ],
+            ])->request('GET', $ajaxUrl);
+            if ($resp->getStatusCode() === 200) {
+                $html = $resp->getContent(false);
+            }
+        } catch (\Throwable $e) {
+            // fall through
+        }
+    }
+    if (empty($html)) {
+        $html = fetchWithBrowser($ajaxUrl);
+    }
+    if (empty($html)) {
+        return [];
+    }
+
+    // novelfull renders the chapter dropdown more than once (top + bottom
+    // nav), so dedupe by URL.
+    $seen = [];
+    $result = [];
+    (new Crawler($html))->filter('option')->each(function ($node) use (&$result, &$seen, $origin) {
+        $href = trim($node->attr('value') ?? '');
+        $label = trim($node->text());
+        if ($href === '' || $label === '') {
+            return;
+        }
+        $url = str_starts_with($href, 'http') ? $href : $origin . $href;
+        if (isset($seen[$url])) {
+            return;
+        }
+        $seen[$url] = true;
+        $row = generateTocChapterInfo($label, $url);
+        if ($row) {
+            $result[] = $row;
+        }
+    });
+
+    \Log::info("novelFullToc: parsed " . count($result) . " chapters for {$novelUrl}");
+
+    return $result;
+}
+
+/**
+ * Metadata for a novelfull.com novel page (cover, description, author,
+ * genres). novelfull covers are fetchable with a plain client.
+ */
+function getMetadataFromNovelFull(string $novelUrl): array
+{
+    $metadata = ["description" => "", "author" => "", "no_of_chapters" => 0, "image" => "", "genres" => []];
+    $host = parse_url($novelUrl, PHP_URL_HOST) ?: 'novelfull.com';
+    $scheme = parse_url($novelUrl, PHP_URL_SCHEME) ?: 'https';
+    $origin = "{$scheme}://{$host}";
+
+    $html = fetchWithBrowser($novelUrl);
+    if (empty($html)) {
+        return $metadata;
+    }
+
+    try {
+        $crawler = new Crawler($html);
+
+        $desc = $crawler->filter('.desc-text');
+        if ($desc->count() > 0) {
+            $metadata["description"] = trim($desc->first()->html());
+        }
+
+        // Cover + author + genres live in the .info / .book block.
+        $img = $crawler->filter('.book img, .info img, [itemprop="image"]');
+        if ($img->count() > 0) {
+            $src = $img->first()->attr('src') ?? '';
+            if ($src !== '') {
+                $metadata["image"] = str_starts_with($src, 'http') ? $src : $origin . $src;
+            }
+        }
+
+        $info = $crawler->filter('.info');
+        if ($info->count() > 0) {
+            $author = $info->filter('a[href*="/author/"]');
+            if ($author->count() > 0) {
+                $metadata["author"] = trim($author->first()->text());
+            }
+            $genres = $info->filter('a[href*="/genre/"]');
+            if ($genres->count() > 0) {
+                $metadata["genres"] = normalizeGenres($genres->each(fn($n) => $n->text()));
+            }
+        }
+    } catch (\Throwable $e) {
+        \Log::error("getMetadataFromNovelFull error for {$novelUrl}: " . $e->getMessage());
+    }
+
+    return $metadata;
+}
+
 function getMetadata($data)
 {
     $metadata = [

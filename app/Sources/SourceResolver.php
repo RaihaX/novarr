@@ -12,6 +12,7 @@ class SourceResolver
      */
     protected static array $sources = [
         EmpireNovelSource::class,
+        NovelFullSource::class,
         NovelBinSource::class,
     ];
 

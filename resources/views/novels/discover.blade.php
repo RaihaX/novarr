@@ -10,6 +10,7 @@
         <select id="discoverSource" class="form-select form-select-sm w-auto" aria-label="Source">
             <option value="novelbin">novelbin.me</option>
             <option value="empirenovel">empirenovel.com</option>
+            <option value="novelfull">novelfull.com</option>
         </select>
         <div class="btn-group" role="group" aria-label="Browse mode" id="discoverTabs">
             <button type="button" class="btn btn-sm btn-outline-secondary discover-tab active" data-type="popular">Popular</button>
@@ -192,14 +193,15 @@
         loadList('search', q);
     });
 
-    // empirenovel has no browse lists — search only.
+    // Only novelbin has browse lists; other sources are search-only.
     sourceEl.addEventListener('change', () => {
-        const isEmpire = source() === 'empirenovel';
-        tabsEl.classList.toggle('d-none', isEmpire);
-        document.getElementById('discoverQuery').placeholder = isEmpire ? 'Search empirenovel.com…' : 'Search novelbin.me…';
+        const src = source();
+        const searchOnly = src !== 'novelbin';
+        tabsEl.classList.toggle('d-none', searchOnly);
+        document.getElementById('discoverQuery').placeholder = `Search ${src === 'novelbin' ? 'novelbin.me' : src + '.com'}…`;
         document.getElementById('discoverQuery').value = '';
-        if (isEmpire) {
-            statusEl.textContent = 'Search empirenovel.com to find a novel to add.';
+        if (searchOnly) {
+            statusEl.textContent = `Search ${src}.com to find a novel to add.`;
             statusEl.classList.remove('d-none');
             resultsEl.innerHTML = '';
         } else {
