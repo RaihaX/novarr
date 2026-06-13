@@ -36,6 +36,9 @@
                         <a class="nav-link {{ request()->is('logs*') ? 'active' : '' }}" href="{{ route('logs.index') }}">Logs</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {{ request()->is('health*') ? 'active' : '' }}" href="{{ route('health.index') }}">Health</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {{ request()->is('settings*') ? 'active' : '' }}" href="{{ route('settings.index') }}">Settings</a>
                     </li>
                 </ul>

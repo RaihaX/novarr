@@ -29,6 +29,12 @@ Artisan::command('inspire', function () {
 |
 */
 
+// Heartbeat: record that the scheduler ran, for the Health page to detect
+// a stalled scheduler/cron.
+Schedule::call(fn() => cache()->put('scheduler_last_run', now()->toDateTimeString(), now()->addDay()))
+    ->everyMinute()
+    ->name('scheduler_heartbeat');
+
 // Drain queued jobs (background commands from the web UI) without needing a
 // dedicated worker process: the cron-driven scheduler starts a worker every
 // minute and it exits as soon as the queue is empty. withoutOverlapping
