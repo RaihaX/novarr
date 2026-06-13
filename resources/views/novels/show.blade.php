@@ -94,20 +94,24 @@
         </div>
 
         {{-- Tags --}}
-        <div class="mb-3 d-flex align-items-center gap-2 flex-wrap" style="font-size: 13px;">
-            <span class="text-muted">Tags:</span>
-            <span id="tagList">
+        <div class="mb-3" style="font-size: 13px;">
+            <div id="tagDisplay" class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="text-muted">Tags:</span>
                 @forelse($data->tags as $tag)
                     <a href="{{ route('novels.index', ['tag' => $tag->id]) }}" class="badge bg-secondary text-decoration-none">{{ $tag->name }}</a>
                 @empty
-                    <span class="text-muted fst-italic" id="noTags">none</span>
+                    <span class="text-muted fst-italic">none</span>
                 @endforelse
-            </span>
-            <button type="button" id="editTags" class="btn btn-link btn-sm p-0" style="font-size: 12px;">Edit</button>
-            <span id="tagEditor" class="d-none d-flex gap-2 align-items-center">
-                <input type="text" id="tagInput" class="form-control form-control-sm" style="width: 280px;" value="{{ $data->tags->pluck('name')->implode(', ') }}" placeholder="comma, separated, tags">
-                <button type="button" id="saveTags" class="btn btn-sm btn-primary" data-id="{{ $data->id }}">Save</button>
-            </span>
+                <button type="button" id="editTags" class="btn btn-sm btn-outline-secondary py-0 px-2 ms-1" style="font-size: 12px;">Edit tags</button>
+            </div>
+            <div id="tagEditor" class="d-none">
+                <label for="tagInput" class="text-muted d-block mb-1">Tags <span class="fst-italic">(comma-separated)</span></label>
+                <div class="input-group input-group-sm" style="max-width: 520px;">
+                    <input type="text" id="tagInput" class="form-control" value="{{ $data->tags->pluck('name')->implode(', ') }}" placeholder="e.g. Action, Cultivation, Romance">
+                    <button type="button" id="saveTags" class="btn btn-primary" data-id="{{ $data->id }}">Save</button>
+                    <button type="button" id="cancelTags" class="btn btn-outline-secondary">Cancel</button>
+                </div>
+            </div>
         </div>
 
         {{-- Stats --}}
@@ -397,10 +401,15 @@
     // ---- Tag editing ----
     const editTags = document.getElementById('editTags');
     if (editTags) {
-        editTags.addEventListener('click', () => {
-            document.getElementById('tagEditor').classList.toggle('d-none');
-            document.getElementById('tagEditor').classList.toggle('d-flex');
-        });
+        const tagDisplay = document.getElementById('tagDisplay');
+        const tagEditor = document.getElementById('tagEditor');
+        const showEditor = (on) => {
+            tagDisplay.classList.toggle('d-none', on);
+            tagEditor.classList.toggle('d-none', !on);
+            if (on) document.getElementById('tagInput').focus();
+        };
+        editTags.addEventListener('click', () => showEditor(true));
+        document.getElementById('cancelTags').addEventListener('click', () => showEditor(false));
         document.getElementById('saveTags').addEventListener('click', async (e) => {
             const btn = e.target;
             btn.disabled = true;
