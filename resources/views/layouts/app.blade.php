@@ -42,6 +42,11 @@
                         <a class="nav-link {{ request()->is('settings*') ? 'active' : '' }}" href="{{ route('settings.index') }}">Settings</a>
                     </li>
                 </ul>
+
+                <form class="d-flex position-relative" role="search" action="{{ route('search.index') }}" method="GET" id="navSearchForm">
+                    <input type="search" name="q" id="navSearch" class="form-control form-control-sm" placeholder="Search…" autocomplete="off" aria-label="Search novels" style="min-width: 200px;">
+                    <div id="navSearchResults" class="dropdown-menu dropdown-menu-end p-0 w-100 d-none" style="position: absolute; top: 100%;"></div>
+                </form>
             </div>
         </div>
     </nav>

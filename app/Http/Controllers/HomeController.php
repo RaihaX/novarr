@@ -43,11 +43,56 @@ class HomeController extends Controller
         // Stall detection runs a few queries per pending novel — cache it.
         $attention = Cache::remember('dashboard_attention', 300, fn() => $health->needingAttention());
 
+        $continue_reading = Cache::remember('dashboard_continue', 60, fn() => $this->continueReading());
+
         return view('home', [
             'missing_chapters' => $missing_chapters,
             'latest_chapters' => $latest_chapters,
             'stats' => $stats,
             'attention' => $attention,
+            'continue_reading' => $continue_reading,
         ]);
+    }
+
+    /**
+     * Novels you're partway through: most-recently-read first, each with its
+     * next unread downloaded chapter. Skips novels you've fully caught up on.
+     */
+    private function continueReading(int $limit = 8): array
+    {
+        $recent = NovelChapter::where('status', 1)
+            ->where('blacklist', 0)
+            ->whereNotNull('read_at')
+            ->selectRaw('novel_id, MAX(read_at) as last_read')
+            ->groupBy('novel_id')
+            ->orderByDesc('last_read')
+            ->limit($limit * 2) // over-fetch; some may be fully read
+            ->get();
+
+        $items = [];
+        foreach ($recent as $row) {
+            $next = NovelChapter::where('novel_id', $row->novel_id)
+                ->where('status', 1)->where('blacklist', 0)
+                ->whereNull('read_at')
+                ->orderBy('book')->orderBy('chapter')
+                ->first(['id', 'chapter', 'label']);
+
+            if (!$next) {
+                continue; // caught up — nothing to continue
+            }
+
+            $novel = Novel::with('file')->find($row->novel_id);
+            if (!$novel) {
+                continue;
+            }
+
+            $items[] = ['novel' => $novel, 'next' => $next];
+
+            if (count($items) >= $limit) {
+                break;
+            }
+        }
+
+        return $items;
     }
 }

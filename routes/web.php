@@ -7,6 +7,7 @@ use App\Http\Controllers\CommandController;
 use App\Http\Controllers\DiscoverController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SystemHealthController;
+use App\Http\Controllers\SearchController;
 use App\Http\Controllers\LogController;
 
 /*
@@ -51,6 +52,9 @@ Route::get('/commands/status/{jobId}', [CommandController::class, 'status'])->na
 Route::get('/commands/{command}', [CommandController::class, 'showForm'])->name('commands.form');
 
 // Logs
+Route::get('/search', [SearchController::class, 'index'])->name('search.index');
+Route::get('/search/suggest', [SearchController::class, 'suggest'])->name('search.suggest');
+
 Route::get('/health', [SystemHealthController::class, 'index'])->name('health.index');
 Route::post('/health/retry/{uuid}', [SystemHealthController::class, 'retry'])->name('health.retry');
 Route::post('/health/retry-all', [SystemHealthController::class, 'retryAll'])->name('health.retry_all');

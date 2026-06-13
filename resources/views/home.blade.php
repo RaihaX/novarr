@@ -39,6 +39,31 @@
     </div>
 </div>
 
+{{-- Continue reading --}}
+@if(count($continue_reading) > 0)
+    <div class="card mb-4">
+        <div class="card-header"><h5 class="mb-0">📖 Continue Reading</h5></div>
+        <div class="card-body">
+            <div class="continue-row">
+                @foreach($continue_reading as $item)
+                    @php($novel = $item['novel'])
+                    <a href="{{ route('chapters.show', $item['next']->id) }}" class="continue-card" title="Continue {{ $novel->name }} — Ch. {{ $item['next']->chapter }}">
+                        <div class="poster-cover">
+                            @if($novel->file)
+                                <img src="{{ Storage::url($novel->file->file_path) }}" alt="Cover of {{ $novel->name }}" loading="lazy">
+                            @else
+                                <div class="poster-cover-placeholder"><span>{{ $novel->name }}</span></div>
+                            @endif
+                        </div>
+                        <div class="continue-title">{{ $novel->name }}</div>
+                        <div class="continue-meta">Next: Ch. {{ $item['next']->chapter }}</div>
+                    </a>
+                @endforeach
+            </div>
+        </div>
+    </div>
+@endif
+
 {{-- Needs attention --}}
 @if(count($attention) > 0)
     <div class="card mb-4 border-warning-subtle">
