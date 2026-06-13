@@ -643,6 +643,7 @@ function getMetadata($data)
         "status_text" => "",
         "completed" => false,
         "fully_translated" => null,
+        "genres" => [],
     ];
 
     $name = novelSlug($data->name);
@@ -706,6 +707,16 @@ function getMetadata($data)
             ? $imageFilter->first()->attr("src")
             : "";
 
+        // Genres — the #seriesgenre block holds the broad genres (Action,
+        // Fantasy, Xuanhuan…); the granular #showtags list is deliberately
+        // skipped to keep tags meaningful.
+        $genreFilter = $crawler->filter("#seriesgenre a.genre");
+        if ($genreFilter->count() > 0) {
+            $metadata["genres"] = normalizeGenres(
+                $genreFilter->each(fn($n) => $n->text())
+            );
+        }
+
         if (empty($metadata["description"])) {
             $title = $crawler->filter("title")->count() > 0
                 ? trim($crawler->filter("title")->first()->text())
@@ -739,6 +750,23 @@ function novelSlug($name)
 }
 
 /**
+ * Clean a list of scraped genre strings into Title Case, de-duplicated tag
+ * names. Handles UPPERCASE (NovelBin) and HTML entities (e.g. "Anime &amp;
+ * Comics"), drops blanks, caps the count so a novel isn't buried in tags.
+ */
+function normalizeGenres(array $genres): array
+{
+    return collect($genres)
+        ->map(fn($g) => trim(html_entity_decode($g, ENT_QUOTES)))
+        ->filter()
+        ->map(fn($g) => \Illuminate\Support\Str::title(mb_strtolower($g)))
+        ->unique()
+        ->take(12)
+        ->values()
+        ->all();
+}
+
+/**
  * Fetch novel metadata from novelbin.com as a fallback source.
  * Tries translator_url first if it's already a novelbin URL, then falls back
  * to building a slug from the novel name.
@@ -750,6 +778,7 @@ function getMetadataFromNovelBin($data)
         "author" => "",
         "no_of_chapters" => 0,
         "image" => "",
+        "genres" => [],
     ];
 
     $candidateUrls = [];
@@ -805,6 +834,20 @@ function getMetadataFromNovelBin($data)
             $descFilter = $crawler->filter('.desc-text, #tab-description .desc-text, .desc');
             if ($descFilter->count() > 0) {
                 $metadata["description"] = trim($descFilter->first()->html());
+            }
+
+            // Genres — novelbin exposes them in a <meta name="genre"> tag and
+            // as genre links under the info block.
+            if (empty($metadata["genres"])) {
+                $genreMeta = $crawler->filterXPath('//meta[@name="genre"]');
+                if ($genreMeta->count() > 0) {
+                    $metadata["genres"] = normalizeGenres(explode(',', $genreMeta->attr('content') ?? ''));
+                } else {
+                    $genreLinks = $crawler->filter('.info a[href*="genre"]');
+                    if ($genreLinks->count() > 0) {
+                        $metadata["genres"] = normalizeGenres($genreLinks->each(fn($n) => $n->text()));
+                    }
+                }
             }
 
             // Author + chapter count — both live under ul.info-meta > li with an h3 label

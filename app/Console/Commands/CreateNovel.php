@@ -90,7 +90,7 @@ class CreateNovel extends Command
                 $coverCandidates[] = $fallback["image"];
             }
 
-            foreach (["description", "author", "no_of_chapters", "image"] as $key) {
+            foreach (["description", "author", "no_of_chapters", "image", "genres"] as $key) {
                 if (empty($metadata[$key]) && !empty($fallback[$key])) {
                     $metadata[$key] = $fallback[$key];
                 }
@@ -110,6 +110,13 @@ class CreateNovel extends Command
         }
 
         $object->save();
+
+        if (!empty($metadata["genres"])) {
+            $tagIds = collect($metadata["genres"])
+                ->map(fn($g) => \App\Tag::firstOrCreate(["name" => $g])->id);
+            $object->tags()->syncWithoutDetaching($tagIds);
+            $this->info("  Genres: " . implode(", ", $metadata["genres"]));
+        }
 
         foreach (array_unique($coverCandidates) as $imageUrl) {
             $downloaded = downloadCoverImage($imageUrl, $object->id);

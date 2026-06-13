@@ -86,7 +86,7 @@ class UpdateMetadata extends Command
                     $coverCandidates[] = $fallback["image"];
                 }
 
-                foreach (["description", "author", "no_of_chapters", "image"] as $key) {
+                foreach (["description", "author", "no_of_chapters", "image", "genres"] as $key) {
                     if (empty($metadata[$key]) && !empty($fallback[$key])) {
                         $metadata[$key] = $fallback[$key];
                     }
@@ -113,6 +113,13 @@ class UpdateMetadata extends Command
             }
 
             $novel->save();
+
+            if (!empty($metadata["genres"])) {
+                $tagIds = collect($metadata["genres"])
+                    ->map(fn($g) => \App\Tag::firstOrCreate(["name" => $g])->id);
+                $novel->tags()->syncWithoutDetaching($tagIds);
+                $this->line("    genres: " . implode(", ", $metadata["genres"]));
+            }
 
             if (!$hasValidCover && !empty($coverCandidates)) {
                 $saved = false;
