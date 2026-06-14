@@ -1,0 +1,41 @@
+version: "2.7"
+
+server:
+  command: "php public/index.php"
+  relay: pipes
+
+http:
+  address: 0.0.0.0:8000
+  max_request_size: 100
+  middleware:
+    - gzip
+    - static
+  static:
+    dir: "public"
+    forbid: [".php", ".htaccess"]
+  pool:
+    num_workers: 4
+    max_jobs: 64
+    allocate_timeout: 60s
+    destroy_timeout: 60s
+
+logs:
+  mode: production
+  level: error
+  encoding: json
+  output: stdout
+
+reload:
+  interval: 1s
+  patterns: [".php"]
+  services:
+    http:
+      dirs: ["app", "config", "routes"]
+
+# Health check endpoint
+status:
+  address: 0.0.0.0:2114
+
+# Metrics (optional - for monitoring)
+# metrics:
+#   address: 0.0.0.0:2112

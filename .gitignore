@@ -24,12 +24,10 @@ Homestead.json
 .phpunit.result.cache
 
 package-lock.json
-composer.lock
 .user.ini
 
 *.sql
 rr
-.rr.yaml
 
 # Deployment state files
 .deployment-state
