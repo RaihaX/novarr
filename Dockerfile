@@ -53,6 +53,7 @@ RUN apk add --no-cache \
     supervisor \
     dcron \
     gcompat \
+    linux-headers \
     curl
 
 # Configure and install PHP extensions
