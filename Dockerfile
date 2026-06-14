@@ -139,7 +139,8 @@ RUN mkdir -p /var/log/supervisor \
 
 # Copy entrypoint scripts
 COPY docker/entrypoint-supervisor.sh /docker/entrypoint-supervisor.sh
-RUN chmod +x /docker/entrypoint-supervisor.sh
+COPY docker/docker-entrypoint.sh /docker/docker-entrypoint.sh
+RUN chmod +x /docker/entrypoint-supervisor.sh /docker/docker-entrypoint.sh
 
 # Default number of queue workers (can be overridden via environment)
 ENV SUPERVISOR_WORKER_PROCESSES=2
@@ -149,6 +150,10 @@ EXPOSE 8000
 
 # Set user
 USER www-data
+
+# Ensure an APP_KEY is present (no-op when APP_KEY is already provided), then
+# run the command below. Safe for every service in the stack.
+ENTRYPOINT ["/docker/docker-entrypoint.sh"]
 
 # Start Laravel Octane with RoadRunner
 CMD ["php", "artisan", "octane:start", "--server=roadrunner", "--host=0.0.0.0", "--port=8000"]

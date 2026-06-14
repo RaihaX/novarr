@@ -6,8 +6,28 @@ Built with **Laravel 11** (PHP 8.3+), Bootstrap 5, Hotwire Turbo, and Vite.
 
 ---
 
+## Quick install (one command)
+
+On any Docker host (a Proxmox VM/LXC, a NAS, a mini-PC) — pulls a prebuilt image, no build, no config:
+
+```bash
+curl -O https://raw.githubusercontent.com/RaihaX/novarr/master/docker-compose.oneclick.yml
+docker compose -f docker-compose.oneclick.yml up -d
+```
+
+That brings up the app, MySQL, Redis, and **FlareSolverr** (for Cloudflare-protected scraping), runs migrations, and generates an app key automatically. Open **http://&lt;host&gt;/** and start adding novels.
+
+- **PWA / install-to-home-screen needs HTTPS** — put a reverse proxy (Nginx Proxy Manager, Caddy, Traefik) or **Tailscale Serve** in front, then set `APP_URL` to that origin in the compose file.
+- The image targets **linux/amd64** (typical x86 hosts / Proxmox). MySQL & Redis ports are not exposed; the internal default passwords are safe to leave as-is.
+- Email (summary / Send-to-Kindle) is off by default (`MAIL_MAILER: log`) — set `MAIL_MAILER`, `RESEND_KEY`, and `MAIL_FROM_ADDRESS` to enable it.
+
+> Prefer to build from source, or want the full production stack with nginx and zero-downtime updates? See [Installation](#installation) and [Deployment](#deployment-docker--unraid).
+
+---
+
 ## Table of contents
 
+- [Quick install (one command)](#quick-install-one-command)
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Supported sources](#supported-sources)
