@@ -216,23 +216,44 @@
         }, 250);
     });
 
+    const readToggle = document.getElementById('readToggle');
+
+    // queuedFetch parks the write in IndexedDB if we're offline and replays it
+    // on reconnect; falls back to a plain fetch if the module isn't ready yet.
+    function readFetch(url, body) {
+        if (window.Novarr?.queuedFetch) {
+            return Novarr.queuedFetch(url, { method: 'POST', body: body || null });
+        }
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                'Accept': 'application/json',
+                ...(body ? { 'Content-Type': 'application/json' } : {}),
+            },
+            body: body ? JSON.stringify(body) : undefined,
+        }).then((r) => r.json());
+    }
+
+    function markReadUi() {
+        readToggle.className = 'btn btn-sm btn-success';
+        readToggle.textContent = '✓ Read';
+    }
+
     // ---- "Mark to here" (this + all earlier chapters) ----
     const readThrough = document.getElementById('readThrough');
     readThrough.addEventListener('click', async () => {
         readThrough.disabled = true;
         try {
-            const response = await fetch(`/chapters/${readThrough.dataset.id}/read-through`, {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                    'Accept': 'application/json',
-                },
-            });
-            const data = await response.json();
+            const data = await readFetch(`/chapters/${readThrough.dataset.id}/read-through`);
             if (data.success) {
-                Novarr.showToast(`Marked ${data.marked} earlier chapter(s) as read.`, 'success');
-                document.getElementById('readToggle').className = 'btn btn-sm btn-success';
-                document.getElementById('readToggle').textContent = '✓ Read';
+                markReadUi();
+                Novarr.showToast(
+                    data.queued
+                        ? 'Saved offline — earlier chapters sync when you reconnect.'
+                        : `Marked ${data.marked} earlier chapter(s) as read.`,
+                    data.queued ? 'info' : 'success'
+                );
             }
         } catch (err) {
             Novarr.showToast('Error: ' + err.message, 'danger');
@@ -242,21 +263,17 @@
     });
 
     // ---- Manual read/unread toggle ----
-    const readToggle = document.getElementById('readToggle');
+    // Uses the idempotent bulk-read endpoint (set, not toggle) so a queued
+    // replay applies the exact state we intended regardless of ordering.
     readToggle.addEventListener('click', async () => {
         readToggle.disabled = true;
+        const desired = !readToggle.classList.contains('btn-success');
         try {
-            const response = await fetch(`/chapters/${readToggle.dataset.id}/toggle-read`, {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                    'Accept': 'application/json',
-                },
-            });
-            const data = await response.json();
+            const data = await readFetch('{{ route('chapters.bulk_read') }}', { ids: [readToggle.dataset.id], read: desired });
             if (data.success) {
-                readToggle.className = 'btn btn-sm ' + (data.read ? 'btn-success' : 'btn-outline-secondary');
-                readToggle.textContent = data.read ? '✓ Read' : 'Mark read';
+                readToggle.className = 'btn btn-sm ' + (desired ? 'btn-success' : 'btn-outline-secondary');
+                readToggle.textContent = desired ? '✓ Read' : 'Mark read';
+                if (data.queued) Novarr.showToast('Saved offline — will sync when you reconnect.', 'info');
             }
         } catch (err) {
             Novarr.showToast('Error: ' + err.message, 'danger');
@@ -264,5 +281,18 @@
             readToggle.disabled = false;
         }
     });
+
+    // ---- Offline auto-mark ----
+    // The server marks a chapter read when it serves the page; offline the page
+    // comes from the cache, so queue the read-mark here instead.
+    @if(!$chapter->read_at)
+    function offlineAutoMark() {
+        if (navigator.onLine || !window.Novarr?.queuedFetch) return;
+        Novarr.queuedFetch('{{ route('chapters.bulk_read') }}', { method: 'POST', body: { ids: [{{ $chapter->id }}], read: true } });
+        markReadUi();
+    }
+    if (window.Novarr?.queuedFetch) offlineAutoMark();
+    else window.addEventListener('load', offlineAutoMark, { once: true });
+    @endif
 </script>
 @endpush

@@ -9,10 +9,21 @@ import { executeCommand, pollJobStatus } from './commands';
 import { showToast } from './toast';
 import { initTagPickers } from './tagpicker';
 import { initNavSearch } from './navsearch';
+import {
+    initOffline, downloadNovel, removeNovel, getLibrary,
+    getNovel, isDownloaded, queuedFetch, flushQueue,
+} from './offline';
 
 // Exposed for the thin page-specific glue scripts in Blade templates
 // (inline scripts are not part of the Vite module graph).
-window.Novarr = { executeCommand, pollJobStatus, showToast, initTagPickers };
+window.Novarr = {
+    executeCommand, pollJobStatus, showToast, initTagPickers,
+    downloadNovel, removeNovel, getLibrary, getNovel, isDownloaded,
+    queuedFetch, flushQueue,
+};
+
+// Flush any queued offline read-marks and watch for reconnects.
+initOffline();
 
 // turbo:load fires on the first load and after every Turbo navigation, so
 // page chrome (tag pickers, navbar search) is re-bound on each visit.

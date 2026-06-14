@@ -19,6 +19,7 @@ use App\Http\Controllers\LogController;
 // Dashboard
 Route::get('/', [HomeController::class, 'index'])->name('home');
 Route::view('/offline', 'offline')->name('offline');
+Route::view('/library', 'library')->name('library');
 
 // Novels
 Route::get('/novels', [NovelController::class, 'index'])->name('novels.index');
@@ -39,6 +40,7 @@ Route::post('/novels/{id}/remove-duplicates', [NovelController::class, 'removeDu
 Route::delete('/novels/{id}', [NovelController::class, 'destroy'])->name('novels.destroy');
 Route::get('/novels/{id}/epub', [NovelController::class, 'download_epub'])->name('novels.download_epub');
 Route::get('/novels/{id}/metadata', [NovelController::class, 'update_metadata'])->name('novels.get_metadata');
+Route::get('/novels/{id}/offline-manifest', [NovelController::class, 'offlineManifest'])->name('novels.offline_manifest');
 
 // Chapters
 Route::get('/chapters/{id}', [NovelChapterController::class, 'show'])->name('chapters.show');

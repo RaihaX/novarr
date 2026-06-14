@@ -19,6 +19,15 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware) {
+        // Read-state endpoints are replayed from the offline sync queue, where a
+        // session CSRF token may have rotated. Single-user app behind Tailscale
+        // with no auth, so the tokenless replay is acceptable.
+        $middleware->validateCsrfTokens(except: [
+            'chapters/*/toggle-read',
+            'chapters/*/read-through',
+            'chapters/bulk-read',
+        ]);
+
         // Global middleware
         $middleware->append([
             \Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance::class,

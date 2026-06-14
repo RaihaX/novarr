@@ -146,6 +146,38 @@ class NovelController extends Controller
     }
 
     /**
+     * Return the list of downloaded chapters for a novel so the PWA can
+     * pre-cache them for offline reading. Cover + novel page are included
+     * so the offline library tile renders without a connection.
+     */
+    public function offlineManifest($id)
+    {
+        $novel = $this->novels->with(['file' => fn($q) => $q->orderBy('id', 'desc')])->findOrFail($id);
+
+        $chapters = NovelChapter::where('novel_id', $id)
+            ->where('blacklist', 0)
+            ->where('status', 1)
+            ->orderBy('book')->orderBy('chapter')
+            ->get(['id', 'chapter', 'book', 'label']);
+
+        return response()->json([
+            'id' => $novel->id,
+            'name' => $novel->name,
+            'author' => $novel->author,
+            'cover' => $novel->file ? Storage::url($novel->file->file_path) : null,
+            'url' => route('novels.show', $novel->id),
+            'chapterCount' => $chapters->count(),
+            'chapters' => $chapters->map(fn($c) => [
+                'id' => $c->id,
+                'chapter' => $c->chapter,
+                'book' => $c->book,
+                'label' => $c->label,
+                'url' => route('chapters.show', $c->id),
+            ])->values(),
+        ]);
+    }
+
+    /**
      * Display a listing of the resource.
      *
      * @return \Illuminate\Http\Response

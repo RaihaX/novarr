@@ -39,6 +39,9 @@
                         <a class="nav-link {{ request()->is('novels*') ? 'active' : '' }}" href="{{ route('novels.index') }}">Novels</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {{ request()->is('library') ? 'active' : '' }}" href="{{ route('library') }}">Library</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {{ request()->is('commands*') ? 'active' : '' }}" href="{{ route('commands.index') }}">Commands</a>
                     </li>
                     <li class="nav-item">

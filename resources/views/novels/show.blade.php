@@ -69,10 +69,14 @@
                     <span class="badge bg-success ms-2">Active</span>
                 @endif
             </div>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 flex-wrap justify-content-end">
                 @if($continue_chapter_id)
                     <a href="{{ route('chapters.show', $continue_chapter_id) }}" class="btn btn-sm btn-primary">{{ $read_count > 0 ? 'Continue reading' : 'Start reading' }}</a>
                 @endif
+                <span id="offlineControls" data-id="{{ $data->id }}" class="d-inline-flex gap-2">
+                    <button type="button" id="offlineBtn" class="btn btn-sm btn-outline-info">Download for offline</button>
+                    <button type="button" id="offlineRemove" class="btn btn-sm btn-outline-secondary d-none">Remove offline</button>
+                </span>
                 <a href="{{ route('novels.edit', $data->id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
                 <button type="button" id="pauseToggle" class="btn btn-sm {{ $data->paused_at ? 'btn-success' : 'btn-outline-secondary' }}" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
                     {{ $data->paused_at ? 'Resume downloads' : 'Pause downloads' }}
@@ -516,6 +520,61 @@
 
     document.getElementById('chMarkRead')?.addEventListener('click', () => bulkRead(true));
     document.getElementById('chMarkUnread')?.addEventListener('click', () => bulkRead(false));
+
+    // ---- Download for offline (PWA) ----
+    function initOfflineBtn() {
+        const wrap = document.getElementById('offlineControls');
+        if (!wrap || !window.Novarr?.downloadNovel) return;
+
+        const id = parseInt(wrap.dataset.id, 10);
+        const btn = document.getElementById('offlineBtn');
+        const removeBtn = document.getElementById('offlineRemove');
+
+        async function reflect() {
+            const has = await Novarr.isDownloaded(id);
+            btn.textContent = has ? '✓ Saved offline' : 'Download for offline';
+            btn.classList.toggle('btn-info', has);
+            btn.classList.toggle('btn-outline-info', !has);
+            removeBtn.classList.toggle('d-none', !has);
+        }
+        reflect();
+
+        btn.addEventListener('click', async () => {
+            if (await Novarr.isDownloaded(id)) { reflect(); return; }
+            btn.disabled = true;
+            const orig = btn.textContent;
+            try {
+                await Novarr.downloadNovel(id, (done, total) => {
+                    btn.textContent = `Saving ${done}/${total}…`;
+                });
+                Novarr.showToast('Saved for offline reading.', 'success');
+            } catch (err) {
+                Novarr.showToast('Download failed: ' + err.message, 'danger');
+                btn.textContent = orig;
+            } finally {
+                btn.disabled = false;
+                reflect();
+            }
+        });
+
+        removeBtn.addEventListener('click', async () => {
+            removeBtn.disabled = true;
+            try {
+                await Novarr.removeNovel(id);
+                Novarr.showToast('Removed offline copy.', 'info');
+            } catch (err) {
+                Novarr.showToast('Error: ' + err.message, 'danger');
+            } finally {
+                removeBtn.disabled = false;
+                reflect();
+            }
+        });
+    }
+
+    // window.Novarr is set by the deferred app.js module, which runs after this
+    // inline script on a hard load but is already present on Turbo visits.
+    if (window.Novarr?.downloadNovel) initOfflineBtn();
+    else window.addEventListener('load', initOfflineBtn, { once: true });
 
     async function runCommand(btn) {
         if (btn.disabled) return;
