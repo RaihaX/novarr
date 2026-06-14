@@ -1,0 +1,143 @@
+# =============================================================================
+# Novarr — one-click stack, on your Tailscale tailnet
+# =============================================================================
+# Same as docker-compose.oneclick.yml, plus a Tailscale sidecar. The app shares
+# the sidecar's network, so Novarr joins your tailnet automatically. Turn on
+# HTTPS from Settings → Tailscale (one click — it persists), which also
+# satisfies the PWA's HTTPS requirement with no reverse proxy.
+#
+# Install:
+#   curl -O https://raw.githubusercontent.com/RaihaX/novarr/master/docker-compose.tailscale.yml
+#   TS_AUTHKEY=tskey-auth-xxxx docker compose -f docker-compose.tailscale.yml up -d
+#
+# Get an auth key at https://login.tailscale.com/admin/settings/keys (reusable
+# is convenient). Then open http://<host>/ (LAN) or the tailnet IP, go to
+# Settings → Tailscale, and flip "Serve over HTTPS".
+# =============================================================================
+
+name: novarr
+
+x-app-env: &app-env
+  APP_NAME: Novarr
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_URL: http://localhost          # set to your https://<node>.<tailnet>.ts.net once Serve is on
+  APP_TIMEZONE: UTC
+  LOG_CHANNEL: stack
+  LOG_LEVEL: warning
+  DB_CONNECTION: mysql
+  DB_HOST: mysql
+  DB_PORT: "3306"
+  DB_DATABASE: novarr
+  DB_USERNAME: novarr
+  DB_PASSWORD: novarr_secret
+  CACHE_STORE: redis
+  SESSION_DRIVER: redis
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  QUEUE_CONNECTION: database
+  QUEUE_FAILED_DRIVER: database-uuids
+  OCTANE_SERVER: roadrunner
+  FLARESOLVERR_URL: http://flaresolverr:8191/v1
+  MAIL_MAILER: log
+
+services:
+  # Tailscale daemon (userspace mode — works in unprivileged LXC, no TUN needed).
+  tailscale:
+    image: tailscale/tailscale:stable
+    hostname: novarr
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:?Set TS_AUTHKEY — get one at https://login.tailscale.com/admin/settings/keys}
+      TS_HOSTNAME: novarr
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - tailscale-sock:/var/run/tailscale
+    ports:
+      - "80:8000"          # optional LAN access (the app shares this netns)
+    restart: unless-stopped
+
+  init:
+    image: ghcr.io/raihax/novarr:latest
+    environment: *app-env
+    command: php artisan migrate --force
+    volumes:
+      - storage:/var/www/html/storage
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: ghcr.io/raihax/novarr:latest
+    # Runs as root so the in-app Tailscale panel can drive the tailscaled
+    # control socket (Serve/Funnel are privileged operations).
+    user: "0:0"
+    environment: *app-env
+    command: sh -c "php artisan storage:link --force >/dev/null 2>&1 || true; exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8000"
+    # Share the sidecar's network: joins the tailnet AND reaches mysql/redis
+    # on the project bridge through the sidecar's connectivity.
+    network_mode: service:tailscale
+    volumes:
+      - storage:/var/www/html/storage
+      - tailscale-sock:/var/run/tailscale
+    depends_on:
+      tailscale:
+        condition: service_started
+      init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  scheduler:
+    image: ghcr.io/raihax/novarr:latest
+    environment: *app-env
+    command: php artisan schedule:work
+    volumes:
+      - storage:/var/www/html/storage
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: novarr
+      MYSQL_USER: novarr
+      MYSQL_PASSWORD: novarr_secret
+      MYSQL_ROOT_PASSWORD: root_secret
+    volumes:
+      - mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_secret"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    environment:
+      LOG_LEVEL: info
+    restart: unless-stopped
+
+volumes:
+  mysql:
+  redis:
+  storage:
+  tailscale-state:
+  tailscale-sock:

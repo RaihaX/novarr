@@ -6,6 +6,7 @@ use App\Http\Controllers\NovelChapterController;
 use App\Http\Controllers\CommandController;
 use App\Http\Controllers\DiscoverController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\TailscaleController;
 use App\Http\Controllers\SystemHealthController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\LogController;
@@ -71,6 +72,11 @@ Route::post('/settings', [SettingsController::class, 'update'])->name('settings.
 Route::post('/settings/test-email', [SettingsController::class, 'testEmail'])->name('settings.test_email');
 Route::post('/settings/test-flaresolverr', [SettingsController::class, 'testFlareSolverr'])->name('settings.test_flaresolverr');
 Route::post('/settings/test-notification', [SettingsController::class, 'testNotification'])->name('settings.test_notification');
+
+// Tailscale panel (status + Serve/Funnel toggles)
+Route::get('/settings/tailscale', [TailscaleController::class, 'status'])->name('settings.tailscale_status');
+Route::post('/settings/tailscale/serve', [TailscaleController::class, 'serve'])->name('settings.tailscale_serve');
+Route::post('/settings/tailscale/funnel', [TailscaleController::class, 'funnel'])->name('settings.tailscale_funnel');
 
 Route::get('/logs', [LogController::class, 'index'])->name('logs.index');
 Route::get('/logs/{filename}/tail', [LogController::class, 'tail'])->name('logs.tail');

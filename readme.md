@@ -44,6 +44,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
 - [Scheduler & queue](#scheduler--queue)
 - [Artisan commands](#artisan-commands)
 - [Offline reading (PWA)](#offline-reading-pwa)
+- [Tailscale](#tailscale)
 - [Deployment (Docker / Unraid)](#deployment-docker--unraid)
 - [Project structure](#project-structure)
 - [Development](#development)
@@ -275,6 +276,32 @@ Downloads **merge** into any existing offline copy (union by chapter), so you ca
 **Read-state sync queue** — marking chapters read (and opening cached chapters) while offline is queued in IndexedDB and **replayed automatically when you reconnect** (on the `online` event and next app open — iOS Safari has no Background Sync). The read-state endpoints are CSRF-exempt specifically so these tokenless replays succeed.
 
 > Bump `CACHE_VERSION` in `public/sw.js` when changing caching behaviour; old caches are purged on the next activation.
+
+---
+
+## Tailscale
+
+Novarr can run **on your tailnet** with a bundled Tailscale sidecar, plus an in-app **Settings → Tailscale** panel for status and HTTPS.
+
+**One-command install on your tailnet** (instead of the plain one-click stack):
+
+```bash
+curl -O https://raw.githubusercontent.com/RaihaX/novarr/master/docker-compose.tailscale.yml
+TS_AUTHKEY=tskey-auth-xxxx docker compose -f docker-compose.tailscale.yml up -d
+```
+
+Grab an auth key from the [Tailscale admin → Keys](https://login.tailscale.com/admin/settings/keys) page. The app shares the sidecar's network, so it joins your tailnet automatically (userspace mode — works in an unprivileged Proxmox LXC, no `/dev/net/tun` needed) and can still reach MySQL/Redis/FlareSolverr on the internal network.
+
+**Then, in Settings → Tailscale:**
+- See your machine's tailnet status — node name, `100.x` IP, MagicDNS name.
+- **Serve over HTTPS** — one switch gives Novarr a `https://<node>.<tailnet>.ts.net/` URL (and satisfies the [PWA's HTTPS requirement](#offline-reading-pwa) with no reverse proxy). The choice persists across restarts.
+- **Funnel** — optionally expose it on the public internet (use with care).
+
+After enabling Serve, set `APP_URL` to that HTTPS origin in the compose file.
+
+> **How it works / why a panel, not a magic button.** Tailscale is a root-level daemon, so the *daemon* runs in the sidecar; the app image ships only the `tailscale` CLI and talks to the sidecar's control socket. The panel **degrades gracefully** — on any install without Tailscale it simply shows "not connected," so nothing breaks. (In this stack the app container runs as root so it can drive the Serve/Funnel socket operations.)
+>
+> Already running Tailscale on the host instead? Point the panel at the host daemon by mounting its socket into the app container — or just use host-level `tailscale serve` directly.
 
 ---
 

@@ -85,6 +85,10 @@ RUN wget -q https://github.com/roadrunner-server/roadrunner/releases/download/v$
     && chmod +x /usr/local/bin/rr \
     && rm -rf roadrunner-${RR_VERSION}-linux-amd64.tar.gz roadrunner-${RR_VERSION}-linux-amd64
 
+# Tailscale CLI (daemon runs in the sidecar) — used by the in-app Tailscale
+# panel to read status and toggle Serve/Funnel.
+COPY --from=tailscale/tailscale:stable /usr/local/bin/tailscale /usr/local/bin/tailscale
+
 # Set working directory
 WORKDIR /var/www/html
 
