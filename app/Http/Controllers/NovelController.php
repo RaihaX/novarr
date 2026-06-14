@@ -149,16 +149,35 @@ class NovelController extends Controller
      * Return the list of downloaded chapters for a novel so the PWA can
      * pre-cache them for offline reading. Cover + novel page are included
      * so the offline library tile renders without a connection.
+     *
+     * Optional filters keep big series manageable:
+     *   ?unread=1            only downloaded-but-unread chapters
+     *   ?from=X&to=Y         chapter-number range (either bound optional)
+     *   ?limit=N             cap to the first N (in reading order)
      */
-    public function offlineManifest($id)
+    public function offlineManifest($id, Request $request)
     {
         $novel = $this->novels->with(['file' => fn($q) => $q->orderBy('id', 'desc')])->findOrFail($id);
 
-        $chapters = NovelChapter::where('novel_id', $id)
+        $query = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
             ->where('status', 1)
-            ->orderBy('book')->orderBy('chapter')
-            ->get(['id', 'chapter', 'book', 'label']);
+            ->orderBy('book')->orderBy('chapter');
+
+        if ($request->boolean('unread')) {
+            $query->whereNull('read_at');
+        }
+        if ($request->filled('from')) {
+            $query->where('chapter', '>=', (float) $request->query('from'));
+        }
+        if ($request->filled('to')) {
+            $query->where('chapter', '<=', (float) $request->query('to'));
+        }
+        if ($request->filled('limit')) {
+            $query->limit(max(1, (int) $request->query('limit')));
+        }
+
+        $chapters = $query->get(['id', 'chapter', 'book', 'label']);
 
         return response()->json([
             'id' => $novel->id,

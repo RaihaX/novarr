@@ -73,8 +73,26 @@
                 @if($continue_chapter_id)
                     <a href="{{ route('chapters.show', $continue_chapter_id) }}" class="btn btn-sm btn-primary">{{ $read_count > 0 ? 'Continue reading' : 'Start reading' }}</a>
                 @endif
-                <span id="offlineControls" data-id="{{ $data->id }}" class="d-inline-flex gap-2">
-                    <button type="button" id="offlineBtn" class="btn btn-sm btn-outline-info">Download for offline</button>
+                <span id="offlineControls" data-id="{{ $data->id }}" data-total="{{ $current_chapters }}" data-unread="{{ max(0, $current_chapters - $read_count) }}" class="d-inline-flex gap-2">
+                    <div class="dropdown">
+                        <button type="button" id="offlineBtn" class="btn btn-sm btn-outline-info dropdown-toggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">Download for offline</button>
+                        <ul class="dropdown-menu dropdown-menu-end p-2" style="min-width: 250px;">
+                            <li><button type="button" class="dropdown-item rounded" data-scope="unread-next" data-limit="100">Next 100 unread</button></li>
+                            <li><button type="button" class="dropdown-item rounded" data-scope="unread">All unread (<span class="offl-unread">0</span>)</button></li>
+                            <li><button type="button" class="dropdown-item rounded" data-scope="all">All chapters (<span class="offl-total">0</span>)</button></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <div class="px-2 pt-1">
+                                    <div class="text-muted mb-1" style="font-size: 12px;">Chapter range</div>
+                                    <div class="d-flex gap-1 align-items-center">
+                                        <input type="number" id="offlFrom" class="form-control form-control-sm" placeholder="From" min="0" step="any" style="width: 78px;">
+                                        <input type="number" id="offlTo" class="form-control form-control-sm" placeholder="To" min="0" step="any" style="width: 78px;">
+                                        <button type="button" class="btn btn-sm btn-outline-info" data-scope="range">Get</button>
+                                    </div>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
                     <button type="button" id="offlineRemove" class="btn btn-sm btn-outline-secondary d-none">Remove offline</button>
                 </span>
                 <a href="{{ route('novels.edit', $data->id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
@@ -521,7 +539,7 @@
     document.getElementById('chMarkRead')?.addEventListener('click', () => bulkRead(true));
     document.getElementById('chMarkUnread')?.addEventListener('click', () => bulkRead(false));
 
-    // ---- Download for offline (PWA) ----
+    // ---- Download for offline (PWA), with range options ----
     function initOfflineBtn() {
         const wrap = document.getElementById('offlineControls');
         if (!wrap || !window.Novarr?.downloadNovel) return;
@@ -530,32 +548,57 @@
         const btn = document.getElementById('offlineBtn');
         const removeBtn = document.getElementById('offlineRemove');
 
+        // Fill the option counts from the page's stats.
+        wrap.querySelectorAll('.offl-total').forEach(e => e.textContent = wrap.dataset.total || '0');
+        wrap.querySelectorAll('.offl-unread').forEach(e => e.textContent = wrap.dataset.unread || '0');
+
         async function reflect() {
-            const has = await Novarr.isDownloaded(id);
-            btn.textContent = has ? '✓ Saved offline' : 'Download for offline';
-            btn.classList.toggle('btn-info', has);
-            btn.classList.toggle('btn-outline-info', !has);
-            removeBtn.classList.toggle('d-none', !has);
+            const rec = await Novarr.getNovel(id);
+            btn.textContent = rec ? `✓ ${rec.chapterCount} offline` : 'Download for offline';
+            btn.classList.toggle('btn-info', !!rec);
+            btn.classList.toggle('btn-outline-info', !rec);
+            removeBtn.classList.toggle('d-none', !rec);
         }
         reflect();
 
-        btn.addEventListener('click', async () => {
-            if (await Novarr.isDownloaded(id)) { reflect(); return; }
+        function closeMenu() {
+            window.bootstrap?.Dropdown.getOrCreateInstance(btn).hide();
+        }
+
+        async function run(opts) {
+            closeMenu();
             btn.disabled = true;
-            const orig = btn.textContent;
+            btn.classList.add('disabled');
             try {
-                await Novarr.downloadNovel(id, (done, total) => {
+                const r = await Novarr.downloadNovel(id, opts, (done, total) => {
                     btn.textContent = `Saving ${done}/${total}…`;
                 });
-                Novarr.showToast('Saved for offline reading.', 'success');
+                Novarr.showToast(`Saved ${r.addedCount} chapter(s) for offline (${r.cachedCount} total).`, 'success');
             } catch (err) {
                 Novarr.showToast('Download failed: ' + err.message, 'danger');
-                btn.textContent = orig;
             } finally {
                 btn.disabled = false;
+                btn.classList.remove('disabled');
                 reflect();
             }
-        });
+        }
+
+        wrap.querySelectorAll('[data-scope]').forEach(el => el.addEventListener('click', () => {
+            const scope = el.dataset.scope;
+            if (scope === 'range') {
+                const from = document.getElementById('offlFrom').value.trim();
+                const to = document.getElementById('offlTo').value.trim();
+                if (!from && !to) {
+                    Novarr.showToast('Enter a “from” and/or “to” chapter number.', 'warning');
+                    return;
+                }
+                run({ scope: 'range', from, to });
+            } else if (scope === 'unread-next') {
+                run({ scope: 'unread-next', limit: parseInt(el.dataset.limit, 10) || 100 });
+            } else {
+                run({ scope });
+            }
+        }));
 
         removeBtn.addEventListener('click', async () => {
             removeBtn.disabled = true;

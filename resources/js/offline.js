@@ -76,10 +76,30 @@ function sendUrlsToSw(type, urls, onProgress) {
 
 // ---- Public: downloads / library ----
 
-export async function downloadNovel(id, onProgress) {
-    const res = await fetch(`/novels/${id}/offline-manifest`, { headers: { Accept: 'application/json' } });
+/**
+ * Download some or all of a novel's chapters for offline reading.
+ * `opts` selects the range:
+ *   { scope: 'all' }                       every downloaded chapter
+ *   { scope: 'unread' }                    only unread chapters
+ *   { scope: 'unread-next', limit: 100 }   the next N unread (reading order)
+ *   { scope: 'range', from, to }           a chapter-number range
+ * Downloads merge into any existing offline copy (union by chapter id).
+ */
+export async function downloadNovel(id, opts = {}, onProgress) {
+    const params = new URLSearchParams();
+    if (opts.scope === 'unread' || opts.scope === 'unread-next') params.set('unread', '1');
+    if (opts.scope === 'unread-next') params.set('limit', String(opts.limit || 100));
+    if (opts.scope === 'range') {
+        if (opts.from !== undefined && opts.from !== null && opts.from !== '') params.set('from', String(opts.from));
+        if (opts.to !== undefined && opts.to !== null && opts.to !== '') params.set('to', String(opts.to));
+    }
+    const qs = params.toString();
+
+    const res = await fetch(`/novels/${id}/offline-manifest${qs ? `?${qs}` : ''}`, { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error('Could not load the chapter list.');
     const manifest = await res.json();
+
+    if (!manifest.chapters.length) throw new Error('No matching chapters to download.');
 
     const urls = manifest.chapters.map((c) => c.url);
     urls.unshift(manifest.url);                 // the novel page itself
@@ -87,17 +107,26 @@ export async function downloadNovel(id, onProgress) {
 
     await sendUrlsToSw('CACHE_URLS', urls, onProgress);
 
+    // Merge with any previously-downloaded chapters for this novel.
+    const existing = await idbGet('novels', id);
+    const byId = new Map();
+    (existing?.chapters || []).forEach((c) => byId.set(c.id, c));
+    manifest.chapters.forEach((c) => byId.set(c.id, c));
+    const merged = [...byId.values()].sort(
+        (a, b) => (a.book - b.book) || (parseFloat(a.chapter) - parseFloat(b.chapter))
+    );
+
     await idbPut('novels', {
         id: manifest.id,
         name: manifest.name,
         author: manifest.author,
         cover: manifest.cover,
         url: manifest.url,
-        chapters: manifest.chapters,
-        chapterCount: manifest.chapterCount,
+        chapters: merged,
+        chapterCount: merged.length,
         downloadedAt: Date.now(),
     });
-    return manifest;
+    return { ...manifest, addedCount: manifest.chapters.length, cachedCount: merged.length };
 }
 
 export async function removeNovel(id) {
