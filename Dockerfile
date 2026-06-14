@@ -28,8 +28,10 @@ WORKDIR /app
 # Copy composer files
 COPY composer.json composer.lock ./
 
-# Install dependencies without dev packages
-RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts --no-progress
+# Install dependencies without dev packages. The optimized autoloader is
+# generated later in the final stage, where the full app (incl. the
+# database/factories classmap dir) is present — scanning it here would fail.
+RUN composer install --no-dev --no-interaction --no-scripts --no-progress --no-autoloader
 
 
 # Stage 3: Final Application Image
@@ -93,6 +95,11 @@ COPY --from=composer-builder /app/vendor ./vendor
 
 # Copy built frontend assets from node builder
 COPY --from=node-builder /app/public/build ./public/build
+
+# Generate the optimized autoloader now that the full source tree is present
+# (the composer binary is pulled from the composer image; final stage has PHP).
+COPY --from=composer-builder /usr/bin/composer /usr/bin/composer
+RUN composer dump-autoload --optimize --no-dev --no-interaction --no-scripts
 
 # Publish Voyager assets
 RUN php artisan vendor:publish --provider="TCG\Voyager\VoyagerServiceProvider" --force || true
