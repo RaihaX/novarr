@@ -15,7 +15,14 @@ curl -O https://raw.githubusercontent.com/RaihaX/novarr/master/docker-compose.on
 docker compose -f docker-compose.oneclick.yml up -d
 ```
 
-That brings up the app, MySQL, Redis, and **FlareSolverr** (for Cloudflare-protected scraping), runs migrations, and generates an app key automatically. Open **http://&lt;host&gt;/** and start adding novels.
+This is fully self-contained — it runs migrations and generates an app key automatically, and the stack already includes **everything Novarr needs**:
+
+- **Novarr app** (Octane, serves the UI + static assets)
+- **MySQL** and **Redis**
+- **FlareSolverr** — bundled and pre-wired (`FLARESOLVERR_URL=http://flaresolverr:8191/v1`). Scraping Cloudflare-protected sites works out of the box; **you do not need to install or configure FlareSolverr separately.**
+- **Scheduler** (runs the TOC/chapter/verify/email tasks and drains the queue)
+
+Open **http://&lt;host&gt;/** and start adding novels.
 
 - **PWA / install-to-home-screen needs HTTPS** — put a reverse proxy (Nginx Proxy Manager, Caddy, Traefik) or **Tailscale Serve** in front, then set `APP_URL` to that origin in the compose file.
 - The image targets **linux/amd64** (typical x86 hosts / Proxmox). MySQL & Redis ports are not exposed; the internal default passwords are safe to leave as-is.
@@ -127,14 +134,14 @@ Metadata for all sources is enriched from **NovelUpdates** (description, genres,
 
 ## Requirements
 
+> Using the [one-command Docker install](#quick-install-one-command)? **Skip this section** — that stack bundles MySQL, Redis, **and FlareSolverr**, so the only host requirement is Docker. The list below is for a manual / bare-metal install.
+
 - **PHP 8.3+** (developed/tested on 8.5)
 - **MySQL 8** (the chapter full-text search uses a MySQL `FULLTEXT` index)
 - **Composer** and **Node.js + Yarn**
-- **A running [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) instance** (for Cloudflare-protected sites)
+- **A running [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) instance** (for Cloudflare-protected sites) — *bundled automatically in the one-click stack; only a separate requirement here*
 - **Cron** (to drive the scheduler)
 - Optional: **Resend** account (or any SMTP server) for summary/Kindle emails; **Redis** for cache/session
-
-> Prefer containers? The included Docker stack bundles PHP-FPM, Nginx, MySQL, Redis, the scheduler, and a queue worker — see [Deployment](#deployment-docker--unraid).
 
 ---
 
@@ -273,7 +280,9 @@ Downloads **merge** into any existing offline copy (union by chapter), so you ca
 
 ## Deployment (Docker / Unraid)
 
-A full container stack is included (PHP-FPM app, Nginx, MySQL, Redis, scheduler, and queue worker), driven by a `Makefile`.
+This is the **build-from-source** stack with Nginx and zero-downtime updates — for most people the [one-command install](#quick-install-one-command) is easier. A full container stack is included (PHP-FPM app, Nginx, MySQL, Redis, scheduler, and queue worker), driven by a `Makefile`.
+
+> Unlike the one-click stack, this Makefile stack does **not** bundle FlareSolverr — point `FLARESOLVERR_URL` in `.env` at an existing FlareSolverr instance, or add a `flaresolverr` service to the compose file.
 
 ```bash
 git clone <repo> novarr && cd novarr
