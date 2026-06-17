@@ -48,12 +48,15 @@
                     card.innerHTML = `
                         <div class="poster-cover">
                             ${n.cover
-                                ? `<img src="${n.cover}" alt="" loading="lazy">`
+                                ? `<img loading="lazy">`
                                 : `<div class="d-flex align-items-center justify-content-center h-100 text-muted">No Cover</div>`}
                         </div>
                         <div class="poster-title"></div>
                         <div class="poster-meta">${n.chapterCount} chapter${n.chapterCount === 1 ? '' : 's'} offline</div>`;
                     card.querySelector('.poster-title').textContent = n.name;
+                    // Set src/alt as properties so the title can't break out of the markup.
+                    const img = card.querySelector('img');
+                    if (img) { img.src = n.cover; img.alt = 'Cover of ' + n.name; }
                     grid.appendChild(card);
                 }
             });

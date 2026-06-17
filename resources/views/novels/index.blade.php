@@ -1,5 +1,7 @@
 @extends('layouts.app')
 
+@php $hasFilters = request('search') || request()->filled('status') || request()->filled('tag'); @endphp
+
 @section('content')
 <div class="page-toolbar">
     <div class="d-flex align-items-center gap-3">
@@ -83,7 +85,7 @@
                 <div class="poster-meta">{{ $downloaded }} / {{ $total }}</div>
             </a>
         @empty
-            <p class="text-muted">No novels found.</p>
+            @include('novels._empty', ['hasFilters' => $hasFilters])
         @endforelse
     </div>
     @if($novels->hasPages())
@@ -125,7 +127,7 @@
                 @endif
             </a>
         @empty
-            <p class="text-center text-muted py-4 mb-0">No novels found.</p>
+            @include('novels._empty', ['hasFilters' => $hasFilters])
         @endforelse
     </div>
 
@@ -195,7 +197,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8" class="text-center text-muted py-4">No novels found.</td>
+                        <td colspan="8">@include('novels._empty', ['hasFilters' => $hasFilters])</td>
                     </tr>
                 @endforelse
             </tbody>

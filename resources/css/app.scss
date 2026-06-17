@@ -344,6 +344,14 @@ a.dash-stat:hover {
         -webkit-box-orient: vertical;
         overflow: hidden;
     }
+
+    // Initials variant (Discover tiles with no cover) — the title carries the
+    // full name, so the tile shows large, calm initials instead.
+    span.poster-initials {
+        font-size: 2rem;
+        letter-spacing: 1px;
+        -webkit-line-clamp: 1;
+    }
 }
 
 .poster-badge {

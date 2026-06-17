@@ -34,25 +34,25 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->is('/') ? 'active' : '' }}" href="{{ route('home') }}">Home</a>
+                        <a class="nav-link {{ request()->routeIs('home') ? 'active' : '' }}" @if(request()->routeIs('home')) aria-current="page" @endif href="{{ route('home') }}">Home</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->is('novels*') ? 'active' : '' }}" href="{{ route('novels.index') }}">Novels</a>
+                        <a class="nav-link {{ request()->routeIs('novels.*') ? 'active' : '' }}" @if(request()->routeIs('novels.*')) aria-current="page" @endif href="{{ route('novels.index') }}">Novels</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->is('library') ? 'active' : '' }}" href="{{ route('library') }}">Library</a>
+                        <a class="nav-link {{ request()->routeIs('library') ? 'active' : '' }}" @if(request()->routeIs('library')) aria-current="page" @endif href="{{ route('library') }}">Library</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->is('commands*') ? 'active' : '' }}" href="{{ route('commands.index') }}">Commands</a>
+                        <a class="nav-link {{ request()->routeIs('commands.*') ? 'active' : '' }}" @if(request()->routeIs('commands.*')) aria-current="page" @endif href="{{ route('commands.index') }}">Commands</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->is('logs*') ? 'active' : '' }}" href="{{ route('logs.index') }}">Logs</a>
+                        <a class="nav-link {{ request()->routeIs('logs.*') ? 'active' : '' }}" @if(request()->routeIs('logs.*')) aria-current="page" @endif href="{{ route('logs.index') }}">Logs</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->is('health*') ? 'active' : '' }}" href="{{ route('health.index') }}">Health</a>
+                        <a class="nav-link {{ request()->routeIs('health.*') ? 'active' : '' }}" @if(request()->routeIs('health.*')) aria-current="page" @endif href="{{ route('health.index') }}">Health</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->is('settings*') ? 'active' : '' }}" href="{{ route('settings.index') }}">Settings</a>
+                        <a class="nav-link {{ request()->routeIs('settings.*') ? 'active' : '' }}" @if(request()->routeIs('settings.*')) aria-current="page" @endif href="{{ route('settings.index') }}">Settings</a>
                     </li>
                 </ul>
 

@@ -103,6 +103,23 @@
         }
     }
 
+    // Initials for the no-cover placeholder — the full name already shows as the
+    // card title below, so repeating it in the tile is redundant.
+    function initials(name) {
+        return (name || '?').split(/\s+/).filter(Boolean).slice(0, 2)
+            .map(w => w[0]).join('').toUpperCase() || '?';
+    }
+
+    function makePlaceholder(name) {
+        const ph = document.createElement('div');
+        ph.className = 'poster-cover-placeholder';
+        const span = document.createElement('span');
+        span.className = 'poster-initials';
+        span.textContent = initials(name);
+        ph.appendChild(span);
+        return ph;
+    }
+
     function renderCard(item) {
         const card = document.createElement('div');
         card.className = 'poster-card';
@@ -122,21 +139,11 @@
                     img.src = item.cover_thumb;
                     return;
                 }
-                const ph = document.createElement('div');
-                ph.className = 'poster-cover-placeholder';
-                const span = document.createElement('span');
-                span.textContent = item.name;
-                ph.appendChild(span);
-                img.replaceWith(ph);
+                img.replaceWith(makePlaceholder(item.name));
             });
             coverWrap.appendChild(img);
         } else {
-            const ph = document.createElement('div');
-            ph.className = 'poster-cover-placeholder';
-            const span = document.createElement('span');
-            span.textContent = item.name;
-            ph.appendChild(span);
-            coverWrap.appendChild(ph);
+            coverWrap.appendChild(makePlaceholder(item.name));
         }
 
         if (item.in_library) {

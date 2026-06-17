@@ -290,7 +290,7 @@
         </div>
     </div>
     <div id="cmdOutput" class="d-none">
-        <pre id="cmdOutputText" class="mb-0 p-3" style="max-height: 250px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; background: #0d1117; color: #8b949e; border-top: 1px solid rgba(255,255,255,0.05); border-radius: 0 0 6px 6px;"></pre>
+        <pre id="cmdOutputText" class="mb-0 p-3" style="max-height: 250px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; background: #0d1117; color: #c9d1d9; border-top: 1px solid rgba(255,255,255,0.05); border-radius: 0 0 6px 6px;"></pre>
     </div>
 </div>
 

@@ -246,27 +246,35 @@ class NovelController extends Controller
             ->havingRaw('count(id) > 1')
             ->get();
 
-        $removed = 0;
+        if ($groups->isEmpty()) {
+            return response()->json(['success' => true, 'removed' => 0]);
+        }
 
-        foreach ($groups as $group) {
-            $dupes = NovelChapter::where('novel_id', $id)
-                ->where('blacklist', 0)
-                ->where('chapter', $group->chapter)
-                ->where('book', $group->book)
-                ->orderByDesc('status')
-                ->orderBy('id')
-                ->get();
+        // Pull every row for the affected chapter numbers in a single query, then
+        // partition by exact (chapter, book) in PHP — instead of one query per
+        // duplicate group.
+        $candidates = NovelChapter::where('novel_id', $id)
+            ->where('blacklist', 0)
+            ->whereIn('chapter', $groups->pluck('chapter')->unique()->all())
+            ->orderByDesc('status')
+            ->orderBy('id')
+            ->get(['id', 'chapter', 'book', 'status']);
 
-            // Keep the first, soft-delete the rest.
-            foreach ($dupes->slice(1) as $dupe) {
-                $dupe->delete();
-                $removed++;
-            }
+        // Keep the best copy of each group (downloaded first, then earliest id);
+        // collect the rest for a single bulk soft-delete.
+        $loserIds = $candidates
+            ->groupBy(fn($c) => $c->chapter . '|' . $c->book)
+            ->filter(fn($rows) => $rows->count() > 1)
+            ->flatMap(fn($rows) => $rows->slice(1)->pluck('id'))
+            ->all();
+
+        if ($loserIds) {
+            NovelChapter::whereIn('id', $loserIds)->delete();
         }
 
         CacheHelper::clearNovelCache($id);
 
-        return response()->json(['success' => true, 'removed' => $removed]);
+        return response()->json(['success' => true, 'removed' => count($loserIds)]);
     }
 
     /**
@@ -313,19 +321,18 @@ class NovelController extends Controller
             'ids.*' => 'integer|exists:novels,id',
         ]);
 
-        foreach ($data['ids'] as $id) {
-            if ($data['action'] === 'delete') {
-                NovelChapter::where('novel_id', $id)->delete();
-                Novel::find($id)?->delete();
-            } else {
-                $novel = Novel::find($id);
-                if ($novel && !$novel->status) {
-                    $novel->status = 1;
-                    $novel->completed_at = now();
-                    $novel->save();
-                }
-            }
+        if ($data['action'] === 'delete') {
+            // Soft-delete chapters + novels in two batched queries rather than a
+            // find()/delete() pair per id.
+            NovelChapter::whereIn('novel_id', $data['ids'])->delete();
+            Novel::whereIn('id', $data['ids'])->delete();
+        } else {
+            Novel::whereIn('id', $data['ids'])
+                ->where('status', 0)
+                ->update(['status' => 1, 'completed_at' => now()]);
+        }
 
+        foreach ($data['ids'] as $id) {
             CacheHelper::clearNovelCache($id);
         }
 
