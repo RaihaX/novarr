@@ -42,14 +42,14 @@
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('library') ? 'active' : '' }}" @if(request()->routeIs('library')) aria-current="page" @endif href="{{ route('library') }}">Library</a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('commands.*') ? 'active' : '' }}" @if(request()->routeIs('commands.*')) aria-current="page" @endif href="{{ route('commands.index') }}">Commands</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('logs.*') ? 'active' : '' }}" @if(request()->routeIs('logs.*')) aria-current="page" @endif href="{{ route('logs.index') }}">Logs</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('health.*') ? 'active' : '' }}" @if(request()->routeIs('health.*')) aria-current="page" @endif href="{{ route('health.index') }}">Health</a>
+                    @php $systemActive = request()->routeIs('commands.*') || request()->routeIs('logs.*') || request()->routeIs('health.*'); @endphp
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle {{ $systemActive ? 'active' : '' }}" href="#" id="systemDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" @if($systemActive) aria-current="page" @endif>System</a>
+                        <ul class="dropdown-menu" aria-labelledby="systemDropdown">
+                            <li><a class="dropdown-item {{ request()->routeIs('commands.*') ? 'active' : '' }}" href="{{ route('commands.index') }}">Commands</a></li>
+                            <li><a class="dropdown-item {{ request()->routeIs('logs.*') ? 'active' : '' }}" href="{{ route('logs.index') }}">Logs</a></li>
+                            <li><a class="dropdown-item {{ request()->routeIs('health.*') ? 'active' : '' }}" href="{{ route('health.index') }}">Health</a></li>
+                        </ul>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('settings.*') ? 'active' : '' }}" @if(request()->routeIs('settings.*')) aria-current="page" @endif href="{{ route('settings.index') }}">Settings</a>

@@ -40,6 +40,7 @@
                 <button type="button" class="btn btn-outline-secondary" data-width="narrow">Narrow</button>
                 <button type="button" class="btn btn-outline-secondary" data-width="medium">Medium</button>
                 <button type="button" class="btn btn-outline-secondary" data-width="wide">Wide</button>
+                <button type="button" class="btn btn-outline-secondary" data-width="full">Full</button>
             </div>
         </div>
         <div class="d-flex align-items-center gap-2">
@@ -55,6 +56,14 @@
             <div class="btn-group btn-group-sm" id="familyGroup" role="group" aria-label="Font family">
                 <button type="button" class="btn btn-outline-secondary" data-family="sans">Sans</button>
                 <button type="button" class="btn btn-outline-secondary" data-family="serif">Serif</button>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <span class="text-muted">Spacing</span>
+            <div class="btn-group btn-group-sm" id="lineHeightGroup" role="group" aria-label="Line spacing">
+                <button type="button" class="btn btn-outline-secondary" data-lineheight="1.5">Compact</button>
+                <button type="button" class="btn btn-outline-secondary" data-lineheight="1.8">Normal</button>
+                <button type="button" class="btn btn-outline-secondary" data-lineheight="2.1">Relaxed</button>
             </div>
         </div>
     </div>
@@ -123,19 +132,21 @@
         width: localStorage.getItem('reader_width') || 'medium',
         theme: localStorage.getItem('reader_theme') || 'dark',
         family: localStorage.getItem('reader_family') || 'sans',
+        lineHeight: localStorage.getItem('reader_lineheight') || '1.8',
     };
 
     const families = {
         sans: "var(--bs-body-font-family)",
         serif: "Georgia, 'Times New Roman', serif",
     };
-    const widths = { narrow: '600px', medium: '760px', wide: '960px' };
+    const widths = { narrow: '600px', medium: '760px', wide: '960px', full: '1200px' };
 
     function applyPrefs() {
         if (content) {
             content.style.fontSize = prefs.font + 'px';
             content.style.maxWidth = widths[prefs.width] || widths.medium;
             content.style.fontFamily = families[prefs.family] || families.sans;
+            content.style.lineHeight = prefs.lineHeight;
         }
         // Theme recolours the whole page via a body class (styled in app.scss),
         // not just the card — so focus mode and mobile gutters match the theme.
@@ -154,6 +165,7 @@
         reflect('#widthGroup [data-width]', 'width', prefs.width);
         reflect('#themeGroup [data-theme]', 'theme', prefs.theme);
         reflect('#familyGroup [data-family]', 'family', prefs.family);
+        reflect('#lineHeightGroup [data-lineheight]', 'lineheight', prefs.lineHeight);
     }
 
     document.getElementById('readerSettingsBtn').addEventListener('click', () => {
@@ -161,7 +173,7 @@
     });
 
     document.querySelectorAll('[data-font]').forEach(btn => btn.addEventListener('click', () => {
-        prefs.font = Math.min(28, Math.max(13, prefs.font + (btn.dataset.font === '+' ? 1 : -1)));
+        prefs.font = Math.min(36, Math.max(13, prefs.font + (btn.dataset.font === '+' ? 1 : -1)));
         localStorage.setItem('reader_font', prefs.font);
         applyPrefs();
     }));
@@ -178,6 +190,11 @@
     document.querySelectorAll('[data-family]').forEach(btn => btn.addEventListener('click', () => {
         prefs.family = btn.dataset.family;
         localStorage.setItem('reader_family', prefs.family);
+        applyPrefs();
+    }));
+    document.querySelectorAll('[data-lineheight]').forEach(btn => btn.addEventListener('click', () => {
+        prefs.lineHeight = btn.dataset.lineheight;
+        localStorage.setItem('reader_lineheight', prefs.lineHeight);
         applyPrefs();
     }));
 
