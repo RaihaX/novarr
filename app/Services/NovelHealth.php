@@ -41,18 +41,31 @@ class NovelHealth
             ->orderBy('name')
             ->get(['id', 'name', 'translator_url']);
 
+        // Batch the per-novel stats into two grouped aggregate queries (served by
+        // idx_novel_download_date) instead of two queries inside the loop.
+        $stalledIds = $stalled->pluck('id')->all();
+
+        $lastDownloads = NovelChapter::whereIn('novel_id', $stalledIds)
+            ->where('status', 1)
+            ->selectRaw('novel_id, MAX(download_date) as last_download')
+            ->groupBy('novel_id')
+            ->pluck('last_download', 'novel_id');
+
+        $pendingCounts = NovelChapter::whereIn('novel_id', $stalledIds)
+            ->where('status', 0)->where('blacklist', 0)
+            ->selectRaw('novel_id, COUNT(*) as pending')
+            ->groupBy('novel_id')
+            ->pluck('pending', 'novel_id');
+
         foreach ($stalled as $novel) {
             if (isset($attention[$novel->id])) {
                 continue;
             }
 
-            $lastDownload = NovelChapter::where('novel_id', $novel->id)
-                ->where('status', 1)
-                ->max('download_date');
+            $lastDownload = $lastDownloads[$novel->id] ?? null;
 
             if ($lastDownload === null || Carbon::parse($lastDownload)->lt(Carbon::now()->subDays(7))) {
-                $pending = NovelChapter::where('novel_id', $novel->id)
-                    ->where('status', 0)->where('blacklist', 0)->count();
+                $pending = $pendingCounts[$novel->id] ?? 0;
                 $attention[$novel->id] = [
                     'id' => $novel->id,
                     'name' => $novel->name,

@@ -38,16 +38,12 @@ class GenerateePub extends Command
             File::makeDirectory($epubDir, 0755, true);
         }
 
+        // Chapters are NOT eager-loaded here: their `description` is a longtext
+        // and loading every chapter for 5 novels at once (the chunk size) is the
+        // whole book ×5 in RAM. generateEpubForNovel() loads lightweight chapter
+        // metadata once and streams the bodies with a cursor.
         $query = Novel::whereHas("chapters")
-            ->with([
-                "chapters" => function ($q) {
-                    $q->where("blacklist", 0)
-                        ->where("status", 1)
-                        ->orderBy("book")
-                        ->orderBy("chapter");
-                },
-                "file", // Load cover file relationship
-            ]);
+            ->with("file"); // cover file relationship only
 
         if ($novelId == 0) {
             $query->where("status", 1)->whereNull("epub_generated");
@@ -97,6 +93,18 @@ class GenerateePub extends Command
         $this->bookUuid = (string) Str::uuid();
         $this->coverInfo = null;
 
+        // Lightweight chapter metadata (no `description` longtext). Used for the
+        // count, the OPF manifest, the NCX and the nav document — none of which
+        // need the body. Set as the relation so the metadata generators that read
+        // $novel->chapters operate on this slim collection.
+        $chapters = $novel->chapters()
+            ->where("blacklist", 0)
+            ->where("status", 1)
+            ->orderBy("book")
+            ->orderBy("chapter")
+            ->get(["id", "novel_id", "label", "book", "chapter"]);
+        $novel->setRelation("chapters", $chapters);
+
         // Validate chapters exist
         if ($novel->chapters->isEmpty()) {
             $this->warn("  No chapters found. Skipping.");
@@ -136,32 +144,29 @@ class GenerateePub extends Command
         $bar = $this->output->createProgressBar($chapterCount);
         $bar->start();
 
-        foreach ($novel->chapters as $chapter) {
-            $chapterContent = $this->generateChapterXhtml($chapter);
-            $chapterFilename = $this->getChapterFilename($chapter);
-            $chapterPath = "{$textDir}/{$chapterFilename}";
+        // Stream chapter bodies one row at a time — only a single `description`
+        // is ever resident, so peak memory is flat regardless of book length.
+        $novel->chapters()
+            ->where("blacklist", 0)
+            ->where("status", 1)
+            ->orderBy("book")
+            ->orderBy("chapter")
+            ->select(["id", "label", "description"])
+            ->cursor()
+            ->each(function ($chapter) use ($id, $textDir, $bar) {
+                $chapterFilename = $this->getChapterFilename($chapter);
+                File::put("{$textDir}/{$chapterFilename}", $this->generateChapterXhtml($chapter));
 
-            File::put($chapterPath, $chapterContent);
+                // Persist the relative path for reference (metadata generation
+                // derives filenames from the id, so no reload is needed).
+                $chapter->html_file = "/Novel/{$id}/OEBPS/Text/{$chapterFilename}";
+                $chapter->save();
 
-            // Update chapter record with relative path for content.opf reference
-            $chapter->html_file = "/Novel/{$id}/OEBPS/Text/{$chapterFilename}";
-            $chapter->save();
-
-            $bar->advance();
-        }
+                $bar->advance();
+            });
 
         $bar->finish();
         $this->line("");
-
-        // Reload chapters with updated html_file paths
-        $novel->load([
-            "chapters" => function ($q) {
-                $q->where("blacklist", 0)
-                    ->where("status", 1)
-                    ->orderBy("book")
-                    ->orderBy("chapter");
-            },
-        ]);
 
         // Step 3: Generate metadata files
         $this->info("  Generating metadata...");

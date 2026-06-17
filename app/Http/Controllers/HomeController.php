@@ -64,6 +64,7 @@ class HomeController extends Controller
      */
     private function continueReading(int $limit = 8): array
     {
+        // Candidate novels, most-recently-read first (ordered novel_id => last_read).
         $recent = NovelChapter::where('status', 1)
             ->where('blacklist', 0)
             ->whereNotNull('read_at')
@@ -71,11 +72,28 @@ class HomeController extends Controller
             ->groupBy('novel_id')
             ->orderByDesc('last_read')
             ->limit($limit * 2) // over-fetch; some may be fully read
-            ->get();
+            ->pluck('last_read', 'novel_id');
+
+        if ($recent->isEmpty()) {
+            return [];
+        }
+
+        // Resolve every candidate novel (with its cover) in one query instead of
+        // a Novel::find() per row.
+        $novels = Novel::with('file')
+            ->whereIn('id', $recent->keys()->all())
+            ->get()
+            ->keyBy('id');
 
         $items = [];
-        foreach ($recent as $row) {
-            $next = NovelChapter::where('novel_id', $row->novel_id)
+        foreach ($recent as $novelId => $lastRead) {
+            $novel = $novels->get($novelId);
+            if (!$novel) {
+                continue;
+            }
+
+            // Index-served by idx_novel_book_chapter (novel_id, book, chapter).
+            $next = NovelChapter::where('novel_id', $novelId)
                 ->where('status', 1)->where('blacklist', 0)
                 ->whereNull('read_at')
                 ->orderBy('book')->orderBy('chapter')
@@ -83,11 +101,6 @@ class HomeController extends Controller
 
             if (!$next) {
                 continue; // caught up — nothing to continue
-            }
-
-            $novel = Novel::with('file')->find($row->novel_id);
-            if (!$novel) {
-                continue;
             }
 
             $items[] = ['novel' => $novel, 'next' => $next];

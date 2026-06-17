@@ -566,6 +566,61 @@ body.reader-focus {
     }
 }
 
+// Reader colour themes. Applied to <body> (not just the card) so the whole
+// viewport recolours — otherwise sepia/light left a dark page around a light
+// card, most visibly in focus mode. Driven by JS in chapters/show.blade.php.
+body.reader-theme-sepia,
+body.reader-theme-light {
+    .reader-card,
+    .reader-card .card-header,
+    .reader-card .card-body {
+        background-color: var(--reader-bg) !important;
+        color: var(--reader-fg) !important;
+        border-color: var(--reader-border) !important;
+    }
+
+    .reader-card a:not(.btn) {
+        color: var(--reader-link);
+    }
+}
+
+body.reader-theme-sepia {
+    --reader-bg: #f4ecd8;
+    --reader-fg: #5b4636;
+    --reader-border: #e0d3b8;
+    --reader-link: #8a5a2b;
+    background-color: #ece3cf;
+}
+
+body.reader-theme-light {
+    --reader-bg: #ffffff;
+    --reader-fg: #1a1a1a;
+    --reader-border: #e3e3e3;
+    --reader-link: #0d6efd;
+    background-color: #f5f5f5;
+}
+
+// Prominent end-of-chapter "next" call to action for binge reading.
+.next-chapter-cta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.9rem 1rem;
+    font-size: 1.05rem;
+    min-height: 48px; // comfortable touch target
+}
+
+// Bump reader toolbar controls to a usable touch-target size on touch devices.
+@media (hover: none) {
+    #readerToolbar .btn-sm,
+    #readerSettings .btn {
+        min-height: 40px;
+        min-width: 40px;
+    }
+}
+
 // Command output panels
 .command-output {
     max-height: 500px;

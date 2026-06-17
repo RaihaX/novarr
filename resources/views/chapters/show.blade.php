@@ -4,6 +4,9 @@
 @if($next)
     <link rel="prefetch" href="{{ route('chapters.show', $next->id) }}">
 @endif
+@if($prev)
+    <link rel="prefetch" href="{{ route('chapters.show', $prev->id) }}">
+@endif
 @endpush
 
 @section('content')
@@ -33,7 +36,7 @@
         </div>
         <div class="d-flex align-items-center gap-2">
             <span class="text-muted">Width</span>
-            <div class="btn-group btn-group-sm" id="widthGroup">
+            <div class="btn-group btn-group-sm" id="widthGroup" role="group" aria-label="Reading width">
                 <button type="button" class="btn btn-outline-secondary" data-width="narrow">Narrow</button>
                 <button type="button" class="btn btn-outline-secondary" data-width="medium">Medium</button>
                 <button type="button" class="btn btn-outline-secondary" data-width="wide">Wide</button>
@@ -41,7 +44,7 @@
         </div>
         <div class="d-flex align-items-center gap-2">
             <span class="text-muted">Theme</span>
-            <div class="btn-group btn-group-sm" id="themeGroup">
+            <div class="btn-group btn-group-sm" id="themeGroup" role="group" aria-label="Reading theme">
                 <button type="button" class="btn btn-outline-secondary" data-theme="dark">Dark</button>
                 <button type="button" class="btn btn-outline-secondary" data-theme="sepia">Sepia</button>
                 <button type="button" class="btn btn-outline-secondary" data-theme="light">Light</button>
@@ -49,7 +52,7 @@
         </div>
         <div class="d-flex align-items-center gap-2">
             <span class="text-muted">Font</span>
-            <div class="btn-group btn-group-sm" id="familyGroup">
+            <div class="btn-group btn-group-sm" id="familyGroup" role="group" aria-label="Font family">
                 <button type="button" class="btn btn-outline-secondary" data-family="sans">Sans</button>
                 <button type="button" class="btn btn-outline-secondary" data-family="serif">Serif</button>
             </div>
@@ -57,7 +60,7 @@
     </div>
 </div>
 
-<div class="card mb-4" id="readerCard">
+<div class="card mb-4 reader-card" id="readerCard">
     <div class="card-header">
         <div class="d-flex justify-content-between align-items-start gap-2">
             <div>
@@ -76,7 +79,7 @@
             </div>
             <div class="d-flex gap-2 flex-shrink-0">
                 <button type="button" id="readThrough" class="btn btn-sm btn-outline-secondary" data-id="{{ $chapter->id }}" title="Mark this and all earlier chapters as read">Mark to here</button>
-                <button type="button" id="readToggle" class="btn btn-sm {{ $chapter->read_at ? 'btn-success' : 'btn-outline-secondary' }}" data-id="{{ $chapter->id }}">
+                <button type="button" id="readToggle" class="btn btn-sm {{ $chapter->read_at ? 'btn-success' : 'btn-outline-secondary' }}" data-id="{{ $chapter->id }}" data-read="{{ $chapter->read_at ? '1' : '0' }}" aria-pressed="{{ $chapter->read_at ? 'true' : 'false' }}">
                     {{ $chapter->read_at ? '✓ Read' : 'Mark read' }}
                 </button>
             </div>
@@ -93,6 +96,14 @@
     </div>
 </div>
 
+@if($next)
+    {{-- Prominent end-of-chapter action: mark this chapter read and move on,
+         the dominant interaction when reading a series straight through. --}}
+    <a href="{{ route('chapters.show', $next->id) }}" id="nextChapterCta" class="btn btn-primary next-chapter-cta mb-3">
+        Next: {{ Str::limit($next->label ?: 'Chapter ' . $next->chapter, 50) }} &rarr;
+    </a>
+@endif
+
 <div class="chapter-nav justify-content-between">
     @if($prev)
         <a href="{{ route('chapters.show', $prev->id) }}" class="btn btn-outline-secondary text-truncate">&larr; {{ Str::limit($prev->label ?: 'Ch. ' . $prev->chapter, 40) }}</a>
@@ -107,7 +118,6 @@
 <script>
     // ---- Reader preferences (persisted in localStorage) ----
     const content = document.getElementById('chapterContent');
-    const card = document.getElementById('readerCard');
     const prefs = {
         font: parseInt(localStorage.getItem('reader_font') || '18', 10),
         width: localStorage.getItem('reader_width') || 'medium',
@@ -120,11 +130,6 @@
         serif: "Georgia, 'Times New Roman', serif",
     };
     const widths = { narrow: '600px', medium: '760px', wide: '960px' };
-    const themes = {
-        dark:  { bg: '', fg: '' },                       // inherit app theme
-        sepia: { bg: '#f4ecd8', fg: '#5b4636' },
-        light: { bg: '#ffffff', fg: '#1a1a1a' },
-    };
 
     function applyPrefs() {
         if (content) {
@@ -132,19 +137,23 @@
             content.style.maxWidth = widths[prefs.width] || widths.medium;
             content.style.fontFamily = families[prefs.family] || families.sans;
         }
-        const t = themes[prefs.theme] || themes.dark;
-        if (card) {
-            card.style.backgroundColor = t.bg;
-            card.style.color = t.fg;
-            card.querySelector('.card-body').style.color = t.fg;
+        // Theme recolours the whole page via a body class (styled in app.scss),
+        // not just the card — so focus mode and mobile gutters match the theme.
+        document.body.classList.remove('reader-theme-sepia', 'reader-theme-light');
+        if (prefs.theme === 'sepia' || prefs.theme === 'light') {
+            document.body.classList.add('reader-theme-' + prefs.theme);
         }
-        // reflect active buttons
-        document.querySelectorAll('#widthGroup [data-width]').forEach(b =>
-            b.classList.toggle('active', b.dataset.width === prefs.width));
-        document.querySelectorAll('#themeGroup [data-theme]').forEach(b =>
-            b.classList.toggle('active', b.dataset.theme === prefs.theme));
-        document.querySelectorAll('#familyGroup [data-family]').forEach(b =>
-            b.classList.toggle('active', b.dataset.family === prefs.family));
+        document.body.setAttribute('data-bs-theme', prefs.theme === 'dark' ? 'dark' : 'light');
+
+        // reflect active buttons + announce state to assistive tech
+        const reflect = (sel, key, val) => document.querySelectorAll(sel).forEach(b => {
+            const on = b.dataset[key] === val;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        reflect('#widthGroup [data-width]', 'width', prefs.width);
+        reflect('#themeGroup [data-theme]', 'theme', prefs.theme);
+        reflect('#familyGroup [data-family]', 'family', prefs.family);
     }
 
     document.getElementById('readerSettingsBtn').addEventListener('click', () => {
@@ -188,12 +197,19 @@
     applyPrefs();
 
     // ---- Keyboard navigation: ← / → between chapters ----
+    // Turbo.visit keeps navigation in-app (no full reload / script re-run) and
+    // uses the prefetched documents; falls back to a hard nav if Turbo is absent.
     @if($prev) const prevUrl = '{{ route('chapters.show', $prev->id) }}'; @else const prevUrl = null; @endif
     @if($next) const nextUrl = '{{ route('chapters.show', $next->id) }}'; @else const nextUrl = null; @endif
+    function goTo(url) {
+        if (!url) return;
+        if (window.Turbo) Turbo.visit(url);
+        else window.location.href = url;
+    }
     document.addEventListener('keydown', (e) => {
         if (e.target.matches('input, textarea, select')) return;
-        if (e.key === 'ArrowLeft' && prevUrl) window.location.href = prevUrl;
-        if (e.key === 'ArrowRight' && nextUrl) window.location.href = nextUrl;
+        if (e.key === 'ArrowLeft') goTo(prevUrl);
+        if (e.key === 'ArrowRight') goTo(nextUrl);
     });
 
     // ---- Resume scroll position per chapter ----
@@ -235,10 +251,13 @@
         }).then((r) => r.json());
     }
 
-    function markReadUi() {
-        readToggle.className = 'btn btn-sm btn-success';
-        readToggle.textContent = '✓ Read';
+    function setReadUi(read) {
+        readToggle.className = 'btn btn-sm ' + (read ? 'btn-success' : 'btn-outline-secondary');
+        readToggle.textContent = read ? '✓ Read' : 'Mark read';
+        readToggle.dataset.read = read ? '1' : '0';
+        readToggle.setAttribute('aria-pressed', read ? 'true' : 'false');
     }
+    function markReadUi() { setReadUi(true); }
 
     // ---- "Mark to here" (this + all earlier chapters) ----
     const readThrough = document.getElementById('readThrough');
@@ -267,12 +286,11 @@
     // replay applies the exact state we intended regardless of ordering.
     readToggle.addEventListener('click', async () => {
         readToggle.disabled = true;
-        const desired = !readToggle.classList.contains('btn-success');
+        const desired = readToggle.dataset.read !== '1';
         try {
             const data = await readFetch('{{ route('chapters.bulk_read') }}', { ids: [readToggle.dataset.id], read: desired });
             if (data.success) {
-                readToggle.className = 'btn btn-sm ' + (desired ? 'btn-success' : 'btn-outline-secondary');
-                readToggle.textContent = desired ? '✓ Read' : 'Mark read';
+                setReadUi(desired);
                 if (data.queued) Novarr.showToast('Saved offline — will sync when you reconnect.', 'info');
             }
         } catch (err) {
