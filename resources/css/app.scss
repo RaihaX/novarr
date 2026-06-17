@@ -632,4 +632,50 @@ body.reader-theme-light {
 // Toast notifications (see resources/js/toast.js)
 .toast-container {
     z-index: 1090;
+    // Keep toasts clear of the iOS home indicator in the installed PWA.
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom)) !important;
+}
+
+// Loading skeletons for the Discover / Offline-library grids while results load.
+.poster-skeleton {
+    pointer-events: none;
+
+    .skeleton-box,
+    .skeleton-line {
+        background: linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.04) 25%,
+            rgba(255, 255, 255, 0.09) 37%,
+            rgba(255, 255, 255, 0.04) 63%
+        );
+        background-size: 400% 100%;
+        animation: skeleton-shimmer 1.4s ease infinite;
+        border-radius: 4px;
+    }
+
+    .skeleton-box {
+        width: 100%;
+        aspect-ratio: 2 / 3;
+    }
+
+    .skeleton-line {
+        height: 12px;
+        margin-top: 8px;
+
+        &.short {
+            width: 60%;
+        }
+    }
+}
+
+@keyframes skeleton-shimmer {
+    0% { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .poster-skeleton .skeleton-box,
+    .poster-skeleton .skeleton-line {
+        animation: none;
+    }
 }

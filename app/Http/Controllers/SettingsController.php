@@ -19,49 +19,59 @@ class SettingsController extends Controller
                 'label' => 'Kindle email',
                 'help' => 'Your Send-to-Kindle address (e.g. yourname_xxx@kindle.com). The sender must be in your Amazon approved list.',
                 'type' => 'email',
+                'group' => 'Email & Kindle',
                 'default' => config('mail.kindle_email'),
             ],
             'summary_email' => [
                 'label' => 'Daily summary recipient',
                 'help' => 'Where the daily new-chapters summary is emailed.',
                 'type' => 'email',
+                'group' => 'Email & Kindle',
                 'default' => config('mail.summary_email'),
-            ],
-            'flaresolverr_url' => [
-                'label' => 'FlareSolverr URL',
-                'help' => 'Endpoint used to bypass Cloudflare when scraping (e.g. http://192.168.1.41:8191/v1).',
-                'type' => 'url',
-                'default' => env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'),
             ],
             'summary_time' => [
                 'label' => 'Daily summary time',
                 'help' => 'Time of day the summary email is sent (24h, app timezone).',
                 'type' => 'time',
+                'group' => 'Email & Kindle',
                 'default' => '08:00',
             ],
-            'notification_webhook_url' => [
-                'label' => 'Notification webhook',
-                'help' => 'Optional Discord webhook or ntfy topic URL — pinged when a novel completes or a source starts failing.',
+            'auto_kindle' => [
+                'label' => 'Auto-send completed novels to Kindle',
+                'help' => 'When a novel is marked complete, email its ePub to your Kindle automatically.',
+                'type' => 'checkbox',
+                'group' => 'Email & Kindle',
+                'default' => '1',
+            ],
+            'flaresolverr_url' => [
+                'label' => 'FlareSolverr URL',
+                'help' => 'Endpoint used to bypass Cloudflare when scraping (e.g. http://192.168.1.41:8191/v1).',
                 'type' => 'url',
-                'default' => env('NOTIFICATION_WEBHOOK_URL'),
+                'group' => 'Scraping',
+                'default' => env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'),
             ],
             'scrape_min_delay' => [
                 'label' => 'Min delay between chapters (s)',
                 'help' => 'Lower bound of the polite random pause between chapter downloads.',
                 'type' => 'number',
+                'group' => 'Scraping',
                 'default' => '30',
             ],
             'scrape_max_delay' => [
                 'label' => 'Max delay between chapters (s)',
                 'help' => 'Upper bound of the random pause. Higher = gentler on the source site.',
                 'type' => 'number',
+                'group' => 'Scraping',
                 'default' => '90',
             ],
-            'auto_kindle' => [
-                'label' => 'Auto-send completed novels to Kindle',
-                'help' => 'When a novel is marked complete, email its ePub to your Kindle automatically.',
-                'type' => 'checkbox',
-                'default' => '1',
+            'notification_webhook_url' => [
+                'label' => 'Notification webhook',
+                'help' => 'Optional Discord webhook or ntfy topic URL — pinged when a novel completes or a source starts failing.',
+                'type' => 'url',
+                'group' => 'Notifications',
+                // May embed a token — masked in the UI with a reveal toggle.
+                'secret' => true,
+                'default' => env('NOTIFICATION_WEBHOOK_URL'),
             ],
         ];
     }
@@ -70,6 +80,7 @@ class SettingsController extends Controller
     {
         $fields = [];
         foreach ($this->fields() as $key => $meta) {
+            $meta['key'] = $key;
             $meta['value'] = Setting::get($key, $meta['default']);
             $fields[$key] = $meta;
         }

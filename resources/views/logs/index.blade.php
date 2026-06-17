@@ -46,7 +46,7 @@
         btn.addEventListener('click', async () => {
             const filename = btn.dataset.filename;
 
-            if (!confirm('Clear ' + filename + '? The file is kept but all entries are removed.')) return;
+            if (!await Novarr.confirmDialog('Clear ' + filename + '? The file is kept but all entries are removed.', { title: 'Clear log', confirmText: 'Clear', danger: true })) return;
 
             try {
                 const response = await fetch('/logs/' + encodeURIComponent(filename) + '/clear', {
@@ -73,7 +73,7 @@
         btn.addEventListener('click', async () => {
             const filename = btn.dataset.filename;
 
-            if (!confirm('Delete ' + filename + '?')) return;
+            if (!await Novarr.confirmDialog('Delete ' + filename + '?', { title: 'Delete log file', confirmText: 'Delete', danger: true })) return;
 
             try {
                 const response = await fetch('/logs/' + encodeURIComponent(filename), {

@@ -5,9 +5,19 @@
     <h1 class="mb-0">Offline Library</h1>
     <span id="offlineBadge" class="badge bg-warning text-dark d-none">Offline</span>
 </div>
-<p class="text-muted" id="libStatus">Loading your downloaded novels…</p>
+<p class="text-muted" id="libStatus">
+    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Loading your downloaded novels…
+</p>
 
-<div class="poster-grid" id="libGrid"></div>
+<div class="poster-grid" id="libGrid">
+    @for($i = 0; $i < 6; $i++)
+        <div class="poster-card poster-skeleton" aria-hidden="true">
+            <div class="poster-cover skeleton-box"></div>
+            <div class="skeleton-line mt-2"></div>
+            <div class="skeleton-line short"></div>
+        </div>
+    @endfor
+</div>
 @endsection
 
 @push('scripts')

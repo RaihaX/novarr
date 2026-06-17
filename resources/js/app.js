@@ -7,6 +7,7 @@ window.bootstrap = bootstrap;
 
 import { executeCommand, pollJobStatus } from './commands';
 import { showToast } from './toast';
+import { confirmDialog } from './confirm';
 import { initTagPickers } from './tagpicker';
 import { initNavSearch } from './navsearch';
 import {
@@ -17,7 +18,7 @@ import {
 // Exposed for the thin page-specific glue scripts in Blade templates
 // (inline scripts are not part of the Vite module graph).
 window.Novarr = {
-    executeCommand, pollJobStatus, showToast, initTagPickers,
+    executeCommand, pollJobStatus, showToast, confirmDialog, initTagPickers,
     downloadNovel, removeNovel, getLibrary, getNovel, isDownloaded,
     queuedFetch, flushQueue,
 };

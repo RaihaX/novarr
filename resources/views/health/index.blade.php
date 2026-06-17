@@ -154,7 +154,7 @@
         setTimeout(() => location.reload(), 800);
     });
     document.getElementById('flushAll')?.addEventListener('click', async () => {
-        if (!confirm('Delete all failed job records?')) return;
+        if (!await Novarr.confirmDialog('Delete all failed job records?', { title: 'Flush failed jobs', confirmText: 'Delete', danger: true })) return;
         await post('{{ route('health.flush') }}');
         setTimeout(() => location.reload(), 500);
     });

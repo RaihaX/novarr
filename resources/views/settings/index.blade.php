@@ -12,35 +12,50 @@
         <div class="card">
             <div class="card-body">
                 @if($errors->any())
-                    <div class="alert alert-danger">
-                        <ul class="mb-0">
-                            @foreach($errors->all() as $error)
-                                <li>{{ $error }}</li>
-                            @endforeach
-                        </ul>
-                    </div>
+                    <div class="alert alert-danger py-2 mb-3">Please correct the highlighted fields below.</div>
                 @endif
 
                 <form method="POST" action="{{ route('settings.update') }}">
                     @csrf
 
-                    @foreach($fields as $key => $field)
-                        @if($field['type'] === 'checkbox')
-                            <div class="mb-3 form-check form-switch">
-                                <input type="checkbox" name="{{ $key }}" id="{{ $key }}" class="form-check-input" value="1" @checked(old($key, $field['value']) === '1' || old($key, $field['value']) === 1)>
-                                <label for="{{ $key }}" class="form-check-label">{{ $field['label'] }}</label>
-                                <div class="form-text">{{ $field['help'] }}</div>
-                            </div>
-                        @else
-                            <div class="mb-3">
-                                <label for="{{ $key }}" class="form-label">{{ $field['label'] }}</label>
-                                <input type="{{ $field['type'] }}" name="{{ $key }}" id="{{ $key }}"
-                                       class="form-control"
-                                       value="{{ old($key, $field['value']) }}"
-                                       @if(!empty($field['default'])) placeholder="{{ $field['default'] }}" @endif>
-                                <div class="form-text">{{ $field['help'] }}</div>
-                            </div>
-                        @endif
+                    @foreach(collect($fields)->groupBy('group') as $groupName => $groupFields)
+                        <fieldset class="mb-4">
+                            <legend class="h6 text-muted text-uppercase fw-semibold mb-3" style="font-size: 12px; letter-spacing: 0.5px;">{{ $groupName }}</legend>
+
+                            @foreach($groupFields as $field)
+                                @php $key = $field['key']; @endphp
+                                @if($field['type'] === 'checkbox')
+                                    <div class="mb-3 form-check form-switch">
+                                        <input type="checkbox" name="{{ $key }}" id="{{ $key }}" class="form-check-input @error($key) is-invalid @enderror" value="1" @checked(old($key, $field['value']) === '1' || old($key, $field['value']) === 1)>
+                                        <label for="{{ $key }}" class="form-check-label">{{ $field['label'] }}</label>
+                                        <div class="form-text">{{ $field['help'] }}</div>
+                                        @error($key)<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
+                                    </div>
+                                @else
+                                    <div class="mb-3">
+                                        <label for="{{ $key }}" class="form-label">{{ $field['label'] }}</label>
+                                        @if(!empty($field['secret']))
+                                            <div class="input-group">
+                                                <input type="password" name="{{ $key }}" id="{{ $key }}"
+                                                       class="form-control @error($key) is-invalid @enderror"
+                                                       value="{{ old($key, $field['value']) }}"
+                                                       autocomplete="off"
+                                                       @if(!empty($field['default'])) placeholder="{{ $field['default'] }}" @endif>
+                                                <button type="button" class="btn btn-outline-secondary toggle-secret" data-target="{{ $key }}" aria-label="Show or hide value">Show</button>
+                                                @error($key)<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                            </div>
+                                        @else
+                                            <input type="{{ $field['type'] }}" name="{{ $key }}" id="{{ $key }}"
+                                                   class="form-control @error($key) is-invalid @enderror"
+                                                   value="{{ old($key, $field['value']) }}"
+                                                   @if(!empty($field['default'])) placeholder="{{ $field['default'] }}" @endif>
+                                            @error($key)<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                        @endif
+                                        <div class="form-text">{{ $field['help'] }}</div>
+                                    </div>
+                                @endif
+                            @endforeach
+                        </fieldset>
                     @endforeach
 
                     <div class="d-flex flex-wrap gap-2">
@@ -118,6 +133,17 @@
 (function(){
 
     const csrf = document.querySelector('meta[name="csrf-token"]').content;
+
+    // Reveal/hide masked secret fields.
+    document.querySelectorAll('.toggle-secret').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const input = document.getElementById(btn.dataset.target);
+            if (!input) return;
+            const hidden = input.type === 'password';
+            input.type = hidden ? 'text' : 'password';
+            btn.textContent = hidden ? 'Hide' : 'Show';
+        });
+    });
 
     async function runTest(btn, url, body) {
         const original = btn.textContent;

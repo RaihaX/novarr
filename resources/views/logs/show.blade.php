@@ -189,7 +189,7 @@
     });
 
     document.getElementById('clearLog').addEventListener('click', async () => {
-        if (!confirm('Clear {{ $filename }}? The file is kept but all entries are removed.')) return;
+        if (!await Novarr.confirmDialog('Clear {{ $filename }}? The file is kept but all entries are removed.', { title: 'Clear log', confirmText: 'Clear', danger: true })) return;
 
         try {
             const response = await fetch('{{ route('logs.clear', $filename) }}', {

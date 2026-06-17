@@ -29,6 +29,19 @@
 
     .chapter-row td { font-size: 13px; }
 
+    /* Quick Actions grouped sections */
+    .qa-section { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .qa-section + .qa-section { margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid rgba(255,255,255,0.05); }
+    .qa-label {
+        flex: 0 0 90px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #6c757d;
+        font-weight: 600;
+    }
+    @media (max-width: 575.98px) { .qa-label { flex-basis: 100%; } }
+
     #cmdOutputText {
         font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
     }
@@ -208,63 +221,72 @@
         <h6 class="mb-0">Quick Actions</h6>
         <small class="text-muted">Commands run in background</small>
     </div>
-    <div class="card-body py-2">
-        <div class="d-flex flex-wrap gap-2">
-            <button class="btn btn-sm btn-primary cmd-btn" data-command="toc" data-novel="{{ $data->id }}">
-                <span class="cmd-label">Scrape TOC</span>
-                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
-                <span class="cmd-done d-none">Done</span>
-                <span class="cmd-fail d-none">Failed</span>
-            </button>
-            <button class="btn btn-sm btn-primary cmd-btn" data-command="chapter" data-novel="{{ $data->id }}">
-                <span class="cmd-label">Download Chapters</span>
-                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
-                <span class="cmd-done d-none">Done</span>
-                <span class="cmd-fail d-none">Failed</span>
-            </button>
+    <div class="card-body py-3">
+        <div class="qa-section">
+            <div class="qa-label">Acquire</div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-sm btn-primary cmd-btn" data-command="toc" data-novel="{{ $data->id }}" title="Re-scrape the table of contents to discover new chapters">
+                    <span class="cmd-label">Scrape TOC</span>
+                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                    <span class="cmd-done d-none">Done</span>
+                    <span class="cmd-fail d-none">Failed</span>
+                </button>
+                <button class="btn btn-sm btn-primary cmd-btn" data-command="chapter" data-novel="{{ $data->id }}" title="Download the content of any pending chapters">
+                    <span class="cmd-label">Download Chapters</span>
+                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                    <span class="cmd-done d-none">Done</span>
+                    <span class="cmd-fail d-none">Failed</span>
+                </button>
+            </div>
+        </div>
 
-            <div class="vr mx-1" style="opacity: 0.2;"></div>
+        <div class="qa-section">
+            <div class="qa-label">Export</div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-sm btn-outline-success cmd-btn" data-command="epub" data-novel="{{ $data->id }}" title="Build an ePub from the downloaded chapters">
+                    <span class="cmd-label">Generate ePub</span>
+                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                    <span class="cmd-done d-none">Done</span>
+                    <span class="cmd-fail d-none">Failed</span>
+                </button>
+                <a href="{{ route('novels.download_epub', $data->id) }}" class="btn btn-sm btn-success">Download ePub</a>
+                <button class="btn btn-sm btn-outline-success cmd-btn" data-command="send_to_kindle" data-novel="{{ $data->id }}" title="Email this novel's ePub to your Kindle">
+                    <span class="cmd-label">Send to Kindle</span>
+                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Sending</span>
+                    <span class="cmd-done d-none">Sent</span>
+                    <span class="cmd-fail d-none">Failed</span>
+                </button>
+            </div>
+        </div>
 
-            <button class="btn btn-sm btn-outline-success cmd-btn" data-command="epub" data-novel="{{ $data->id }}">
-                <span class="cmd-label">Generate ePub</span>
-                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
-                <span class="cmd-done d-none">Done</span>
-                <span class="cmd-fail d-none">Failed</span>
-            </button>
-            <a href="{{ route('novels.download_epub', $data->id) }}" class="btn btn-sm btn-success">Download ePub</a>
-            <button class="btn btn-sm btn-outline-success cmd-btn" data-command="send_to_kindle" data-novel="{{ $data->id }}" title="Email this novel's ePub to your Kindle">
-                <span class="cmd-label">Send to Kindle</span>
-                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Sending</span>
-                <span class="cmd-done d-none">Sent</span>
-                <span class="cmd-fail d-none">Failed</span>
-            </button>
-
-            <div class="vr mx-1" style="opacity: 0.2;"></div>
-
-            <button class="btn btn-sm btn-outline-warning cmd-btn" data-command="metadata" data-novel="{{ $data->id }}">
-                <span class="cmd-label">Refresh Metadata</span>
-                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
-                <span class="cmd-done d-none">Done</span>
-                <span class="cmd-fail d-none">Failed</span>
-            </button>
-            <button class="btn btn-sm btn-outline-info cmd-btn" data-command="normalize_labels" data-novel="{{ $data->id }}">
-                <span class="cmd-label">Normalize Labels</span>
-                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
-                <span class="cmd-done d-none">Done</span>
-                <span class="cmd-fail d-none">Failed</span>
-            </button>
-            <button class="btn btn-sm btn-outline-secondary cmd-btn" data-command="chapter_cleanser" data-novel="{{ $data->id }}">
-                <span class="cmd-label">Cleanse Chapters</span>
-                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
-                <span class="cmd-done d-none">Done</span>
-                <span class="cmd-fail d-none">Failed</span>
-            </button>
-            <button class="btn btn-sm btn-outline-secondary cmd-btn" data-command="chapter_cleaner" data-novel="{{ $data->id }}">
-                <span class="cmd-label">Clean Chapters</span>
-                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
-                <span class="cmd-done d-none">Done</span>
-                <span class="cmd-fail d-none">Failed</span>
-            </button>
+        <div class="qa-section">
+            <div class="qa-label">Maintenance</div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-sm btn-outline-warning cmd-btn" data-command="metadata" data-novel="{{ $data->id }}" title="Re-fetch title, author, cover and synopsis from the source">
+                    <span class="cmd-label">Refresh Metadata</span>
+                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                    <span class="cmd-done d-none">Done</span>
+                    <span class="cmd-fail d-none">Failed</span>
+                </button>
+                <button class="btn btn-sm btn-outline-info cmd-btn" data-command="normalize_labels" data-novel="{{ $data->id }}" title="Rewrite chapter labels/numbers to a consistent format">
+                    <span class="cmd-label">Normalize Labels</span>
+                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                    <span class="cmd-done d-none">Done</span>
+                    <span class="cmd-fail d-none">Failed</span>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary cmd-btn" data-command="chapter_cleanser" data-novel="{{ $data->id }}" title="Strip ads, leftover tags and junk characters from chapter text">
+                    <span class="cmd-label">Clean Formatting</span>
+                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                    <span class="cmd-done d-none">Done</span>
+                    <span class="cmd-fail d-none">Failed</span>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary cmd-btn" data-command="chapter_cleaner" data-novel="{{ $data->id }}" title="Re-download chapters that saved with little or no content">
+                    <span class="cmd-label">Fix Empty Chapters</span>
+                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                    <span class="cmd-done d-none">Done</span>
+                    <span class="cmd-fail d-none">Failed</span>
+                </button>
+            </div>
         </div>
     </div>
     <div id="cmdOutput" class="d-none">
@@ -370,7 +392,11 @@
     const deleteBtn = document.getElementById('deleteNovel');
     if (deleteBtn) {
         deleteBtn.addEventListener('click', async () => {
-            if (!confirm(`Delete "${deleteBtn.dataset.name}" and all of its chapters? This cannot be undone from the UI.`)) return;
+            const ok = await Novarr.confirmDialog(
+                `Delete "${deleteBtn.dataset.name}" and all of its chapters? This cannot be undone from the UI.`,
+                { title: 'Delete novel', confirmText: 'Delete', danger: true }
+            );
+            if (!ok) return;
             deleteBtn.disabled = true;
             try {
                 const response = await fetch(`/novels/${deleteBtn.dataset.id}`, {
@@ -464,7 +490,11 @@
     const removeDupes = document.getElementById('removeDupes');
     if (removeDupes) {
         removeDupes.addEventListener('click', async () => {
-            if (!confirm('Remove duplicate chapters, keeping the best copy of each?')) return;
+            const ok = await Novarr.confirmDialog(
+                'Remove duplicate chapters, keeping the best copy of each?',
+                { title: 'Remove duplicates', confirmText: 'Remove' }
+            );
+            if (!ok) return;
             removeDupes.disabled = true;
             try {
                 const response = await fetch(`/novels/${removeDupes.dataset.id}/remove-duplicates`, {

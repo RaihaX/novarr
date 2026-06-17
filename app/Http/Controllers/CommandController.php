@@ -68,14 +68,14 @@ class CommandController extends Controller
             'params' => [],
         ],
         'chapter_cleanser' => [
-            'name' => 'Chapter Cleanser',
-            'description' => 'Remove unwanted tags and characters from chapters',
+            'name' => 'Clean Formatting',
+            'description' => 'Strip ads, leftover tags and junk characters from chapter text',
             'command' => 'novel:chapter_cleanser',
             'params' => ['novel_id'],
         ],
         'chapter_cleaner' => [
-            'name' => 'Chapter Cleaner',
-            'description' => 'Clean chapters with insufficient content',
+            'name' => 'Fix Empty Chapters',
+            'description' => 'Re-download chapters that saved with little or no content',
             'command' => 'novel:chaptercleaner',
             'params' => ['novel_id'],
         ],

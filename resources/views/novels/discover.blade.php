@@ -41,10 +41,39 @@
 
     const source = () => sourceEl.value;
 
-    async function loadList(type, q = '') {
-        statusEl.textContent = 'Loading…';
+    let slowTimer = null;
+
+    // Skeleton poster tiles + a spinner while the (sometimes slow, Cloudflare-
+    // gated) source is fetched, instead of a bare "Loading…" string.
+    function showLoading() {
+        clearTimeout(slowTimer);
         statusEl.classList.remove('d-none');
+        statusEl.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Loading…';
+
         resultsEl.innerHTML = '';
+        for (let i = 0; i < 12; i++) {
+            const sk = document.createElement('div');
+            sk.className = 'poster-card poster-skeleton';
+            sk.setAttribute('aria-hidden', 'true');
+            sk.innerHTML = '<div class="poster-cover skeleton-box"></div>'
+                + '<div class="skeleton-line mt-2"></div>'
+                + '<div class="skeleton-line short"></div>';
+            resultsEl.appendChild(sk);
+        }
+
+        // Reassure the user when a scrape is taking a while.
+        slowTimer = setTimeout(() => {
+            statusEl.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Still working — the source can be slow…';
+        }, 6000);
+    }
+
+    function endLoading() {
+        clearTimeout(slowTimer);
+        resultsEl.innerHTML = '';
+    }
+
+    async function loadList(type, q = '') {
+        showLoading();
 
         const params = new URLSearchParams({ type, source: source() });
         if (q) params.set('q', q);
@@ -54,6 +83,7 @@
                 headers: { 'Accept': 'application/json' },
             });
             const data = await response.json();
+            endLoading();
 
             if (!data.success) {
                 statusEl.textContent = data.message || 'Failed to load results.';
@@ -68,6 +98,7 @@
             statusEl.classList.add('d-none');
             data.items.forEach(renderCard);
         } catch (err) {
+            endLoading();
             statusEl.textContent = 'Error: ' + err.message;
         }
     }
@@ -188,7 +219,10 @@
     document.getElementById('discoverSearch').addEventListener('submit', e => {
         e.preventDefault();
         const q = document.getElementById('discoverQuery').value.trim();
-        if (q.length < 2) return;
+        if (q.length < 2) {
+            Novarr.showToast('Enter at least 2 characters to search.', 'warning');
+            return;
+        }
         tabs.forEach(t => t.classList.remove('active'));
         loadList('search', q);
     });

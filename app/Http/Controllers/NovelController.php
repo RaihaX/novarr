@@ -54,75 +54,7 @@ class NovelController extends Controller
             $q->orderBy('id', 'desc');
         }, 'group', 'language'])->findOrFail($id);
 
-        // Use stable cache key so CacheHelper::clearNovelCache() can invalidate it
-        $cacheKey = "novel_stats_{$id}";
-
-        $stats = Cache::remember($cacheKey, now()->addMinutes(5), function () use ($id) {
-            // Consolidate multiple queries into single query with aggregations
-            $aggregates = NovelChapter::where('novel_id', $id)
-                ->where('blacklist', 0)
-                ->selectRaw('
-                    COUNT(CASE WHEN status = 1 THEN 1 END) as downloaded_count,
-                    COUNT(CASE WHEN status = 0 THEN 1 END) as not_downloaded_count,
-                    COUNT(CASE WHEN status = 1 AND read_at IS NOT NULL THEN 1 END) as read_count,
-                    MAX(chapter) as latest_chapter
-                ')
-                ->first();
-
-            $count = $aggregates->downloaded_count ?? 0;
-            $not_downloaded_count = $aggregates->not_downloaded_count ?? 0;
-            $read_count = $aggregates->read_count ?? 0;
-            $latestChapter = $aggregates->latest_chapter ?? 0;
-
-            // First downloaded-but-unread chapter — the "continue reading" target.
-            $continueChapterId = NovelChapter::where('novel_id', $id)
-                ->where('blacklist', 0)
-                ->where('status', 1)
-                ->whereNull('read_at')
-                ->orderBy('book')->orderBy('chapter')
-                ->value('id');
-
-            // Get duplicate chapters
-            $duplicate_chapters = NovelChapter::where('novel_id', $id)
-                ->where('blacklist', 0)
-                ->groupBy('chapter', 'book')
-                ->havingRaw('count(id) > 1')
-                ->select('chapter', 'book')
-                ->get();
-
-            // Get existing chapters in single query
-            $existingChapters = NovelChapter::where('novel_id', $id)
-                ->where('blacklist', 0)
-                ->select('chapter', 'double_chapter')
-                ->get();
-
-            $chapterArray = [];
-            $existingChapterArray = [];
-
-            for ($i = 1; $i <= $latestChapter; $i++) {
-                $chapterArray[] = $i;
-            }
-
-            foreach ($existingChapters as $item) {
-                $existingChapterArray[] = intval($item->chapter);
-
-                if ($item->double_chapter == 1) {
-                    $existingChapterArray[] = intval($item->chapter) + 1;
-                }
-            }
-
-            $missing_chapters = array_values(array_diff($chapterArray, $existingChapterArray));
-
-            return [
-                'count' => $count,
-                'not_downloaded_count' => $not_downloaded_count,
-                'read_count' => $read_count,
-                'continue_chapter_id' => $continueChapterId,
-                'new_chapters' => $not_downloaded_count,
-                'duplicate_chapters' => $duplicate_chapters,
-                'missing_chapters' => $missing_chapters,
-            ];
-        });
+        $stats = $this->novelStats($id);
 
         $progress = $this->calculateProgress($data, $stats);
 
@@ -554,75 +486,7 @@ class NovelController extends Controller
             $q->orderBy('id', 'desc');
         }, 'group', 'language', 'tags'])->findOrFail($id);
 
-        // Use stable cache key so CacheHelper::clearNovelCache() can invalidate it
-        $cacheKey = "novel_stats_{$id}";
-
-        $stats = Cache::remember($cacheKey, now()->addMinutes(5), function () use ($id) {
-            // Consolidate multiple queries into single query with aggregations
-            $aggregates = NovelChapter::where('novel_id', $id)
-                ->where('blacklist', 0)
-                ->selectRaw('
-                    COUNT(CASE WHEN status = 1 THEN 1 END) as downloaded_count,
-                    COUNT(CASE WHEN status = 0 THEN 1 END) as not_downloaded_count,
-                    COUNT(CASE WHEN status = 1 AND read_at IS NOT NULL THEN 1 END) as read_count,
-                    MAX(chapter) as latest_chapter
-                ')
-                ->first();
-
-            $count = $aggregates->downloaded_count ?? 0;
-            $not_downloaded_count = $aggregates->not_downloaded_count ?? 0;
-            $read_count = $aggregates->read_count ?? 0;
-            $latestChapter = $aggregates->latest_chapter ?? 0;
-
-            // First downloaded-but-unread chapter — the "continue reading" target.
-            $continueChapterId = NovelChapter::where('novel_id', $id)
-                ->where('blacklist', 0)
-                ->where('status', 1)
-                ->whereNull('read_at')
-                ->orderBy('book')->orderBy('chapter')
-                ->value('id');
-
-            // Get duplicate chapters
-            $duplicate_chapters = NovelChapter::where('novel_id', $id)
-                ->where('blacklist', 0)
-                ->groupBy('chapter', 'book')
-                ->havingRaw('count(id) > 1')
-                ->select('chapter', 'book')
-                ->get();
-
-            // Get existing chapters in single query
-            $existingChapters = NovelChapter::where('novel_id', $id)
-                ->where('blacklist', 0)
-                ->select('chapter', 'double_chapter')
-                ->get();
-
-            $chapterArray = [];
-            $existingChapterArray = [];
-
-            for ($i = 1; $i <= $latestChapter; $i++) {
-                $chapterArray[] = $i;
-            }
-
-            foreach ($existingChapters as $item) {
-                $existingChapterArray[] = intval($item->chapter);
-
-                if ($item->double_chapter == 1) {
-                    $existingChapterArray[] = intval($item->chapter) + 1;
-                }
-            }
-
-            $missing_chapters = array_values(array_diff($chapterArray, $existingChapterArray));
-
-            return [
-                'count' => $count,
-                'not_downloaded_count' => $not_downloaded_count,
-                'read_count' => $read_count,
-                'continue_chapter_id' => $continueChapterId,
-                'new_chapters' => $not_downloaded_count,
-                'duplicate_chapters' => $duplicate_chapters,
-                'missing_chapters' => $missing_chapters,
-            ];
-        });
+        $stats = $this->novelStats($id);
 
         $progress = $this->calculateProgress($data, $stats);
 
@@ -800,6 +664,82 @@ class NovelController extends Controller
         Cache::forget('dashboard_attention');
 
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Per-novel stats (counts, continue target, duplicates, missing chapters)
+     * shared by show() and get_novel(). Cached for 5 minutes under a stable key
+     * so CacheHelper::clearNovelCache() can invalidate it.
+     */
+    protected function novelStats(int $id): array
+    {
+        return Cache::remember("novel_stats_{$id}", now()->addMinutes(5), function () use ($id) {
+            // Consolidate the counts into a single aggregate query.
+            $aggregates = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->selectRaw('
+                    COUNT(CASE WHEN status = 1 THEN 1 END) as downloaded_count,
+                    COUNT(CASE WHEN status = 0 THEN 1 END) as not_downloaded_count,
+                    COUNT(CASE WHEN status = 1 AND read_at IS NOT NULL THEN 1 END) as read_count,
+                    MAX(chapter) as latest_chapter
+                ')
+                ->first();
+
+            $count = $aggregates->downloaded_count ?? 0;
+            $not_downloaded_count = $aggregates->not_downloaded_count ?? 0;
+            $read_count = $aggregates->read_count ?? 0;
+            $latestChapter = (int) ($aggregates->latest_chapter ?? 0);
+
+            // First downloaded-but-unread chapter — the "continue reading" target.
+            $continueChapterId = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->where('status', 1)
+                ->whereNull('read_at')
+                ->orderBy('book')->orderBy('chapter')
+                ->value('id');
+
+            // Duplicate (chapter, book) groups.
+            $duplicate_chapters = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->groupBy('chapter', 'book')
+                ->havingRaw('count(id) > 1')
+                ->select('chapter', 'book')
+                ->get();
+
+            // Gaps in the 1..latest sequence: pull the existing chapter numbers
+            // and diff against the full range.
+            $existingChapters = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->select('chapter', 'double_chapter')
+                ->get();
+
+            $existingChapterArray = [];
+            foreach ($existingChapters as $item) {
+                $existingChapterArray[] = intval($item->chapter);
+                if ($item->double_chapter == 1) {
+                    $existingChapterArray[] = intval($item->chapter) + 1;
+                }
+            }
+
+            $missing_chapters = array_values(
+                array_diff(range(1, max($latestChapter, 1)), $existingChapterArray)
+            );
+            // range() always yields [1]; if there are no chapters at all there's
+            // nothing missing.
+            if ($latestChapter === 0) {
+                $missing_chapters = [];
+            }
+
+            return [
+                'count' => $count,
+                'not_downloaded_count' => $not_downloaded_count,
+                'read_count' => $read_count,
+                'continue_chapter_id' => $continueChapterId,
+                'new_chapters' => $not_downloaded_count,
+                'duplicate_chapters' => $duplicate_chapters,
+                'missing_chapters' => $missing_chapters,
+            ];
+        });
     }
 
     /**

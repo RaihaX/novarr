@@ -247,8 +247,14 @@
         const ids = selected();
         if (!ids.length) return;
 
-        if (action === 'delete' && !confirm(`Delete ${ids.length} novel(s) and all of their chapters? This cannot be undone from the UI.`)) return;
-        if (action === 'complete' && !confirm(`Mark ${ids.length} novel(s) as complete?`)) return;
+        if (action === 'delete' && !await Novarr.confirmDialog(
+            `Delete ${ids.length} novel(s) and all of their chapters? This cannot be undone from the UI.`,
+            { title: 'Delete novels', confirmText: 'Delete', danger: true }
+        )) return;
+        if (action === 'complete' && !await Novarr.confirmDialog(
+            `Mark ${ids.length} novel(s) as complete?`,
+            { title: 'Mark complete', confirmText: 'Mark complete' }
+        )) return;
 
         try {
             const response = await fetch('{{ route('novels.bulk') }}', {
@@ -313,7 +319,11 @@
 
             const name = btn.dataset.name;
 
-            if (!confirm(`Delete "${name}" and all of its chapters? This cannot be undone from the UI.`)) return;
+            const ok = await Novarr.confirmDialog(
+                `Delete "${name}" and all of its chapters? This cannot be undone from the UI.`,
+                { title: 'Delete novel', confirmText: 'Delete', danger: true }
+            );
+            if (!ok) return;
 
             btn.disabled = true;
 
