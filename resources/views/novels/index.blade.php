@@ -70,7 +70,7 @@
                         <span class="poster-badge badge bg-secondary">Paused</span>
                     @endif
                     <div class="poster-actions">
-                        <button type="button" class="btn btn-sm btn-success poster-action novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
+                        <button type="button" class="btn btn-sm btn-success poster-action novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" data-paused="{{ $novel->paused_at ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
                             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 4.5 6 12 2.5 8.5l1-1L6 10l6.5-6.5z"/></svg>
                         </button>
                         <button type="button" class="btn btn-sm btn-danger poster-action novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
@@ -187,7 +187,7 @@
                         </td>
                         <td class="text-muted">{{ $downloaded }} / {{ $total }}</td>
                         <td class="text-end text-nowrap">
-                            <button type="button" class="btn btn-sm btn-outline-success novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
+                            <button type="button" class="btn btn-sm btn-outline-success novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" data-paused="{{ $novel->paused_at ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
                                 <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 4.5 6 12 2.5 8.5l1-1L6 10l6.5-6.5z"/></svg>
                             </button>
                             <button type="button" class="btn btn-sm btn-outline-danger novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
@@ -245,8 +245,44 @@
         refreshBulkBar();
     });
 
+    // Update a novel's status badge + complete button in place (grid poster or
+    // table row), so list actions don't trigger a full-page reload.
+    function setNovelComplete(btn, completed) {
+        const paused = btn.dataset.paused === '1';
+        btn.dataset.completed = completed ? '1' : '0';
+        btn.title = completed ? 'Mark active' : 'Mark complete';
+
+        const row = btn.closest('tr');
+        const card = btn.closest('.poster-card');
+
+        if (row) {
+            let badge = row.querySelector('.badge');
+            if (!badge) {
+                badge = document.createElement('span');
+                row.querySelector('td:nth-child(5)')?.appendChild(badge);
+            }
+            if (completed) { badge.className = 'badge bg-info'; badge.textContent = 'Completed'; }
+            else if (paused) { badge.className = 'badge bg-secondary'; badge.textContent = 'Paused'; }
+            else { badge.className = 'badge bg-success'; badge.textContent = 'Active'; }
+        } else if (card) {
+            const cover = card.querySelector('.poster-cover');
+            let badge = cover?.querySelector('.poster-badge');
+            if (completed || paused) {
+                if (!badge && cover) {
+                    badge = document.createElement('span');
+                    cover.appendChild(badge);
+                }
+                badge.className = 'poster-badge badge ' + (completed ? 'bg-info' : 'bg-secondary');
+                badge.textContent = completed ? 'Done' : 'Paused';
+            } else {
+                badge?.remove();
+            }
+        }
+    }
+
     async function bulkAction(action) {
-        const ids = selected();
+        const boxes = checks().filter(c => c.checked);
+        const ids = boxes.map(c => c.value);
         if (!ids.length) return;
 
         if (action === 'delete' && !await Novarr.confirmDialog(
@@ -271,7 +307,18 @@
             const data = await response.json();
 
             if (data.success) {
-                location.reload();
+                if (action === 'delete') {
+                    boxes.forEach(c => c.closest('tr')?.remove());
+                    Novarr.showToast(`Deleted ${ids.length} novel(s).`, 'success');
+                } else {
+                    boxes.forEach(c => {
+                        const cbtn = c.closest('tr')?.querySelector('.novel-complete-btn');
+                        if (cbtn) setNovelComplete(cbtn, true);
+                        c.checked = false;
+                    });
+                    Novarr.showToast(`Marked ${ids.length} novel(s) complete.`, 'success');
+                }
+                refreshBulkBar();
             } else {
                 Novarr.showToast(data.message || 'Bulk action failed.', 'danger');
             }
@@ -299,15 +346,15 @@
                 });
                 const data = await response.json();
                 if (data.success) {
+                    setNovelComplete(btn, data.completed);
                     Novarr.showToast(data.completed ? 'Marked complete.' : 'Marked active.', 'success');
-                    setTimeout(() => location.reload(), 600);
                 } else {
-                    btn.disabled = false;
                     Novarr.showToast('Failed to update.', 'danger');
                 }
             } catch (err) {
-                btn.disabled = false;
                 Novarr.showToast('Error: ' + err.message, 'danger');
+            } finally {
+                btn.disabled = false;
             }
         });
     });

@@ -75,11 +75,11 @@
                 <h2 class="mb-1">{{ $data->name }}</h2>
                 <span class="text-muted">by {{ $data->author ?? 'Unknown' }}</span>
                 @if($data->status)
-                    <span class="badge bg-info ms-2">Completed</span>
+                    <span id="novelStatusBadge" class="badge bg-info ms-2" data-completed="1">Completed</span>
                 @elseif($data->paused_at)
-                    <span class="badge bg-secondary ms-2" title="Paused {{ $data->paused_at->format('j M Y') }} — automatic downloads skip this novel">Paused</span>
+                    <span id="novelStatusBadge" class="badge bg-secondary ms-2" title="Paused {{ $data->paused_at->format('j M Y') }} — automatic downloads skip this novel">Paused</span>
                 @else
-                    <span class="badge bg-success ms-2">Active</span>
+                    <span id="novelStatusBadge" class="badge bg-success ms-2">Active</span>
                 @endif
             </div>
             <div class="d-flex gap-2 flex-wrap justify-content-end">
@@ -132,11 +132,13 @@
         <div class="mb-3" style="font-size: 13px;">
             <div id="tagDisplay" class="d-flex align-items-center gap-2 flex-wrap">
                 <span class="text-muted">Tags:</span>
-                @forelse($data->tags as $tag)
-                    <a href="{{ route('novels.index', ['tag' => $tag->id]) }}" class="badge bg-secondary text-decoration-none">{{ $tag->name }}</a>
-                @empty
-                    <span class="text-muted fst-italic">none</span>
-                @endforelse
+                <span id="tagList" class="d-flex align-items-center gap-2 flex-wrap">
+                    @forelse($data->tags as $tag)
+                        <a href="{{ route('novels.index', ['tag' => $tag->id]) }}" class="badge bg-secondary text-decoration-none">{{ $tag->name }}</a>
+                    @empty
+                        <span class="text-muted fst-italic">none</span>
+                    @endforelse
+                </span>
                 <button type="button" id="editTags" class="btn btn-sm btn-outline-secondary py-0 px-2 ms-1" style="font-size: 12px;">Edit tags</button>
             </div>
             <div id="tagEditor" class="d-none">
@@ -334,10 +336,10 @@
                         <td class="text-muted">{{ $chapter->book ?: '-' }}</td>
                         <td>
                             @if($chapter->read_at)
-                                <span class="text-success me-1" title="Read {{ $chapter->read_at->format('Y-m-d H:i') }}">✓</span>
+                                <span class="text-success me-1 read-check" title="Read {{ $chapter->read_at->format('Y-m-d H:i') }}">✓</span>
                             @endif
                             @if($chapter->status)
-                                <a href="{{ route('chapters.show', $chapter->id) }}" class="text-decoration-none {{ $chapter->read_at ? 'text-muted' : '' }}">{{ Str::limit($chapter->label, 90) }}</a>
+                                <a href="{{ route('chapters.show', $chapter->id) }}" class="chapter-link text-decoration-none {{ $chapter->read_at ? 'text-muted' : '' }}">{{ Str::limit($chapter->label, 90) }}</a>
                             @else
                                 {{ Str::limit($chapter->label, 90) }}
                             @endif
@@ -434,14 +436,23 @@
                 });
                 const data = await response.json();
                 if (data.success) {
-                    location.reload();
+                    // Update the button + status badge in place (no reload).
+                    pauseToggle.className = 'btn btn-sm ' + (data.paused ? 'btn-success' : 'btn-outline-secondary');
+                    pauseToggle.textContent = data.paused ? 'Resume downloads' : 'Pause downloads';
+
+                    const badge = document.getElementById('novelStatusBadge');
+                    if (badge && !badge.dataset.completed) {
+                        badge.className = 'badge ms-2 ' + (data.paused ? 'bg-secondary' : 'bg-success');
+                        badge.textContent = data.paused ? 'Paused' : 'Active';
+                    }
+                    Novarr.showToast(data.paused ? 'Downloads paused.' : 'Downloads resumed.', 'success');
                 } else {
-                    pauseToggle.disabled = false;
                     Novarr.showToast('Failed to update pause state.', 'danger');
                 }
             } catch (err) {
-                pauseToggle.disabled = false;
                 Novarr.showToast('Error: ' + err.message, 'danger');
+            } finally {
+                pauseToggle.disabled = false;
             }
         });
     }
@@ -458,6 +469,28 @@
         };
         editTags.addEventListener('click', () => showEditor(true));
         document.getElementById('cancelTags').addEventListener('click', () => showEditor(false));
+
+        // Rebuild the tag badges in place from the saved tag list.
+        const tagBase = '{{ route('novels.index') }}';
+        function renderTags(tags) {
+            const list = document.getElementById('tagList');
+            list.innerHTML = '';
+            if (!tags || !tags.length) {
+                const none = document.createElement('span');
+                none.className = 'text-muted fst-italic';
+                none.textContent = 'none';
+                list.appendChild(none);
+                return;
+            }
+            tags.forEach(t => {
+                const a = document.createElement('a');
+                a.href = `${tagBase}?tag=${t.id}`;
+                a.className = 'badge bg-secondary text-decoration-none';
+                a.textContent = t.name;
+                list.appendChild(a);
+            });
+        }
+
         document.getElementById('saveTags').addEventListener('click', async (e) => {
             const btn = e.target;
             btn.disabled = true;
@@ -474,7 +507,9 @@
                 });
                 const data = await response.json();
                 if (data.success) {
-                    location.reload();
+                    renderTags(data.tags);
+                    showEditor(false);
+                    Novarr.showToast('Tags saved.', 'success');
                 } else {
                     Novarr.showToast('Failed to save tags.', 'danger');
                 }
@@ -542,8 +577,28 @@
         refreshChBulk();
     });
 
+    // Toggle a chapter row's read indicator (✓ + muted title) in place, so the
+    // long paginated table keeps its scroll position after a bulk action.
+    function setChapterRowRead(checkbox, read) {
+        const cell = checkbox.closest('tr')?.querySelector('td:nth-child(4)');
+        if (!cell) return;
+
+        let mark = cell.querySelector('.read-check');
+        if (read && !mark) {
+            mark = document.createElement('span');
+            mark.className = 'text-success me-1 read-check';
+            mark.title = 'Read';
+            mark.textContent = '✓';
+            cell.insertBefore(mark, cell.firstChild);
+        } else if (!read && mark) {
+            mark.remove();
+        }
+        cell.querySelector('.chapter-link')?.classList.toggle('text-muted', read);
+    }
+
     async function bulkRead(read) {
-        const ids = chSelected();
+        const boxes = chChecks().filter(c => c.checked);
+        const ids = boxes.map(c => c.value);
         if (!ids.length) return;
         try {
             const response = await fetch('{{ route('chapters.bulk_read') }}', {
@@ -557,7 +612,14 @@
             });
             const data = await response.json();
             if (data.success) {
-                location.reload();
+                boxes.forEach(c => { setChapterRowRead(c, read); c.checked = false; });
+                refreshChBulk();
+                Novarr.showToast(
+                    data.queued
+                        ? 'Saved offline — will sync when you reconnect.'
+                        : `Marked ${ids.length} chapter(s) as ${read ? 'read' : 'unread'}.`,
+                    data.queued ? 'info' : 'success'
+                );
             } else {
                 Novarr.showToast(data.message || 'Failed to update chapters.', 'danger');
             }

@@ -294,7 +294,8 @@ class NovelController extends Controller
 
         return response()->json([
             'success' => true,
-            'tags' => $novel->tags()->orderBy('name')->pluck('name'),
+            // id + name so the page can rebuild the tag links in place.
+            'tags' => $novel->tags()->orderBy('name')->get(['tags.id', 'name']),
         ]);
     }
 
