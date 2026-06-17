@@ -629,6 +629,29 @@ body.reader-theme-light {
     font-size: 13px;
 }
 
+// Skip-to-content link: off-screen until focused, so keyboard users can jump
+// past the navbar + search to the page content.
+.skip-link {
+    position: absolute;
+    left: 0;
+    top: -48px;
+    z-index: 1100;
+    padding: 0.5rem 1rem;
+    background: var(--bs-primary, #0d6efd);
+    color: #fff;
+    border-radius: 0 0 4px 0;
+    transition: top 0.15s ease;
+
+    &:focus {
+        top: 0;
+        color: #fff;
+    }
+}
+
+// Don't show a focus outline when <main> is programmatically focused via the
+// skip link — the visible jump is feedback enough.
+#main-content:focus { outline: none; }
+
 // Toast notifications (see resources/js/toast.js)
 .toast-container {
     z-index: 1090;

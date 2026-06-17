@@ -218,7 +218,7 @@
 {{-- Quick Actions --}}
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h6 class="mb-0">Quick Actions</h6>
+        <h3 class="h6 mb-0">Quick Actions</h3>
         <small class="text-muted">Commands run in background</small>
     </div>
     <div class="card-body py-3">
@@ -297,7 +297,7 @@
 {{-- Chapters Table --}}
 <div class="card">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <h6 class="mb-0">Chapters</h6>
+        <h3 class="h6 mb-0">Chapters</h3>
         <div class="d-flex gap-2 align-items-center flex-wrap">
             <div id="chBulkBar" class="d-none align-items-center gap-2">
                 <span id="chBulkCount" class="text-muted" style="font-size: 12px;"></span>

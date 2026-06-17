@@ -22,6 +22,7 @@
     @stack('styles')
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
             <a class="navbar-brand d-flex align-items-center" href="{{ url('/') }}">
@@ -63,7 +64,7 @@
         </div>
     </nav>
 
-    <main class="py-4">
+    <main class="py-4" id="main-content" tabindex="-1">
         <div class="container">
             @yield('content')
         </div>

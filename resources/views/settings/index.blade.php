@@ -75,7 +75,7 @@
         {{-- Tailscale --}}
         <div class="card mt-4" id="tailscaleCard">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="mb-0">Tailscale</h6>
+                <h2 class="h6 mb-0">Tailscale</h2>
                 <span id="tsBadge" class="badge bg-secondary">Checking…</span>
             </div>
             <div class="card-body">

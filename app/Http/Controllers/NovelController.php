@@ -30,7 +30,7 @@ class NovelController extends Controller
     }
 
     public function update_metadata($id) {
-        $data = $this->novels->find($id);
+        $data = $this->novels->findOrFail($id);
 
         $metadata = getMetadata($data);
 
@@ -70,9 +70,13 @@ class NovelController extends Controller
     }
 
     public function download_epub($id) {
-        $object = $this->novels->find($id);
+        $object = $this->novels->findOrFail($id);
 
         $epub = storage_path('app/ePub/' . $object->name . ' - ' . $object->author . '.epub');
+
+        if (!is_file($epub)) {
+            abort(404, 'No ePub has been generated for this novel yet. Use “Generate ePub” first.');
+        }
 
         return response()->download($epub);
     }
