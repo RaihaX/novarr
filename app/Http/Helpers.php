@@ -29,7 +29,7 @@ if (!function_exists('notify_webhook')) {
      */
     function notify_webhook(string $message): bool
     {
-        $url = setting('notification_webhook_url', env('NOTIFICATION_WEBHOOK_URL'));
+        $url = setting('notification_webhook_url', config('novarr.notification_webhook_url'));
 
         if (empty($url)) {
             return false;
@@ -62,7 +62,7 @@ if (!function_exists('notify_webhook')) {
  */
 function fetchWithBrowserSession($url)
 {
-    $flareSolverrUrl = setting('flaresolverr_url', env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'));
+    $flareSolverrUrl = setting('flaresolverr_url', config('novarr.flaresolverr_url'));
 
     try {
         $response = HttpClient::create(['timeout' => 120])->request('POST', $flareSolverrUrl, [
@@ -101,7 +101,7 @@ function fetchWithBrowserSession($url)
  */
 function fetchWithBrowser($url, $waitForSelector = null, $maxAttempts = 3)
 {
-    $flareSolverrUrl = setting('flaresolverr_url', env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'));
+    $flareSolverrUrl = setting('flaresolverr_url', config('novarr.flaresolverr_url'));
     $lastError = null;
 
     for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
@@ -954,7 +954,7 @@ function getMetadataFromNovelFull(string $novelUrl): array
  */
 function resolveNovelUpdatesUrl(string $name): ?string
 {
-    $flareSolverrUrl = setting('flaresolverr_url', env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'));
+    $flareSolverrUrl = setting('flaresolverr_url', config('novarr.flaresolverr_url'));
 
     try {
         $response = HttpClient::create(['timeout' => 60])->request('POST', $flareSolverrUrl, [

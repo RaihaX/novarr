@@ -48,7 +48,7 @@ class SettingsController extends Controller
                 'help' => 'Endpoint used to bypass Cloudflare when scraping (e.g. http://192.168.1.41:8191/v1).',
                 'type' => 'url',
                 'group' => 'Scraping',
-                'default' => env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'),
+                'default' => config('novarr.flaresolverr_url'),
             ],
             'scrape_min_delay' => [
                 'label' => 'Min delay between chapters (s)',
@@ -71,7 +71,7 @@ class SettingsController extends Controller
                 'group' => 'Notifications',
                 // May embed a token — masked in the UI with a reveal toggle.
                 'secret' => true,
-                'default' => env('NOTIFICATION_WEBHOOK_URL'),
+                'default' => config('novarr.notification_webhook_url'),
             ],
         ];
     }
@@ -119,7 +119,7 @@ class SettingsController extends Controller
     public function testNotification(Request $request)
     {
         $url = $request->input('notification_webhook_url')
-            ?: Setting::get('notification_webhook_url', env('NOTIFICATION_WEBHOOK_URL'));
+            ?: Setting::get('notification_webhook_url', config('novarr.notification_webhook_url'));
 
         if (empty($url)) {
             return response()->json(['success' => false, 'message' => 'No webhook URL configured.'], 422);
@@ -164,7 +164,7 @@ class SettingsController extends Controller
     public function testFlareSolverr(Request $request)
     {
         $url = $request->input('flaresolverr_url')
-            ?: Setting::get('flaresolverr_url', env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'));
+            ?: Setting::get('flaresolverr_url', config('novarr.flaresolverr_url'));
 
         if (empty($url)) {
             return response()->json(['success' => false, 'message' => 'No FlareSolverr URL configured.'], 422);

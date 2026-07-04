@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\HealthController;
-use Illuminate\Http\Request;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,6 +25,4 @@ use Illuminate\Http\Request;
 Route::get('/health', [HealthController::class, 'index']);
 Route::get('/health/db', [HealthController::class, 'database']);
 Route::get('/health/cache', [HealthController::class, 'cache']);
-Route::get('/ping', function () {
-    return response('pong', 200);
-});
+Route::get('/ping', [HealthController::class, 'ping']);

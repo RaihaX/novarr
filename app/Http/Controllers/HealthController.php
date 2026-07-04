@@ -10,6 +10,15 @@ use Exception;
 class HealthController extends Controller
 {
     /**
+     * Bare liveness probe. A controller method (not a route closure) so the
+     * route table stays cacheable via route:cache.
+     */
+    public function ping()
+    {
+        return response('pong', 200);
+    }
+
+    /**
      * Comprehensive health check for all services.
      */
     public function index(): JsonResponse
