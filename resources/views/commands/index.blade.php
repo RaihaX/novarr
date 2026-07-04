@@ -7,7 +7,7 @@
     $categories = [
         'Scraping' => ['badge' => 'primary', 'keys' => ['toc', 'chapter', 'create_novel']],
         'Generation' => ['badge' => 'success', 'keys' => ['epub', 'metadata', 'normalize_labels']],
-        'Maintenance' => ['badge' => 'warning', 'keys' => ['calculate_chapter', 'info', 'clean_content', 'chapter_cleaner', 'queue_health']],
+        'Maintenance' => ['badge' => 'warning', 'keys' => ['info', 'clean_content', 'chapter_cleaner', 'queue_health']],
     ];
 @endphp
 

@@ -35,6 +35,16 @@ Schedule::call(fn() => cache()->put('scheduler_last_run', now()->toDateTimeStrin
     ->everyMinute()
     ->name('scheduler_heartbeat');
 
+// Keep the dashboard's "Needs Attention" panel pre-computed — it's the one
+// remaining expensive piece of a cold dashboard load.
+Schedule::call(fn() => cache()->put(
+    'dashboard_attention',
+    app(\App\Services\NovelHealth::class)->needingAttention(),
+    900
+))
+    ->everyFiveMinutes()
+    ->name('warm_dashboard_attention');
+
 // Drain queued jobs (background commands from the web UI) without needing a
 // dedicated worker process: the cron-driven scheduler starts a worker every
 // minute and it exits as soon as the queue is empty. withoutOverlapping

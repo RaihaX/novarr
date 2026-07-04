@@ -63,12 +63,6 @@ class CommandController extends Controller
             'command' => 'novel:normalize_labels',
             'params' => ['novel_id', 'dry_run'],
         ],
-        'calculate_chapter' => [
-            'name' => 'Calculate Chapters',
-            'description' => 'Calculate total chapter count for novels',
-            'command' => 'novel:calculate_chapter',
-            'params' => [],
-        ],
         'info' => [
             'name' => 'Show Novel Info',
             'description' => 'Display novel information and completion status',

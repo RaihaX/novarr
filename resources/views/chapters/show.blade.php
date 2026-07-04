@@ -61,6 +61,22 @@
             <div class="btn-group btn-group-sm" id="familyGroup" role="group" aria-label="Font family">
                 <button type="button" class="btn btn-outline-secondary" data-family="sans">Sans</button>
                 <button type="button" class="btn btn-outline-secondary" data-family="serif">Serif</button>
+                <button type="button" class="btn btn-outline-secondary" data-family="legible" title="Atkinson Hyperlegible — a high-legibility font">Legible</button>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <span class="text-muted">Margins</span>
+            <div class="btn-group btn-group-sm" id="marginGroup" role="group" aria-label="Side margins">
+                <button type="button" class="btn btn-outline-secondary" data-margin="s">S</button>
+                <button type="button" class="btn btn-outline-secondary" data-margin="m">M</button>
+                <button type="button" class="btn btn-outline-secondary" data-margin="l">L</button>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <span class="text-muted">Justify</span>
+            <div class="btn-group btn-group-sm" id="justifyGroup" role="group" aria-label="Justified text">
+                <button type="button" class="btn btn-outline-secondary" data-justify="1">On</button>
+                <button type="button" class="btn btn-outline-secondary" data-justify="0">Off</button>
             </div>
         </div>
         <div class="d-flex align-items-center gap-2">
@@ -87,6 +103,10 @@
             </div>
             <span id="autoScrollSpeedLabel" class="text-muted"></span>
         </div>
+        <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="perNovelPrefs">
+            <label class="form-check-label text-muted" for="perNovelPrefs" title="Keep a separate typography setup for this novel (font, theme, width, spacing, margins)">This novel only</label>
+        </div>
     </div>
 </div>
 
@@ -111,7 +131,9 @@
     <div class="d-flex gap-2">
         <input type="text" id="hlNote" class="form-control form-control-sm" placeholder="Note (optional)" style="width: 170px;" aria-label="Bookmark note">
         <button type="button" id="hlSave" class="btn btn-sm btn-primary text-nowrap">🔖 Save</button>
+        <button type="button" id="hlDefine" class="btn btn-sm btn-outline-secondary d-none" title="Look up this word" aria-label="Define word">📖</button>
     </div>
+    <div id="hlDefinition" class="d-none mt-2 text-body" style="max-width: 320px; max-height: 200px; overflow-y: auto; font-size: 12px;"></div>
 </div>
 
 <div id="readerSections">
@@ -207,26 +229,61 @@
     const state = JSON.parse(document.getElementById('readerState').textContent);
 
     // ---- Reader preferences (persisted in localStorage) ----
-    const prefs = {
-        font: parseInt(localStorage.getItem('reader_font') || '18', 10),
-        width: localStorage.getItem('reader_width') || 'medium',
-        theme: localStorage.getItem('reader_theme') || 'dark',
-        family: localStorage.getItem('reader_family') || 'sans',
-        lineHeight: localStorage.getItem('reader_lineheight') || '1.8',
-        autoNext: localStorage.getItem('reader_autonext') || '1',
+    // Typography keys can be overridden per novel ("This novel only"): the
+    // override lives as a JSON snapshot under reader_novel_{id} and wins over
+    // the global keys while it exists. Behavioural prefs (autoNext) stay global.
+    const PREF_KEYS = {
+        font: 'reader_font', width: 'reader_width', theme: 'reader_theme',
+        family: 'reader_family', lineHeight: 'reader_lineheight',
+        margin: 'reader_margin', justify: 'reader_justify',
     };
+    const PREF_DEFAULTS = {
+        font: '18', width: 'medium', theme: 'dark', family: 'sans',
+        lineHeight: '1.8', margin: 'm', justify: '0',
+    };
+    const perNovelKey = 'reader_novel_' + state.novelId;
+    let perNovel = null;
+    try { perNovel = JSON.parse(localStorage.getItem(perNovelKey) || 'null'); } catch (e) { perNovel = null; }
+
+    const prefs = { autoNext: localStorage.getItem('reader_autonext') || '1' };
+    function loadPrefs() {
+        for (const [k, sk] of Object.entries(PREF_KEYS)) {
+            prefs[k] = localStorage.getItem(sk) ?? PREF_DEFAULTS[k];
+        }
+        if (perNovel) Object.assign(prefs, perNovel);
+        prefs.font = Math.min(36, Math.max(13, parseInt(prefs.font, 10) || 18));
+    }
+    loadPrefs();
+
+    function persistPref(k, v) {
+        // font stays numeric in memory (it's incremented); storage is strings.
+        prefs[k] = k === 'font' ? parseInt(v, 10) : String(v);
+        const stored = String(v);
+        if (k === 'autoNext') { localStorage.setItem('reader_autonext', stored); return; }
+        if (perNovel) {
+            perNovel[k] = stored;
+            localStorage.setItem(perNovelKey, JSON.stringify(perNovel));
+        } else {
+            localStorage.setItem(PREF_KEYS[k], stored);
+        }
+    }
 
     const families = {
         sans: "var(--bs-body-font-family)",
         serif: "Georgia, 'Times New Roman', serif",
+        legible: "'Atkinson Hyperlegible', var(--bs-body-font-family)",
     };
     const widths = { narrow: '600px', medium: '760px', wide: '960px', full: '1200px' };
+    const margins = { s: '0', m: '1.25rem', l: '2.5rem' };
 
     function styleContent(el) {
         el.style.fontSize = prefs.font + 'px';
         el.style.maxWidth = widths[prefs.width] || widths.medium;
         el.style.fontFamily = families[prefs.family] || families.sans;
         el.style.lineHeight = prefs.lineHeight;
+        el.style.paddingLeft = el.style.paddingRight = margins[prefs.margin] ?? margins.m;
+        el.style.textAlign = prefs.justify === '1' ? 'justify' : '';
+        el.style.hyphens = prefs.justify === '1' ? 'auto' : '';
     }
 
     function applyPrefs() {
@@ -250,6 +307,9 @@
         reflect('#familyGroup [data-family]', 'family', prefs.family);
         reflect('#lineHeightGroup [data-lineheight]', 'lineheight', prefs.lineHeight);
         reflect('#autoNextGroup [data-autonext]', 'autonext', prefs.autoNext);
+        reflect('#marginGroup [data-margin]', 'margin', prefs.margin);
+        reflect('#justifyGroup [data-justify]', 'justify', prefs.justify);
+        document.getElementById('perNovelPrefs').checked = !!perNovel;
     }
 
     document.getElementById('readerSettingsBtn').addEventListener('click', () => {
@@ -259,15 +319,30 @@
     const bindPref = (attr, apply) => document.querySelectorAll(`[data-${attr}]`).forEach(btn =>
         btn.addEventListener('click', () => { apply(btn.dataset[attr]); applyPrefs(); }));
 
-    bindPref('font', v => {
-        prefs.font = Math.min(36, Math.max(13, prefs.font + (v === '+' ? 1 : -1)));
-        localStorage.setItem('reader_font', prefs.font);
+    bindPref('font', v => persistPref('font', Math.min(36, Math.max(13, prefs.font + (v === '+' ? 1 : -1)))));
+    bindPref('width', v => persistPref('width', v));
+    bindPref('theme', v => persistPref('theme', v));
+    bindPref('family', v => persistPref('family', v));
+    bindPref('lineheight', v => persistPref('lineHeight', v));
+    bindPref('autonext', v => persistPref('autoNext', v));
+    bindPref('margin', v => persistPref('margin', v));
+    bindPref('justify', v => persistPref('justify', v));
+
+    document.getElementById('perNovelPrefs').addEventListener('change', (e) => {
+        if (e.target.checked) {
+            // Snapshot the current typography as this novel's own setup.
+            perNovel = {};
+            for (const k of Object.keys(PREF_KEYS)) perNovel[k] = String(prefs[k]);
+            localStorage.setItem(perNovelKey, JSON.stringify(perNovel));
+            Novarr.showToast('Reader settings for this novel are now independent.', 'info');
+        } else {
+            localStorage.removeItem(perNovelKey);
+            perNovel = null;
+            loadPrefs();
+            Novarr.showToast('Back to your global reader settings.', 'info');
+        }
+        applyPrefs();
     });
-    bindPref('width', v => { prefs.width = v; localStorage.setItem('reader_width', v); });
-    bindPref('theme', v => { prefs.theme = v; localStorage.setItem('reader_theme', v); });
-    bindPref('family', v => { prefs.family = v; localStorage.setItem('reader_family', v); });
-    bindPref('lineheight', v => { prefs.lineHeight = v; localStorage.setItem('reader_lineheight', v); });
-    bindPref('autonext', v => { prefs.autoNext = v; localStorage.setItem('reader_autonext', v); });
 
     // ---- Sections: the initial chapter + any continuously-loaded ones ----
     // Each entry mirrors the per-page readerState so navigation and progress
@@ -729,8 +804,13 @@
     // Keep the selection alive while interacting with the popover.
     hlPop.addEventListener('mousedown', e => e.preventDefault());
 
+    const hlDefine = document.getElementById('hlDefine');
+    const hlDefinition = document.getElementById('hlDefinition');
+
     function hideHlPop() {
         hlPop.classList.add('d-none');
+        hlDefinition.classList.add('d-none');
+        hlDefinition.innerHTML = '';
         hlNote.value = '';
         hlPending = null;
     }
@@ -739,19 +819,56 @@
         const sel = window.getSelection();
         if (!sel || sel.isCollapsed) { hideHlPop(); return; }
         const text = sel.toString().trim();
-        if (text.length < 3) { hideHlPop(); return; }
+        if (text.length < 2) { hideHlPop(); return; }
 
         const anchor = sel.anchorNode?.nodeType === 1 ? sel.anchorNode : sel.anchorNode?.parentElement;
         const section = anchor?.closest('.reader-section');
         if (!section || !anchor.closest('.chapter-content')) { hideHlPop(); return; }
 
         hlPending = { chapter_id: section.dataset.id, excerpt: text.substring(0, 2000) };
+        // Single word → offer a dictionary lookup too.
+        hlDefine.classList.toggle('d-none', !/^[A-Za-z’'‐-]{2,30}$/.test(text));
+        hlDefine.dataset.word = text;
+        hlDefinition.classList.add('d-none');
+
         const rect = sel.getRangeAt(0).getBoundingClientRect();
         hlPop.classList.remove('d-none');
         hlPop.style.top = Math.max(8, window.scrollY + rect.top - hlPop.offsetHeight - 10) + 'px';
         hlPop.style.left = Math.max(8, Math.min(window.innerWidth - hlPop.offsetWidth - 8,
             window.scrollX + rect.left + rect.width / 2 - hlPop.offsetWidth / 2)) + 'px';
     }
+
+    // ---- Dictionary lookup (dictionaryapi.dev, single words) ----
+    hlDefine.addEventListener('click', async () => {
+        const word = (hlDefine.dataset.word || '').replace(/[’']/g, "'");
+        hlDefinition.classList.remove('d-none');
+        hlDefinition.textContent = 'Looking up…';
+        try {
+            const res = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word.toLowerCase()));
+            if (!res.ok) throw new Error('not found');
+            const entry = (await res.json())[0];
+            hlDefinition.innerHTML = '';
+            const head = document.createElement('div');
+            head.className = 'fw-semibold mb-1';
+            head.textContent = entry.word + (entry.phonetic ? '  ' + entry.phonetic : '');
+            hlDefinition.appendChild(head);
+            (entry.meanings || []).slice(0, 2).forEach(m => {
+                const pos = document.createElement('div');
+                pos.className = 'text-muted fst-italic';
+                pos.textContent = m.partOfSpeech;
+                hlDefinition.appendChild(pos);
+                (m.definitions || []).slice(0, 2).forEach(d => {
+                    const li = document.createElement('div');
+                    li.textContent = '• ' + d.definition;
+                    hlDefinition.appendChild(li);
+                });
+            });
+        } catch (err) {
+            hlDefinition.textContent = navigator.onLine
+                ? `No definition found for “${word}”.`
+                : 'Dictionary lookup needs an internet connection.';
+        }
+    });
 
     document.addEventListener('mouseup', () => setTimeout(maybeShowHlPop, 10));
     document.addEventListener('touchend', () => setTimeout(maybeShowHlPop, 150));

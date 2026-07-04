@@ -44,8 +44,10 @@ class HomeController extends Controller
                 ->where('download_date', '>=', now()->subDay())->count(),
         ]);
 
-        // Stall detection runs a few queries per pending novel — cache it.
-        $attention = Cache::remember('dashboard_attention', 300, fn() => $health->needingAttention());
+        // Stall detection runs a few queries per pending novel — the scheduler
+        // re-warms this every 5 minutes (see routes/console.php), so a page
+        // hit should never pay for it. TTL is longer than the warm interval.
+        $attention = Cache::remember('dashboard_attention', 900, fn() => $health->needingAttention());
 
         $continue_reading = Cache::remember('dashboard_continue', 60, fn() => $this->continueReading());
 

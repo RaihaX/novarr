@@ -2,6 +2,9 @@ import './bootstrap';
 // Self-hosted Inter (variable) — no render-blocking Google Fonts request,
 // and typography keeps working offline in the PWA.
 import '@fontsource-variable/inter';
+// Atkinson Hyperlegible: the reader's high-legibility font option.
+import '@fontsource/atkinson-hyperlegible/400.css';
+import '@fontsource/atkinson-hyperlegible/700.css';
 import '@hotwired/turbo';
 import * as bootstrap from 'bootstrap';
 
@@ -61,3 +64,34 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
         navigator.serviceWorker.register('/sw.js').catch(() => {});
     });
 }
+
+// ---- Custom PWA install prompt ----
+// Browsers fire beforeinstallprompt when installable; show a small dismissible
+// banner instead of relying on the browser's buried menu entry. Dismissal is
+// remembered for 30 days.
+window.addEventListener('beforeinstallprompt', (e) => {
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true;
+    const snoozedUntil = parseInt(localStorage.getItem('pwa_install_snooze') || '0', 10);
+    if (standalone || Date.now() < snoozedUntil) return;
+
+    e.preventDefault();
+
+    const bar = document.createElement('div');
+    bar.className = 'pwa-install-bar';
+    bar.innerHTML = `
+        <span>Install Novarr as an app for offline reading.</span>
+        <button type="button" class="btn btn-sm btn-primary" data-install>Install</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-dismiss aria-label="Dismiss">Not now</button>`;
+    document.body.appendChild(bar);
+
+    bar.querySelector('[data-install]').addEventListener('click', async () => {
+        bar.remove();
+        e.prompt();
+        await e.userChoice.catch(() => {});
+    });
+    bar.querySelector('[data-dismiss]').addEventListener('click', () => {
+        localStorage.setItem('pwa_install_snooze', String(Date.now() + 30 * 24 * 3600 * 1000));
+        bar.remove();
+    });
+});

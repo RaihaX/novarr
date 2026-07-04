@@ -758,7 +758,7 @@
 
         // Commands that change the chapter list or stats shown on this page —
         // reload after they finish so the page reflects the new data.
-        const reloadAfter = ['toc', 'chapter', 'metadata', 'normalize_labels', 'calculate_chapter', 'clean_content', 'chapter_cleaner'];
+        const reloadAfter = ['toc', 'chapter', 'metadata', 'normalize_labels', 'clean_content', 'chapter_cleaner'];
 
         try {
             const result = await Novarr.executeCommand({ command, novel_id: novelId });

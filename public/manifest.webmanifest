@@ -12,5 +12,27 @@
         { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
         { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
         { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    ],
+    "shortcuts": [
+        {
+            "name": "Continue Reading",
+            "url": "/",
+            "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+        },
+        {
+            "name": "Discover",
+            "url": "/novels/discover",
+            "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+        },
+        {
+            "name": "Offline Library",
+            "url": "/library",
+            "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+        },
+        {
+            "name": "Reading Stats",
+            "url": "/stats",
+            "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+        }
     ]
 }
