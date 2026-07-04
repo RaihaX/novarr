@@ -4,61 +4,41 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 
-use App\Novel;
 use App\NovelChapter;
 
 class ChapterCleaner extends Command
 {
-    /**
-     * The name and signature of the console command.
-     *
-     * @var string
-     */
-    protected $signature = 'novel:chaptercleaner {novel=0}';
+    protected $signature = 'novel:chaptercleaner {novel : Novel ID whose thin chapters should be reset}';
 
-    /**
-     * The console command description.
-     *
-     * @var string
-     */
-    protected $description = 'Scrape all active novels to create the chapter list.';
+    protected $description = 'Blank and reset chapters that saved with little content (≤10 paragraphs) so the next scrape re-downloads them.';
 
-    /**
-     * Create a new command instance.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        parent::__construct();
-    }
-
-    /**
-     * Execute the console command.
-     *
-     * @return mixed
-     */
     public function handle()
     {
-        $args = $this->arguments('novel');
+        $novelId = (int) $this->argument('novel');
 
-        if ( $args["novel"] == 0 ) {
-            
-        } else {
-            foreach ( NovelChapter::where('novel_id', $args["novel"])->get() as $c ) {
-                $string = $c->description;
-                $string = str_replace("</p>", "", $string);
-                $array = explode("<p>", $string);
-
-                if ( count($array) <= 10 ) {
-                    $c->description = "";
-                    $c->status = 0;
-                    $c->save();                    
-
-                    echo "Chapter " . $c->chapter . " - " . count($array) . "<br/>\r\n"; 
-                }
-            }
+        if ($novelId === 0) {
+            $this->error('Pass a novel id — this resets chapter content, so it never sweeps all novels.');
+            return 1;
         }
 
+        $reset = 0;
+        NovelChapter::where('novel_id', $novelId)
+            ->where('status', 1)
+            ->chunkById(100, function ($chapters) use (&$reset) {
+                foreach ($chapters as $chapter) {
+                    $paragraphs = substr_count($chapter->getRawOriginal('description') ?? '', '<p>');
+
+                    if ($paragraphs <= 10) {
+                        $chapter->description = '';
+                        $chapter->status = 0;
+                        $chapter->save();
+                        $reset++;
+                        $this->line("Reset chapter {$chapter->chapter} ({$paragraphs} paragraphs)");
+                    }
+                }
+            });
+
+        $this->info("Reset {$reset} thin chapter(s) — they will re-download on the next scrape.");
+        return 0;
     }
 }

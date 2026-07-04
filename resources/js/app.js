@@ -1,4 +1,7 @@
 import './bootstrap';
+// Self-hosted Inter (variable) — no render-blocking Google Fonts request,
+// and typography keeps working offline in the PWA.
+import '@fontsource-variable/inter';
 import '@hotwired/turbo';
 import * as bootstrap from 'bootstrap';
 

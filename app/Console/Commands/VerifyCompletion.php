@@ -196,20 +196,27 @@ class VerifyCompletion extends Command
 
         $this->info("  Generating ePub...");
         if (!$this->runArtisan($novel, ["novel:epub", $novel->id], "ePub generation")) {
+            notify_webhook("⚠️ {$novel->name} completed but ePub generation failed — check the logs.");
             return; // No ePub — nothing to send to Kindle.
         }
 
         if ($this->option("no-kindle") || setting("auto_kindle", "1") !== "1") {
+            notify_webhook("📕 {$novel->name} — ePub generated and ready to download.");
             return;
         }
 
         if (empty(setting("kindle_email", config("mail.kindle_email")))) {
             $this->warn("  KINDLE_EMAIL not configured — skipping Send to Kindle.");
+            notify_webhook("📕 {$novel->name} — ePub generated (no Kindle email configured).");
             return;
         }
 
         $this->info("  Sending to Kindle...");
-        $this->runArtisan($novel, ["novel:send-to-kindle", $novel->id], "Send to Kindle");
+        if ($this->runArtisan($novel, ["novel:send-to-kindle", $novel->id], "Send to Kindle")) {
+            notify_webhook("📨 {$novel->name} — ePub sent to your Kindle.");
+        } else {
+            notify_webhook("⚠️ {$novel->name} — ePub generated but the Kindle send failed.");
+        }
     }
 
     /**

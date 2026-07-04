@@ -33,6 +33,7 @@ Route::get('/novels/{id}', [NovelController::class, 'show'])->name('novels.show'
 Route::get('/novels/{id}/edit', [NovelController::class, 'edit'])->name('novels.edit');
 Route::put('/novels/{id}', [NovelController::class, 'update'])->name('novels.update');
 Route::post('/novels/{id}/toggle-pause', [NovelController::class, 'togglePause'])->name('novels.toggle_pause');
+Route::post('/novels/{id}/toggle-frequent', [NovelController::class, 'toggleFrequent'])->name('novels.toggle_frequent');
 Route::post('/novels/{id}/toggle-complete', [NovelController::class, 'toggleComplete'])->name('novels.toggle_complete');
 Route::post('/novels/{id}/tags', [NovelController::class, 'syncTags'])->name('novels.sync_tags');
 Route::post('/tags', [NovelController::class, 'storeTag'])->name('tags.store');
@@ -58,9 +59,18 @@ Route::post('/commands/execute-async', [CommandController::class, 'executeAsync'
 Route::get('/commands/status/{jobId}', [CommandController::class, 'status'])->name('commands.status');
 Route::get('/commands/{command}', [CommandController::class, 'showForm'])->name('commands.form');
 
-// Logs
+// Search
 Route::get('/search', [SearchController::class, 'index'])->name('search.index');
 Route::get('/search/suggest', [SearchController::class, 'suggest'])->name('search.suggest');
+
+// Reading stats + bookmarks
+Route::get('/stats', [\App\Http\Controllers\StatsController::class, 'index'])->name('stats.index');
+Route::get('/bookmarks', [\App\Http\Controllers\BookmarkController::class, 'index'])->name('bookmarks.index');
+Route::post('/bookmarks', [\App\Http\Controllers\BookmarkController::class, 'store'])->name('bookmarks.store');
+Route::delete('/bookmarks/{id}', [\App\Http\Controllers\BookmarkController::class, 'destroy'])->name('bookmarks.destroy');
+
+// OPDS catalog for ereader apps
+Route::get('/opds', [\App\Http\Controllers\OpdsController::class, 'index'])->name('opds.index');
 
 Route::get('/health', [SystemHealthController::class, 'index'])->name('health.index');
 Route::get('/health/job/{uuid}', [SystemHealthController::class, 'failedJob'])->name('health.job');

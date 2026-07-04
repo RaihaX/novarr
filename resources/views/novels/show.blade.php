@@ -108,6 +108,11 @@
                 <button type="button" id="pauseToggle" class="btn btn-sm {{ $data->paused_at ? 'btn-success' : 'btn-outline-secondary' }}" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
                     {{ $data->paused_at ? 'Resume downloads' : 'Pause downloads' }}
                 </button>
+                @if(!$data->status)
+                    <button type="button" id="frequentToggle" class="btn btn-sm {{ $data->frequent_toc ? 'btn-info' : 'btn-outline-secondary' }}" data-id="{{ $data->id }}" title="Check this novel's source for new chapters every hour instead of once a day">
+                        {{ $data->frequent_toc ? '⚡ Hourly checks on' : 'Hourly checks off' }}
+                    </button>
+                @endif
                 <button type="button" id="deleteNovel" class="btn btn-sm btn-outline-danger" data-id="{{ $data->id }}" data-name="{{ $data->name }}">Delete</button>
             </div>
         </div>
@@ -119,8 +124,8 @@
             @if($data->language && $data->language->label)
                 <div class="col-auto"><span class="text-muted ms-3">Language:</span> {{ $data->language->label }}</div>
             @endif
-            @if($data->external_url)
-                <div class="col-auto"><span class="text-muted ms-3">Source:</span> <a href="{{ $data->external_url }}" target="_blank">{{ parse_url($data->external_url, PHP_URL_HOST) }}</a></div>
+            @if($data->translator_url)
+                <div class="col-auto"><span class="text-muted ms-3">Source:</span> <a href="{{ $data->translator_url }}" target="_blank" rel="noopener">{{ parse_url($data->translator_url, PHP_URL_HOST) }}</a></div>
             @endif
         </div>
 
@@ -272,7 +277,7 @@
                     <span class="cmd-done d-none">Done</span>
                     <span class="cmd-fail d-none">Failed</span>
                 </button>
-                <button class="btn btn-sm btn-outline-secondary cmd-btn" data-command="chapter_cleanser" data-novel="{{ $data->id }}" title="Strip ads, leftover tags and junk characters from chapter text">
+                <button class="btn btn-sm btn-outline-secondary cmd-btn" data-command="clean_content" data-novel="{{ $data->id }}" title="Strip leftover CSS and ad-widget text from downloaded chapters">
                     <span class="cmd-label">Clean Formatting</span>
                     <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
                     <span class="cmd-done d-none">Done</span>
@@ -454,6 +459,32 @@
                 Novarr.showToast('Error: ' + err.message, 'danger');
             } finally {
                 pauseToggle.disabled = false;
+            }
+        });
+    }
+
+    const frequentToggle = document.getElementById('frequentToggle');
+    if (frequentToggle) {
+        frequentToggle.addEventListener('click', async () => {
+            frequentToggle.disabled = true;
+            try {
+                const response = await fetch(`/novels/${frequentToggle.dataset.id}/toggle-frequent`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                    },
+                });
+                const data = await response.json();
+                if (data.success) {
+                    frequentToggle.className = 'btn btn-sm ' + (data.frequent ? 'btn-info' : 'btn-outline-secondary');
+                    frequentToggle.textContent = data.frequent ? '⚡ Hourly checks on' : 'Hourly checks off';
+                    Novarr.showToast(data.frequent ? 'This novel is now checked hourly for new chapters.' : 'Back to the daily check.', 'success');
+                }
+            } catch (err) {
+                Novarr.showToast('Error: ' + err.message, 'danger');
+            } finally {
+                frequentToggle.disabled = false;
             }
         });
     }
@@ -727,7 +758,7 @@
 
         // Commands that change the chapter list or stats shown on this page —
         // reload after they finish so the page reflects the new data.
-        const reloadAfter = ['toc', 'chapter', 'metadata', 'normalize_labels', 'calculate_chapter', 'chapter_cleanser', 'chapter_cleaner'];
+        const reloadAfter = ['toc', 'chapter', 'metadata', 'normalize_labels', 'calculate_chapter', 'clean_content', 'chapter_cleaner'];
 
         try {
             const result = await Novarr.executeCommand({ command, novel_id: novelId });

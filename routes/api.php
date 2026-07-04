@@ -29,7 +29,3 @@ Route::get('/health/cache', [HealthController::class, 'cache']);
 Route::get('/ping', function () {
     return response('pong', 200);
 });
-
-Route::middleware('auth:api')->get('/user', function (Request $request) {
-    return $request->user();
-});

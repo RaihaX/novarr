@@ -30,15 +30,9 @@
                         <input type="text" name="name" id="name" class="form-control" required value="{{ old('name') }}">
                     </div>
 
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label for="author" class="form-label">Author</label>
-                            <input type="text" name="author" id="author" class="form-control" value="{{ old('author') }}">
-                        </div>
-                        <div class="col-md-6">
-                            <label for="external_url" class="form-label">Source URL</label>
-                            <input type="url" name="external_url" id="external_url" class="form-control" value="{{ old('external_url') }}" placeholder="https://...">
-                        </div>
+                    <div class="mb-3">
+                        <label for="author" class="form-label">Author</label>
+                        <input type="text" name="author" id="author" class="form-control" value="{{ old('author') }}">
                     </div>
 
                     <div class="mb-3">

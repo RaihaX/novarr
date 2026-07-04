@@ -8,7 +8,7 @@ use App\NovelChapter;
 
 class NovelScraper extends Command
 {
-    protected $signature = "novel:toc {novel=0}";
+    protected $signature = "novel:toc {novel=0} {--frequent-only : Only novels flagged for hourly TOC checks}";
     protected $description = "Scrape all active novels to create the chapter list.";
 
     public function __construct()
@@ -27,6 +27,8 @@ class NovelScraper extends Command
             // Paused novels are skipped in the automatic sweep but still run
             // when a specific novel is requested explicitly.
             ->when($novelId == 0, fn($query) => $query->whereNull("paused_at"))
+            // Hourly priority sweep only touches flagged novels.
+            ->when($this->option("frequent-only"), fn($query) => $query->where("frequent_toc", 1))
             ->where("group_id", "!=", 37)
             ->orderBy("name", "asc")
             ->get();

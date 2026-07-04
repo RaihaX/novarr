@@ -50,6 +50,15 @@ Schedule::command('novel:toc')
     ->name('daily_toc_check')
     ->withoutOverlapping();
 
+// Novels flagged "check hourly" (frequent_toc) get their TOC re-checked every
+// hour so actively-updating series surface new chapters quickly. The 01:00
+// full sweep already covers that hour.
+Schedule::command('novel:toc --frequent-only')
+    ->hourly()
+    ->unlessBetween('00:30', '01:30')
+    ->name('frequent_toc_check')
+    ->withoutOverlapping();
+
 // Download any pending chapters found by the TOC check.
 Schedule::command('novel:chapter')
     ->everyTenMinutes()

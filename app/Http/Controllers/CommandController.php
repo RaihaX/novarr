@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\RateLimiter;
 class CommandController extends Controller
 {
     protected $destructiveCommands = [
-        'chapter_cleanser',
+        'clean_content',
         'chapter_cleaner',
     ];
 
@@ -75,11 +75,11 @@ class CommandController extends Controller
             'command' => 'novel:info',
             'params' => [],
         ],
-        'chapter_cleanser' => [
+        'clean_content' => [
             'name' => 'Clean Formatting',
-            'description' => 'Strip ads, leftover tags and junk characters from chapter text',
-            'command' => 'novel:chapter_cleanser',
-            'params' => ['novel_id'],
+            'description' => 'Strip leftover CSS and ad-widget text from downloaded chapters',
+            'command' => 'novel:clean_chapter_content',
+            'params' => ['novel_id', 'dry_run'],
         ],
         'chapter_cleaner' => [
             'name' => 'Fix Empty Chapters',

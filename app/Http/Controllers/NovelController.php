@@ -386,6 +386,22 @@ class NovelController extends Controller
     }
 
     /**
+     * Toggle hourly TOC checks for an actively-updating novel (see the
+     * frequent_toc_check schedule).
+     */
+    public function toggleFrequent($id)
+    {
+        $novel = $this->novels->findOrFail($id);
+        $novel->frequent_toc = !$novel->frequent_toc;
+        $novel->save();
+
+        return response()->json([
+            'success' => true,
+            'frequent' => (bool) $novel->frequent_toc,
+        ]);
+    }
+
+    /**
      * Toggle a novel's completed status (mark complete / reopen).
      */
     public function toggleComplete($id)

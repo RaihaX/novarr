@@ -18,6 +18,7 @@
     <div class="d-flex gap-2 align-items-center">
         <button type="button" id="tocBtn" class="btn btn-sm btn-outline-secondary" data-bs-toggle="offcanvas" data-bs-target="#tocPanel" title="Chapter list" aria-label="Chapter list">☰</button>
         <button type="button" id="focusBtn" class="btn btn-sm btn-outline-secondary" title="Focus mode (hide chrome — tap the page to peek)" aria-label="Focus mode">⛶</button>
+        <button type="button" id="ttsBtn" class="btn btn-sm btn-outline-secondary" title="Read aloud (text-to-speech)" aria-label="Read aloud" aria-pressed="false">🔊</button>
         <button type="button" id="readerSettingsBtn" class="btn btn-sm btn-outline-secondary" title="Reading settings" aria-label="Reading settings">Aa</button>
         @if($prev)
             <a href="{{ route('chapters.show', $prev->id) }}" id="navPrev" class="btn btn-sm btn-outline-secondary">&larr; Ch. {{ $prev->chapter }}</a>
@@ -77,6 +78,39 @@
                 <button type="button" class="btn btn-outline-secondary" data-autonext="0">Off</button>
             </div>
         </div>
+        <div class="d-flex align-items-center gap-2">
+            <span class="text-muted">Auto-scroll</span>
+            <div class="btn-group btn-group-sm" role="group" aria-label="Auto-scroll">
+                <button type="button" id="autoScrollToggle" class="btn btn-outline-secondary" aria-pressed="false">Start</button>
+                <button type="button" class="btn btn-outline-secondary" data-scrollspeed="-" title="Scroll slower">−</button>
+                <button type="button" class="btn btn-outline-secondary" data-scrollspeed="+" title="Scroll faster">+</button>
+            </div>
+            <span id="autoScrollSpeedLabel" class="text-muted"></span>
+        </div>
+    </div>
+</div>
+
+{{-- Text-to-speech controls (toggled by the 🔊 toolbar button) --}}
+<div id="ttsBar" class="card mb-3 d-none">
+    <div class="card-body py-2 d-flex flex-wrap gap-2 align-items-center" style="font-size: 13px;">
+        <button type="button" id="ttsPlayPause" class="btn btn-sm btn-primary" style="min-width: 90px;">▶ Play</button>
+        <button type="button" id="ttsStop" class="btn btn-sm btn-outline-secondary">Stop</button>
+        <span class="text-muted ms-2">Speed</span>
+        <div class="btn-group btn-group-sm" id="ttsRateGroup" role="group" aria-label="Speech rate">
+            <button type="button" class="btn btn-outline-secondary" data-ttsrate="0.8">0.8×</button>
+            <button type="button" class="btn btn-outline-secondary" data-ttsrate="1">1×</button>
+            <button type="button" class="btn btn-outline-secondary" data-ttsrate="1.25">1.25×</button>
+            <button type="button" class="btn btn-outline-secondary" data-ttsrate="1.5">1.5×</button>
+        </div>
+        <span id="ttsStatus" class="text-muted ms-auto"></span>
+    </div>
+</div>
+
+{{-- Floating save-highlight popover (shown over a text selection) --}}
+<div id="highlightPop" class="card p-2 shadow d-none" style="position: absolute; z-index: 1055;">
+    <div class="d-flex gap-2">
+        <input type="text" id="hlNote" class="form-control form-control-sm" placeholder="Note (optional)" style="width: 170px;" aria-label="Bookmark note">
+        <button type="button" id="hlSave" class="btn btn-sm btn-primary text-nowrap">🔖 Save</button>
     </div>
 </div>
 
@@ -686,6 +720,221 @@
             dlBtn.querySelector('.dl-spinner').classList.add('d-none');
         });
     }
+
+    // ---- Highlights: select text → floating save button ----
+    const hlPop = document.getElementById('highlightPop');
+    const hlNote = document.getElementById('hlNote');
+    let hlPending = null;
+
+    // Keep the selection alive while interacting with the popover.
+    hlPop.addEventListener('mousedown', e => e.preventDefault());
+
+    function hideHlPop() {
+        hlPop.classList.add('d-none');
+        hlNote.value = '';
+        hlPending = null;
+    }
+
+    function maybeShowHlPop() {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) { hideHlPop(); return; }
+        const text = sel.toString().trim();
+        if (text.length < 3) { hideHlPop(); return; }
+
+        const anchor = sel.anchorNode?.nodeType === 1 ? sel.anchorNode : sel.anchorNode?.parentElement;
+        const section = anchor?.closest('.reader-section');
+        if (!section || !anchor.closest('.chapter-content')) { hideHlPop(); return; }
+
+        hlPending = { chapter_id: section.dataset.id, excerpt: text.substring(0, 2000) };
+        const rect = sel.getRangeAt(0).getBoundingClientRect();
+        hlPop.classList.remove('d-none');
+        hlPop.style.top = Math.max(8, window.scrollY + rect.top - hlPop.offsetHeight - 10) + 'px';
+        hlPop.style.left = Math.max(8, Math.min(window.innerWidth - hlPop.offsetWidth - 8,
+            window.scrollX + rect.left + rect.width / 2 - hlPop.offsetWidth / 2)) + 'px';
+    }
+
+    document.addEventListener('mouseup', () => setTimeout(maybeShowHlPop, 10));
+    document.addEventListener('touchend', () => setTimeout(maybeShowHlPop, 150));
+    document.addEventListener('selectionchange', () => {
+        const sel = window.getSelection();
+        if ((!sel || sel.isCollapsed) && !hlNote.matches(':focus')) hideHlPop();
+    });
+
+    document.getElementById('hlSave').addEventListener('click', async () => {
+        if (!hlPending) return;
+        const payload = { ...hlPending, note: hlNote.value.trim() || null };
+        hideHlPop();
+        window.getSelection()?.removeAllRanges();
+        try {
+            const res = await fetch('{{ route('bookmarks.store') }}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (data.success) Novarr.showToast('Highlight saved — find it under Bookmarks.', 'success');
+            else Novarr.showToast(data.message || 'Could not save the highlight.', 'danger');
+        } catch (err) {
+            Novarr.showToast('Error: ' + err.message, 'danger');
+        }
+    });
+
+    // ---- Auto-scroll ----
+    let scrollSpeed = Math.min(150, Math.max(10, parseInt(localStorage.getItem('reader_scrollspeed') || '40', 10)));
+    const autoScrollToggle = document.getElementById('autoScrollToggle');
+    const speedLabel = document.getElementById('autoScrollSpeedLabel');
+    let autoScrollOn = false, autoScrollRaf = null, autoScrollLastTs = null, autoScrollAcc = 0;
+
+    function reflectAutoScroll() {
+        autoScrollToggle.textContent = autoScrollOn ? 'Stop' : 'Start';
+        autoScrollToggle.classList.toggle('active', autoScrollOn);
+        autoScrollToggle.setAttribute('aria-pressed', autoScrollOn ? 'true' : 'false');
+        speedLabel.textContent = scrollSpeed + ' px/s';
+    }
+
+    function autoScrollStep(ts) {
+        if (!autoScrollOn) return;
+        if (autoScrollLastTs !== null) {
+            autoScrollAcc += ((ts - autoScrollLastTs) / 1000) * scrollSpeed;
+            if (autoScrollAcc >= 1) {
+                const px = Math.floor(autoScrollAcc);
+                autoScrollAcc -= px;
+                window.scrollBy(0, px);
+            }
+            // End of everything loaded and nothing more coming → stop.
+            if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 2) {
+                const last = sections[sections.length - 1];
+                if (!last.next || prefs.autoNext !== '1' || autoLoadStopped) { stopAutoScroll(); return; }
+            }
+        }
+        autoScrollLastTs = ts;
+        autoScrollRaf = requestAnimationFrame(autoScrollStep);
+    }
+
+    function startAutoScroll() {
+        autoScrollOn = true;
+        autoScrollLastTs = null;
+        autoScrollAcc = 0;
+        reflectAutoScroll();
+        autoScrollRaf = requestAnimationFrame(autoScrollStep);
+    }
+    function stopAutoScroll() {
+        if (!autoScrollOn) return;
+        autoScrollOn = false;
+        cancelAnimationFrame(autoScrollRaf);
+        reflectAutoScroll();
+    }
+
+    autoScrollToggle.addEventListener('click', () => autoScrollOn ? stopAutoScroll() : startAutoScroll());
+    document.querySelectorAll('[data-scrollspeed]').forEach(btn => btn.addEventListener('click', () => {
+        scrollSpeed = Math.min(150, Math.max(10, scrollSpeed + (btn.dataset.scrollspeed === '+' ? 10 : -10)));
+        localStorage.setItem('reader_scrollspeed', scrollSpeed);
+        reflectAutoScroll();
+    }));
+    // Any manual scroll intent pauses auto-scroll.
+    ['wheel', 'touchmove'].forEach(ev => document.addEventListener(ev, stopAutoScroll, { passive: true }));
+    reflectAutoScroll();
+
+    // ---- Text-to-speech (browser speechSynthesis) ----
+    const synth = window.speechSynthesis;
+    const ttsBtn = document.getElementById('ttsBtn');
+    const ttsBar = document.getElementById('ttsBar');
+    const ttsPlayPause = document.getElementById('ttsPlayPause');
+    const ttsStatus = document.getElementById('ttsStatus');
+    let ttsRate = parseFloat(localStorage.getItem('reader_ttsrate') || '1');
+    let ttsActive = false, ttsPausedState = false, ttsIdx = 0;
+
+    function reflectTtsRate() {
+        document.querySelectorAll('#ttsRateGroup [data-ttsrate]').forEach(b => {
+            const on = parseFloat(b.dataset.ttsrate) === ttsRate;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+    }
+
+    const ttsParas = () => [...document.querySelectorAll('.chapter-content p')].filter(p => p.textContent.trim().length > 0);
+
+    function ttsHighlight(p) {
+        document.querySelectorAll('.tts-active').forEach(el => el.classList.remove('tts-active'));
+        if (p) {
+            p.classList.add('tts-active');
+            p.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+    }
+
+    function ttsSpeakFrom(idx) {
+        const paras = ttsParas();
+        if (idx >= paras.length) { ttsStopAll(); return; }
+        ttsIdx = idx;
+        const p = paras[idx];
+        ttsHighlight(p);
+        ttsStatus.textContent = `Paragraph ${idx + 1} of ${paras.length}`;
+        const u = new SpeechSynthesisUtterance(p.textContent);
+        u.rate = ttsRate;
+        u.onend = () => { if (ttsActive && !ttsPausedState) ttsSpeakFrom(ttsIdx + 1); };
+        u.onerror = () => ttsStopAll();
+        synth.speak(u);
+    }
+
+    function ttsStart() {
+        if (!synth) { Novarr.showToast('Text-to-speech is not supported in this browser.', 'warning'); return; }
+        synth.cancel();
+        ttsActive = true;
+        ttsPausedState = false;
+        ttsPlayPause.textContent = '⏸ Pause';
+        // Start from the first paragraph currently in view.
+        const paras = ttsParas();
+        const ref = window.scrollY + 90;
+        let start = 0;
+        for (let i = 0; i < paras.length; i++) {
+            if (paras[i].getBoundingClientRect().top + window.scrollY + paras[i].offsetHeight > ref) { start = i; break; }
+        }
+        ttsSpeakFrom(start);
+    }
+
+    function ttsStopAll() {
+        ttsActive = false;
+        ttsPausedState = false;
+        synth?.cancel();
+        ttsHighlight(null);
+        ttsPlayPause.textContent = '▶ Play';
+        ttsStatus.textContent = '';
+    }
+
+    ttsBtn.addEventListener('click', () => {
+        const showing = !ttsBar.classList.toggle('d-none');
+        ttsBtn.classList.toggle('active', showing);
+        ttsBtn.setAttribute('aria-pressed', showing ? 'true' : 'false');
+        if (!showing) ttsStopAll();
+    });
+    ttsPlayPause.addEventListener('click', () => {
+        if (!ttsActive) { ttsStart(); return; }
+        if (ttsPausedState) {
+            ttsPausedState = false;
+            synth.resume();
+            ttsPlayPause.textContent = '⏸ Pause';
+        } else {
+            ttsPausedState = true;
+            synth.pause();
+            ttsPlayPause.textContent = '▶ Resume';
+        }
+    });
+    document.getElementById('ttsStop').addEventListener('click', ttsStopAll);
+    document.querySelectorAll('[data-ttsrate]').forEach(btn => btn.addEventListener('click', () => {
+        ttsRate = parseFloat(btn.dataset.ttsrate);
+        localStorage.setItem('reader_ttsrate', ttsRate);
+        reflectTtsRate();
+        if (ttsActive && !ttsPausedState) { synth.cancel(); ttsSpeakFrom(ttsIdx); }
+    }));
+    reflectTtsRate();
+
+    // Never leave speech running after leaving the page.
+    document.addEventListener('turbo:before-visit', ttsStopAll, { once: true });
+    window.addEventListener('pagehide', () => synth?.cancel(), { once: true });
 
     // ---- Offline auto-mark ----
     // The server marks a chapter read when it serves the page; offline the page

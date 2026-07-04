@@ -16,25 +16,15 @@ class Novel extends Model
 
     protected $fillable = [
         "name",
-        "slug",
         "author",
         "description",
-        "cover",
         "translator_url",
         "novelupdates_url",
         "status",
         "completed_at",
         "group_id",
         "language_id",
-        "last_update",
-        "newest_chapter",
         "no_of_chapters",
-        "no_of_views",
-        "rating",
-        "follows",
-        "votes",
-        "comments",
-        "external_url",
     ];
 
     /**
@@ -43,20 +33,16 @@ class Novel extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'last_update' => 'datetime',
         'completed_at' => 'datetime',
         'paused_at' => 'datetime',
+        'epub_generated' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
         'status' => 'boolean',
+        'frequent_toc' => 'boolean',
         'scrape_failures' => 'integer',
         'no_of_chapters' => 'integer',
-        'no_of_views' => 'integer',
-        'rating' => 'float',
-        'follows' => 'integer',
-        'votes' => 'integer',
-        'comments' => 'integer',
     ];
 
     public function chapters(): HasMany
