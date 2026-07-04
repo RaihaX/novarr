@@ -15,12 +15,30 @@ import {
     getNovel, isDownloaded, queuedFetch, flushQueue,
 } from './offline';
 
+// Refresh the current page while keeping the scroll position — a drop-in
+// replacement for location.reload() on long pages (novel chapter tables).
+function softRefresh(delay = 0) {
+    setTimeout(() => {
+        sessionStorage.setItem('novarr_restore_scroll', String(Math.round(window.scrollY)));
+        if (window.Turbo) Turbo.visit(window.location.href, { action: 'replace' });
+        else window.location.reload();
+    }, delay);
+}
+
+document.addEventListener('turbo:load', () => {
+    const y = sessionStorage.getItem('novarr_restore_scroll');
+    if (y !== null) {
+        sessionStorage.removeItem('novarr_restore_scroll');
+        window.scrollTo(0, parseInt(y, 10) || 0);
+    }
+});
+
 // Exposed for the thin page-specific glue scripts in Blade templates
 // (inline scripts are not part of the Vite module graph).
 window.Novarr = {
     executeCommand, pollJobStatus, showToast, confirmDialog, initTagPickers,
     downloadNovel, removeNovel, getLibrary, getNovel, isDownloaded,
-    queuedFetch, flushQueue,
+    queuedFetch, flushQueue, softRefresh,
 };
 
 // Flush any queued offline read-marks and watch for reconnects.

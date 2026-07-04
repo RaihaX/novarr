@@ -18,7 +18,7 @@ class NovelChapterController extends Controller
     /**
      * Display a chapter with previous/next navigation.
      */
-    public function show($id)
+    public function show(Request $request, $id)
     {
         $chapter = $this->novelchapters->with('novel:id,name')->findOrFail($id);
 
@@ -44,8 +44,14 @@ class NovelChapterController extends Controller
             ->orderBy('book')->orderBy('chapter')
             ->first(['id', 'chapter', 'label']);
 
-        // Opening a downloaded chapter marks it read.
-        if ($chapter->status && $chapter->read_at === null) {
+        // Opening a downloaded chapter marks it read — but not when the
+        // browser is only prefetching the prev/next pages (<link rel=prefetch>
+        // sends Sec-Purpose/Purpose: prefetch), which would mark chapters read
+        // before they were ever opened.
+        $purpose = strtolower($request->header('Sec-Purpose', $request->header('Purpose', '')));
+        $isPrefetch = str_contains($purpose, 'prefetch');
+
+        if (!$isPrefetch && $chapter->status && $chapter->read_at === null) {
             $chapter->forceFill(['read_at' => now()])->saveQuietly();
             CacheHelper::clearNovelCache($chapter->novel_id);
         }
@@ -54,6 +60,21 @@ class NovelChapterController extends Controller
             'chapter' => $chapter,
             'prev' => $prev,
             'next' => $next,
+            // Serialised into the page for the reader JS (continuous loading,
+            // TOC, position sync) — and parsed back out of fetched pages when
+            // appending the next chapter inline.
+            'readerState' => [
+                'id' => $chapter->id,
+                'novelId' => $chapter->novel_id,
+                'label' => $chapter->label ?: 'Chapter ' . $chapter->chapter,
+                'chapter' => $chapter->chapter,
+                'url' => route('chapters.show', $chapter->id),
+                'progress' => $chapter->read_progress,
+                'read' => $chapter->read_at !== null,
+                'hasContent' => (bool) $chapter->getRawOriginal('description'),
+                'prev' => $prev ? ['id' => $prev->id, 'chapter' => $prev->chapter, 'label' => $prev->label, 'url' => route('chapters.show', $prev->id)] : null,
+                'next' => $next ? ['id' => $next->id, 'chapter' => $next->chapter, 'label' => $next->label, 'url' => route('chapters.show', $next->id)] : null,
+            ],
         ]);
     }
 
@@ -63,13 +84,37 @@ class NovelChapterController extends Controller
     public function toggleRead(Request $request, $id)
     {
         $chapter = $this->novelchapters->findOrFail($id);
-        $chapter->forceFill(['read_at' => $chapter->read_at ? null : now()])->saveQuietly();
+        $read = $chapter->read_at === null;
+        // An explicit mark also settles the in-chapter position: done when
+        // read, forgotten when unread — so Continue Reading doesn't resume
+        // into a chapter the user has already dealt with.
+        $chapter->forceFill([
+            'read_at' => $read ? now() : null,
+            'read_progress' => $read ? 100 : null,
+        ])->saveQuietly();
         CacheHelper::clearNovelCache($chapter->novel_id);
 
         return response()->json([
             'success' => true,
             'read' => $chapter->read_at !== null,
         ]);
+    }
+
+    /**
+     * Persist how far through a chapter the reader has scrolled (0–100), so
+     * the position survives across devices. Accepts JSON or form data — the
+     * pagehide save arrives via navigator.sendBeacon, which can only POST
+     * form-encoded bodies.
+     */
+    public function progress(Request $request, $id)
+    {
+        $data = $request->validate(['progress' => 'required|integer|min:0|max:100']);
+
+        $this->novelchapters->findOrFail($id)
+            ->forceFill(['read_progress' => $data['progress']])
+            ->saveQuietly();
+
+        return response()->json(['success' => true]);
     }
 
     /**
@@ -91,7 +136,7 @@ class NovelChapterController extends Controller
                       $q2->where('book', $chapter->book)->where('chapter', '<=', $chapter->chapter);
                   });
             })
-            ->update(['read_at' => now()]);
+            ->update(['read_at' => now(), 'read_progress' => 100]);
 
         CacheHelper::clearNovelCache($chapter->novel_id);
 
@@ -110,7 +155,10 @@ class NovelChapterController extends Controller
         ]);
 
         NovelChapter::whereIn('id', $data['ids'])
-            ->update(['read_at' => $data['read'] ? now() : null]);
+            ->update([
+                'read_at' => $data['read'] ? now() : null,
+                'read_progress' => $data['read'] ? 100 : null,
+            ]);
 
         foreach (NovelChapter::whereIn('id', $data['ids'])->distinct()->pluck('novel_id') as $novelId) {
             CacheHelper::clearNovelCache($novelId);

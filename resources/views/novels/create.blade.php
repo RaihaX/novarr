@@ -12,6 +12,16 @@
                 <h4 class="mb-0">Add Novel</h4>
             </div>
             <div class="card-body">
+                @if($errors->any())
+                    <div class="alert alert-danger">
+                        <ul class="mb-0 ps-3">
+                            @foreach($errors->all() as $error)
+                                <li>{{ $error }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+
                 <form method="POST" action="{{ route('novels.store') }}" enctype="multipart/form-data">
                     @csrf
 

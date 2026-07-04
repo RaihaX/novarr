@@ -107,25 +107,28 @@
                 $downloaded = $novel->downloaded_chapters_count ?? 0;
                 $pct = $total > 0 ? round(($downloaded / $total) * 100) : 0;
             @endphp
-            <a href="{{ route('novels.show', $novel->id) }}" class="novel-card">
-                @if($novel->file)
-                    <img src="{{ Storage::url($novel->file->file_path) }}" alt="Cover of {{ $novel->name }}" loading="lazy" class="cover-thumb">
-                @else
-                    <div class="cover-placeholder">N/A</div>
-                @endif
-                <div class="novel-card-body">
-                    <div class="novel-card-title">{{ $novel->name }}</div>
-                    <div class="novel-card-meta mb-1">{{ $novel->author ?? 'Unknown author' }} · {{ $downloaded }}/{{ $total }}</div>
-                    <div class="progress" style="height: 5px;">
-                        <div class="progress-bar {{ $pct >= 100 ? 'bg-success' : 'bg-info' }}" style="width: {{ $pct }}%"></div>
+            <div class="novel-card">
+                <input type="checkbox" class="form-check-input novel-check mt-0 flex-shrink-0" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}">
+                <a href="{{ route('novels.show', $novel->id) }}" class="novel-card-link">
+                    @if($novel->file)
+                        <img src="{{ Storage::url($novel->file->file_path) }}" alt="Cover of {{ $novel->name }}" loading="lazy" class="cover-thumb">
+                    @else
+                        <div class="cover-placeholder">N/A</div>
+                    @endif
+                    <div class="novel-card-body">
+                        <div class="novel-card-title">{{ $novel->name }}</div>
+                        <div class="novel-card-meta mb-1">{{ $novel->author ?? 'Unknown author' }} · {{ $downloaded }}/{{ $total }}</div>
+                        <div class="progress" style="height: 5px;">
+                            <div class="progress-bar {{ $pct >= 100 ? 'bg-success' : 'bg-info' }}" style="width: {{ $pct }}%"></div>
+                        </div>
                     </div>
-                </div>
-                @if($novel->status)
-                    <span class="badge bg-info">Done</span>
-                @elseif($novel->paused_at)
-                    <span class="badge bg-secondary">Paused</span>
-                @endif
-            </a>
+                    @if($novel->status)
+                        <span class="badge bg-info">Done</span>
+                    @elseif($novel->paused_at)
+                        <span class="badge bg-secondary">Paused</span>
+                    @endif
+                </a>
+            </div>
         @empty
             @include('novels._empty', ['hasFilters' => $hasFilters])
         @endforelse
@@ -220,7 +223,9 @@
     const bulkBar = document.getElementById('bulkBar');
     const selectAll = document.getElementById('selectAll');
     const checks = () => [...document.querySelectorAll('.novel-check')];
-    const selected = () => checks().filter(c => c.checked).map(c => c.value);
+    // The mobile card list and desktop table both render a checkbox per novel,
+    // so dedupe by value.
+    const selected = () => [...new Set(checks().filter(c => c.checked).map(c => c.value))];
 
     function refreshBulkBar() {
         const n = selected().length;

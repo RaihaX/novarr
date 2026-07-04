@@ -91,6 +91,27 @@ class NovelController extends Controller
      *   ?from=X&to=Y         chapter-number range (either bound optional)
      *   ?limit=N             cap to the first N (in reading order)
      */
+    /**
+     * Lightweight chapter list for the in-reader table of contents.
+     */
+    public function chaptersJson($id)
+    {
+        $chapters = NovelChapter::where('novel_id', $id)
+            ->where('blacklist', 0)
+            ->orderBy('book')->orderBy('chapter')
+            ->get(['id', 'chapter', 'book', 'label', 'status', 'read_at'])
+            ->map(fn($c) => [
+                'id' => $c->id,
+                'chapter' => $c->chapter,
+                'book' => $c->book,
+                'label' => $c->label,
+                'downloaded' => (bool) $c->status,
+                'read' => $c->read_at !== null,
+            ]);
+
+        return response()->json(['chapters' => $chapters]);
+    }
+
     public function offlineManifest($id, Request $request)
     {
         $novel = $this->novels->with(['file' => fn($q) => $q->orderBy('id', 'desc')])->findOrFail($id);
@@ -702,8 +723,19 @@ class NovelController extends Controller
             $read_count = $aggregates->read_count ?? 0;
             $latestChapter = (int) ($aggregates->latest_chapter ?? 0);
 
-            // First downloaded-but-unread chapter — the "continue reading" target.
+            // "Continue reading" target: a chapter abandoned mid-scroll wins
+            // (read_progress syncs from the reader), else the first
+            // downloaded-but-unread chapter.
             $continueChapterId = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->where('status', 1)
+                ->whereNotNull('read_at')
+                ->whereNotNull('read_progress')
+                ->where('read_progress', '<', 90)
+                ->orderByDesc('read_at')
+                ->value('id');
+
+            $continueChapterId = $continueChapterId ?: NovelChapter::where('novel_id', $id)
                 ->where('blacklist', 0)
                 ->where('status', 1)
                 ->whereNull('read_at')

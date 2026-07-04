@@ -3,20 +3,32 @@
 @section('content')
 <h1 class="mb-3">Search</h1>
 
-<form method="GET" action="{{ route('search.index') }}" class="mb-4">
+<form method="GET" action="{{ route('search.index') }}" class="mb-2">
     <div class="input-group" style="max-width: 600px;">
         <input type="search" name="q" class="form-control" value="{{ $q }}" placeholder="Search chapter titles and content…" autofocus>
+        @if($novelFilter)
+            <input type="hidden" name="novel" value="{{ $novelFilter->id }}">
+        @endif
         <button type="submit" class="btn btn-primary">Search</button>
     </div>
     <div class="form-text">Searches the text of downloaded chapters.</div>
 </form>
 
+@if($novelFilter)
+    <div class="mb-3">
+        <span class="badge bg-secondary" style="font-size: 12px;">
+            Within: {{ $novelFilter->name }}
+            <a href="{{ route('search.index', ['q' => $q]) }}" class="text-decoration-none text-white ms-1" title="Search all novels" aria-label="Remove novel filter">×</a>
+        </span>
+    </div>
+@endif
+
 @if($q === '')
     <p class="text-muted">Enter a search term above.</p>
 @elseif($results->isEmpty())
-    <p class="text-muted">No chapters matched “{{ $q }}”.</p>
+    <p class="text-muted">No chapters matched “{{ $q }}”{{ $novelFilter ? ' in ' . $novelFilter->name : '' }}.</p>
 @else
-    <p class="text-muted mb-3">{{ $results->count() }} matching chapter(s) across {{ $grouped->count() }} novel(s).</p>
+    <p class="text-muted mb-3">{{ $paginator->total() }} matching chapter(s){{ $novelFilter ? '' : ' across ' . $grouped->count() . ' novel(s) on this page' }}.</p>
 
     @foreach($grouped as $novelName => $rows)
         <div class="card mb-3">
@@ -39,5 +51,11 @@
             </div>
         </div>
     @endforeach
+
+    @if($paginator && $paginator->hasPages())
+        <div class="mt-3">
+            {{ $paginator->links() }}
+        </div>
+    @endif
 @endif
 @endsection

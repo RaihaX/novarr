@@ -22,20 +22,20 @@
         </a>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="card dash-stat">
+        <a href="#missing-section" class="card dash-stat text-decoration-none">
             <div class="card-body">
                 <div class="dash-stat-value text-warning">{{ $stats['pending'] }}</div>
                 <div class="dash-stat-label">Pending downloads</div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="card dash-stat">
+        <a href="#recent-section" class="card dash-stat text-decoration-none">
             <div class="card-body">
                 <div class="dash-stat-value text-primary">{{ $stats['downloaded_today'] }}</div>
                 <div class="dash-stat-label">Downloaded (24h)</div>
             </div>
-        </div>
+        </a>
     </div>
 </div>
 
@@ -56,7 +56,13 @@
                             @endif
                         </div>
                         <div class="continue-title">{{ $novel->name }}</div>
-                        <div class="continue-meta">Next: Ch. {{ $item['next']->chapter }}</div>
+                        <div class="continue-meta">
+                            @if(!empty($item['resume']))
+                                Resume Ch. {{ $item['next']->chapter }} ({{ $item['next']->read_progress }}%)
+                            @else
+                                Next: Ch. {{ $item['next']->chapter }}
+                            @endif
+                        </div>
                     </a>
                 @endforeach
             </div>
@@ -92,7 +98,7 @@
 
 <div class="row">
     <div class="col-md-6 mb-4">
-        <div class="card">
+        <div class="card" id="missing-section" style="scroll-margin-top: 70px;">
             <div class="card-header">
                 <h5 class="mb-0"><span class="badge bg-danger me-2">{{ $missing_chapters->total() }}</span> Missing Chapters</h5>
             </div>
@@ -141,7 +147,7 @@
     </div>
 
     <div class="col-md-6 mb-4">
-        <div class="card">
+        <div class="card" id="recent-section" style="scroll-margin-top: 70px;">
             <div class="card-header">
                 <h5 class="mb-0"><span class="badge bg-success me-2" title="Chapters downloaded in the last 24 hours">{{ $stats['downloaded_today'] }}</span> Recently Downloaded</h5>
             </div>

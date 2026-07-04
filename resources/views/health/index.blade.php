@@ -149,6 +149,7 @@
         b.closest('tr').remove();
     }));
     document.getElementById('retryAll')?.addEventListener('click', async () => {
+        if (!await Novarr.confirmDialog('Re-queue every failed job?', { title: 'Retry all failed jobs', confirmText: 'Retry all' })) return;
         await post('{{ route('health.retry_all') }}');
         Novarr.showToast('All failed jobs re-queued.', 'success');
         setTimeout(() => location.reload(), 800);

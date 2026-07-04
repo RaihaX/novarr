@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'chapters/*/toggle-read',
             'chapters/*/read-through',
+            'chapters/*/progress',
             'chapters/bulk-read',
         ]);
 

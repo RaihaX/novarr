@@ -11,7 +11,7 @@ use Carbon\Carbon;
 
 class ChapterScraper extends Command
 {
-    protected $signature = "novel:chapter {novel=0}";
+    protected $signature = "novel:chapter {novel=0} {--chapter= : Download a single chapter by its id}";
     protected $description = "Scrape new chapters for each novel.";
 
     public function __construct()
@@ -21,6 +21,10 @@ class ChapterScraper extends Command
 
     public function handle()
     {
+        if ($this->option("chapter")) {
+            return $this->scrapeSingleChapter((int) $this->option("chapter"));
+        }
+
         $novelId = $this->argument("novel");
         Log::info("Starting chapter scraping for novel ID: $novelId");
 
@@ -30,6 +34,39 @@ class ChapterScraper extends Command
             "Finished chapter scraping. Total new chapters: " .
                 count($newChapters)
         );
+    }
+
+    /**
+     * Download exactly one chapter — used by the reader's "Download this
+     * chapter" button on pending chapters. No polite-delay sleep since it's
+     * a single user-triggered fetch.
+     */
+    private function scrapeSingleChapter(int $chapterId): int
+    {
+        $chapter = \App\NovelChapter::with("novel")->find($chapterId);
+
+        if (!$chapter) {
+            $this->error("Chapter {$chapterId} not found.");
+            return 1;
+        }
+        if ($chapter->status) {
+            $this->info("Chapter already downloaded: {$chapter->label}");
+            return 0;
+        }
+
+        $this->info("Downloading: {$chapter->novel->name} - {$chapter->label}");
+        $description = $this->generateChapterDescription($chapter);
+        $wordCount = str_word_count($description);
+
+        if ($wordCount > 250) {
+            $this->updateChapter($chapter, $description);
+            \App\Http\Helpers\CacheHelper::clearNovelCache($chapter->novel_id);
+            $this->info("  ✓ Downloaded: {$chapter->label} ({$wordCount} words)");
+            return 0;
+        }
+
+        $this->error("  ✗ Fetched only {$wordCount} words (need >250) — not saved. The source may not have this chapter yet.");
+        return 1;
     }
 
     private function scrapeChapters($novelId)

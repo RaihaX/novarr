@@ -92,18 +92,32 @@ class HomeController extends Controller
                 continue;
             }
 
-            // Index-served by idx_novel_book_chapter (novel_id, book, chapter).
-            $next = NovelChapter::where('novel_id', $novelId)
+            // Abandoned mid-chapter? Resume it exactly where the reader left
+            // off (read_progress syncs from the reader on every device).
+            $inProgress = NovelChapter::where('novel_id', $novelId)
                 ->where('status', 1)->where('blacklist', 0)
-                ->whereNull('read_at')
-                ->orderBy('book')->orderBy('chapter')
-                ->first(['id', 'chapter', 'label']);
+                ->whereNotNull('read_at')
+                ->whereNotNull('read_progress')
+                ->where('read_progress', '<', 90)
+                ->orderByDesc('read_at')
+                ->first(['id', 'chapter', 'label', 'read_progress']);
 
-            if (!$next) {
-                continue; // caught up — nothing to continue
+            if ($inProgress) {
+                $items[] = ['novel' => $novel, 'next' => $inProgress, 'resume' => true];
+            } else {
+                // Index-served by idx_novel_book_chapter (novel_id, book, chapter).
+                $next = NovelChapter::where('novel_id', $novelId)
+                    ->where('status', 1)->where('blacklist', 0)
+                    ->whereNull('read_at')
+                    ->orderBy('book')->orderBy('chapter')
+                    ->first(['id', 'chapter', 'label']);
+
+                if (!$next) {
+                    continue; // caught up — nothing to continue
+                }
+
+                $items[] = ['novel' => $novel, 'next' => $next, 'resume' => false];
             }
-
-            $items[] = ['novel' => $novel, 'next' => $next];
 
             if (count($items) >= $limit) {
                 break;

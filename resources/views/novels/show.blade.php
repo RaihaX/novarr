@@ -53,10 +53,6 @@
     <a href="{{ route('novels.index') }}" class="btn btn-outline-secondary btn-sm">&larr; Back to Novels</a>
 </div>
 
-@if(session('status'))
-    <div class="alert alert-success py-2">{{ session('status') }}</div>
-@endif
-
 {{-- Hero Section --}}
 <div class="row mb-4">
     <div class="col-5 col-sm-4 col-md-2 mx-auto mx-md-0">
@@ -313,6 +309,11 @@
                 <input type="number" name="n" step="any" min="0" class="form-control form-control-sm" style="width: 90px;" placeholder="Ch. #" aria-label="Jump to chapter">
                 <button type="submit" class="btn btn-sm btn-outline-secondary">Go</button>
             </form>
+            <form method="GET" action="{{ route('search.index') }}" class="d-flex gap-1">
+                <input type="hidden" name="novel" value="{{ $data->id }}">
+                <input type="search" name="q" minlength="2" class="form-control form-control-sm" style="width: 150px;" placeholder="Search in novel…" aria-label="Search within this novel">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Find</button>
+            </form>
             <span class="badge bg-secondary">{{ $chapters->total() }}</span>
         </div>
     </div>
@@ -542,7 +543,7 @@
                 const data = await response.json();
                 if (data.success) {
                     Novarr.showToast(`Removed ${data.removed} duplicate chapter(s).`, 'success');
-                    setTimeout(() => location.reload(), 1000);
+                    Novarr.softRefresh(1000);
                 } else {
                     removeDupes.disabled = false;
                     Novarr.showToast('Failed to remove duplicates.', 'danger');
@@ -735,8 +736,8 @@
             outputText.scrollTop = outputText.scrollHeight;
 
             if (result.success && reloadAfter.includes(command)) {
-                Novarr.showToast('Done — refreshing the page…', 'success');
-                setTimeout(() => location.reload(), 1200);
+                Novarr.showToast('Done — refreshing…', 'success');
+                Novarr.softRefresh(1200);
             }
         } catch (err) {
             setButtonState(btn, 'fail');

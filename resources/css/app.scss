@@ -135,7 +135,8 @@ code {
     color: $novarr-muted;
 }
 
-// Mobile novel cards (novels index < md)
+// Mobile novel cards (novels index < md). The card is a row of
+// [select checkbox | link], so bulk actions work on touch too.
 .novel-card {
     display: flex;
     gap: 0.85rem;
@@ -153,6 +154,16 @@ code {
 
     &:last-child {
         border-bottom: 0;
+    }
+
+    .novel-card-link {
+        display: flex;
+        gap: 0.85rem;
+        align-items: center;
+        flex: 1;
+        min-width: 0;
+        text-decoration: none;
+        color: $novarr-text;
     }
 
     .cover-thumb, .cover-placeholder {
@@ -565,13 +576,65 @@ details.log-entry summary {
     }
 }
 
-// Reader focus mode — hide app chrome for distraction-free reading
-body.reader-focus {
+// Reader focus mode — hide app chrome for distraction-free reading.
+// Tapping the page toggles .chrome-peek, which brings the chrome back
+// without leaving focus mode (see chapters/show.blade.php).
+body.reader-focus:not(.chrome-peek) {
     .navbar,
     #readerToolbar,
     .chapter-nav {
         display: none !important;
     }
+}
+
+// Thin reading-progress bar pinned to the top of the viewport.
+#readProgressBar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    z-index: 2000;
+    pointer-events: none;
+
+    #readProgressFill {
+        height: 100%;
+        width: 0;
+        background: var(--bs-primary);
+        transition: width 0.15s linear;
+    }
+}
+
+// Divider between continuously-loaded chapters.
+.reader-section-divider {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin: 1.75rem auto 1rem;
+    max-width: 760px;
+    color: $novarr-muted;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+
+    span {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 70%;
+    }
+
+    &::before,
+    &::after {
+        content: '';
+        flex: 1;
+        border-top: 1px solid $novarr-border;
+    }
+}
+
+// In-reader chapter list: pending chapters are visually secondary.
+#tocList .toc-pending {
+    opacity: 0.55;
 }
 
 // Reader colour themes. Applied to <body> (not just the card) so the whole

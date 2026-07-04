@@ -39,22 +39,28 @@ class SearchController extends Controller
     public function index(Request $request)
     {
         $q = trim($request->query('q', ''));
+        $novelId = (int) $request->query('novel', 0);
+        $novelFilter = $novelId ? Novel::find($novelId, ['id', 'name']) : null;
         $results = collect();
+        $paginator = null;
 
         if (mb_strlen($q) >= 2) {
             $isMysql = \Illuminate\Support\Facades\DB::connection()->getDriverName() === 'mysql';
 
-            $results = NovelChapter::with('novel:id,name')
+            $paginator = NovelChapter::with('novel:id,name')
                 ->where('status', 1)
                 ->where('blacklist', 0)
+                ->when($novelId, fn($query) => $query->where('novel_id', $novelId))
                 ->when($isMysql,
                     fn($query) => $query->whereFullText(['label', 'description'], $q),
                     fn($query) => $query->where(fn($w) => $w
                         ->where('label', 'like', '%' . $q . '%')
                         ->orWhere('description', 'like', '%' . $q . '%'))
                 )
-                ->limit(60)
-                ->get(['id', 'novel_id', 'chapter', 'book', 'label', 'description'])
+                ->paginate(40, ['id', 'novel_id', 'chapter', 'book', 'label', 'description'])
+                ->withQueryString();
+
+            $results = collect($paginator->items())
                 ->map(function ($c) use ($q) {
                     return [
                         'novel' => $c->novel,
@@ -69,6 +75,8 @@ class SearchController extends Controller
             'q' => $q,
             'results' => $results,
             'grouped' => $results->groupBy(fn($r) => $r['novel']->name),
+            'paginator' => $paginator,
+            'novelFilter' => $novelFilter,
         ]);
     }
 

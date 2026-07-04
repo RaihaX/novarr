@@ -42,11 +42,13 @@ Route::delete('/novels/{id}', [NovelController::class, 'destroy'])->name('novels
 Route::get('/novels/{id}/epub', [NovelController::class, 'download_epub'])->name('novels.download_epub');
 Route::get('/novels/{id}/metadata', [NovelController::class, 'update_metadata'])->name('novels.get_metadata');
 Route::get('/novels/{id}/offline-manifest', [NovelController::class, 'offlineManifest'])->name('novels.offline_manifest');
+Route::get('/novels/{id}/chapters-json', [NovelController::class, 'chaptersJson'])->name('novels.chapters_json');
 
 // Chapters
 Route::get('/chapters/{id}', [NovelChapterController::class, 'show'])->name('chapters.show');
 Route::post('/chapters/{id}/toggle-read', [NovelChapterController::class, 'toggleRead'])->name('chapters.toggle_read');
 Route::post('/chapters/{id}/read-through', [NovelChapterController::class, 'readThrough'])->name('chapters.read_through');
+Route::post('/chapters/{id}/progress', [NovelChapterController::class, 'progress'])->name('chapters.progress');
 Route::post('/chapters/bulk-read', [NovelChapterController::class, 'bulkRead'])->name('chapters.bulk_read');
 
 // Commands (status route BEFORE wildcard {command})

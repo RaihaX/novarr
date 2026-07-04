@@ -31,6 +31,14 @@ class CommandController extends Controller
             'command' => 'novel:chapter',
             'params' => ['novel_id'],
         ],
+        // Reader-only (not listed on the Commands page): fetch one pending
+        // chapter on demand from the chapter view.
+        'download_chapter' => [
+            'name' => 'Download Single Chapter',
+            'description' => 'Download content for a single chapter by id',
+            'command' => 'novel:chapter',
+            'params' => ['chapter_id'],
+        ],
         'epub' => [
             'name' => 'Generate ePub',
             'description' => 'Generate ePub files from downloaded chapters',
@@ -182,6 +190,13 @@ class CommandController extends Controller
         if (in_array('novel_id', $commandConfig['params'])) {
             $params['novel'] = (int) ($requestData['novel_id'] ?? 0);
         }
+        if (in_array('chapter_id', $commandConfig['params'])) {
+            // Without the id the command would fall through to a full sweep.
+            if (empty($requestData['chapter_id'])) {
+                return response()->json(['success' => false, 'message' => 'chapter_id is required'], 422);
+            }
+            $params['--chapter'] = (int) $requestData['chapter_id'];
+        }
         if (in_array('name', $commandConfig['params']) && !empty($requestData['name'])) {
             $params['name'] = $requestData['name'];
         }
@@ -220,6 +235,9 @@ class CommandController extends Controller
 
         if (in_array('novel_id', $commandConfig['params'])) {
             $params['novel'] = (int) $request->input('novel_id', 0);
+        }
+        if (in_array('chapter_id', $commandConfig['params'])) {
+            $params['--chapter'] = (int) $request->input('chapter_id', 0);
         }
         if (in_array('name', $commandConfig['params'])) {
             $params['name'] = $request->input('name', '');

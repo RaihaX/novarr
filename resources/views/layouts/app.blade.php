@@ -66,6 +66,19 @@
 
     <main class="py-4" id="main-content" tabindex="-1">
         <div class="container">
+            {{-- Global flash surface — controllers redirect with status/error --}}
+            @if(session('status') || session('success'))
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    {{ session('status') ?? session('success') }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            @endif
+            @if(session('error'))
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    {{ session('error') }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            @endif
             @yield('content')
         </div>
     </main>
