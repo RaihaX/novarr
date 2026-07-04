@@ -36,3 +36,4 @@ rr
 # Migration data (contains sensitive database dumps)
 /migrate/
 !/migrate/.gitkeep
+CLAUDE.md
