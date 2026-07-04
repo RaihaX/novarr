@@ -9,12 +9,12 @@ use Illuminate\Support\Facades\Log;
 use Symfony\Component\DomCrawler\Crawler;
 
 /**
- * Sonarr-style "Add Novel" discovery: search and browse novelbin.me, then
+ * Sonarr-style "Add Novel" discovery: search and browse novelarrow.com, then
  * add a result via the existing novel:create background command.
  */
 class DiscoverController extends Controller
 {
-    protected const BASE = 'https://novelbin.me';
+    protected const BASE = 'https://novelarrow.com';
 
     public function index()
     {
@@ -22,18 +22,18 @@ class DiscoverController extends Controller
     }
 
     /**
-     * Fetch a result list from novelbin.me.
+     * Fetch a result list from novelarrow.com.
      * type: search (requires q) | popular | completed
      */
     public function browse(Request $request)
     {
         $data = $request->validate([
-            'source' => 'nullable|in:novelbin,empirenovel,novelfull',
+            'source' => 'nullable|in:novelarrow,empirenovel,novelfull',
             'type' => 'required|in:search,popular,completed',
             'q' => 'required_if:type,search|nullable|string|max:100',
         ]);
 
-        $source = $data['source'] ?? 'novelbin';
+        $source = $data['source'] ?? 'novelarrow';
 
         // Empire Novel only exposes a live search endpoint (no browse lists).
         if ($source === 'empirenovel') {
@@ -49,16 +49,18 @@ class DiscoverController extends Controller
             $items = $this->searchNovelFull($data['q']);
             $sourceLabel = 'novelfull.com';
         } else {
-            $url = match ($data['type']) {
-                'search' => self::BASE . '/search?keyword=' . urlencode($data['q']),
-                'popular' => self::BASE . '/sort/top-hot-novel',
-                'completed' => self::BASE . '/sort/completed',
+            $query = match ($data['type']) {
+                'search' => ['status' => 'all', 'sort' => 'SEARCH_KEYWORD', 'keyword' => $data['q']],
+                'popular' => ['status' => 'all', 'sort' => 'POPULAR'],
+                'completed' => ['status' => 'completed', 'sort' => 'COMPLETE'],
             };
+            $url = self::BASE . '/api-web/novels?'
+                . http_build_query($query + ['limit' => 40, 'page' => 1, 'genre' => 'ALL']);
 
             // Browse lists barely change — cache them. Searches are cached
             // briefly. A broken cache store must not take the feature down.
             $ttl = $data['type'] === 'search' ? 600 : 3600;
-            $cacheKey = 'discover_v2_' . md5($url);
+            $cacheKey = 'discover_v3_' . md5($url);
 
             try {
                 $items = Cache::remember($cacheKey, $ttl, fn() => $this->fetchList($url));
@@ -66,7 +68,7 @@ class DiscoverController extends Controller
                 Log::warning('Discover: cache store unavailable (' . $e->getMessage() . ') — fetching uncached');
                 $items = $this->fetchList($url);
             }
-            $sourceLabel = 'novelbin.me';
+            $sourceLabel = 'novelarrow.com';
         }
 
         if ($items === null) {
@@ -175,96 +177,52 @@ class DiscoverController extends Controller
     }
 
     /**
-     * Fetch and parse a novelbin.me list page into result items.
-     * Returns null when the page cannot be fetched.
+     * Fetch a novelarrow.com api-web novel list into result items.
+     * Returns null when the endpoint cannot be fetched.
      */
     protected function fetchList(string $url): ?array
     {
-        $html = null;
+        $json = null;
 
         try {
-            $response = createHttpClient()->request('GET', $url);
+            $response = createHttpClient()->request('GET', $url, [
+                'headers' => ['Accept' => 'application/json'],
+            ]);
             if ($response->getStatusCode() === 200) {
-                $html = $response->getContent(false);
+                $json = json_decode($response->getContent(false), true);
             }
         } catch (\Throwable $e) {
-            Log::warning("Discover: direct fetch failed for {$url}: " . $e->getMessage());
+            Log::warning("Discover: fetch failed for {$url}: " . $e->getMessage());
         }
 
-        // Cloudflare challenge or failure → retry through FlareSolverr.
-        if (empty($html) || stripos($html, '<title>Just a moment...</title>') !== false) {
-            $html = fetchWithBrowser($url);
-        }
-
-        if (empty($html)) {
+        if (!is_array($json)) {
             Log::error("Discover: could not fetch {$url}");
             return null;
         }
 
-        try {
-            $crawler = new Crawler($html);
-            $items = [];
-
-            $crawler->filter('h3.novel-title')->each(function (Crawler $node) use (&$items) {
-                $link = $node->filter('a');
-                if ($link->count() === 0) {
-                    return;
-                }
-
-                $name = trim($link->first()->attr('title') ?: $link->first()->text());
-                $href = $link->first()->attr('href');
-
-                if (empty($name) || empty($href)) {
-                    return;
-                }
-
-                // Walk up to the result row for cover + author.
-                $row = $node->closest('.row');
-                $cover = '';
-                $author = '';
-
-                if ($row) {
-                    $img = $row->filter('img.cover, img');
-                    if ($img->count() > 0) {
-                        // Sort pages lazy-load covers via data-src; search
-                        // pages use a plain src.
-                        foreach (['data-src', 'src'] as $attr) {
-                            $value = $img->first()->attr($attr);
-                            if (!empty($value) && stripos($value, 'data:image') !== 0 && stripos($value, 'logo') === false) {
-                                $cover = $value;
-                                break;
-                            }
-                        }
-                    }
-                    $authorNode = $row->filter('.author');
-                    if ($authorNode->count() > 0) {
-                        $author = trim($authorNode->first()->text());
-                    }
-                }
-
-                // List pages serve tiny resized thumbnails
-                // (…/novel_200_89/slug.jpg) that look terrible upscaled; the
-                // full-size original lives at …/novel/slug.jpg. Keep the
-                // thumbnail as a client-side fallback.
-                $fullCover = preg_replace('#/novel_\d+_\d+/#', '/novel/', $cover);
-
-                $items[] = [
-                    'name' => $name,
-                    'url' => str_starts_with($href, 'http') ? $href : self::BASE . $href,
-                    'cover' => $fullCover,
-                    'cover_thumb' => $cover !== $fullCover ? $cover : '',
-                    'author' => $author,
-                ];
-            });
-
-            if (empty($items)) {
-                Log::warning("Discover: no results parsed from {$url} (html length: " . strlen($html) . ") — markup may have changed");
+        $items = [];
+        foreach ($json['items'] ?? [] as $row) {
+            $slug = $row['novel_id'] ?? '';
+            $name = trim($row['novel_name'] ?? '');
+            if ($slug === '' || $name === '') {
+                continue;
             }
 
-            return $items;
-        } catch (\Throwable $e) {
-            Log::error("Discover: parse error for {$url}: " . $e->getMessage());
-            return null;
+            $items[] = [
+                'name' => $name,
+                'url' => self::BASE . '/novel/' . $slug,
+                // Covers live on the image host, keyed by slug (see the
+                // site's og:image tags).
+                'cover' => "https://images.novelarrow.com/novel/{$slug}.jpg",
+                'cover_thumb' => '',
+                'author' => trim($row['novel_author'] ?? ''),
+            ];
         }
+
+        if (empty($items)) {
+            Log::warning("Discover: no results from {$url} — API shape may have changed");
+        }
+
+        return $items;
     }
 }

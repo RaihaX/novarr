@@ -29,7 +29,7 @@
                     <div class="mb-3">
                         <label for="name" class="form-label">Name</label>
                         <input type="text" name="name" id="name" class="form-control" value="{{ old('name', $novel->name) }}" required>
-                        <div class="form-text">Used to build NovelUpdates/NovelBin URLs for metadata — fix typos here, then run Refresh Metadata.</div>
+                        <div class="form-text">Used to build NovelUpdates/NovelArrow URLs for metadata — fix typos here, then run Refresh Metadata.</div>
                     </div>
 
                     <div class="row">

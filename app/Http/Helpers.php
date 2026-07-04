@@ -352,6 +352,14 @@ function chapterGenerator($data)
         // Add delay to avoid rate limiting
         usleep(rand(500000, 1500000)); // Random delay between 0.5-1.5 seconds
 
+        // Novel Arrow chapters come straight from the JSON API — no browser
+        // fetch or HTML scrape needed. Falls through on failure.
+        $apiResult = novelArrowChapterContent($novelUrl);
+        if (count($apiResult) > 0) {
+            \Log::debug("ChapterGenerator fetched via Novel Arrow API: {$novelUrl} (paragraphs: " . count($apiResult) . ")");
+            return $apiResult;
+        }
+
         // Fetch page using headless browser (bypasses Cloudflare)
         // Don't wait for specific selector - let the page load fully
         $html = fetchWithBrowser($novelUrl);
@@ -485,7 +493,7 @@ function stripChapterNoise($html)
     $html = preg_replace('/<script\b[^>]*>.*?<\/script>/is', '', $html);
     $html = preg_replace('/<style\b[^>]*>.*?<\/style>/is', '', $html);
 
-    // Inline ad slots used by novelbin et al.
+    // Inline ad slots used by novelarrow et al.
     $html = preg_replace('/<div[^>]*data-format[^>]*>.*?<\/div>/is', '', $html);
 
     // Taboola / Outbrain / generic recommendation widget containers. These tend to
@@ -532,7 +540,7 @@ function tableOfContentGenerator($data)
 
     try {
         // Per-source TOC (see App\Sources). The resolver picks the adapter by
-        // the novel's URL; NovelBinSource is the default.
+        // the novel's URL; NovelArrowSource is the default.
         $result = finalizeTocResult(
             \App\Sources\SourceResolver::for($data)->tableOfContents($data)
         );
@@ -567,82 +575,135 @@ function finalizeTocResult(array $result): array
 }
 
 /**
- * Extract [host, slug] from any Novel Bin URL shape: a novel page
- * (…/novel-book/slug, …/b/slug) or an AJAX endpoint
- * (…/ajax/chapter-archive?novelId=slug).
+ * Extract the novel slug from any Novel Arrow URL shape — a novel page
+ * (…/novel/slug), a chapter page (…/chapter/slug/chapter-…) — or a legacy
+ * Novel Bin shape (…/novel-book/slug, …/b/slug,
+ * …/ajax/chapter-archive?novelId=slug). Slugs are identical across the
+ * rebrand, so legacy URLs still resolve.
  */
-function novelBinSlugAndHost(string $url): array
+function novelArrowSlug(string $url): string
 {
-    $host = parse_url($url, PHP_URL_HOST) ?: "";
-    $slug = "";
-
     parse_str(parse_url($url, PHP_URL_QUERY) ?: "", $query);
 
     if (!empty($query["novelId"])) {
-        $slug = $query["novelId"];
-    } else {
-        $path = parse_url($url, PHP_URL_PATH) ?: "";
-        $slug = basename(rtrim($path, "/"));
+        return $query["novelId"];
     }
 
-    return [$host, $slug];
+    $path = trim(parse_url($url, PHP_URL_PATH) ?: "", "/");
+    $parts = $path === "" ? [] : explode("/", $path);
+
+    // Chapter pages carry the slug one segment before the chapter id.
+    if (count($parts) >= 2 && $parts[0] === "chapter") {
+        return $parts[1];
+    }
+
+    return $parts === [] ? "" : end($parts);
 }
 
 /**
- * Fetch the complete chapter list for a Novel Bin novel via its AJAX
- * archive endpoint (the novel page itself only embeds the newest ~30).
+ * GET a novelarrow.com api-web endpoint and return the decoded JSON,
+ * or null on any failure (logged).
  */
-function novelBinChapterArchive(string $novelUrl): array
+function novelArrowApi(string $path): ?array
 {
-    [$host, $slug] = novelBinSlugAndHost($novelUrl);
-    $scheme = parse_url($novelUrl, PHP_URL_SCHEME) ?: "https";
-
-    if ($slug === "" || empty($host)) {
-        return [];
-    }
-
-    $url = "{$scheme}://{$host}/ajax/chapter-option?novelId=" . urlencode($slug);
+    $url = "https://novelarrow.com/api-web/" . ltrim($path, "/");
 
     try {
-        $html = null;
+        $response = createHttpClient()->request("GET", $url, [
+            "headers" => ["Accept" => "application/json"],
+        ]);
 
-        try {
-            $response = createHttpClient()->request("GET", $url);
-            if ($response->getStatusCode() === 200) {
-                $html = $response->getContent(false);
-            }
-        } catch (\Throwable $e) {
-            \Log::warning("novelBinChapterArchive direct fetch failed for {$url}: " . $e->getMessage());
+        if ($response->getStatusCode() !== 200) {
+            \Log::warning("novelArrowApi HTTP " . $response->getStatusCode() . " for {$url}");
+            return null;
         }
 
-        if (empty($html) || stripos($html, "Just a moment...") !== false) {
-            $html = fetchWithBrowser($url);
-        }
+        $json = json_decode($response->getContent(false), true);
 
-        if (empty($html)) {
-            return [];
-        }
-
-        $crawler = new Crawler($html);
-        $result = [];
-
-        $crawler->filter("option")->each(function ($node) use (&$result) {
-            $chapterUrl = trim($node->attr("value") ?? "");
-            $label = trim(preg_replace('/\s+/', " ", $node->text()));
-
-            if ($chapterUrl !== "" && $label !== "") {
-                $result[] = generateTocChapterInfo($label, $chapterUrl);
-            }
-        });
-
-        $result = array_values(array_filter($result));
-        \Log::info("novelBinChapterArchive: parsed " . count($result) . " chapters from {$url}");
-
-        return $result;
+        return is_array($json) ? $json : null;
     } catch (\Throwable $e) {
-        \Log::error("novelBinChapterArchive error for {$url}: " . $e->getMessage());
+        \Log::error("novelArrowApi error for {$url}: " . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * Fetch the complete chapter list for a Novel Arrow novel via its JSON API
+ * (the novel page itself only embeds ~30 chapters).
+ */
+function novelArrowChapterArchive(string $novelUrl): array
+{
+    $slug = novelArrowSlug($novelUrl);
+
+    if ($slug === "") {
         return [];
     }
+
+    $json = novelArrowApi("novels/" . rawurlencode($slug) . "/chapters?sort=asc");
+
+    $result = [];
+    foreach (($json["items"] ?? []) as $item) {
+        $chapterId = trim($item["chapter_id"] ?? "");
+        $label = trim(preg_replace('/\s+/', " ", $item["chapter_name"] ?? ""));
+
+        if ($chapterId !== "" && $label !== "") {
+            $result[] = generateTocChapterInfo(
+                $label,
+                "https://novelarrow.com/chapter/{$slug}/{$chapterId}"
+            );
+        }
+    }
+
+    $result = array_values(array_filter($result));
+    \Log::info("novelArrowChapterArchive: parsed " . count($result) . " chapters for {$slug}");
+
+    return $result;
+}
+
+/**
+ * Fetch chapter content for a Novel Arrow chapter page URL via the JSON API.
+ * Returns escaped <p> paragraphs, or [] when the URL isn't a Novel Arrow
+ * chapter page or the API yields nothing — the caller then falls back to the
+ * generic HTML scrape.
+ */
+function novelArrowChapterContent(string $url): array
+{
+    $host = strtolower(parse_url($url, PHP_URL_HOST) ?: "");
+    if ($host !== "novelarrow.com" && !str_ends_with($host, ".novelarrow.com")) {
+        return [];
+    }
+
+    $path = trim(parse_url($url, PHP_URL_PATH) ?: "", "/");
+    $parts = explode("/", $path);
+    if (count($parts) !== 3 || $parts[0] !== "chapter") {
+        return [];
+    }
+    [, $slug, $chapterId] = $parts;
+
+    $json = novelArrowApi(
+        "novels/" . rawurlencode($slug) . "/chapters/" . rawurlencode($chapterId)
+    );
+    $content = $json["item"]["chapterInfo"]["chapter_content"] ?? "";
+    if (trim($content) === "") {
+        return [];
+    }
+
+    $content = str_replace("\u{FEFF}", "", stripChapterNoise($content));
+
+    // Content arrives as <p> blocks, occasionally br-separated inside them —
+    // split on both so each paragraph comes out on its own line.
+    $paragraphs = preg_split('/<\/p>|<br\s*\/?>/i', $content);
+
+    $result = [];
+    foreach ($paragraphs as $para) {
+        $text = trim(html_entity_decode(strip_tags($para), ENT_QUOTES));
+        if ($text === "" || isChapterSpamLine($text)) {
+            continue;
+        }
+        $result[] = "<p>" . htmlspecialchars($text) . "</p>";
+    }
+
+    return $result;
 }
 
 /**
@@ -1055,7 +1116,7 @@ function getMetadata($data)
 }
 
 /**
- * Build a NovelUpdates/NovelBin-style slug from a novel name: apostrophes
+ * Build a NovelUpdates/NovelArrow-style slug from a novel name: apostrophes
  * and quotes vanish ("The King's Avatar" -> the-kings-avatar), every other
  * non-alphanumeric run becomes a single dash.
  */
@@ -1069,7 +1130,7 @@ function novelSlug($name)
 
 /**
  * Clean a list of scraped genre strings into Title Case, de-duplicated tag
- * names. Handles UPPERCASE (NovelBin) and HTML entities (e.g. "Anime &amp;
+ * names. Handles UPPERCASE (NovelArrow) and HTML entities (e.g. "Anime &amp;
  * Comics"), drops blanks, caps the count so a novel isn't buried in tags.
  */
 function normalizeGenres(array $genres): array
@@ -1085,11 +1146,11 @@ function normalizeGenres(array $genres): array
 }
 
 /**
- * Fetch novel metadata from novelbin.com as a fallback source.
- * Tries translator_url first if it's already a novelbin URL, then falls back
- * to building a slug from the novel name.
+ * Fetch novel metadata from novelarrow.com (formerly novelbin) as a fallback
+ * source, via its JSON API. Tries the slug from translator_url first when
+ * it's already a Novel Arrow URL, then a slug built from the novel name.
  */
-function getMetadataFromNovelBin($data)
+function getMetadataFromNovelArrow($data)
 {
     $metadata = [
         "description" => "",
@@ -1099,108 +1160,56 @@ function getMetadataFromNovelBin($data)
         "genres" => [],
     ];
 
-    $candidateUrls = [];
+    $slugs = [];
 
-    if (!empty($data->translator_url) && stripos($data->translator_url, "novelbin") !== false) {
-        if (stripos($data->translator_url, "/ajax/") !== false) {
-            // translator_url points at an AJAX endpoint (used for chapter
-            // lists) — derive the actual novel page from its slug.
-            [$host, $slug] = novelBinSlugAndHost($data->translator_url);
-            if ($slug !== "" && $host !== "") {
-                $candidateUrls[] = "https://{$host}/novel-book/{$slug}";
-                $candidateUrls[] = "https://novelbin.me/novel-book/{$slug}";
-                $candidateUrls[] = "https://novelbin.com/b/{$slug}";
-            }
-        } else {
-            $candidateUrls[] = rtrim($data->translator_url, "/");
+    if (!empty($data->translator_url) && preg_match('/novelarrow|novelbin/i', $data->translator_url)) {
+        $slug = novelArrowSlug($data->translator_url);
+        if ($slug !== "") {
+            $slugs[] = $slug;
         }
     }
 
     if (!empty($data->name)) {
-        $slug = novelSlug($data->name);
-        $candidateUrls[] = "https://novelbin.me/novel-book/{$slug}";
-        $candidateUrls[] = "https://novelbin.com/b/{$slug}";
+        $slugs[] = novelSlug($data->name);
     }
 
-    $metadata["tried_urls"] = array_values(array_unique($candidateUrls));
+    $slugs = array_values(array_unique($slugs));
+    $metadata["tried_urls"] = array_map(fn($s) => "https://novelarrow.com/novel/{$s}", $slugs);
 
-    foreach (array_unique($candidateUrls) as $url) {
-        try {
-            $html = fetchWithBrowser($url, '.book-img');
+    foreach ($slugs as $slug) {
+        $json = novelArrowApi("novels/" . rawurlencode($slug));
+        $info = $json["item"]["novelInfo"] ?? null;
 
-            if (empty($html)) {
-                \Log::warning("getMetadataFromNovelBin empty response for {$url}");
-                continue;
-            }
+        if (empty($info)) {
+            \Log::warning("getMetadataFromNovelArrow: no data for slug '{$slug}'");
+            continue;
+        }
 
-            $crawler = new Crawler($html);
+        $metadata["description"] = trim($info["novel_desc"] ?? "");
+        $metadata["author"] = trim($info["novel_author"] ?? "");
+        $metadata["no_of_chapters"] = (int) ($info["totalChapter"] ?? 0);
 
-            // Cover image — novelbin lazy-loads, so check common attribute variants
-            $imageFilter = $crawler->filter('.book-img img, .book-cover img, .book img');
-            if ($imageFilter->count() > 0) {
-                $node = $imageFilter->first();
-                foreach (['data-src', 'data-cfsrc', 'src'] as $attr) {
-                    $value = $node->attr($attr);
-                    if (!empty($value) && stripos($value, 'data:image') !== 0) {
-                        $metadata["image"] = $value;
-                        break;
-                    }
-                }
-            }
+        // Covers live on the image host, keyed by slug (see the site's
+        // og:image tags) — downloadCoverImage() validates it's a real image.
+        $metadata["image"] = "https://images.novelarrow.com/novel/{$slug}.jpg";
 
-            // Description
-            $descFilter = $crawler->filter('.desc-text, #tab-description .desc-text, .desc');
-            if ($descFilter->count() > 0) {
-                $metadata["description"] = trim($descFilter->first()->html());
-            }
+        $genres = $info["novel_genres"] ?? [];
+        if (empty($genres)) {
+            $genres = $info["novel_tags"] ?? [];
+        }
+        if (!empty($genres)) {
+            $metadata["genres"] = normalizeGenres(is_array($genres) ? $genres : explode(",", $genres));
+        }
 
-            // Genres — novelbin exposes them in a <meta name="genre"> tag and
-            // as genre links under the info block.
-            if (empty($metadata["genres"])) {
-                $genreMeta = $crawler->filterXPath('//meta[@name="genre"]');
-                if ($genreMeta->count() > 0) {
-                    $metadata["genres"] = normalizeGenres(explode(',', $genreMeta->attr('content') ?? ''));
-                } else {
-                    $genreLinks = $crawler->filter('.info a[href*="genre"]');
-                    if ($genreLinks->count() > 0) {
-                        $metadata["genres"] = normalizeGenres($genreLinks->each(fn($n) => $n->text()));
-                    }
-                }
-            }
+        \Log::debug("getMetadataFromNovelArrow fetched slug '{$slug}'", [
+            'has_description' => !empty($metadata['description']),
+            'has_author' => !empty($metadata['author']),
+            'no_of_chapters' => $metadata['no_of_chapters'],
+        ]);
 
-            // Author + chapter count — both live under ul.info-meta > li with an h3 label
-            $infoFilter = $crawler->filter('ul.info-meta > li, .info-holder .info > div > li, .info > .meta > p');
-            $infoFilter->each(function ($node) use (&$metadata) {
-                $label = strtolower(trim($node->filter('h3, b')->count() > 0 ? $node->filter('h3, b')->first()->text() : ''));
-                $text = trim($node->text());
-
-                if (str_contains($label, 'author')) {
-                    $authorNode = $node->filter('a');
-                    $metadata["author"] = $authorNode->count() > 0
-                        ? trim($authorNode->first()->text())
-                        : trim(str_ireplace('author', '', $text));
-                }
-
-                if (str_contains($label, 'chapter') || stripos($text, 'Latest Chapter') !== false) {
-                    if (preg_match('/(\d+)/', $text, $matches)) {
-                        $metadata["no_of_chapters"] = (int) $matches[1];
-                    }
-                }
-            });
-
-            \Log::debug("getMetadataFromNovelBin fetched from {$url}", [
-                'has_image' => !empty($metadata['image']),
-                'has_description' => !empty($metadata['description']),
-                'has_author' => !empty($metadata['author']),
-                'no_of_chapters' => $metadata['no_of_chapters'],
-            ]);
-
-            // Stop on the first URL that yields any useful field
-            if (!empty($metadata['image']) || !empty($metadata['description']) || !empty($metadata['author'])) {
-                break;
-            }
-        } catch (\Exception $e) {
-            \Log::error("getMetadataFromNovelBin error for {$url}: " . $e->getMessage());
+        // Stop on the first slug that yields any useful field.
+        if (!empty($metadata['description']) || !empty($metadata['author'])) {
+            break;
         }
     }
 

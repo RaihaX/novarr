@@ -8,12 +8,12 @@ class SourceResolver
 {
     /**
      * Ordered list of sources. The first whose matches() returns true wins;
-     * NovelBinSource matches everything, so it's the default and must be last.
+     * NovelArrowSource matches everything, so it's the default and must be last.
      */
     protected static array $sources = [
         EmpireNovelSource::class,
         NovelFullSource::class,
-        NovelBinSource::class,
+        NovelArrowSource::class,
     ];
 
     public static function for(Novel $novel): Source
@@ -25,6 +25,6 @@ class SourceResolver
             }
         }
 
-        return new NovelBinSource();
+        return new NovelArrowSource();
     }
 }

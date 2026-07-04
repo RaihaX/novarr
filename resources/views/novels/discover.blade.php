@@ -8,7 +8,7 @@
     </div>
     <div class="d-flex flex-wrap gap-2 align-items-center">
         <select id="discoverSource" class="form-select form-select-sm w-auto" aria-label="Source">
-            <option value="novelbin">novelbin.me</option>
+            <option value="novelarrow">novelarrow.com</option>
             <option value="empirenovel">empirenovel.com</option>
             <option value="novelfull">novelfull.com</option>
         </select>
@@ -234,12 +234,12 @@
         loadList('search', q);
     });
 
-    // Only novelbin has browse lists; other sources are search-only.
+    // Only novelarrow has browse lists; other sources are search-only.
     sourceEl.addEventListener('change', () => {
         const src = source();
-        const searchOnly = src !== 'novelbin';
+        const searchOnly = src !== 'novelarrow';
         tabsEl.classList.toggle('d-none', searchOnly);
-        document.getElementById('discoverQuery').placeholder = `Search ${src === 'novelbin' ? 'novelbin.me' : src + '.com'}…`;
+        document.getElementById('discoverQuery').placeholder = `Search ${src}.com…`;
         document.getElementById('discoverQuery').value = '';
         if (searchOnly) {
             statusEl.textContent = `Search ${src}.com to find a novel to add.`;

@@ -100,7 +100,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
                  │                                   queue:work --stop-when-empty
                  ▼                                            │
         ┌──────────────────┐    FlareSolverr / HTTP    ┌──────────────┐
-        │  Source adapter  │ ◄───────────────────────► │ novelbin /   │
+        │  Source adapter  │ ◄───────────────────────► │ novelarrow / │
         │ (TOC + content)  │                           │ empirenovel /│
         └────────┬─────────┘                           │ novelfull    │
                  │  cleaned chapters                    └──────────────┘
@@ -125,11 +125,11 @@ Open **http://&lt;host&gt;/** and start adding novels.
 |---|---|---|
 | `EmpireNovelSource` | `empirenovel.com` | Paginated TOC via FlareSolverr + cookie reuse |
 | `NovelFullSource` | `novelfull.com` | AJAX chapter-list endpoint |
-| `NovelBinSource` | `novelbin.com` (and **default** fallback) | AJAX chapter archive or page parse |
+| `NovelArrowSource` | `novelarrow.com` (and **default** fallback) | JSON api-web chapter list or page parse |
 
 Metadata for all sources is enriched from **NovelUpdates** (description, genres, cover, completion status), with the source's own page as a fallback.
 
-> Adding a new source = implement the `Source` interface (`matches`, `tableOfContents`, `metadata`, `name`) in `app/Sources` and register it in `SourceResolver`. The first adapter whose `matches()` returns true wins; `NovelBinSource` matches everything as the default.
+> Adding a new source = implement the `Source` interface (`matches`, `tableOfContents`, `metadata`, `name`) in `app/Sources` and register it in `SourceResolver`. The first adapter whose `matches()` returns true wins; `NovelArrowSource` matches everything as the default.
 
 ---
 
@@ -349,7 +349,7 @@ app/
 │   ├── Helpers.php        # Scraping, metadata, FlareSolverr, ePub, Kindle helpers
 │   └── Middleware/        # incl. CSRF exemptions for offline replay
 ├── Jobs/RunNovelCommand   # Queued Artisan command runner (3600s timeout)
-├── Sources/               # Source interface + NovelBin/EmpireNovel/NovelFull adapters
+├── Sources/               # Source interface + NovelArrow/EmpireNovel/NovelFull adapters
 └── *.php                  # Models: Novel, NovelChapter, File, Tag, Group,
                            #   Language, Setting, User
 database/migrations/       # Schema (novels, novel_chapters, tags, app_settings, …)

@@ -6,32 +6,33 @@ use App\Novel;
 use Symfony\Component\DomCrawler\Crawler;
 
 /**
- * Novel Bin — and the default source for anything not matched elsewhere.
- * TOC comes from the AJAX chapter archive (the page only embeds ~30), with a
- * page-parse fallback. Metadata is NovelUpdates first, Novel Bin as fallback.
+ * Novel Arrow (formerly Novel Bin) — and the default source for anything not
+ * matched elsewhere. TOC comes from the site's JSON API (the page only embeds
+ * ~30 chapters), with a generic page-parse fallback for unrecognised sites.
+ * Metadata is NovelUpdates first, Novel Arrow as fallback.
  */
-class NovelBinSource implements Source
+class NovelArrowSource implements Source
 {
     public function name(): string
     {
-        return 'novelbin';
+        return 'novelarrow';
     }
 
     public function matches(Novel $novel): bool
     {
-        // Default source — handles novelbin and anything unrecognised.
+        // Default source — handles novelarrow and anything unrecognised.
         return true;
     }
 
     public function tableOfContents(Novel $novel): array
     {
-        // The complete list lives behind an AJAX endpoint keyed by the slug.
-        if ($novel->group_id == 1 && stripos($novel->translator_url ?? '', 'novelbin') !== false) {
-            $result = novelBinChapterArchive($novel->translator_url);
+        // The complete list lives behind a JSON API keyed by the slug.
+        if ($novel->group_id == 1 && preg_match('/novelarrow|novelbin/i', $novel->translator_url ?? '')) {
+            $result = novelArrowChapterArchive($novel->translator_url);
             if (!empty($result)) {
                 return $result;
             }
-            \Log::warning("NovelBinSource: archive empty for {$novel->translator_url}; falling back to page parse");
+            \Log::warning("NovelArrowSource: chapter list empty for {$novel->translator_url}; falling back to page parse");
         }
 
         // Generic page parse (the novel page's embedded chapter list).
@@ -55,7 +56,7 @@ class NovelBinSource implements Source
             || empty($metadata['author']) || empty($metadata['no_of_chapters']);
 
         if ($needsFallback) {
-            $fallback = getMetadataFromNovelBin($novel);
+            $fallback = getMetadataFromNovelArrow($novel);
             if (!empty($fallback['image'])) {
                 $metadata['cover_candidates'][] = $fallback['image'];
             }

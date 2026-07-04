@@ -32,6 +32,6 @@ interface Source
      */
     public function metadata(Novel $novel): array;
 
-    /** Short label for logs/UI, e.g. "novelbin". */
+    /** Short label for logs/UI, e.g. "novelarrow". */
     public function name(): string;
 }
