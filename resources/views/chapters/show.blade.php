@@ -164,7 +164,7 @@
                 </div>
             </div>
             <div class="card-body">
-                @if($chapter->getRawOriginal('description'))
+                @if($chapter->rawText())
                     <div class="chapter-content" id="chapterContent">
                         {!! $chapter->description !!}
                     </div>

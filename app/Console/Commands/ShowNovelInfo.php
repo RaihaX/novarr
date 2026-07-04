@@ -33,8 +33,10 @@ class ShowNovelInfo extends Command
             ->get()
             ->map(function ($novel) {
                 $totalChapters = $novel->chapters->count();
+                // status=1 is set exactly when content was saved, so it's the
+                // has-content signal without touching chapter_texts.
                 $chaptersWithContent = $novel->chapters
-                    ->where("description", "!=", "")
+                    ->filter(fn($c) => $c->status)
                     ->count();
                 $percentageComplete =
                     $totalChapters > 0

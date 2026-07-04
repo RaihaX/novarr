@@ -47,17 +47,19 @@ class SearchController extends Controller
         if (mb_strlen($q) >= 2) {
             $isMysql = \Illuminate\Support\Facades\DB::connection()->getDriverName() === 'mysql';
 
-            $paginator = NovelChapter::with('novel:id,name')
+            $paginator = NovelChapter::with(['novel:id,name', 'text'])
                 ->where('status', 1)
                 ->where('blacklist', 0)
                 ->when($novelId, fn($query) => $query->where('novel_id', $novelId))
                 ->when($isMysql,
-                    fn($query) => $query->whereFullText(['label', 'description'], $q),
+                    fn($query) => $query->where(fn($w) => $w
+                        ->whereFullText('label', $q)
+                        ->orWhereHas('text', fn($t) => $t->whereFullText('content', $q))),
                     fn($query) => $query->where(fn($w) => $w
                         ->where('label', 'like', '%' . $q . '%')
-                        ->orWhere('description', 'like', '%' . $q . '%'))
+                        ->orWhereHas('text', fn($t) => $t->where('content', 'like', '%' . $q . '%')))
                 )
-                ->paginate(40, ['id', 'novel_id', 'chapter', 'book', 'label', 'description'])
+                ->paginate(40, ['id', 'novel_id', 'chapter', 'book', 'label'])
                 ->withQueryString();
 
             $results = collect($paginator->items())
@@ -65,7 +67,7 @@ class SearchController extends Controller
                     return [
                         'novel' => $c->novel,
                         'chapter' => $c,
-                        'snippet' => $this->snippet($c->getRawOriginal('description'), $q),
+                        'snippet' => $this->snippet($c->rawText(), $q),
                     ];
                 })
                 ->filter(fn($r) => $r['novel'] !== null);

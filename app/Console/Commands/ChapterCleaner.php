@@ -22,11 +22,12 @@ class ChapterCleaner extends Command
         }
 
         $reset = 0;
-        NovelChapter::where('novel_id', $novelId)
+        NovelChapter::with('text')
+            ->where('novel_id', $novelId)
             ->where('status', 1)
             ->chunkById(100, function ($chapters) use (&$reset) {
                 foreach ($chapters as $chapter) {
-                    $paragraphs = substr_count($chapter->getRawOriginal('description') ?? '', '<p>');
+                    $paragraphs = substr_count($chapter->rawText() ?? '', '<p>');
 
                     if ($paragraphs <= 10) {
                         $chapter->description = '';

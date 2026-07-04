@@ -27,10 +27,13 @@ class StatsController extends Controller
         $days = 30;
         $since = now()->subDays($days - 1)->startOfDay();
 
-        // Chapters + text volume read per day, last 30 days.
-        $rows = NovelChapter::whereNotNull('read_at')
+        // Chapters + text volume read per day, last 30 days. Body text lives
+        // in chapter_texts, hence the join for the length sum.
+        $rows = NovelChapter::query()
+            ->leftJoin('chapter_texts', 'chapter_texts.novel_chapter_id', '=', 'novel_chapters.id')
+            ->whereNotNull('read_at')
             ->where('read_at', '>=', $since)
-            ->selectRaw('DATE(read_at) as d, COUNT(*) as chapters, SUM(LENGTH(description)) as chars')
+            ->selectRaw('DATE(read_at) as d, COUNT(*) as chapters, SUM(LENGTH(chapter_texts.content)) as chars')
             ->groupBy('d')
             ->orderBy('d')
             ->get()
@@ -68,8 +71,10 @@ class StatsController extends Controller
         }
 
         // Totals. The all-time word sum scans read chapters' text — cached.
-        $totals = NovelChapter::whereNotNull('read_at')
-            ->selectRaw('COUNT(*) as chapters, SUM(LENGTH(description)) as chars')
+        $totals = NovelChapter::query()
+            ->leftJoin('chapter_texts', 'chapter_texts.novel_chapter_id', '=', 'novel_chapters.id')
+            ->whereNotNull('read_at')
+            ->selectRaw('COUNT(*) as chapters, SUM(LENGTH(chapter_texts.content)) as chars')
             ->first();
 
         $readToday = NovelChapter::whereNotNull('read_at')

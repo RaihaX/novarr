@@ -144,14 +144,16 @@ class GenerateePub extends Command
         $bar = $this->output->createProgressBar($chapterCount);
         $bar->start();
 
-        // Stream chapter bodies one row at a time — only a single `description`
+        // Stream chapter bodies one row at a time — only a single body text
         // is ever resident, so peak memory is flat regardless of book length.
+        // Joined (not ->with) so the cursor stays a single streamed query.
         $novel->chapters()
+            ->leftJoin("chapter_texts", "chapter_texts.novel_chapter_id", "=", "novel_chapters.id")
             ->where("blacklist", 0)
             ->where("status", 1)
             ->orderBy("book")
             ->orderBy("chapter")
-            ->select(["id", "label", "description"])
+            ->select(["novel_chapters.id", "novel_chapters.label", "chapter_texts.content as raw_content"])
             ->cursor()
             ->each(function ($chapter) use ($id, $textDir, $bar) {
                 $chapterFilename = $this->getChapterFilename($chapter);
@@ -334,7 +336,7 @@ XHTML;
     protected function generateChapterXhtml($chapter): string
     {
         $title = htmlspecialchars($chapter->label, ENT_QUOTES | ENT_XML1, 'UTF-8');
-        $content = $this->sanitizeHtmlContent($chapter->description);
+        $content = $this->sanitizeHtmlContent(\App\NovelChapter::presentContent($chapter->raw_content));
 
         return <<<XHTML
 <?xml version="1.0" encoding="UTF-8"?>

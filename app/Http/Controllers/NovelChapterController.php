@@ -20,7 +20,7 @@ class NovelChapterController extends Controller
      */
     public function show(Request $request, $id)
     {
-        $chapter = $this->novelchapters->with('novel:id,name')->findOrFail($id);
+        $chapter = $this->novelchapters->with(['novel:id,name', 'text'])->findOrFail($id);
 
         $prev = NovelChapter::where('novel_id', $chapter->novel_id)
             ->where('blacklist', 0)
@@ -71,7 +71,7 @@ class NovelChapterController extends Controller
                 'url' => route('chapters.show', $chapter->id),
                 'progress' => $chapter->read_progress,
                 'read' => $chapter->read_at !== null,
-                'hasContent' => (bool) $chapter->getRawOriginal('description'),
+                'hasContent' => (bool) $chapter->rawText(),
                 'prev' => $prev ? ['id' => $prev->id, 'chapter' => $prev->chapter, 'label' => $prev->label, 'url' => route('chapters.show', $prev->id)] : null,
                 'next' => $next ? ['id' => $next->id, 'chapter' => $next->chapter, 'label' => $next->label, 'url' => route('chapters.show', $next->id)] : null,
             ],

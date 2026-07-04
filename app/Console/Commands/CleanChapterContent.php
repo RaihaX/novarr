@@ -52,9 +52,10 @@ class CleanChapterContent extends Command
             return 1;
         }
 
-        $query = NovelChapter::where('novel_id', $novelId)
+        $query = NovelChapter::with('text')
+            ->where('novel_id', $novelId)
             ->where('status', 1)
-            ->whereNotNull('description');
+            ->whereHas('text');
 
         $total = (clone $query)->count();
 
