@@ -257,36 +257,69 @@ class GenerateePub extends Command
             return;
         }
 
-        // Determine mime type and extension
+        // Amazon's Send-to-Kindle converter only reliably renders JPEG covers —
+        // WebP/GIF covers produce the generic grey "DOC" tile in the library.
+        // Stored covers often have a .jpg name but WebP data, so decide by the
+        // real mime (from getimagesize) and re-encode anything non-JPEG.
         $mimeType = $imageInfo['mime'];
-        $extension = match ($mimeType) {
-            'image/jpeg' => 'jpg',
-            'image/png' => 'png',
-            'image/gif' => 'gif',
-            'image/webp' => 'webp',
-            default => null,
-        };
+        $supported = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
-        if (!$extension) {
+        if (!in_array($mimeType, $supported, true)) {
             $this->warn("  Unsupported cover image format: {$mimeType}");
             return;
         }
 
-        // Copy cover to OEBPS/Images
-        $coverFilename = "cover.{$extension}";
+        $coverFilename = "cover.jpg";
         $destPath = "{$imagesDir}/{$coverFilename}";
 
-        if (File::copy($coverPath, $destPath)) {
-            $this->coverInfo = [
-                'filename' => $coverFilename,
-                'mime' => $mimeType,
-                'width' => $imageInfo[0],
-                'height' => $imageInfo[1],
-            ];
-            $this->info("  Cover image added: {$coverFilename}");
-        } else {
-            $this->warn("  Failed to copy cover image.");
+        $written = $mimeType === 'image/jpeg'
+            ? File::copy($coverPath, $destPath)
+            : $this->convertCoverToJpeg($coverPath, $mimeType, $destPath);
+
+        if (!$written) {
+            $this->warn("  Failed to prepare cover image.");
+            return;
         }
+
+        $this->coverInfo = [
+            'filename' => $coverFilename,
+            'mime' => 'image/jpeg',
+            'width' => $imageInfo[0],
+            'height' => $imageInfo[1],
+        ];
+
+        if (max($imageInfo[0], $imageInfo[1]) < 500) {
+            $this->warn("  Cover is only {$imageInfo[0]}x{$imageInfo[1]} — Kindle may skip the library thumbnail for very small covers.");
+        }
+
+        $converted = $mimeType === 'image/jpeg' ? '' : " (converted from {$mimeType})";
+        $this->info("  Cover image added: {$coverFilename}{$converted}");
+    }
+
+    /**
+     * Re-encode a PNG/GIF/WebP cover as a flat JPEG (transparency composited onto white)
+     */
+    protected function convertCoverToJpeg(string $sourcePath, string $mimeType, string $destPath): bool
+    {
+        $image = match ($mimeType) {
+            'image/png' => @imagecreatefrompng($sourcePath),
+            'image/gif' => @imagecreatefromgif($sourcePath),
+            'image/webp' => @imagecreatefromwebp($sourcePath),
+            default => false,
+        };
+
+        if (!$image) {
+            return false;
+        }
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+
+        $canvas = imagecreatetruecolor($width, $height);
+        imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255));
+        imagecopy($canvas, $image, 0, 0, 0, 0, $width, $height);
+
+        return imagejpeg($canvas, $destPath, 85);
     }
 
     /**
