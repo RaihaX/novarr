@@ -377,6 +377,7 @@
 
 @push('scripts')
 <script>
+(() => {
     // Synopsis read-more: only show the toggle when the text actually clamps.
     const synopsisBody = document.getElementById('synopsisBody');
     const synopsisToggle = document.getElementById('synopsisToggle');
@@ -799,5 +800,6 @@
             if (btn.dataset.origClass) btn.className = btn.dataset.origClass;
         }, 4000);
     }
+})();
 </script>
 @endpush

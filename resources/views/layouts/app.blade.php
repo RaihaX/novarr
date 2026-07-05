@@ -4,6 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    {{-- Inline page scripts bind listeners; cached snapshot restores would revive dead DOM --}}
+    <meta name="turbo-cache-control" content="no-cache">
 
     <title>{{ config('app.name', 'Novarr') }}</title>
     <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">

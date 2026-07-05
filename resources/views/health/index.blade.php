@@ -106,6 +106,7 @@
 
 @push('scripts')
 <script>
+(() => {
     const csrf = document.querySelector('meta[name="csrf-token"]').content;
     const post = (url) => fetch(url, { method: 'POST', headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' } }).then(r => r.json());
 
@@ -170,5 +171,6 @@
         document.getElementById('flareValue').className = 'dash-stat-value text-danger';
         document.getElementById('flareMsg').textContent = 'Check failed';
     });
+})();
 </script>
 @endpush
