@@ -1,6 +1,6 @@
 # Novarr
 
-A self-hosted web-novel **manager, downloader, and reader** — think "Sonarr for web novels." Novarr discovers series from supported sites, scrapes their tables of contents and chapters on a schedule, stores them locally, and gives you a fast dark-mode reading experience with progress tracking, full-text search, ePub export, Send-to-Kindle, and offline reading as an installable PWA.
+A self-hosted web-novel **manager, downloader, and reader** — think "Sonarr for web novels." Novarr discovers series from supported sites, scrapes their tables of contents and chapters on a schedule, stores them locally, and gives you a fast dark-mode reading experience with continuous reading, cross-device position sync, bookmarks & highlights, read-aloud, reading stats, full-text search, ePub export, Send-to-Kindle, an OPDS catalog, and offline reading as an installable PWA.
 
 Built with **Laravel 11** (PHP 8.3+), Bootstrap 5, Hotwire Turbo, and Vite.
 
@@ -43,6 +43,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
 - [Configuration](#configuration)
 - [Scheduler & queue](#scheduler--queue)
 - [Artisan commands](#artisan-commands)
+- [OPDS catalog](#opds-catalog)
 - [Offline reading (PWA)](#offline-reading-pwa)
 - [Tailscale](#tailscale)
 - [Deployment (Docker / Unraid)](#deployment-docker--unraid)
@@ -57,27 +58,34 @@ Open **http://&lt;host&gt;/** and start adding novels.
 - **Add novels from 3 sources** with a Sonarr-style discover/search flow, or paste a URL directly.
 - **Automatic metadata** — title, author, description, genres, chapter count, and cover, pulled from the source and enriched/fallback-resolved via **NovelUpdates** (including alias resolution for series listed under a different title).
 - **Tags** (genre/custom) with a multi-select picker, plus tag filtering on the library.
-- **Bulk actions** — pause, mark complete, delete across many novels at once.
-- **Per-novel tools** — remove duplicate chapters, normalize chapter labels/numbers, jump to a chapter, pause/resume automatic downloads.
+- **Bulk actions** — pause, mark complete, delete across many novels at once (desktop and mobile).
+- **Per-novel tools** — remove duplicate chapters, normalize chapter labels/numbers, jump to a chapter, search within the novel, pause/resume automatic downloads, and an **"hourly checks"** priority toggle for actively-updating series.
 
 ### Downloading & scraping
 - **Scheduled TOC refresh + chapter downloads** run unattended (see [Scheduler](#scheduler--queue)).
 - **Cloudflare bypass** via [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), with `cf_clearance` cookie reuse so most fetches fall back to fast plain HTTP.
 - **Polite rate-limiting** with configurable min/max delays between chapter fetches.
 - **Resilience** — per-novel consecutive-failure tracking with a webhook alert after repeated failures; content cleaning strips ads (Taboola/Outbrain), leftover `<style>`/`<script>`, and spam lines.
-- **Auto-complete** — daily verification against NovelUpdates marks a series complete once every chapter is downloaded.
+- **Auto-complete** — daily verification against NovelUpdates marks a series complete once every chapter is downloaded, then generates the ePub and (optionally) sends it to Kindle, with webhook notifications at each step.
+- **On-demand single chapter** — a pending chapter's page offers "Download this chapter now."
 
 ### Reading
-- **In-app reader** with persisted preferences: font size, width, theme (dark/sepia/light), serif/sans, and a distraction-free **focus mode**.
-- **Read tracking** — chapters auto-mark read on open, "Continue reading" jumps to your next unread chapter, "Mark to here" bulk-marks earlier chapters, and per-chapter **scroll position resume**.
-- **Full-text search** across chapter content (MySQL `FULLTEXT`), plus a navbar quick-search with autocomplete.
+- **In-app reader** with persisted preferences: font size, width, margins, justification/hyphenation, theme (dark/sepia/light), font (sans / serif / Atkinson Hyperlegible), line spacing — with optional **per-novel overrides** ("This novel only").
+- **Continuous reading** — the next chapter loads inline as you approach the end (toggleable), with a reading-progress bar, swipe gestures on touch, and a slide-out **chapter list** with filtering.
+- **Focus mode** — hides all chrome; tap the page to peek at the controls.
+- **Read tracking** — chapters auto-mark read on open, "Continue reading" resumes **mid-chapter across devices** (scroll position syncs to the server), "Mark to here" bulk-marks earlier chapters.
+- **Auto-scroll** (adjustable speed) and **read-aloud** text-to-speech with paragraph highlighting and speed control.
+- **Bookmarks & highlights** — select text to save an excerpt with an optional note; browse them per novel on the Bookmarks page. Single-word selections offer a **dictionary lookup**.
+- **Reading stats** — streak, chapters/words per day (30-day chart), all-time totals, most-read novels.
+- **Full-text search** across chapter content (MySQL `FULLTEXT`), paginated, scoped to one novel or the whole library, plus a navbar quick-search with autocomplete.
 
 ### Export
 - **ePub generation** per novel (cover, table of contents, clean formatting).
 - **Send to Kindle** — emails the ePub to your Kindle address (optionally auto-sent on completion).
+- **OPDS catalog** at `/opds` — browse and download your generated ePubs from KOReader, Moon+ Reader, or any OPDS-capable app.
 
 ### Offline (PWA)
-- **Installable** to a phone/tablet home screen; chapters you open are cached automatically.
+- **Installable** to a phone/tablet home screen (with a polite install prompt and app shortcuts); chapters you open are cached automatically.
 - **Download for offline** with **range options** (next 100 unread, all unread, all, or a custom chapter range) — practical even for multi-thousand-chapter series.
 - **Offline library** view and a **read-state sync queue** that replays your offline progress when you reconnect.
 - See [Offline reading](#offline-reading-pwa) for details.
@@ -85,19 +93,21 @@ Open **http://&lt;host&gt;/** and start adding novels.
 ### Operations
 - **Settings UI** — FlareSolverr URL, notification webhook, Kindle email, scrape delays, summary-email time, with one-click **test** buttons.
 - **System health** dashboard — scheduler heartbeat, queue status, failed-job inspection/retry/cleanup.
-- **Log viewer** — live tail, download, clear, delete.
-- **Command runner** — execute any Artisan command from the web UI with async job-status polling.
+- **Log viewer** — live tail, download, clear, delete; logs rotate daily with 14-day retention.
+- **Command runner** — execute whitelisted Artisan commands from the web UI with async job-status polling; a **persistent queue worker** picks jobs up instantly.
+- **Fast by design** — chapter body text lives in its own `chapter_texts` table so the hot `novel_chapters` table stays small; dashboard panels are pre-warmed by the scheduler.
 
 ---
 
 ## How it works
 
 ```
-                 ┌──────────────┐     cron (every minute)
+                 ┌──────────────┐     background jobs (web UI)
                  │   Scheduler  │ ───────────────────────────┐
                  └──────┬───────┘                            │
-        novel:toc (01:00)  novel:chapter (10 min)            ▼
-                 │                                   queue:work --stop-when-empty
+        novel:toc (daily + hourly priority)                  ▼
+        novel:chapter (10 min)                    persistent queue worker
+                 │                                 (+ cron fallback drain)
                  ▼                                            │
         ┌──────────────────┐    FlareSolverr / HTTP    ┌──────────────┐
         │  Source adapter  │ ◄───────────────────────► │ novelarrow / │
@@ -114,8 +124,9 @@ Open **http://&lt;host&gt;/** and start adding novels.
 ```
 
 - **Scraping is abstracted behind source adapters** (`app/Sources`). A `SourceResolver` picks the right adapter for a novel's URL; each adapter knows how to fetch that site's table of contents and metadata. Chapter *content* extraction is generic (a multi-selector scraper) and shared across sources.
-- **Background work runs through the database queue.** Commands triggered from the web UI are dispatched as jobs; a cron-driven `queue:work --stop-when-empty` drains them, and the scheduler also runs the recurring TOC/chapter/verify/email tasks.
-- **Settings are DB-backed** (`app_settings` table) with an `.env` fallback, so most operational config is editable from the Settings page without redeploying.
+- **Background work runs through the database queue.** Commands triggered from the web UI are dispatched as jobs and picked up by a persistent `queue:work` worker (a dedicated service in Docker, or a systemd unit on bare metal); a cron-driven `queue:work --stop-when-empty` acts as a fallback drain. The scheduler also runs the recurring TOC/chapter/verify/email tasks.
+- **Chapter body text is stored separately** (`chapter_texts`, one row per downloaded chapter with a `FULLTEXT` index). The main `novel_chapters` table holds only metadata, keeping every list/stat query and schema change fast. On the `NovelChapter` model, `description` remains a virtual attribute backed by that table.
+- **Settings are DB-backed** (`app_settings` table) with an `.env` fallback, so most operational config is editable from the Settings page without redeploying. (Runtime code reads env only via `config/` — the app is safe to run with `config:cache`/`route:cache`/`view:cache`.)
 
 ---
 
@@ -137,8 +148,8 @@ Metadata for all sources is enriched from **NovelUpdates** (description, genres,
 
 > Using the [one-command Docker install](#quick-install-one-command)? **Skip this section** — that stack bundles MySQL, Redis, **and FlareSolverr**, so the only host requirement is Docker. The list below is for a manual / bare-metal install.
 
-- **PHP 8.3+** (developed/tested on 8.5)
-- **MySQL 8** (the chapter full-text search uses a MySQL `FULLTEXT` index)
+- **PHP 8.3+**
+- **MySQL 8 or MariaDB 10.6+** (chapter full-text search uses `FULLTEXT` indexes)
 - **Composer** and **Node.js + Yarn**
 - **A running [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) instance** (for Cloudflare-protected sites) — *bundled automatically in the one-click stack; only a separate requirement here*
 - **Cron** (to drive the scheduler)
@@ -170,6 +181,12 @@ yarn build
 
 # 5. Wire up the scheduler (see Scheduler & queue)
 #    * * * * * cd /path/to/novarr && php artisan schedule:run >> /dev/null 2>&1
+```
+
+**Production tips:** enable OPcache in php.ini, run the persistent queue worker (see [Scheduler & queue](#scheduler--queue)), and cache the framework on every deploy:
+
+```bash
+php artisan config:cache && php artisan route:cache && php artisan view:cache && php artisan queue:restart
 ```
 
 Then visit `APP_URL`. Add your first novel from **Novels → Add Novel**, or via the CLI:
@@ -226,13 +243,26 @@ Novarr is **scheduler-driven**. Add the single Laravel cron entry and everything
 | Task | Schedule | What it does |
 |---|---|---|
 | Scheduler heartbeat | every minute | Records last-run time for the health check |
-| Queue drain | every minute | `queue:work --queue=commands,default --stop-when-empty --timeout=3600` (non-overlapping) |
+| Attention pre-warm | every 5 min | Pre-computes the dashboard "Needs Attention" panel |
+| Queue drain (fallback) | every minute | `queue:work --stop-when-empty` — safety net behind the persistent worker |
 | TOC refresh | daily @ 01:00 | `novel:toc` — refresh chapter lists for active novels |
+| Priority TOC refresh | hourly | `novel:toc --frequent-only` — novels flagged "hourly checks" |
 | Chapter download | every 10 min | `novel:chapter` — download newly-found pending chapters |
 | Completion verify | daily @ 06:00 | `novel:verify-completion` — mark fully-downloaded series complete |
 | Summary email | daily @ `summary_time` | `novel:email-summary` — recap of new chapters & completed novels |
 
-Jobs queued from the web UI use the **database** queue (`jobs` table); failures land in `failed_jobs` and are inspectable/retryable from the **Health** page. (The Docker stack runs the scheduler and a queue worker as dedicated services.)
+Jobs queued from the web UI use the **database** queue (`jobs` table); failures land in `failed_jobs` and are inspectable/retryable from the **Health** page. For instant pickup, run a **persistent worker** alongside the cron (the Docker stack ships one as a service; on bare metal use a systemd unit):
+
+```ini
+# /etc/systemd/system/novarr-worker.service
+[Service]
+User=www-data
+WorkingDirectory=/path/to/novarr
+ExecStart=/usr/bin/php artisan queue:work --queue=commands,default --sleep=1 --tries=1 --timeout=3600 --max-time=3600
+Restart=always
+```
+
+Run `php artisan queue:restart` after each deploy so the worker reloads new code.
 
 ---
 
@@ -241,21 +271,26 @@ Jobs queued from the web UI use the **database** queue (`jobs` table); failures 
 | Command | Description |
 |---|---|
 | `novel:create {name} {url}` | Create a novel and auto-fetch its metadata |
-| `novel:toc {novel=0}` | Scrape table(s) of contents (0 = all active novels) |
-| `novel:chapter {novel=0}` | Download pending chapters |
+| `novel:toc {novel=0} {--frequent-only}` | Scrape table(s) of contents (0 = all active novels) |
+| `novel:chapter {novel=0} {--chapter=}` | Download pending chapters (or one chapter by id) |
 | `novel:metadata {novel?}` | Refresh metadata (description, author, genres, cover) |
 | `novel:epub {novel=0}` | Generate ePub(s) (0 = all not-yet-generated) |
 | `novel:send-to-kindle {novel} {--to=} {--generate}` | Email a novel's ePub to Kindle |
 | `novel:verify-completion {novel=0} {--dry-run} {--force} {--no-kindle}` | Verify against NovelUpdates and mark complete |
 | `novel:email-summary {--hours=24} {--to=}` | Send the new-chapters/completed-novels summary |
 | `novel:normalize_labels {novel=0} {--dry-run}` | Normalize labels and fix chapter numbers for sorting |
-| `novel:chapter_cleanser {novel=0}` | Strip unwanted tags/characters from chapter content |
-| `novel:clean_chapter_content` | Remove leftover CSS and ad-widget text from chapters |
-| `novel:calculate_chapter` | Recompute chapter counts |
+| `novel:clean_chapter_content {novel} {--dry-run}` | Remove leftover CSS and ad-widget text from chapters |
+| `novel:chaptercleaner {novel}` | Reset thin chapters (≤10 paragraphs) so they re-download |
 | `novel:info` | Print novel info, chapter counts, completion % |
 | `queue:health-check` | Report queue system health |
 
 Any of these can also be run from the **Commands** page in the UI with live job-status polling.
+
+---
+
+## OPDS catalog
+
+Every novel with a generated ePub is published as an **OPDS 1.2 acquisition feed** at `/opds` — point KOReader, Moon+ Reader, Calibre, or any OPDS-capable reader at `https://<your-host>/opds` to browse your library with covers and download ePubs directly. No configuration needed; the feed reflects whatever `novel:epub` has produced.
 
 ---
 
@@ -344,22 +379,25 @@ For PWA installs you'll want HTTPS in front of the stack — terminate TLS at yo
 app/
 ├── Console/Commands/      # Artisan commands (novel:toc, novel:chapter, …)
 ├── Http/
-│   ├── Controllers/       # Novel, NovelChapter, Discover, Search, Settings,
-│   │                      #   SystemHealth, Log, Command, Home controllers
-│   ├── Helpers.php        # Scraping, metadata, FlareSolverr, ePub, Kindle helpers
+│   ├── Controllers/       # Novel, NovelChapter, Discover, Search, Stats,
+│   │                      #   Bookmark, Opds, Settings, SystemHealth, Log,
+│   │                      #   Command, Home controllers
+│   ├── Helpers.php        # Scraping, metadata, FlareSolverr, Kindle helpers
 │   └── Middleware/        # incl. CSRF exemptions for offline replay
 ├── Jobs/RunNovelCommand   # Queued Artisan command runner (3600s timeout)
+├── Services/NovelHealth   # "Needs attention" stall detection
 ├── Sources/               # Source interface + NovelArrow/EmpireNovel/NovelFull adapters
-└── *.php                  # Models: Novel, NovelChapter, File, Tag, Group,
-                           #   Language, Setting, User
-database/migrations/       # Schema (novels, novel_chapters, tags, app_settings, …)
+└── *.php                  # Models: Novel, NovelChapter, ChapterText (body text),
+                           #   Bookmark, File, Tag, Group, Language, Setting
+database/migrations/       # Schema (novels, novel_chapters, chapter_texts,
+                           #   bookmarks, tags, app_settings, …)
 resources/
 ├── css/app.scss           # Bootstrap 5 dark theme + custom styles
 ├── js/
-│   ├── app.js             # Entry: Turbo, window.Novarr API, SW registration
+│   ├── app.js             # Entry: Turbo, fonts, window.Novarr API, SW + install prompt
 │   ├── commands.js        # Async command execution + job polling
 │   ├── offline.js         # PWA: IndexedDB library, range downloads, sync queue
-│   ├── navsearch.js · tagpicker.js · toast.js
+│   ├── navsearch.js · tagpicker.js · toast.js · confirm.js
 │   └── bootstrap.js       # Axios + CSRF setup
 └── views/                 # Blade templates (novels, chapters, library, settings, …)
 public/
@@ -384,7 +422,7 @@ php artisan test  # run the test suite
 
 For remote/tablet access to the Vite dev server (e.g. over Tailscale), the dev assets must be advertised at the externally-reachable HTTPS origin — set `server.origin`, `server.allowedHosts`, and `server.hmr` in `vite.config.js` from `.env`, and confirm `public/hot` shows the external URL.
 
-**Tech stack:** Laravel 11 · PHP 8.3+ · MySQL 8 · Bootstrap 5 (dark) · Hotwire Turbo · Vite · FlareSolverr · Resend · PWA (service worker + IndexedDB).
+**Tech stack:** Laravel 11 · PHP 8.3+ · MySQL 8 / MariaDB · Bootstrap 5 (dark) · Hotwire Turbo · Vite · self-hosted fonts (Inter Variable, Atkinson Hyperlegible) · FlareSolverr · Resend · PWA (service worker + IndexedDB).
 
 ---
 
