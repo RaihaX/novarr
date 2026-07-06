@@ -313,6 +313,17 @@
                 <button type="button" id="chMarkRead" class="btn btn-sm btn-outline-success">Mark read</button>
                 <button type="button" id="chMarkUnread" class="btn btn-sm btn-outline-secondary">Mark unread</button>
             </div>
+            <div class="dropdown">
+                <button type="button" class="btn btn-sm btn-outline-success dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Mark read</button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><h6 class="dropdown-header">Needs one chapter selected</h6></li>
+                    <li><button type="button" class="dropdown-item" id="chReadUpTo">Read up to selected chapter</button></li>
+                    <li><button type="button" class="dropdown-item" id="chReadFrom">Read from selected chapter to end</button></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><button type="button" class="dropdown-item" id="chReadAll">Mark all chapters read</button></li>
+                    <li><button type="button" class="dropdown-item text-danger" id="chUnreadAll">Mark all chapters unread</button></li>
+                </ul>
+            </div>
             @if(count($duplicate_chapters) > 0)
                 <button type="button" id="removeDupes" class="btn btn-sm btn-outline-warning" data-id="{{ $data->id }}" title="{{ count($duplicate_chapters) }} duplicate chapter group(s) detected">Remove {{ count($duplicate_chapters) }} duplicate(s)</button>
             @endif
@@ -669,6 +680,63 @@
 
     document.getElementById('chMarkRead')?.addEventListener('click', () => bulkRead(true));
     document.getElementById('chMarkUnread')?.addEventListener('click', () => bulkRead(false));
+
+    // Scoped variants: whole novel, or everything up to / from an anchor
+    // chapter. Server updates all pages; the DOM update below only needs to
+    // cover the rows visible on this page.
+    async function bulkReadScope(scope, read) {
+        let anchorId = null;
+        if (scope === 'up_to' || scope === 'from') {
+            const sel = chSelected();
+            if (sel.length !== 1) {
+                Novarr.showToast('Select exactly one chapter as the starting point first.', 'warning');
+                return;
+            }
+            anchorId = parseInt(sel[0], 10);
+        }
+
+        if (scope === 'all' && !confirm(`Mark ALL chapters as ${read ? 'read' : 'unread'}?`)) return;
+
+        try {
+            const response = await fetch('{{ route('chapters.bulk_read') }}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ read, scope, novel_id: {{ $data->id }}, anchor_id: anchorId }),
+            });
+            const data = await response.json();
+            if (!data.success) {
+                Novarr.showToast(data.message || 'Failed to update chapters.', 'danger');
+                return;
+            }
+
+            const boxes = chChecks();
+            let affected = boxes;
+            if (anchorId !== null) {
+                const idx = boxes.findIndex(c => parseInt(c.value, 10) === anchorId);
+                affected = scope === 'up_to' ? boxes.slice(0, idx + 1) : boxes.slice(idx);
+            }
+            affected.forEach(c => setChapterRowRead(c, read));
+            boxes.forEach(c => c.checked = false);
+            refreshChBulk();
+            Novarr.showToast(
+                data.queued
+                    ? 'Saved offline — will sync when you reconnect.'
+                    : `Marked ${data.count} chapter(s) as ${read ? 'read' : 'unread'}.`,
+                data.queued ? 'info' : 'success'
+            );
+        } catch (err) {
+            Novarr.showToast('Error: ' + err.message, 'danger');
+        }
+    }
+
+    document.getElementById('chReadUpTo')?.addEventListener('click', () => bulkReadScope('up_to', true));
+    document.getElementById('chReadFrom')?.addEventListener('click', () => bulkReadScope('from', true));
+    document.getElementById('chReadAll')?.addEventListener('click', () => bulkReadScope('all', true));
+    document.getElementById('chUnreadAll')?.addEventListener('click', () => bulkReadScope('all', false));
 
     // ---- Download for offline (PWA), with range options ----
     function initOfflineBtn() {

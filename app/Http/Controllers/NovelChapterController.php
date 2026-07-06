@@ -144,26 +144,61 @@ class NovelChapterController extends Controller
     }
 
     /**
-     * Bulk mark a set of chapters read or unread (novel-page table).
+     * Bulk mark chapters read or unread (novel-page table).
+     *
+     * Scopes: 'ids' (explicit selection, default), 'all' (whole novel),
+     * 'up_to' / 'from' (everything before-and-including / after-and-including
+     * an anchor chapter, in the list's (book, chapter) order).
      */
     public function bulkRead(Request $request)
     {
         $data = $request->validate([
-            'ids' => 'required|array|min:1',
-            'ids.*' => 'integer',
             'read' => 'required|boolean',
+            'scope' => 'nullable|in:ids,all,up_to,from',
+            'ids' => 'required_if:scope,ids|required_without:scope|array',
+            'ids.*' => 'integer',
+            'novel_id' => 'required_if:scope,all|integer',
+            'anchor_id' => 'required_if:scope,up_to,from|integer',
         ]);
 
-        NovelChapter::whereIn('id', $data['ids'])
-            ->update([
-                'read_at' => $data['read'] ? now() : null,
-                'read_progress' => $data['read'] ? 100 : null,
-            ]);
+        $scope = $data['scope'] ?? 'ids';
+        $values = [
+            'read_at' => $data['read'] ? now() : null,
+            'read_progress' => $data['read'] ? 100 : null,
+        ];
 
-        foreach (NovelChapter::whereIn('id', $data['ids'])->distinct()->pluck('novel_id') as $novelId) {
-            CacheHelper::clearNovelCache($novelId);
+        if ($scope === 'ids') {
+            $count = NovelChapter::whereIn('id', $data['ids'])->update($values);
+
+            foreach (NovelChapter::whereIn('id', $data['ids'])->distinct()->pluck('novel_id') as $novelId) {
+                CacheHelper::clearNovelCache($novelId);
+            }
+
+            return response()->json(['success' => true, 'count' => $count]);
         }
 
-        return response()->json(['success' => true, 'count' => count($data['ids'])]);
+        if ($scope === 'all') {
+            $novelId = (int) $data['novel_id'];
+            $query = NovelChapter::where('novel_id', $novelId)->where('blacklist', 0);
+        } else {
+            $anchor = NovelChapter::findOrFail($data['anchor_id']);
+            $novelId = $anchor->novel_id;
+            $before = $scope === 'up_to';
+
+            $query = NovelChapter::where('novel_id', $novelId)
+                ->where('blacklist', 0)
+                ->where(function ($q) use ($anchor, $before) {
+                    $q->where('book', $before ? '<' : '>', $anchor->book)
+                        ->orWhere(function ($qq) use ($anchor, $before) {
+                            $qq->where('book', $anchor->book)
+                                ->where('chapter', $before ? '<=' : '>=', $anchor->chapter);
+                        });
+                });
+        }
+
+        $count = $query->update($values);
+        CacheHelper::clearNovelCache($novelId);
+
+        return response()->json(['success' => true, 'count' => $count]);
     }
 }
