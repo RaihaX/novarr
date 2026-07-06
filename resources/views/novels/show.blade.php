@@ -277,6 +277,12 @@
                     <span class="cmd-done d-none">Done</span>
                     <span class="cmd-fail d-none">Failed</span>
                 </button>
+                <button class="btn btn-sm btn-outline-info cmd-btn" data-command="fix_chapters" data-novel="{{ $data->id }}" title="Resolve chapters with missing numbers by elimination against the novel sequence">
+                    <span class="cmd-label">Fix Chapter Numbers</span>
+                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                    <span class="cmd-done d-none">Done</span>
+                    <span class="cmd-fail d-none">Failed</span>
+                </button>
                 <button class="btn btn-sm btn-outline-secondary cmd-btn" data-command="clean_content" data-novel="{{ $data->id }}" title="Strip leftover CSS and ad-widget text from downloaded chapters">
                     <span class="cmd-label">Clean Formatting</span>
                     <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
@@ -759,7 +765,7 @@
 
         // Commands that change the chapter list or stats shown on this page —
         // reload after they finish so the page reflects the new data.
-        const reloadAfter = ['toc', 'chapter', 'metadata', 'normalize_labels', 'clean_content', 'chapter_cleaner'];
+        const reloadAfter = ['toc', 'chapter', 'metadata', 'normalize_labels', 'fix_chapters', 'clean_content', 'chapter_cleaner'];
 
         try {
             const result = await Novarr.executeCommand({ command, novel_id: novelId });

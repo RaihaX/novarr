@@ -37,6 +37,13 @@ class NovelScraper extends Command
             $this->info("Processing: {$novel->name}");
             $toc = tableOfContentGenerator($novel);
             $this->processChapters($novel, $toc);
+
+            // Self-heal any chapter the parser couldn't number (e.g. labels
+            // carrying two numbers) via elimination against the sequence.
+            [$fixed] = \App\Services\ChapterNumberResolver::fixUnnumbered(
+                $novel->id,
+                fn($msg) => $this->info("  {$msg}")
+            );
         }
     }
 

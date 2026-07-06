@@ -63,6 +63,12 @@ class CommandController extends Controller
             'command' => 'novel:normalize_labels',
             'params' => ['novel_id', 'dry_run'],
         ],
+        'fix_chapters' => [
+            'name' => 'Fix Chapter Numbers',
+            'description' => 'Resolve chapters with missing numbers by elimination against the novel sequence',
+            'command' => 'novel:fix_chapters',
+            'params' => ['novel_id', 'dry_run'],
+        ],
         'info' => [
             'name' => 'Show Novel Info',
             'description' => 'Display novel information and completion status',

@@ -1189,13 +1189,14 @@ function generateTocChapterInfo($label, $url)
         return; // Early exit if the label contains "teaser"
     }
 
-    // Normalize label
+    // Normalize label. Trim is load-bearing: a leading space breaks every
+    // ^-anchored pattern below and the chapter silently lands on 0.
     $normalizedLabel = preg_replace(["/ +/", "/\(/"], [" ", " ("], $label);
-    $normalizedLabel = preg_replace(
+    $normalizedLabel = trim(preg_replace(
         "/[^A-Za-z0-9 _\.\-\+\&\(\)]/",
         "",
         $normalizedLabel
-    );
+    ));
 
     // Initial variables
     $chapter = $book = 0;
@@ -1214,6 +1215,13 @@ function generateTocChapterInfo($label, $url)
         $chapter = $chapterMatches[1];
     } elseif (preg_match("/^(\d+)/", $normalizedLabel, $startChapterMatches)) {
         $chapter = $startChapterMatches[1];
+    } elseif (preg_match("/\b(?:ch{1,2}ap\w*|ch\.|cap[ií]?tulo)\s*[-–:]?\s*(\d+)/iu", $normalizedLabel, $looseMatches)) {
+        // Tolerate source typos (Chaper/Chaptet/Chhapter/Captulo) and labels
+        // where "Chapter N" isn't at the start ("Novel Name Chapter 1161 ...").
+        $chapter = $looseMatches[1];
+    } elseif (preg_match("/(?:^|[-\/])ch(?:ap(?:ter)?)?-(\d+)/i", parse_url($url, PHP_URL_PATH) ?: "", $urlMatches)) {
+        // Last resort: the URL slug ("...-chapter-86", "...-ch-40").
+        $chapter = $urlMatches[1];
     }
 
     // Handle chapter splits - only check patterns IMMEDIATELY after the chapter number
