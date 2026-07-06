@@ -1202,11 +1202,15 @@ function generateTocChapterInfo($label, $url)
     $chapter = $book = 0;
     $splitChapterSuffix = "";
 
-    // Extract book from label if present, fallback to URL extraction
+    // Extract book from label if present, fallback to URL extraction.
+    // The URL marker only counts when a chapter segment follows it
+    // ("volume-6-chapter-43", "vol-1-ch-40") — otherwise chapter titles that
+    // merely end in a word like Book ("...-insect-taming-book-1") would be
+    // read as volume numbers and sort the chapter to the end of the novel.
     if (preg_match("/vol\.?(\d+)/i", $normalizedLabel, $volumeMatches)) {
         $book = $volumeMatches[1];
-    } elseif (preg_match("/-(book|volume|vol)-(\d+)/i", $url, $bookMatches)) {
-        $book = $bookMatches[2];
+    } elseif (preg_match("/(?:^|[\/-])(?:book|volume|vol)-(\d+)-ch(?:apter)?\b/i", $url, $bookMatches)) {
+        $book = $bookMatches[1];
     }
 
     // Capture the FIRST chapter number from the label (unique chapter number)
