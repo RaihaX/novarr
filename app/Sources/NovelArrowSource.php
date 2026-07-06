@@ -67,6 +67,42 @@ class NovelArrowSource implements Source
             }
         }
 
+        // Always keep the source site's own cover as a last-resort candidate —
+        // it's deterministic by slug, and NovelUpdates' CDN can 403 hotlinked
+        // downloads even when its metadata is otherwise complete (so the
+        // fallback above never runs).
+        if ($slug = $this->coverSlug($novel)) {
+            $metadata['cover_candidates'][] = "https://images.novelarrow.com/novel/{$slug}.jpg";
+        }
+        $metadata['cover_candidates'] = array_values(array_unique($metadata['cover_candidates']));
+
         return $metadata;
+    }
+
+    /**
+     * Best Novel Arrow slug for this novel: the novel URL when it's already a
+     * Novel Arrow one, else the slug embedded in its own chapters' URLs (the
+     * definitive source identity), else a guess from the name.
+     */
+    private function coverSlug(Novel $novel): ?string
+    {
+        if (!empty($novel->translator_url) && preg_match('/novelarrow|novelbin/i', $novel->translator_url)) {
+            $slug = novelArrowSlug($novel->translator_url);
+            if ($slug !== '') {
+                return $slug;
+            }
+        }
+
+        $chapterUrl = $novel->chapters()
+            ->where('url', 'like', '%novelarrow%')
+            ->value('url');
+        if ($chapterUrl) {
+            $slug = novelArrowSlug($chapterUrl);
+            if ($slug !== '') {
+                return $slug;
+            }
+        }
+
+        return !empty($novel->name) ? novelSlug($novel->name) : null;
     }
 }
