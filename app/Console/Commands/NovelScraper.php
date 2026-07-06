@@ -54,13 +54,26 @@ class NovelScraper extends Command
                 $item["unique_id"] = $this->extractUniqueId($item["url"]);
             }
 
-            $chapterValue = $this->getChapterValue($item);
-            $check_duplicate = NovelChapter::where("novel_id", $novel->id)
-                ->where("chapter", $chapterValue)
-                ->when(isset($item["book"]), function ($query) use ($item) {
-                    return $query->where("book", intval($item["book"]));
-                })
-                ->first();
+            // A page's URL is its identity — match on it first so a chapter
+            // whose label changed between scrapes (and now parses differently)
+            // updates its own row instead of colliding with another chapter's
+            // number or spawning a duplicate.
+            $check_duplicate = null;
+            if (!empty($item["url"])) {
+                $check_duplicate = NovelChapter::where("novel_id", $novel->id)
+                    ->where("url", $item["url"])
+                    ->first();
+            }
+
+            if (!$check_duplicate) {
+                $chapterValue = $this->getChapterValue($item);
+                $check_duplicate = NovelChapter::where("novel_id", $novel->id)
+                    ->where("chapter", $chapterValue)
+                    ->when(isset($item["book"]), function ($query) use ($item) {
+                        return $query->where("book", intval($item["book"]));
+                    })
+                    ->first();
+            }
 
             $this->updateOrCreateChapter($check_duplicate, $novel->id, $item);
         }
@@ -90,11 +103,19 @@ class NovelScraper extends Command
             $chapter->novel_id = $novelId;
         }
 
+        // Never downgrade an already-resolved number: if this scrape failed to
+        // parse one (0) but the row has one (fixed manually or by the
+        // resolver), the resolved value wins.
+        $newValue = $this->getChapterValue($item);
+        if ($newValue <= 0 && (float) $chapter->chapter > 0) {
+            $newValue = $chapter->chapter;
+        }
+
         $chapter
             ->fill([
                 "label" => $item["label"] ?? null,
                 "url" => $item["url"] ?? null,
-                "chapter" => $this->getChapterValue($item),
+                "chapter" => $newValue,
                 "book" => intval($item["book"] ?? 0),
                 "unique_id" => $item["unique_id"] ?? null,
             ])

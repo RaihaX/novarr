@@ -99,7 +99,6 @@ class ChapterNumberResolver
             if (count($freeUrl) === 1) {
                 return [$freeUrl[0], 'url slug', $book];
             }
-            return null;
         }
 
         if (empty($cands['strong'])) {
@@ -107,9 +106,59 @@ class ChapterNumberResolver
             if (count($freeWeak) === 1) {
                 return [$freeWeak[0], 'elimination (weak)', $book];
             }
-            // End-matter with no number belongs after the last chapter.
-            if (empty($cands['weak']) && preg_match('/afterword|epilogue|postscript/i', (string) $row->label)) {
-                return [$max + 1, 'end-matter', $book];
+        }
+
+        // Positional elimination: TOC scrapes insert rows in reading order, so
+        // the immediately adjacent rows (by id) bracket the true position —
+        // even when the label's own numbers lie (raw-site numbering).
+        if ($positional = self::resolveByPosition($row, $taken, $book)) {
+            return $positional;
+        }
+
+        // End-matter with no number belongs after the last chapter.
+        if (empty($cands['strong']) && empty($cands['weak']) && preg_match('/afterword|epilogue|postscript/i', (string) $row->label)) {
+            return [$max + 1, 'end-matter', $book];
+        }
+
+        return null;
+    }
+
+    /**
+     * Infer the number from the row's id-neighbors. Requires strictly adjacent
+     * ids (same scrape batch) so unrelated batches can't mislead it.
+     */
+    protected static function resolveByPosition(NovelChapter $row, array $taken, int $book): ?array
+    {
+        $neighbor = fn(int $id) => NovelChapter::where('novel_id', $row->novel_id)
+            ->where('id', $id)
+            ->where('blacklist', 0)
+            ->where('chapter', '>', 0)
+            ->first();
+
+        $prev = $neighbor($row->id - 1);
+        $next = $neighbor($row->id + 1);
+
+        if (!$prev || !$next || (int) $prev->book !== (int) $next->book) {
+            return null;
+        }
+
+        $p = (int) floor((float) $prev->chapter);
+        $n = (int) floor((float) $next->chapter);
+
+        // Exactly one number missing between the neighbors — that's ours.
+        if ($n - $p === 2 && !isset($taken[$p + 1])) {
+            return [$p + 1, "position (between {$p} and {$n})", (int) $prev->book];
+        }
+
+        // Neighbors are consecutive: an unnumbered extra slotted between them.
+        if ($n - $p === 1) {
+            $value = $p + 0.5;
+            $clash = NovelChapter::where('novel_id', $row->novel_id)
+                ->where('blacklist', 0)
+                ->where('chapter', $value)
+                ->exists();
+            if (!$clash) {
+                return [$value, "position (extra between {$p} and {$n})", (int) $prev->book];
             }
         }
 

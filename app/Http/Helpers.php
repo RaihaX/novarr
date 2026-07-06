@@ -1215,12 +1215,19 @@ function generateTocChapterInfo($label, $url)
         $chapter = $chapterMatches[1];
     } elseif (preg_match("/^(\d+)/", $normalizedLabel, $startChapterMatches)) {
         $chapter = $startChapterMatches[1];
-    } elseif (preg_match("/\b(?:ch{1,2}ap\w*|ch\.|cap[ií]?tulo)\s*[-–:]?\s*(\d+)/iu", $normalizedLabel, $looseMatches)) {
+    } elseif (preg_match("/\b(?:ch{1,2}ap\w*|ch\.|cap[ií]?tulo)\s+(\d+)/iu", $normalizedLabel, $looseMatches)) {
         // Tolerate source typos (Chaper/Chaptet/Chhapter/Captulo) and labels
         // where "Chapter N" isn't at the start ("Novel Name Chapter 1161 ...").
+        // \s+ only: a dash may mean a negative ("Chapter -1 - Glossary").
         $chapter = $looseMatches[1];
-    } elseif (preg_match("/(?:^|[-\/])ch(?:ap(?:ter)?)?-(\d+)/i", parse_url($url, PHP_URL_PATH) ?: "", $urlMatches)) {
-        // Last resort: the URL slug ("...-chapter-86", "...-ch-40").
+    } elseif (
+        !preg_match("/\b(?:ch{1,2}ap\w*|ch\.|cap[ií]?tulo)/iu", $normalizedLabel) &&
+        preg_match("/(?:^|[-\/])ch(?:ap(?:ter)?)?-(\d+)/i", parse_url($url, PHP_URL_PATH) ?: "", $urlMatches)
+    ) {
+        // Last resort: the URL slug ("...-chapter-86", "...-ch-40") — but only
+        // when the label carries no chapter token at all; a label like
+        // "Chapter -1 - Glossary" with slug "chapter-1-glossary" must NOT
+        // steal the real chapter 1.
         $chapter = $urlMatches[1];
     }
 
