@@ -28,4 +28,10 @@ php artisan view:cache
 echo "==> Restarting queue worker"
 php artisan queue:restart
 
+# Deploys run as root; the queue worker and PHP-FPM run as www-data. Anything
+# root leaves behind in storage/ (epub runs, cover downloads, caches) breaks
+# later www-data writes with Permission denied — normalize every deploy.
+echo "==> Normalizing storage ownership"
+chown -R www-data:www-data storage bootstrap/cache
+
 echo "==> Deployed $(git rev-parse --short HEAD) ($(git log -1 --format=%s))"
