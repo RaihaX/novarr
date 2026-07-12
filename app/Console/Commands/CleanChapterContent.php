@@ -146,18 +146,24 @@ class CleanChapterContent extends Command
     {
         $stats = ['tail_truncated' => false, 'css_removed' => false, 'title_removed' => false];
 
-        // Drop a leading "Chapter N…" heading paragraph (sources embed the
-        // title as the first body paragraph; the reader/ePub already render
-        // the label as a heading, so it shows twice).
-        if (preg_match('/^\s*<p\b[^>]*>.*?<\/p>/is', $html, $lead)) {
-            if (stripLeadingChapterTitle([$lead[0]], $chapterNumber) === []) {
-                $html = substr($html, strlen($lead[0]));
-                $stats['title_removed'] = true;
-            }
-        }
-
         if (!preg_match_all('/<p\b[^>]*>(.*?)<\/p>/is', $html, $matches, PREG_SET_ORDER)) {
             return [$html, $stats];
+        }
+
+        // Strip duplicated/glued chapter-title headings from the front —
+        // sources embed the title as body text (sometimes stacked twice, or
+        // fused onto the first story paragraph); the reader/ePub already
+        // render the label as a heading, so it shows twice.
+        $paras = array_map(fn($m) => $m[0], $matches);
+        $stripped = stripLeadingChapterTitle($paras, $chapterNumber);
+        if ($stripped !== $paras) {
+            $stats['title_removed'] = true;
+            $matches = [];
+            foreach ($stripped as $p) {
+                if (preg_match('/<p\b[^>]*>(.*?)<\/p>/is', $p, $m)) {
+                    $matches[] = $m;
+                }
+            }
         }
 
         $kept = [];

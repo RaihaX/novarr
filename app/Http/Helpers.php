@@ -318,38 +318,55 @@ function chapterSourceUrl($data)
  */
 function stripLeadingChapterTitle(array $paragraphs, $chapterNumber = null): array
 {
-    if (empty($paragraphs)) {
-        return $paragraphs;
-    }
+    $paragraphs = array_values($paragraphs);
 
-    $text = trim(strip_tags(reset($paragraphs)));
-    // Some sources pepper headings with zero-width/no-break characters
-    // ("Chapter‌ ‌2334:‌ ‌…") — normalize before matching.
-    $text = preg_replace('/[\x{200B}-\x{200D}\x{FEFF}\x{00A0}]/u', ' ', $text);
-    $text = trim(preg_replace('/\s+/u', ' ', $text));
+    // Sources stack up to two title paragraphs (site numbering + translation
+    // numbering) and sometimes glue the title straight onto the body text, so
+    // peel iteratively (bounded — this is defensive, not expected depth).
+    for ($round = 0; $round < 4 && !empty($paragraphs); $round++) {
+        $first = $paragraphs[0];
 
-    if ($text === '' || mb_strlen($text) > 200) {
-        return $paragraphs;
-    }
+        // Inner HTML with zero-width/no-break characters normalized — some
+        // sources pepper headings with them ("Chapter‌ ‌2334:‌ ‌…").
+        $inner = preg_replace('/^\s*<p\b[^>]*>|<\/p>\s*$/i', '', trim($first));
+        $inner = preg_replace('/[\x{200B}-\x{200D}\x{FEFF}\x{00A0}]|&nbsp;/u', ' ', $inner);
 
-    $drop = false;
-    if (preg_match('/^Chapter\s*(\d+(?:\.\d+)?)\s*([:\-–—]|\s|$)/iu', $text, $m)) {
-        if (in_array(trim($m[2]), [':', '-', '–', '—'], true)) {
-            // "Chapter 6639: Helping a Friend" — unambiguous heading.
-            $drop = true;
-        } elseif (
-            $chapterNumber !== null
-            && (int) $m[1] === (int) floor((float) $chapterNumber)
-            && count(explode(' ', $text)) <= 15
-        ) {
-            // "Chapter 1963 Rush to the Future!" — no separator, so only
-            // drop when it names this very chapter and is title-length.
-            $drop = true;
+        $text = trim(preg_replace('/\s+/u', ' ', strip_tags($inner)));
+        if ($text === '' || !preg_match('/^Chapter\s*(\d+(?:\.\d+)?)\s*([:\-–—]|\s|$)/iu', $text, $m)) {
+            break;
         }
-    }
+        $hasSeparator = in_array(trim($m[2]), [':', '-', '–', '—'], true);
 
-    if ($drop) {
-        array_shift($paragraphs);
+        // Glued heading first: "Chapter 329: Title   Chapter 329: Title   Body…"
+        // — the title prefix ends at a run of 2+ spaces (the site's own gap).
+        // Trim just the prefix and keep the body; the loop takes care of a
+        // doubled title on the next round. Must run before the whole-drop so
+        // a short paragraph with body glued on doesn't lose its story text.
+        if ($hasSeparator && preg_match('/^\s*Chapter\s*\d+(?:\.\d+)?\s*[:\-–—][^<]{0,150}?\s{2,}(?=\S)/iu', $inner, $g)) {
+            $rest = trim(substr($inner, strlen($g[0])));
+            if (strlen(trim(strip_tags($rest))) >= 20) {
+                $paragraphs[0] = '<p>' . $rest . '</p>';
+                continue;
+            }
+        }
+
+        // Whole paragraph is just a heading — drop it.
+        // "Chapter 6639: Helping a Friend" (separator = unambiguous), or a
+        // plain "Chapter 1963 Rush to the Future!" that names this very
+        // chapter and is title-length. The word caps keep a title glued to a
+        // single-space body sentence from taking the story text with it.
+        if (mb_strlen($text) <= 200) {
+            $words = count(explode(' ', $text));
+            $isPlainOwnTitle = $chapterNumber !== null
+                && (int) $m[1] === (int) floor((float) $chapterNumber)
+                && $words <= 15;
+            if (($hasSeparator && $words <= 20) || $isPlainOwnTitle) {
+                array_shift($paragraphs);
+                continue;
+            }
+        }
+
+        break;
     }
 
     return array_values($paragraphs);
