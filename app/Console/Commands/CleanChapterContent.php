@@ -83,7 +83,7 @@ class CleanChapterContent extends Command
                     continue;
                 }
 
-                [$cleaned, $stats] = $this->cleanDescription($original, $chapter->chapter);
+                [$cleaned, $stats] = $this->cleanDescription($original, $chapter->chapter, $chapter->label);
 
                 if ($cleaned !== $original) {
                     $changed++;
@@ -142,7 +142,7 @@ class CleanChapterContent extends Command
      *     after it.
      *   - Re-join.
      */
-    protected function cleanDescription(string $html, $chapterNumber = null): array
+    protected function cleanDescription(string $html, $chapterNumber = null, ?string $label = null): array
     {
         $stats = ['tail_truncated' => false, 'css_removed' => false, 'title_removed' => false];
 
@@ -155,7 +155,7 @@ class CleanChapterContent extends Command
         // fused onto the first story paragraph); the reader/ePub already
         // render the label as a heading, so it shows twice.
         $paras = array_map(fn($m) => $m[0], $matches);
-        $stripped = stripLeadingChapterTitle($paras, $chapterNumber);
+        $stripped = stripLeadingChapterTitle($paras, $chapterNumber, $label);
         if ($stripped !== $paras) {
             $stats['title_removed'] = true;
             $matches = [];
