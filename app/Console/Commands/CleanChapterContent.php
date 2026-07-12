@@ -72,9 +72,10 @@ class CleanChapterContent extends Command
         $changed = 0;
         $tailTruncated = 0;
         $cssRemoved = 0;
+        $titleRemoved = 0;
         $bytesSaved = 0;
 
-        $query->chunkById(200, function ($chapters) use (&$changed, &$tailTruncated, &$cssRemoved, &$bytesSaved, $dryRun, $bar) {
+        $query->chunkById(200, function ($chapters) use (&$changed, &$tailTruncated, &$cssRemoved, &$titleRemoved, &$bytesSaved, $dryRun, $bar) {
             foreach ($chapters as $chapter) {
                 $original = $chapter->description;
                 if ($original === null || $original === '') {
@@ -82,7 +83,7 @@ class CleanChapterContent extends Command
                     continue;
                 }
 
-                [$cleaned, $stats] = $this->cleanDescription($original);
+                [$cleaned, $stats] = $this->cleanDescription($original, $chapter->chapter);
 
                 if ($cleaned !== $original) {
                     $changed++;
@@ -92,6 +93,9 @@ class CleanChapterContent extends Command
                     }
                     if ($stats['css_removed']) {
                         $cssRemoved++;
+                    }
+                    if ($stats['title_removed']) {
+                        $titleRemoved++;
                     }
 
                     if (!$dryRun) {
@@ -114,6 +118,7 @@ class CleanChapterContent extends Command
                 ['Chapters changed', $changed],
                 ['Tail (widget) truncated', $tailTruncated],
                 ['CSS paragraph removed', $cssRemoved],
+                ['Leading title removed', $titleRemoved],
                 ['Bytes saved', number_format($bytesSaved)],
             ]
         );
@@ -137,9 +142,19 @@ class CleanChapterContent extends Command
      *     after it.
      *   - Re-join.
      */
-    protected function cleanDescription(string $html): array
+    protected function cleanDescription(string $html, $chapterNumber = null): array
     {
-        $stats = ['tail_truncated' => false, 'css_removed' => false];
+        $stats = ['tail_truncated' => false, 'css_removed' => false, 'title_removed' => false];
+
+        // Drop a leading "Chapter N…" heading paragraph (sources embed the
+        // title as the first body paragraph; the reader/ePub already render
+        // the label as a heading, so it shows twice).
+        if (preg_match('/^\s*<p\b[^>]*>.*?<\/p>/is', $html, $lead)) {
+            if (stripLeadingChapterTitle([$lead[0]], $chapterNumber) === []) {
+                $html = substr($html, strlen($lead[0]));
+                $stats['title_removed'] = true;
+            }
+        }
 
         if (!preg_match_all('/<p\b[^>]*>(.*?)<\/p>/is', $html, $matches, PREG_SET_ORDER)) {
             return [$html, $stats];

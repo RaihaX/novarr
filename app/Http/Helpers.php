@@ -309,6 +309,52 @@ function chapterSourceUrl($data)
     return $novelUrl;
 }
 
+/**
+ * Drop a leading "Chapter N…" heading paragraph from scraped content — many
+ * sources embed the chapter title as the first body paragraph, which then
+ * renders twice (the reader and ePub already print the label as a heading).
+ * Conservative: only a short first paragraph is dropped, and a plain title
+ * without a separator must repeat this chapter's own number.
+ */
+function stripLeadingChapterTitle(array $paragraphs, $chapterNumber = null): array
+{
+    if (empty($paragraphs)) {
+        return $paragraphs;
+    }
+
+    $text = trim(strip_tags(reset($paragraphs)));
+    // Some sources pepper headings with zero-width/no-break characters
+    // ("Chapter‌ ‌2334:‌ ‌…") — normalize before matching.
+    $text = preg_replace('/[\x{200B}-\x{200D}\x{FEFF}\x{00A0}]/u', ' ', $text);
+    $text = trim(preg_replace('/\s+/u', ' ', $text));
+
+    if ($text === '' || mb_strlen($text) > 200) {
+        return $paragraphs;
+    }
+
+    $drop = false;
+    if (preg_match('/^Chapter\s*(\d+(?:\.\d+)?)\s*([:\-–—]|\s|$)/iu', $text, $m)) {
+        if (in_array(trim($m[2]), [':', '-', '–', '—'], true)) {
+            // "Chapter 6639: Helping a Friend" — unambiguous heading.
+            $drop = true;
+        } elseif (
+            $chapterNumber !== null
+            && (int) $m[1] === (int) floor((float) $chapterNumber)
+            && count(explode(' ', $text)) <= 15
+        ) {
+            // "Chapter 1963 Rush to the Future!" — no separator, so only
+            // drop when it names this very chapter and is title-length.
+            $drop = true;
+        }
+    }
+
+    if ($drop) {
+        array_shift($paragraphs);
+    }
+
+    return array_values($paragraphs);
+}
+
 function chapterGenerator($data)
 {
     $novelUrl = chapterSourceUrl($data);
@@ -324,7 +370,7 @@ function chapterGenerator($data)
         $apiResult = novelArrowChapterContent($novelUrl);
         if (count($apiResult) > 0) {
             \Log::debug("ChapterGenerator fetched via Novel Arrow API: {$novelUrl} (paragraphs: " . count($apiResult) . ")");
-            return $apiResult;
+            return stripLeadingChapterTitle($apiResult, $data->chapter ?? null);
         }
 
         // Fetch page using headless browser (bypasses Cloudflare)
@@ -428,7 +474,7 @@ function chapterGenerator($data)
 
         $result = array_filter($result, "strlen");
 
-        return $result;
+        return stripLeadingChapterTitle(array_values($result), $data->chapter ?? null);
     } catch (\Exception $e) {
         \Log::error("ChapterGenerator exception for URL {$novelUrl}: " . $e->getMessage());
         return [];
