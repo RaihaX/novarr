@@ -50,6 +50,14 @@ class NovelScraper extends Command
     private function processChapters($novel, $toc)
     {
         foreach ($toc as $item) {
+            if (!self::validTocUrl($item["url"] ?? null, $novel->group->url ?? "")) {
+                $this->warn("  Skipped TOC entry with invalid URL: \"" . ($item["label"] ?? "") . "\" (\"" . ($item["url"] ?? "") . "\")");
+                \Log::warning(
+                    "TOC entry skipped for {$novel->name}: invalid chapter URL \"" . ($item["url"] ?? "") . "\""
+                );
+                continue;
+            }
+
             if ($novel->group_id == 6) {
                 $item["unique_id"] = $this->extractUniqueId($item["url"]);
             }
@@ -77,6 +85,22 @@ class NovelScraper extends Command
 
             $this->updateOrCreateChapter($check_duplicate, $novel->id, $item);
         }
+    }
+
+    /**
+     * A TOC anchor only counts as a chapter if its resolved URL is a clean
+     * link. Guards against page CSS scraped as chapters (label "Arial", url
+     * "Arial, sans-serif") jamming the download queue with junk rows the
+     * chapter scraper can never fetch. Mirrors chapterSourceUrl(): a relative
+     * URL is resolved against the group's base URL. Pure — unit tested.
+     */
+    public static function validTocUrl(?string $url, ?string $groupUrl): bool
+    {
+        $resolved = preg_match("/^http/", (string) $url)
+            ? (string) $url
+            : (string) $groupUrl . (string) $url;
+
+        return preg_match('~^https?://[^\s,]+$~', $resolved) === 1;
     }
 
     private function extractUniqueId($url)
