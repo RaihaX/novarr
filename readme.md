@@ -2,7 +2,7 @@
 
 A self-hosted web-novel **manager, downloader, and reader** — think "Sonarr for web novels." Novarr discovers series from supported sites, scrapes their tables of contents and chapters on a schedule, stores them locally, and gives you a fast dark-mode reading experience with continuous reading, cross-device position sync, bookmarks & highlights, read-aloud, reading stats, full-text search, ePub export, Send-to-Kindle, an OPDS catalog, and offline reading as an installable PWA.
 
-Built with **Laravel 11** (PHP 8.3+), Bootstrap 5, Hotwire Turbo, and Vite.
+Built with **Laravel 11** (PHP 8.3+), Bootstrap 5, Hotwire Turbo, and Vite, wearing a bespoke dark-first **design system** (see [Design & branding](#design--branding)) — Geist for the UI, Literata for reading, one hairline, no shadows.
 
 ---
 
@@ -47,6 +47,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
 - [Offline reading (PWA)](#offline-reading-pwa)
 - [Tailscale](#tailscale)
 - [Deployment (Docker / Unraid)](#deployment-docker--unraid)
+- [Design & branding](#design--branding)
 - [Project structure](#project-structure)
 - [Development](#development)
 
@@ -66,12 +67,17 @@ Open **http://&lt;host&gt;/** and start adding novels.
 - **Cloudflare bypass** via [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), with `cf_clearance` cookie reuse so most fetches fall back to fast plain HTTP.
 - **Polite rate-limiting** with configurable min/max delays between chapter fetches.
 - **Resilience** — per-novel consecutive-failure tracking with a webhook alert after repeated failures; content cleaning strips ads (Taboola/Outbrain), leftover `<style>`/`<script>`, and spam lines.
+- **Failure diagnostics** — every all-failed scrape run records *why* it failed (invalid chapter URL, Cloudflare challenge, page unfetchable, page loads but has no chapter text, stub-length content), and that cause is shown verbatim on the dashboard, in the daily email, and in the webhook alert instead of a generic "the source may have changed."
+- **Fewer false alarms** — freshly-added novels whose chapters are still queued behind the download backlog get a 7-day grace period before being flagged, and a novel with nothing left pending is never reported as failing.
+- **Junk-proof TOC parsing** — discovered chapter entries are validated (a CSS fragment scraped as a "chapter link" is skipped with a logged warning, not stored as a phantom chapter that fails forever).
+- **Short chapters handled sensibly** — the anti-stub word-count gate (configurable via `min_chapter_words`, default 250) is bypassed for chapters whose label marks them as special (prologue, epilogue, side story, extra, "Chapter 0", …), which are accepted from 50 words — so a genuinely short prologue downloads instead of being retried forever.
 - **Auto-complete** — daily verification against NovelUpdates marks a series complete once every chapter is downloaded, then generates the ePub and (optionally) sends it to Kindle, with webhook notifications at each step.
 - **On-demand single chapter** — a pending chapter's page offers "Download this chapter now."
 
 ### Reading
-- **In-app reader** with persisted preferences: font size, width, margins, justification/hyphenation, theme (dark/sepia/light), font (sans / serif / Atkinson Hyperlegible), line spacing — with optional **per-novel overrides** ("This novel only").
-- **Continuous reading** — the next chapter loads inline as you approach the end (toggleable), with a reading-progress bar, swipe gestures on touch, and a slide-out **chapter list** with filtering.
+- **A proper reading screen** — a centred 680px column set in **Literata** (19px/1.75), a minimal 52px chrome bar, a 2px amber chapter-progress rail, a "CHAPTER 12 OF 323 · 9 MIN LEFT" kicker, and a footer with prev/next blocks around a primary **"Mark read & continue"**.
+- **Persisted preferences** behind one **Aa** popover: font size (15–24px), measure (56–80ch), margins, justification/hyphenation, theme (dark/sepia/light), font (Literata / sans / Georgia / Atkinson Hyperlegible), line spacing, auto-scroll and read-aloud — with optional **per-novel overrides** ("This novel only").
+- **Continuous reading** — the next chapter loads inline as you approach the end (toggleable), with swipe gestures on touch and a slide-out **chapter list** with filtering.
 - **Focus mode** — hides all chrome; tap the page to peek at the controls.
 - **Read tracking** — chapters auto-mark read on open, "Continue reading" resumes **mid-chapter across devices** (scroll position syncs to the server), "Mark to here" bulk-marks earlier chapters.
 - **Auto-scroll** (adjustable speed) and **read-aloud** text-to-speech with paragraph highlighting and speed control.
@@ -81,6 +87,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
 
 ### Export
 - **ePub generation** per novel (cover, table of contents, clean formatting).
+- **Generated brand covers** — a novel with no artwork gets a designed 1600×2400 fallback cover (title auto-sized to length, brand mark, chapter count) rendered server-side with GD, so nothing ships with a blank cover.
 - **Send to Kindle** — emails the ePub to your Kindle address (optionally auto-sent on completion).
 - **OPDS catalog** at `/opds` — browse and download your generated ePubs from KOReader, Moon+ Reader, or any OPDS-capable app.
 
@@ -229,6 +236,7 @@ Most operational settings are editable from the **Settings** page (stored in `ap
 | `summary_time` | When the daily summary email is sent (e.g. `08:00`) |
 | `kindle_email` | Override the Kindle recipient |
 | `auto_kindle` | Auto-send the ePub to Kindle when a novel completes |
+| `min_chapter_words` | Word count below which a scraped chapter is treated as a stub and rejected (default `250`; special chapters — prologues, side stories, extras — are accepted from 50 words regardless) |
 
 ---
 
@@ -249,7 +257,7 @@ Novarr is **scheduler-driven**. Add the single Laravel cron entry and everything
 | Priority TOC refresh | hourly | `novel:toc --frequent-only` — novels flagged "hourly checks" |
 | Chapter download | every 10 min | `novel:chapter` — download newly-found pending chapters |
 | Completion verify | daily @ 06:00 | `novel:verify-completion` — mark fully-downloaded series complete |
-| Summary email | daily @ `summary_time` | `novel:email-summary` — recap of new chapters & completed novels |
+| Summary email | daily @ `summary_time` | `novel:email-summary` — recap of new chapters, completed novels, and anything needing attention (with the recorded failure cause), as a dark brand email built to survive Gmail/Outlook |
 
 Jobs queued from the web UI use the **database** queue (`jobs` table); failures land in `failed_jobs` and are inspectable/retryable from the **Health** page. For instant pickup, run a **persistent worker** alongside the cron (the Docker stack ships one as a service; on bare metal use a systemd unit):
 
@@ -373,6 +381,20 @@ For PWA installs you'll want HTTPS in front of the stack — terminate TLS at yo
 
 ---
 
+## Design & branding
+
+Novarr's look is a documented design system, not ad-hoc CSS. The full brand pack (spec, tokens, logo SVGs, visual reference canvas) lives in **`design_handoff_novarr_brand/`**; the implementation follows it exactly.
+
+- **Dark is canonical** — `#0F1216` ground with two surface steps; light is a companion theme, not a peer. One 1px hairline separates everything; there are **no shadows** anywhere.
+- **Tokens are the single source of truth** — `resources/css/_variables.scss` holds the palette, type scale, spacing, and radii, mapped onto Bootstrap 5.3's variables. Component recipes live in `_components.scss`; per-view styling in `_dashboard.scss` / `_reader.scss` / `_views.scss`.
+- **Type**: **Geist** for UI, **Geist Mono** for counts/timestamps/chapter numbers, **Literata** for reading — all self-hosted (Fontsource, OFL). Static TTF instances are bundled in `resources/fonts/` for server-side (GD) rendering of ePub covers.
+- **One status recipe everywhere** — badges, panels, and progress bars all use the same triad (full-value text, 12% fill, 35% border) across five states: downloaded (green), queued (**cyan**, deliberately not blue so it never collides with links), needs-attention (amber), failed (red), paused (muted). Amber is otherwise reserved for *reading* signals (bookmark, reading-progress bars); indigo `#6470FF` carries all primary action.
+- **Logo suite** — the three-spines-forming-an-N mark with the amber bookmark, as `<x-brand-mark>` in Blade, `public/logo.svg` (wordmark outlined, no font dependency), `favicon.svg` + multi-size `favicon.ico`, and maskable PWA icons.
+
+Restyling something? Start from the tokens and the recipes in `_components.scss`; if a value isn't a token, it probably shouldn't exist.
+
+---
+
 ## Project structure
 
 ```
@@ -385,14 +407,19 @@ app/
 │   ├── Helpers.php        # Scraping, metadata, FlareSolverr, Kindle helpers
 │   └── Middleware/        # incl. CSRF exemptions for offline replay
 ├── Jobs/RunNovelCommand   # Queued Artisan command runner (3600s timeout)
-├── Services/NovelHealth   # "Needs attention" stall detection
+├── Services/              # NovelHealth ("needs attention" detection with failure
+│                          #   causes + grace periods), DefaultCoverGenerator
+│                          #   (brand fallback ePub covers), ChapterNumberResolver
 ├── Sources/               # Source interface + NovelArrow/EmpireNovel/NovelFull adapters
 └── *.php                  # Models: Novel, NovelChapter, ChapterText (body text),
                            #   Bookmark, File, Tag, Group, Language, Setting
 database/migrations/       # Schema (novels, novel_chapters, chapter_texts,
                            #   bookmarks, tags, app_settings, …)
+design_handoff_novarr_brand/  # Brand pack: spec (README), tokens, logo SVGs, canvas
 resources/
-├── css/app.scss           # Bootstrap 5 dark theme + custom styles
+├── css/                   # Design system: _variables (tokens) → _components →
+│   │                      #   _dashboard / _reader / _views, entry app.scss
+├── fonts/                 # Static Geist/Literata TTFs for GD cover rendering (OFL)
 ├── js/
 │   ├── app.js             # Entry: Turbo, fonts, window.Novarr API, SW + install prompt
 │   ├── commands.js        # Async command execution + job polling
@@ -400,6 +427,7 @@ resources/
 │   ├── navsearch.js · tagpicker.js · toast.js · confirm.js
 │   └── bootstrap.js       # Axios + CSRF setup
 └── views/                 # Blade templates (novels, chapters, library, settings, …)
+    └── components/        # <x-icon> (inline Lucide), <x-brand-mark>
 public/
 ├── sw.js                  # Service worker (app shell + offline downloads)
 ├── manifest.webmanifest   # PWA manifest
@@ -422,7 +450,7 @@ php artisan test  # run the test suite
 
 For remote/tablet access to the Vite dev server (e.g. over Tailscale), the dev assets must be advertised at the externally-reachable HTTPS origin — set `server.origin`, `server.allowedHosts`, and `server.hmr` in `vite.config.js` from `.env`, and confirm `public/hot` shows the external URL.
 
-**Tech stack:** Laravel 11 · PHP 8.3+ · MySQL 8 / MariaDB · Bootstrap 5 (dark) · Hotwire Turbo · Vite · self-hosted fonts (Inter Variable, Atkinson Hyperlegible) · FlareSolverr · Resend · PWA (service worker + IndexedDB).
+**Tech stack:** Laravel 11 · PHP 8.3+ · MySQL 8 / MariaDB · Bootstrap 5.3 under the Novarr design system · Hotwire Turbo · Vite · self-hosted fonts (Geist, Geist Mono, Literata via Fontsource; Inter + Atkinson Hyperlegible as fallbacks/reader options) · Lucide icons (inlined) · FlareSolverr · Resend · GD (cover rendering) · PWA (service worker + IndexedDB).
 
 ---
 
