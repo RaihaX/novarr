@@ -391,8 +391,15 @@ function stripLeadingChapterTitle(array $paragraphs, $chapterNumber = null, ?str
     return array_values($paragraphs);
 }
 
-function chapterGenerator($data)
+/**
+ * Fetch and parse a chapter into paragraphs. $failureReason is an optional
+ * out-param telling the caller *why* an empty result came back —
+ * 'fetch_failed', 'cloudflare' or 'no_content' — so failures can be reported
+ * with their actual cause instead of a generic "the source may have changed".
+ */
+function chapterGenerator($data, ?string &$failureReason = null)
 {
+    $failureReason = null;
     $novelUrl = chapterSourceUrl($data);
 
     \Log::debug("ChapterGenerator attempting to fetch URL: {$novelUrl}");
@@ -415,6 +422,7 @@ function chapterGenerator($data)
 
         if ($html === null) {
             \Log::warning("ChapterGenerator failed to fetch URL: {$novelUrl}");
+            $failureReason = 'fetch_failed';
             return [];
         }
 
@@ -424,6 +432,7 @@ function chapterGenerator($data)
             stripos($html, 'cf-challenge-running') !== false ||
             stripos($html, 'Verifying you are human') !== false) {
             \Log::error("ChapterGenerator detected Cloudflare challenge page for URL: {$novelUrl}");
+            $failureReason = 'cloudflare';
             return [];
         }
 
@@ -509,8 +518,16 @@ function chapterGenerator($data)
         }
 
         $result = array_filter($result, "strlen");
+        $result = stripLeadingChapterTitle(array_values($result), $data->chapter ?? null, $data->label ?? null);
 
-        return stripLeadingChapterTitle(array_values($result), $data->chapter ?? null, $data->label ?? null);
+        // Fetched fine, parsed to nothing: the chapter body is empty on the
+        // source or the layout changed. Anything non-empty is left for the
+        // caller to judge on word count.
+        if (count($result) === 0) {
+            $failureReason = 'no_content';
+        }
+
+        return $result;
     } catch (\Exception $e) {
         \Log::error("ChapterGenerator exception for URL {$novelUrl}: " . $e->getMessage());
         return [];

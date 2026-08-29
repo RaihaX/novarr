@@ -11,8 +11,14 @@ class NovelHealth
     /**
      * Active novels that look unhealthy: repeated all-failed scrape runs, or
      * pending chapters that haven't progressed in over a week (stalled).
-     * Shared by the daily summary email and the dashboard so both always
-     * report the same problems.
+     * Both branches require chapters still pending — the failure counter goes
+     * stale once a novel is fully caught up, and a novel with nothing pending
+     * has nothing failing. Shared by the daily summary email and the dashboard
+     * so both always report the same problems.
+     *
+     * Novels added in the last 7 days that have never downloaded anything and
+     * have no failed runs are given a grace period — their chapters are just
+     * queued behind the download backlog, not stuck.
      *
      * @return array<int, array{id: int, name: string, reason: string, url: ?string}>
      */
@@ -23,14 +29,16 @@ class NovelHealth
         $failing = Novel::where('status', 0)
             ->whereNull('paused_at')
             ->where('scrape_failures', '>=', 3)
+            ->whereHas('chapters', fn($q) => $q->where('status', 0)->where('blacklist', 0))
             ->orderBy('name')
-            ->get(['id', 'name', 'scrape_failures', 'translator_url']);
+            ->get(['id', 'name', 'scrape_failures', 'last_scrape_issue', 'translator_url']);
 
         foreach ($failing as $novel) {
             $attention[$novel->id] = [
                 'id' => $novel->id,
                 'name' => $novel->name,
-                'reason' => "{$novel->scrape_failures} consecutive scrape runs failed — the source site may have changed",
+                'reason' => "{$novel->scrape_failures} consecutive scrape runs failed — "
+                    . ($novel->last_scrape_issue ?: 'the source site may have changed'),
                 'url' => $this->sourceUrlFor($novel),
             ];
         }
@@ -39,7 +47,7 @@ class NovelHealth
             ->whereNull('paused_at')
             ->whereHas('chapters', fn($q) => $q->where('status', 0)->where('blacklist', 0))
             ->orderBy('name')
-            ->get(['id', 'name', 'translator_url']);
+            ->get(['id', 'name', 'translator_url', 'created_at', 'scrape_failures']);
 
         // Batch the per-novel stats into two grouped aggregate queries (served by
         // idx_novel_download_date) instead of two queries inside the loop.
@@ -63,6 +71,18 @@ class NovelHealth
             }
 
             $lastDownload = $lastDownloads[$novel->id] ?? null;
+
+            // Freshly added novel that hasn't had a scrape run fail yet: its
+            // chapters are simply waiting their turn in the backlog, so don't
+            // report it as a problem for the first week.
+            if (
+                $lastDownload === null
+                && $novel->created_at !== null
+                && Carbon::parse($novel->created_at)->gt(Carbon::now()->subDays(7))
+                && (int) $novel->scrape_failures === 0
+            ) {
+                continue;
+            }
 
             if ($lastDownload === null || Carbon::parse($lastDownload)->lt(Carbon::now()->subDays(7))) {
                 $pending = $pendingCounts[$novel->id] ?? 0;
