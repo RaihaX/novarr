@@ -1,6 +1,13 @@
 import './bootstrap';
-// Self-hosted Inter (variable) — no render-blocking Google Fonts request,
-// and typography keeps working offline in the PWA.
+// Self-hosted brand faces (variable) — no render-blocking Google Fonts
+// request, and typography keeps working offline in the PWA.
+// Geist: the UI face. Geist Mono: counts, timestamps, chapter numbers,
+// hostnames. Literata: the reading face (italic included for prose).
+import '@fontsource-variable/geist';
+import '@fontsource-variable/geist-mono';
+import '@fontsource-variable/literata';
+import '@fontsource-variable/literata/wght-italic.css';
+// Inter stays in the stack as a fallback for the UI face.
 import '@fontsource-variable/inter';
 // Atkinson Hyperlegible: the reader's high-legibility font option.
 import '@fontsource/atkinson-hyperlegible/400.css';

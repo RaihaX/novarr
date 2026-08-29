@@ -1,32 +1,35 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="page-toolbar">
-    <div class="d-flex align-items-center gap-3">
-        <h1 class="mb-0">Add Novel</h1>
-        <a href="{{ route('novels.create') }}" class="btn btn-sm btn-outline-secondary">Manual add</a>
+<div class="page-head">
+    <div class="page-head-titles">
+        <span class="page-head-kicker">Discover</span>
+        <h1 class="page-title mb-0">Add novel</h1>
+        <p class="page-head-sub mb-0">Adding queues a background command that fetches metadata and the cover; scrape the table of contents from the novel page afterwards.</p>
     </div>
-    <div class="d-flex flex-wrap gap-2 align-items-center">
-        <select id="discoverSource" class="form-select form-select-sm w-auto" aria-label="Source">
-            <option value="novelarrow">novelarrow.com</option>
-            <option value="empirenovel">empirenovel.com</option>
-            <option value="novelfull">novelfull.com</option>
-        </select>
-        <div class="btn-group" role="group" aria-label="Browse mode" id="discoverTabs">
-            <button type="button" class="btn btn-sm btn-outline-secondary discover-tab active" data-type="popular">Popular</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary discover-tab" data-type="completed">Completed</button>
-        </div>
-        <form id="discoverSearch" class="d-flex gap-2 flex-nowrap">
-            <input type="search" id="discoverQuery" aria-label="Search source" class="form-control form-control-sm" placeholder="Search…" minlength="2">
-            <button type="submit" class="btn btn-sm btn-primary">Search</button>
-        </form>
+    <div class="page-head-actions">
+        <a href="{{ route('novels.create') }}" class="btn btn-secondary">Manual add</a>
     </div>
 </div>
 
-<p class="text-muted" style="font-size: 13px;">Adding a novel queues a background command that fetches metadata and the cover, then you can scrape its TOC from the novel page.</p>
+<div class="filter-bar mb-4">
+    <select id="discoverSource" class="form-select" aria-label="Source">
+        <option value="novelarrow">novelarrow.com</option>
+        <option value="empirenovel">empirenovel.com</option>
+        <option value="novelfull">novelfull.com</option>
+    </select>
+    <div class="btn-group segmented" role="group" aria-label="Browse mode" id="discoverTabs">
+        <button type="button" class="btn btn-secondary discover-tab active" data-type="popular">Popular</button>
+        <button type="button" class="btn btn-secondary discover-tab" data-type="completed">Completed</button>
+    </div>
+    <form id="discoverSearch" class="d-flex gap-2 flex-nowrap">
+        <input type="search" id="discoverQuery" aria-label="Search source" class="form-control" placeholder="Search…" minlength="2">
+        <button type="submit" class="btn btn-primary">Search</button>
+    </form>
+</div>
 
-<div id="discoverStatus" class="text-muted py-5 text-center">Loading…</div>
-<div id="discoverResults" class="poster-grid mb-4"></div>
+<p id="discoverStatus" class="library-status">Loading…</p>
+<div id="discoverResults" class="novel-card-grid mb-4"></div>
 @endsection
 
 @push('scripts')
@@ -43,27 +46,28 @@
 
     let slowTimer = null;
 
-    // Skeleton poster tiles + a spinner while the (sometimes slow, Cloudflare-
-    // gated) source is fetched, instead of a bare "Loading…" string.
+    // Skeleton cards + a spinner while the (sometimes slow, Cloudflare-gated)
+    // source is fetched, instead of a bare "Loading…" string.
     function showLoading() {
         clearTimeout(slowTimer);
         statusEl.classList.remove('d-none');
-        statusEl.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Loading…';
+        statusEl.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>Loading…';
 
         resultsEl.innerHTML = '';
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; i < 8; i++) {
             const sk = document.createElement('div');
-            sk.className = 'poster-card poster-skeleton';
+            sk.className = 'novel-card novel-card-skeleton';
             sk.setAttribute('aria-hidden', 'true');
-            sk.innerHTML = '<div class="poster-cover skeleton-box"></div>'
-                + '<div class="skeleton-line mt-2"></div>'
-                + '<div class="skeleton-line short"></div>';
+            sk.innerHTML = '<div class="novel-card-head">'
+                + '<div class="skeleton-box"></div>'
+                + '<div class="novel-card-body w-100"><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>'
+                + '</div>';
             resultsEl.appendChild(sk);
         }
 
         // Reassure the user when a scrape is taking a while.
         slowTimer = setTimeout(() => {
-            statusEl.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Still working — the source can be slow…';
+            statusEl.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>Still working — the source can be slow…';
         }, 6000);
     }
 
@@ -95,7 +99,7 @@
                 return;
             }
 
-            statusEl.classList.add('d-none');
+            statusEl.textContent = `${data.items.length} result${data.items.length === 1 ? '' : 's'} from ${source()}.com`;
             data.items.forEach(renderCard);
         } catch (err) {
             endLoading();
@@ -103,73 +107,95 @@
         }
     }
 
-    // Initials for the no-cover placeholder — the full name already shows as the
-    // card title below, so repeating it in the tile is redundant.
-    function initials(name) {
-        return (name || '?').split(/\s+/).filter(Boolean).slice(0, 2)
-            .map(w => w[0]).join('').toUpperCase() || '?';
-    }
-
-    function makePlaceholder(name) {
-        const ph = document.createElement('div');
-        ph.className = 'poster-cover-placeholder';
-        const span = document.createElement('span');
-        span.className = 'poster-initials';
-        span.textContent = initials(name);
-        ph.appendChild(span);
-        return ph;
+    // Gradient placeholder carrying the mono mark (handoff §4 cover recipe).
+    function makePlaceholderMark() {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 32 32');
+        svg.setAttribute('fill', 'currentColor');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.setAttribute('class', 'brand-mark novel-card-cover-mark');
+        svg.innerHTML = '<path d="M6 5h5v22H6z"/><path d="M11 5h5l10 22h-5z"/>'
+            + '<path d="M21 13h5v14h-5z"/><path d="M21 5h5v8l-2.5-2.2L21 13z" opacity="0.55"/>';
+        return svg;
     }
 
     function renderCard(item) {
         const card = document.createElement('div');
-        card.className = 'poster-card';
+        card.className = 'novel-card';
 
-        const coverWrap = document.createElement('div');
-        coverWrap.className = 'poster-cover';
+        const head = document.createElement('div');
+        head.className = 'novel-card-head';
+
+        const cover = document.createElement('div');
+        cover.className = 'novel-card-cover';
 
         if (item.cover) {
+            cover.classList.add('has-image');
             const img = document.createElement('img');
             img.src = item.cover;
             img.alt = 'Cover of ' + item.name;
             img.loading = 'lazy';
             img.addEventListener('error', () => {
                 // Full-size cover missing? Retry the list thumbnail once,
-                // then give up and show the placeholder tile.
+                // then give up and show the placeholder ground.
                 if (item.cover_thumb && img.src !== item.cover_thumb) {
                     img.src = item.cover_thumb;
                     return;
                 }
-                img.replaceWith(makePlaceholder(item.name));
+                img.remove();
+                cover.classList.remove('has-image');
+                cover.appendChild(makePlaceholderMark());
             });
-            coverWrap.appendChild(img);
+            cover.appendChild(img);
         } else {
-            coverWrap.appendChild(makePlaceholder(item.name));
+            cover.appendChild(makePlaceholderMark());
         }
+
+        const body = document.createElement('div');
+        body.className = 'novel-card-body';
+
+        const title = item.url ? document.createElement('a') : document.createElement('span');
+        title.className = 'novel-card-title';
+        title.title = item.name;
+        title.textContent = item.name;
+        if (item.url) {
+            title.href = item.url;
+            title.target = '_blank';
+            title.rel = 'noopener';
+        }
+
+        const meta = document.createElement('span');
+        meta.className = 'novel-card-meta';
+        meta.textContent = item.author || 'Unknown author';
+
+        body.append(title, meta);
 
         if (item.in_library) {
             const badge = document.createElement('span');
-            badge.className = 'poster-badge badge bg-success';
+            badge.className = 'badge badge-downloaded';
             badge.textContent = 'In library';
-            coverWrap.appendChild(badge);
+            body.appendChild(badge);
         }
 
-        const title = document.createElement('div');
-        title.className = 'poster-title';
-        title.title = item.name;
-        title.textContent = item.name;
+        head.append(cover, body);
 
-        const meta = document.createElement('div');
-        meta.className = 'poster-meta';
-        meta.textContent = item.author || '';
+        const foot = document.createElement('div');
+        foot.className = 'novel-card-foot';
+
+        const actions = document.createElement('div');
+        actions.className = 'novel-card-actions';
 
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'btn btn-sm w-100 poster-add ' + (item.in_library ? 'btn-outline-secondary' : 'btn-success');
-        btn.textContent = item.in_library ? 'Already added' : '+ Add';
+        btn.className = 'btn poster-add ' + (item.in_library ? 'btn-secondary' : 'btn-primary');
+        btn.textContent = item.in_library ? 'Already added' : 'Add to library';
         btn.disabled = item.in_library;
         btn.addEventListener('click', () => addNovel(btn, item));
 
-        card.append(coverWrap, title, meta, btn);
+        actions.appendChild(btn);
+        foot.appendChild(actions);
+
+        card.append(head, foot);
         resultsEl.appendChild(card);
     }
 
@@ -190,28 +216,28 @@
                 if (idMatch) {
                     const link = document.createElement('a');
                     link.href = `/novels/${idMatch[1]}`;
-                    link.className = 'btn btn-sm w-100 poster-add btn-info';
+                    link.className = 'btn btn-secondary poster-add';
                     link.textContent = 'Open novel →';
                     btn.replaceWith(link);
                 } else {
-                    btn.className = 'btn btn-sm w-100 poster-add btn-outline-secondary';
+                    btn.className = 'btn btn-secondary poster-add';
                     btn.textContent = 'Added ✓';
                 }
                 Novarr.showToast(`"${item.name}" added — metadata and cover fetched. Open it to scrape the TOC.`, 'success');
             } else if ((result.output || '').includes('already exists')) {
-                btn.className = 'btn btn-sm w-100 poster-add btn-outline-secondary';
+                btn.className = 'btn btn-secondary poster-add';
                 btn.textContent = 'Already added';
                 Novarr.showToast(`"${item.name}" is already in your library.`, 'warning');
             } else {
                 btn.disabled = false;
-                btn.className = 'btn btn-sm w-100 poster-add btn-success';
-                btn.textContent = '+ Add';
+                btn.className = 'btn btn-primary poster-add';
+                btn.textContent = 'Add to library';
                 Novarr.showToast(result.error || result.message || 'Failed to add novel.', 'danger');
             }
         } catch (err) {
             btn.disabled = false;
-            btn.className = 'btn btn-sm w-100 poster-add btn-success';
-            btn.textContent = '+ Add';
+            btn.className = 'btn btn-primary poster-add';
+            btn.textContent = 'Add to library';
             Novarr.showToast('Error: ' + err.message, 'danger');
         }
     }

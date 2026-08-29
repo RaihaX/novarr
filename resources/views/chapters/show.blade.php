@@ -1,6 +1,7 @@
 @extends('layouts.app')
 
 @push('styles')
+{{-- Preload the adjacent chapter bodies (handoff §"Interactions": prev/next preload) --}}
 @if($next)
     <link rel="prefetch" href="{{ route('chapters.show', $next->id) }}">
 @endif
@@ -9,199 +10,250 @@
 @endif
 @endpush
 
+@php
+    // Kicker data ("CHAPTER 12 OF 323 · 9 MIN LEFT"). The position is the
+    // chapter's rank among the novel's non-blacklisted chapters, ordered the
+    // same way the prev/next queries are, so it stays consistent with the
+    // reader's own navigation even when a novel is split into books.
+    $novelId = $chapter->novel_id;
+    $chapterTotal = \App\NovelChapter::where('novel_id', $novelId)->where('blacklist', 0)->count();
+    $chapterIndex = \App\NovelChapter::where('novel_id', $novelId)
+        ->where('blacklist', 0)
+        ->where(function ($q) use ($chapter) {
+            $q->where('book', '<', $chapter->book)
+              ->orWhere(function ($q2) use ($chapter) {
+                  $q2->where('book', $chapter->book)->where('chapter', '<=', $chapter->chapter);
+              });
+        })
+        ->count();
+    $chapterTitle = $chapter->label ?: 'Chapter ' . $chapter->chapter;
+    // Honest minutes-left: real word count of this chapter's body, scaled by
+    // how much of it is still below the viewport (see updateMinutesLeft()).
+    $wordCount = str_word_count(strip_tags((string) $chapter->description));
+@endphp
+
 @section('content')
-{{-- Thin reading-progress bar (fixed to the viewport top) --}}
-<div id="readProgressBar" aria-hidden="true"><div id="readProgressFill"></div></div>
+<div class="reader" id="reader">
 
-<div class="mb-3 d-flex flex-wrap gap-2 justify-content-between align-items-center" id="readerToolbar">
-    <a href="{{ route('novels.show', $chapter->novel_id) }}" class="btn btn-outline-secondary btn-sm text-truncate" style="max-width: 100%;">&larr; {{ $chapter->novel->name ?? 'Back' }}</a>
-    <div class="d-flex gap-2 align-items-center">
-        <button type="button" id="tocBtn" class="btn btn-sm btn-outline-secondary" data-bs-toggle="offcanvas" data-bs-target="#tocPanel" title="Chapter list" aria-label="Chapter list">☰</button>
-        <button type="button" id="focusBtn" class="btn btn-sm btn-outline-secondary" title="Focus mode (hide chrome — tap the page to peek)" aria-label="Focus mode">⛶</button>
-        <button type="button" id="ttsBtn" class="btn btn-sm btn-outline-secondary" title="Read aloud (text-to-speech)" aria-label="Read aloud" aria-pressed="false">🔊</button>
-        <button type="button" id="readerSettingsBtn" class="btn btn-sm btn-outline-secondary" title="Reading settings" aria-label="Reading settings">Aa</button>
-        @if($prev)
-            <a href="{{ route('chapters.show', $prev->id) }}" id="navPrev" class="btn btn-sm btn-outline-secondary">&larr; Ch. {{ $prev->chapter }}</a>
-        @endif
-        @if($next)
-            <a href="{{ route('chapters.show', $next->id) }}" id="navNext" class="btn btn-sm btn-outline-secondary">Ch. {{ $next->chapter }} &rarr;</a>
-        @endif
-    </div>
-</div>
+    {{-- 52px chrome bar + the 2px chapter-progress rail directly under it.
+         The pair sticks below the navbar; in focus mode only the bar hides,
+         so the rail keeps reporting position. --}}
+    <div class="reader-chrome" id="readerChrome">
+        <div class="reader-bar" id="readerToolbar">
+            <a href="{{ route('novels.show', $novelId) }}" class="reader-back">
+                <x-icon name="chevron-left" :size="14" :stroke="1.75" />
+                <span class="reader-back-title">{{ $chapter->novel->name ?? 'Back' }}</span>
+            </a>
+            <div class="reader-controls">
+                <button type="button" id="readerSettingsBtn" class="reader-ctl reader-ctl-aa"
+                        aria-expanded="false" aria-controls="readerSettings"
+                        title="Reading settings" aria-label="Reading settings">Aa</button>
+                <button type="button" id="tocBtn" class="reader-ctl"
+                        data-bs-toggle="offcanvas" data-bs-target="#tocPanel"
+                        title="Chapter list" aria-label="Chapter list">Contents</button>
+                <button type="button" id="focusBtn" class="reader-ctl"
+                        title="Focus mode (hide chrome — tap the page to peek)"
+                        aria-label="Focus mode" aria-pressed="false">Focus</button>
+            </div>
+        </div>
+        <div id="readProgressBar" class="reader-rail" aria-hidden="true"><div id="readProgressFill"></div></div>
 
-{{-- Reading settings panel --}}
-<div id="readerSettings" class="card mb-3 d-none">
-    <div class="card-body d-flex flex-wrap gap-4 align-items-center" style="font-size: 13px;">
-        <div class="d-flex align-items-center gap-2">
-            <span class="text-muted">Font size</span>
-            <div class="btn-group btn-group-sm">
-                <button type="button" class="btn btn-outline-secondary" data-font="-">A−</button>
-                <button type="button" class="btn btn-outline-secondary" data-font="+">A+</button>
-            </div>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            <span class="text-muted">Width</span>
-            <div class="btn-group btn-group-sm" id="widthGroup" role="group" aria-label="Reading width">
-                <button type="button" class="btn btn-outline-secondary" data-width="narrow">Narrow</button>
-                <button type="button" class="btn btn-outline-secondary" data-width="medium">Medium</button>
-                <button type="button" class="btn btn-outline-secondary" data-width="wide">Wide</button>
-                <button type="button" class="btn btn-outline-secondary" data-width="full">Full</button>
-            </div>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            <span class="text-muted">Theme</span>
-            <div class="btn-group btn-group-sm" id="themeGroup" role="group" aria-label="Reading theme">
-                <button type="button" class="btn btn-outline-secondary" data-theme="dark">Dark</button>
-                <button type="button" class="btn btn-outline-secondary" data-theme="sepia">Sepia</button>
-                <button type="button" class="btn btn-outline-secondary" data-theme="light">Light</button>
-            </div>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            <span class="text-muted">Font</span>
-            <div class="btn-group btn-group-sm" id="familyGroup" role="group" aria-label="Font family">
-                <button type="button" class="btn btn-outline-secondary" data-family="sans">Sans</button>
-                <button type="button" class="btn btn-outline-secondary" data-family="serif">Serif</button>
-                <button type="button" class="btn btn-outline-secondary" data-family="legible" title="Atkinson Hyperlegible — a high-legibility font">Legible</button>
-            </div>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            <span class="text-muted">Margins</span>
-            <div class="btn-group btn-group-sm" id="marginGroup" role="group" aria-label="Side margins">
-                <button type="button" class="btn btn-outline-secondary" data-margin="s">S</button>
-                <button type="button" class="btn btn-outline-secondary" data-margin="m">M</button>
-                <button type="button" class="btn btn-outline-secondary" data-margin="l">L</button>
-            </div>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            <span class="text-muted">Justify</span>
-            <div class="btn-group btn-group-sm" id="justifyGroup" role="group" aria-label="Justified text">
-                <button type="button" class="btn btn-outline-secondary" data-justify="1">On</button>
-                <button type="button" class="btn btn-outline-secondary" data-justify="0">Off</button>
-            </div>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            <span class="text-muted">Spacing</span>
-            <div class="btn-group btn-group-sm" id="lineHeightGroup" role="group" aria-label="Line spacing">
-                <button type="button" class="btn btn-outline-secondary" data-lineheight="1.5">Compact</button>
-                <button type="button" class="btn btn-outline-secondary" data-lineheight="1.8">Normal</button>
-                <button type="button" class="btn btn-outline-secondary" data-lineheight="2.1">Relaxed</button>
-            </div>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            <span class="text-muted">Auto-next</span>
-            <div class="btn-group btn-group-sm" id="autoNextGroup" role="group" aria-label="Auto-load next chapter while scrolling">
-                <button type="button" class="btn btn-outline-secondary" data-autonext="1" title="Load the next chapter inline when you reach the end">On</button>
-                <button type="button" class="btn btn-outline-secondary" data-autonext="0">Off</button>
-            </div>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            <span class="text-muted">Auto-scroll</span>
-            <div class="btn-group btn-group-sm" role="group" aria-label="Auto-scroll">
-                <button type="button" id="autoScrollToggle" class="btn btn-outline-secondary" aria-pressed="false">Start</button>
-                <button type="button" class="btn btn-outline-secondary" data-scrollspeed="-" title="Scroll slower">−</button>
-                <button type="button" class="btn btn-outline-secondary" data-scrollspeed="+" title="Scroll faster">+</button>
-            </div>
-            <span id="autoScrollSpeedLabel" class="text-muted"></span>
-        </div>
-        <div class="form-check form-switch mb-0">
-            <input class="form-check-input" type="checkbox" role="switch" id="perNovelPrefs">
-            <label class="form-check-label text-muted" for="perNovelPrefs" title="Keep a separate typography setup for this novel (font, theme, width, spacing, margins)">This novel only</label>
-        </div>
-    </div>
-</div>
-
-{{-- Text-to-speech controls (toggled by the 🔊 toolbar button) --}}
-<div id="ttsBar" class="card mb-3 d-none">
-    <div class="card-body py-2 d-flex flex-wrap gap-2 align-items-center" style="font-size: 13px;">
-        <button type="button" id="ttsPlayPause" class="btn btn-sm btn-primary" style="min-width: 90px;">▶ Play</button>
-        <button type="button" id="ttsStop" class="btn btn-sm btn-outline-secondary">Stop</button>
-        <span class="text-muted ms-2">Speed</span>
-        <div class="btn-group btn-group-sm" id="ttsRateGroup" role="group" aria-label="Speech rate">
-            <button type="button" class="btn btn-outline-secondary" data-ttsrate="0.8">0.8×</button>
-            <button type="button" class="btn btn-outline-secondary" data-ttsrate="1">1×</button>
-            <button type="button" class="btn btn-outline-secondary" data-ttsrate="1.25">1.25×</button>
-            <button type="button" class="btn btn-outline-secondary" data-ttsrate="1.5">1.5×</button>
-        </div>
-        <span id="ttsStatus" class="text-muted ms-auto"></span>
-    </div>
-</div>
-
-{{-- Floating save-highlight popover (shown over a text selection) --}}
-<div id="highlightPop" class="card p-2 shadow d-none" style="position: absolute; z-index: 1055;">
-    <div class="d-flex gap-2">
-        <input type="text" id="hlNote" class="form-control form-control-sm" placeholder="Note (optional)" style="width: 170px;" aria-label="Bookmark note">
-        <button type="button" id="hlSave" class="btn btn-sm btn-primary text-nowrap">🔖 Save</button>
-        <button type="button" id="hlDefine" class="btn btn-sm btn-outline-secondary d-none" title="Look up this word" aria-label="Define word">📖</button>
-    </div>
-    <div id="hlDefinition" class="d-none mt-2 text-body" style="max-width: 320px; max-height: 200px; overflow-y: auto; font-size: 12px;"></div>
-</div>
-
-<div id="readerSections">
-    <section class="reader-section" data-id="{{ $chapter->id }}">
-        <div class="card mb-4 reader-card" id="readerCard">
-            <div class="card-header">
-                <div class="d-flex justify-content-between align-items-start gap-2">
-                    <div>
-                        <h4 class="mb-1">{{ $chapter->label ?: 'Chapter ' . $chapter->chapter }}</h4>
-                        <div class="d-flex gap-3 flex-wrap" style="font-size: 13px;">
-                            <span class="text-muted">Chapter {{ $chapter->chapter }}</span>
-                            @if($chapter->book)
-                                <span class="text-muted">Book {{ $chapter->book }}</span>
-                            @endif
-                            @if($chapter->status)
-                                <span class="badge bg-success" style="font-size: 11px;">Downloaded</span>
-                            @else
-                                <span class="badge bg-warning text-dark" style="font-size: 11px;">Pending</span>
-                            @endif
-                        </div>
-                    </div>
-                    <div class="d-flex gap-2 flex-shrink-0">
-                        <button type="button" id="readThrough" class="btn btn-sm btn-outline-secondary" data-id="{{ $chapter->id }}" title="Mark this and all earlier chapters as read">Mark to here</button>
-                        <button type="button" id="readToggle" class="btn btn-sm {{ $chapter->read_at ? 'btn-success' : 'btn-outline-secondary' }}" data-id="{{ $chapter->id }}" data-read="{{ $chapter->read_at ? '1' : '0' }}" aria-pressed="{{ $chapter->read_at ? 'true' : 'false' }}">
-                            {{ $chapter->read_at ? '✓ Read' : 'Mark read' }}
-                        </button>
-                    </div>
+        {{-- "Aa" popover: every reading preference in one cluster. --}}
+        <div id="readerSettings" class="reader-pop d-none" role="dialog" aria-label="Reading settings" aria-modal="false">
+            <div class="reader-pop-row">
+                <span class="reader-pop-label">Text size</span>
+                <div class="reader-seg" role="group" aria-label="Text size">
+                    <button type="button" data-font="-" aria-label="Smaller text">A&minus;</button>
+                    <span class="reader-seg-value" id="fontSizeLabel" aria-live="polite">19px</span>
+                    <button type="button" data-font="+" aria-label="Larger text">A+</button>
                 </div>
             </div>
-            <div class="card-body">
+            <div class="reader-pop-row">
+                <span class="reader-pop-label">Measure</span>
+                <div class="reader-seg" role="group" aria-label="Line measure">
+                    <button type="button" data-measure="-" aria-label="Narrower column">&minus;</button>
+                    <span class="reader-seg-value" id="measureLabel" aria-live="polite">68ch</span>
+                    <button type="button" data-measure="+" aria-label="Wider column">+</button>
+                </div>
+            </div>
+            <div class="reader-pop-row">
+                <span class="reader-pop-label">Theme</span>
+                <div class="reader-seg" id="themeGroup" role="group" aria-label="Reading theme">
+                    <button type="button" data-theme="dark">Dark</button>
+                    <button type="button" data-theme="sepia">Sepia</button>
+                    <button type="button" data-theme="light">Light</button>
+                </div>
+            </div>
+            <div class="reader-pop-row">
+                <span class="reader-pop-label">Typeface</span>
+                <div class="reader-seg reader-seg-wrap" id="familyGroup" role="group" aria-label="Font family">
+                    <button type="button" data-family="read">Literata</button>
+                    <button type="button" data-family="sans">Sans</button>
+                    <button type="button" data-family="serif">Georgia</button>
+                    <button type="button" data-family="legible" title="Atkinson Hyperlegible — a high-legibility font">Legible</button>
+                </div>
+            </div>
+            <div class="reader-pop-row">
+                <span class="reader-pop-label">Spacing</span>
+                <div class="reader-seg" id="lineHeightGroup" role="group" aria-label="Line spacing">
+                    <button type="button" data-lineheight="1.5">Compact</button>
+                    <button type="button" data-lineheight="1.75">Normal</button>
+                    <button type="button" data-lineheight="2.1">Relaxed</button>
+                </div>
+            </div>
+            <div class="reader-pop-row">
+                <span class="reader-pop-label">Gutter</span>
+                <div class="reader-seg" id="marginGroup" role="group" aria-label="Side margins">
+                    <button type="button" data-margin="s">S</button>
+                    <button type="button" data-margin="m">M</button>
+                    <button type="button" data-margin="l">L</button>
+                </div>
+            </div>
+            <div class="reader-pop-row">
+                <span class="reader-pop-label">Justify</span>
+                <div class="reader-seg" id="justifyGroup" role="group" aria-label="Justified text">
+                    <button type="button" data-justify="1">On</button>
+                    <button type="button" data-justify="0">Off</button>
+                </div>
+            </div>
+
+            <div class="reader-pop-sep" role="separator"></div>
+
+            <div class="reader-pop-row">
+                <span class="reader-pop-label">Auto-scroll</span>
+                <div class="reader-seg" role="group" aria-label="Auto-scroll">
+                    <button type="button" id="autoScrollToggle" aria-pressed="false">Start</button>
+                    <button type="button" data-scrollspeed="-" title="Scroll slower" aria-label="Scroll slower">&minus;</button>
+                    <button type="button" data-scrollspeed="+" title="Scroll faster" aria-label="Scroll faster">+</button>
+                </div>
+            </div>
+            <div class="reader-pop-row reader-pop-note">
+                <span></span><span id="autoScrollSpeedLabel"></span>
+            </div>
+            <div class="reader-pop-row">
+                <span class="reader-pop-label">Continuous</span>
+                <div class="reader-seg" id="autoNextGroup" role="group" aria-label="Auto-load next chapter while scrolling">
+                    <button type="button" data-autonext="1" title="Load the next chapter inline when you reach the end">On</button>
+                    <button type="button" data-autonext="0">Off</button>
+                </div>
+            </div>
+
+            <div class="reader-pop-sep" role="separator"></div>
+
+            <div class="reader-pop-row" id="ttsBar">
+                <span class="reader-pop-label">Read aloud</span>
+                <div class="reader-seg" role="group" aria-label="Text to speech">
+                    <button type="button" id="ttsPlayPause">Play</button>
+                    <button type="button" id="ttsStop">Stop</button>
+                </div>
+            </div>
+            <div class="reader-pop-row">
+                <span class="reader-pop-label">Speed</span>
+                <div class="reader-seg" id="ttsRateGroup" role="group" aria-label="Speech rate">
+                    <button type="button" data-ttsrate="0.8">0.8&times;</button>
+                    <button type="button" data-ttsrate="1">1&times;</button>
+                    <button type="button" data-ttsrate="1.25">1.25&times;</button>
+                    <button type="button" data-ttsrate="1.5">1.5&times;</button>
+                </div>
+            </div>
+            <div class="reader-pop-row reader-pop-note">
+                <span></span><span id="ttsStatus"></span>
+            </div>
+
+            <div class="reader-pop-sep" role="separator"></div>
+
+            <div class="reader-pop-row">
+                <label class="reader-pop-label" for="perNovelPrefs" title="Keep a separate typography setup for this novel">This novel only</label>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" role="switch" id="perNovelPrefs" aria-label="Use separate reader settings for this novel">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- 680px column: kicker, chapter title, hairline rule, prose. --}}
+    <div class="reader-col">
+        <div id="readerSections">
+            <section class="reader-section" data-id="{{ $chapter->id }}" data-words="{{ $wordCount }}">
+                <header class="reader-head">
+                    <p class="reader-kicker">
+                        <span>Chapter {{ $chapterIndex }} of {{ $chapterTotal }}</span>
+                        @if($chapter->book)
+                            <span class="reader-kicker-sep">&middot;</span><span>Book {{ $chapter->book }}</span>
+                        @endif
+                        @unless($chapter->status)
+                            <span class="reader-kicker-sep">&middot;</span><span class="reader-kicker-pending">Pending</span>
+                        @endunless
+                        <span class="reader-kicker-sep">&middot;</span><span data-mins>&mdash;</span>
+                    </p>
+                    <h1 class="reader-title">{{ $chapterTitle }}</h1>
+                    <div class="reader-title-rule" aria-hidden="true"></div>
+                </header>
+
                 @if($chapter->rawText())
                     <div class="chapter-content" id="chapterContent">
                         {!! $chapter->description !!}
                     </div>
                 @else
-                    <div class="text-center py-5">
-                        <p class="text-muted mb-3">No content available for this chapter yet.</p>
+                    <div class="reader-empty">
+                        <p>No content available for this chapter yet.</p>
                         <button type="button" id="downloadChapterBtn" class="btn btn-primary" data-id="{{ $chapter->id }}">
                             <span class="dl-label">Download this chapter now</span>
-                            <span class="dl-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Downloading…</span>
+                            <span class="dl-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Downloading&hellip;</span>
                         </button>
-                        <div class="form-text mt-2">Fetches just this chapter from the source in the background.</div>
+                        <div class="reader-empty-note">Fetches just this chapter from the source in the background.</div>
                     </div>
                 @endif
-            </div>
+            </section>
         </div>
-    </section>
+
+        <div id="readerSentinel" aria-hidden="true"></div>
+
+        <div class="reader-foot">
+            <div class="reader-foot-actions">
+                <button type="button" id="readThrough" class="reader-ghost" data-id="{{ $chapter->id }}" title="Mark this and all earlier chapters as read">Mark to here</button>
+                <button type="button" id="readToggle" class="reader-ghost {{ $chapter->read_at ? 'is-read' : '' }}" data-id="{{ $chapter->id }}" data-read="{{ $chapter->read_at ? '1' : '0' }}" aria-pressed="{{ $chapter->read_at ? 'true' : 'false' }}">
+                    {{ $chapter->read_at ? 'Read' : 'Mark read' }}
+                </button>
+            </div>
+
+            <nav class="chapter-nav reader-nav" aria-label="Chapter navigation">
+                @if($prev)
+                    <a href="{{ route('chapters.show', $prev->id) }}" id="navPrev" class="reader-navblock">
+                        <span class="reader-navblock-dir">&larr; Previous</span>
+                        <span class="reader-navblock-label">Ch. {{ $prev->chapter }} &middot; {{ Str::limit($prev->label ?: 'Chapter ' . $prev->chapter, 34) }}</span>
+                    </a>
+                @else
+                    <span class="reader-navblock is-empty" aria-hidden="true"></span>
+                @endif
+
+                @if($next)
+                    <a href="{{ route('chapters.show', $next->id) }}" id="nextChapterCta" class="reader-continue">Mark read &amp; continue</a>
+                @else
+                    <span id="endOfNovelNote" class="reader-caughtup">You're all caught up &mdash; no next chapter yet.</span>
+                @endif
+
+                @if($next)
+                    <a href="{{ route('chapters.show', $next->id) }}" id="navNext" class="reader-navblock reader-navblock-next">
+                        <span class="reader-navblock-dir">Next &rarr;</span>
+                        <span class="reader-navblock-label">Ch. {{ $next->chapter }} &middot; {{ Str::limit($next->label ?: 'Chapter ' . $next->chapter, 34) }}</span>
+                    </a>
+                @else
+                    <span class="reader-navblock is-empty" aria-hidden="true"></span>
+                @endif
+            </nav>
+        </div>
+    </div>
 </div>
 
-<div id="readerSentinel" aria-hidden="true"></div>
-
-@if($next)
-    {{-- Prominent end-of-chapter action: mark this chapter read and move on,
-         the dominant interaction when reading a series straight through. --}}
-    <a href="{{ route('chapters.show', $next->id) }}" id="nextChapterCta" class="btn btn-primary next-chapter-cta mb-3">
-        Next: {{ Str::limit($next->label ?: 'Chapter ' . $next->chapter, 50) }} &rarr;
-    </a>
-@else
-    <div id="endOfNovelNote" class="text-center text-muted mb-3 py-2">You're all caught up — no next chapter yet.</div>
-@endif
-
-<div class="chapter-nav justify-content-between">
-    @if($prev)
-        <a href="{{ route('chapters.show', $prev->id) }}" class="btn btn-outline-secondary text-truncate">&larr; {{ Str::limit($prev->label ?: 'Ch. ' . $prev->chapter, 40) }}</a>
-    @endif
-    @if($next)
-        <a href="{{ route('chapters.show', $next->id) }}" class="btn btn-outline-secondary text-truncate">{{ Str::limit($next->label ?: 'Ch. ' . $next->chapter, 40) }} &rarr;</a>
-    @endif
+{{-- Floating save-highlight popover (shown over a text selection) --}}
+<div id="highlightPop" class="card p-2 d-none" style="position: absolute; z-index: 1055;">
+    <div class="d-flex gap-2">
+        <input type="text" id="hlNote" class="form-control form-control-sm" placeholder="Note (optional)" style="width: 170px;" aria-label="Bookmark note">
+        <button type="button" id="hlSave" class="btn btn-sm btn-primary text-nowrap">Save</button>
+        <button type="button" id="hlDefine" class="btn btn-sm btn-outline-secondary d-none" title="Look up this word" aria-label="Define word">Define</button>
+    </div>
+    <div id="hlDefinition" class="d-none mt-2 text-body" style="max-width: 320px; max-height: 200px; overflow-y: auto; font-size: 12px;"></div>
 </div>
 
 {{-- In-reader chapter list --}}
@@ -227,37 +279,57 @@
 <script>
 (() => {
     const state = JSON.parse(document.getElementById('readerState').textContent);
+    const readerEl = document.getElementById('reader');
 
     // ---- Reader preferences (persisted in localStorage) ----
     // Typography keys can be overridden per novel ("This novel only"): the
     // override lives as a JSON snapshot under reader_novel_{id} and wins over
     // the global keys while it exists. Behavioural prefs (autoNext) stay global.
     const PREF_KEYS = {
-        font: 'reader_font', width: 'reader_width', theme: 'reader_theme',
+        font: 'reader_font', measure: 'reader_measure', theme: 'reader_theme',
         family: 'reader_family', lineHeight: 'reader_lineheight',
         margin: 'reader_margin', justify: 'reader_justify',
     };
     const PREF_DEFAULTS = {
-        font: '18', width: 'medium', theme: 'dark', family: 'sans',
-        lineHeight: '1.8', margin: 'm', justify: '0',
+        font: '19', measure: '68', theme: 'dark', family: 'read',
+        lineHeight: '1.75', margin: 'm', justify: '0',
     };
+    // Handoff §"State Management": fontSize 15–24px, measure 56–80ch.
+    const FONT_MIN = 15, FONT_MAX = 24;
+    const MEASURE_MIN = 56, MEASURE_MAX = 80, MEASURE_STEP = 2;
+    // Legacy width buckets → a measure in ch, so nobody's saved column width is lost.
+    const LEGACY_WIDTH = { narrow: '56', medium: '68', wide: '76', full: '80' };
+
     const perNovelKey = 'reader_novel_' + state.novelId;
     let perNovel = null;
     try { perNovel = JSON.parse(localStorage.getItem(perNovelKey) || 'null'); } catch (e) { perNovel = null; }
 
     const prefs = { autoNext: localStorage.getItem('reader_autonext') || '1' };
+
+    function clampNum(v, min, max, fallback) {
+        const n = parseFloat(v);
+        return isNaN(n) ? fallback : Math.min(max, Math.max(min, n));
+    }
+
     function loadPrefs() {
         for (const [k, sk] of Object.entries(PREF_KEYS)) {
             prefs[k] = localStorage.getItem(sk) ?? PREF_DEFAULTS[k];
         }
+        // Migrations from the pre-redesign reader.
+        if (localStorage.getItem('reader_measure') === null) {
+            const legacy = LEGACY_WIDTH[localStorage.getItem('reader_width')];
+            if (legacy) prefs.measure = legacy;
+        }
         if (perNovel) Object.assign(prefs, perNovel);
-        prefs.font = Math.min(36, Math.max(13, parseInt(prefs.font, 10) || 18));
+        if (prefs.lineHeight === '1.8') prefs.lineHeight = '1.75';   // old "Normal"
+        prefs.font = clampNum(prefs.font, FONT_MIN, FONT_MAX, 19);
+        prefs.measure = Math.round(clampNum(prefs.measure, MEASURE_MIN, MEASURE_MAX, 68) / MEASURE_STEP) * MEASURE_STEP;
     }
     loadPrefs();
 
     function persistPref(k, v) {
-        // font stays numeric in memory (it's incremented); storage is strings.
-        prefs[k] = k === 'font' ? parseInt(v, 10) : String(v);
+        // font/measure stay numeric in memory (they're stepped); storage is strings.
+        prefs[k] = (k === 'font' || k === 'measure') ? parseInt(v, 10) : String(v);
         const stored = String(v);
         if (k === 'autoNext') { localStorage.setItem('reader_autonext', stored); return; }
         if (perNovel) {
@@ -269,40 +341,41 @@
     }
 
     const families = {
+        read: "var(--rd-font-read)",
         sans: "var(--bs-body-font-family)",
         serif: "Georgia, 'Times New Roman', serif",
         legible: "'Atkinson Hyperlegible', var(--bs-body-font-family)",
     };
-    const widths = { narrow: '600px', medium: '760px', wide: '960px', full: '1200px' };
-    const margins = { s: '0', m: '1.25rem', l: '2.5rem' };
-
-    function styleContent(el) {
-        el.style.fontSize = prefs.font + 'px';
-        el.style.maxWidth = widths[prefs.width] || widths.medium;
-        el.style.fontFamily = families[prefs.family] || families.sans;
-        el.style.lineHeight = prefs.lineHeight;
-        el.style.paddingLeft = el.style.paddingRight = margins[prefs.margin] ?? margins.m;
-        el.style.textAlign = prefs.justify === '1' ? 'justify' : '';
-        el.style.hyphens = prefs.justify === '1' ? 'auto' : '';
-    }
+    const margins = { s: '0px', m: '12px', l: '28px' };
 
     function applyPrefs() {
-        document.querySelectorAll('.chapter-content').forEach(styleContent);
-        // Theme recolours the whole page via a body class (styled in app.scss),
-        // not just the card — so focus mode and mobile gutters match the theme.
+        // Typography is driven by custom properties on the reader root; the
+        // stylesheet owns the rest, so nothing needs restyling per section.
+        readerEl.style.setProperty('--rd-size', prefs.font + 'px');
+        readerEl.style.setProperty('--rd-measure', prefs.measure + 'ch');
+        readerEl.style.setProperty('--rd-family', families[prefs.family] || families.read);
+        readerEl.style.setProperty('--rd-line-h', prefs.lineHeight);
+        readerEl.style.setProperty('--rd-gutter', margins[prefs.margin] ?? margins.m);
+        readerEl.style.setProperty('--rd-align', prefs.justify === '1' ? 'justify' : 'start');
+        readerEl.style.setProperty('--rd-hyphens', prefs.justify === '1' ? 'auto' : 'manual');
+
+        // Theme recolours the whole page via a body class, so focus mode and
+        // the page gutters match the reading surface.
         document.body.classList.remove('reader-theme-sepia', 'reader-theme-light');
         if (prefs.theme === 'sepia' || prefs.theme === 'light') {
             document.body.classList.add('reader-theme-' + prefs.theme);
         }
         document.body.setAttribute('data-bs-theme', prefs.theme === 'dark' ? 'dark' : 'light');
 
+        document.getElementById('fontSizeLabel').textContent = prefs.font + 'px';
+        document.getElementById('measureLabel').textContent = prefs.measure + 'ch';
+
         // reflect active buttons + announce state to assistive tech
         const reflect = (sel, key, val) => document.querySelectorAll(sel).forEach(b => {
             const on = b.dataset[key] === val;
-            b.classList.toggle('active', on);
+            b.classList.toggle('is-active', on);
             b.setAttribute('aria-pressed', on ? 'true' : 'false');
         });
-        reflect('#widthGroup [data-width]', 'width', prefs.width);
         reflect('#themeGroup [data-theme]', 'theme', prefs.theme);
         reflect('#familyGroup [data-family]', 'family', prefs.family);
         reflect('#lineHeightGroup [data-lineheight]', 'lineheight', prefs.lineHeight);
@@ -312,15 +385,30 @@
         document.getElementById('perNovelPrefs').checked = !!perNovel;
     }
 
-    document.getElementById('readerSettingsBtn').addEventListener('click', () => {
-        document.getElementById('readerSettings').classList.toggle('d-none');
+    // ---- "Aa" popover ----
+    const settingsBtn = document.getElementById('readerSettingsBtn');
+    const settingsPop = document.getElementById('readerSettings');
+    function toggleSettings(show) {
+        const open = show ?? settingsPop.classList.contains('d-none');
+        settingsPop.classList.toggle('d-none', !open);
+        settingsBtn.classList.toggle('is-active', open);
+        settingsBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleSettings(); });
+    settingsPop.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', () => toggleSettings(false));
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !settingsPop.classList.contains('d-none')) {
+            toggleSettings(false);
+            settingsBtn.focus();
+        }
     });
 
     const bindPref = (attr, apply) => document.querySelectorAll(`[data-${attr}]`).forEach(btn =>
         btn.addEventListener('click', () => { apply(btn.dataset[attr]); applyPrefs(); }));
 
-    bindPref('font', v => persistPref('font', Math.min(36, Math.max(13, prefs.font + (v === '+' ? 1 : -1)))));
-    bindPref('width', v => persistPref('width', v));
+    bindPref('font', v => persistPref('font', clampNum(prefs.font + (v === '+' ? 1 : -1), FONT_MIN, FONT_MAX, 19)));
+    bindPref('measure', v => persistPref('measure', clampNum(prefs.measure + (v === '+' ? MEASURE_STEP : -MEASURE_STEP), MEASURE_MIN, MEASURE_MAX, 68)));
     bindPref('theme', v => persistPref('theme', v));
     bindPref('family', v => persistPref('family', v));
     bindPref('lineheight', v => persistPref('lineHeight', v));
@@ -334,12 +422,12 @@
             perNovel = {};
             for (const k of Object.keys(PREF_KEYS)) perNovel[k] = String(prefs[k]);
             localStorage.setItem(perNovelKey, JSON.stringify(perNovel));
-            Novarr.showToast('Reader settings for this novel are now independent.', 'info');
+            window.Novarr?.showToast('Reader settings for this novel are now independent.', 'info');
         } else {
             localStorage.removeItem(perNovelKey);
             perNovel = null;
             loadPrefs();
-            Novarr.showToast('Back to your global reader settings.', 'info');
+            window.Novarr?.showToast('Back to your global reader settings.', 'info');
         }
         applyPrefs();
     });
@@ -348,9 +436,11 @@
     // Each entry mirrors the per-page readerState so navigation and progress
     // always refer to the chapter actually under the viewport.
     const sectionsEl = document.getElementById('readerSections');
+    const firstSectionEl = sectionsEl.querySelector('.reader-section');
     const sections = [{
         ...state,
-        el: sectionsEl.querySelector('.reader-section'),
+        el: firstSectionEl,
+        words: parseInt(firstSectionEl.dataset.words || '0', 10) || 0,
     }];
     let currentIdx = 0;
 
@@ -369,13 +459,21 @@
     function onSectionChange(idx) {
         currentIdx = idx;
         const cur = sections[idx];
-        // Keep the address bar, title and toolbar nav in sync with the
-        // chapter being read, so reloads/bookmarks land on the right one.
+        // Keep the address bar and the footer nav in sync with the chapter
+        // being read, so reloads/bookmarks land on the right one.
         history.replaceState(history.state, '', cur.url);
-        const navPrev = document.getElementById('navPrev');
-        const navNext = document.getElementById('navNext');
-        if (navPrev && cur.prev) { navPrev.href = cur.prev.url; navPrev.innerHTML = '&larr; Ch. ' + cur.prev.chapter; }
-        if (navNext && cur.next) { navNext.href = cur.next.url; navNext.innerHTML = 'Ch. ' + cur.next.chapter + ' &rarr;'; }
+        setNavBlock(document.getElementById('navPrev'), cur.prev, '← Previous');
+        setNavBlock(document.getElementById('navNext'), cur.next, 'Next →');
+    }
+
+    function setNavBlock(el, target, dir) {
+        if (!el) return;
+        if (!target) { el.classList.add('d-none'); return; }
+        el.classList.remove('d-none');
+        el.href = target.url;
+        el.querySelector('.reader-navblock-dir').textContent = dir;
+        el.querySelector('.reader-navblock-label').textContent =
+            'Ch. ' + target.chapter + ' · ' + (target.label || 'Chapter ' + target.chapter).substring(0, 34);
     }
 
     // ---- Keyboard + swipe navigation, relative to the current section ----
@@ -412,7 +510,7 @@
     // it's mostly vertical (normal scrolling).
     let touchStart = null;
     document.addEventListener('touchstart', (e) => {
-        if (e.touches.length !== 1 || e.target.closest('a, button, input, select, textarea, .offcanvas')) {
+        if (e.touches.length !== 1 || e.target.closest('a, button, input, select, textarea, .offcanvas, .reader-pop')) {
             touchStart = null;
             return;
         }
@@ -436,7 +534,8 @@
         const on = localStorage.getItem('reader_focus') === '1';
         document.body.classList.toggle('reader-focus', on);
         document.body.classList.remove('chrome-peek');
-        focusBtn.classList.toggle('active', on);
+        focusBtn.classList.toggle('is-active', on);
+        focusBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
     focusBtn.addEventListener('click', () => {
         const turningOn = localStorage.getItem('reader_focus') !== '1';
@@ -464,11 +563,24 @@
     // stored locally for instant restore and synced to the server so another
     // device can resume in the same place.
     const posKey = id => 'reader_pos_' + id;
+    const WPM = 230;   // honest-ish adult reading pace for web fiction
 
     function currentProgressPct() {
         const cur = sections[currentIdx];
         const pct = ((window.scrollY + window.innerHeight - sectionTop(cur)) / sectionHeight(cur)) * 100;
         return Math.max(0, Math.min(100, Math.round(pct)));
+    }
+
+    // Minutes left = words still below the fold at ~230 wpm. Words come from a
+    // server-side count of the chapter body (data-words on the section).
+    function updateMinutesLeft(pct) {
+        const cur = sections[currentIdx];
+        const el = cur.el.querySelector('[data-mins]');
+        if (!el) return;
+        const words = cur.words || 0;
+        if (!words) { el.textContent = '—'; return; }
+        const remaining = Math.max(0, words * (1 - pct / 100));
+        el.textContent = remaining < WPM / 2 ? 'Finished' : Math.max(1, Math.round(remaining / WPM)) + ' min left';
     }
 
     let lastSynced = { id: null, pct: -1 };
@@ -484,6 +596,7 @@
         window.Novarr?.queuedFetch?.(`/chapters/${id}/progress`, { method: 'POST', body: { progress: pct } }).catch(() => {});
     }
 
+    const progressFill = document.getElementById('readProgressFill');
     let scrollSaveTimer = null;
     let syncTimer = null;
     function updateProgress() {
@@ -492,7 +605,8 @@
         const cur = sections[currentIdx];
         const pct = currentProgressPct();
 
-        document.getElementById('readProgressFill').style.width = pct + '%';
+        progressFill.style.width = pct + '%';
+        updateMinutesLeft(pct);
 
         clearTimeout(scrollSaveTimer);
         scrollSaveTimer = setTimeout(() => {
@@ -507,7 +621,16 @@
             }, 10000);
         }
     }
-    window.addEventListener('scroll', updateProgress, { passive: true });
+
+    // rAF-throttled: at most one progress update per frame (handoff §Interactions).
+    let rafPending = false;
+    function onScroll() {
+        if (rafPending) return;
+        rafPending = true;
+        requestAnimationFrame(() => { rafPending = false; updateProgress(); });
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
     window.addEventListener('pagehide', () => syncProgress(sections[currentIdx].id, currentProgressPct(), true));
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') syncProgress(sections[currentIdx].id, currentProgressPct(), true);
@@ -541,13 +664,8 @@
 
     function updateCta(next) {
         if (!cta) return;
-        if (next) {
-            cta.href = next.url;
-            cta.innerHTML = 'Next: ' + (next.label || 'Chapter ' + next.chapter).substring(0, 50) + ' &rarr;';
-            cta.classList.remove('d-none');
-        } else {
-            cta.classList.add('d-none');
-        }
+        cta.classList.toggle('d-none', !next);
+        if (next) cta.href = next.url;
     }
 
     async function loadNextInline() {
@@ -561,9 +679,10 @@
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
             const nextState = JSON.parse(doc.getElementById('readerState').textContent);
+            const fetched = doc.querySelector('.reader-section');
             const content = doc.getElementById('chapterContent');
 
-            if (!nextState.hasContent || !content) {
+            if (!nextState.hasContent || !content || !fetched) {
                 // Pending chapter — stop auto-loading and leave the CTA as a
                 // normal link so its page (with the download button) is reachable.
                 autoLoadStopped = true;
@@ -573,25 +692,18 @@
             const section = document.createElement('section');
             section.className = 'reader-section';
             section.dataset.id = nextState.id;
-            section.innerHTML = `
-                <div class="reader-section-divider" role="separator">
-                    <span></span>
-                </div>
-                <div class="card mb-4 reader-card">
-                    <div class="card-header py-2">
-                        <h5 class="mb-0"></h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="chapter-content"></div>
-                    </div>
-                </div>`;
-            section.querySelector('.reader-section-divider span').textContent = nextState.label;
-            section.querySelector('.card-header h5').textContent = nextState.label;
-            section.querySelector('.chapter-content').innerHTML = content.innerHTML;
-            styleContent(section.querySelector('.chapter-content'));
+            section.dataset.words = fetched.dataset.words || '0';
+            // Reuse the fetched page's own kicker/title block, so appended
+            // chapters carry the same header as the one they were rendered with.
+            const head = fetched.querySelector('.reader-head');
+            if (head) section.appendChild(head);
+            const body = document.createElement('div');
+            body.className = 'chapter-content';
+            body.innerHTML = content.innerHTML;
+            section.appendChild(body);
             sectionsEl.appendChild(section);
 
-            sections.push({ ...nextState, el: section });
+            sections.push({ ...nextState, el: section, words: parseInt(section.dataset.words, 10) || 0 });
             updateCta(nextState.next);
             // Fetching the page marked it read server-side (same as opening it).
         } catch (err) {
@@ -703,7 +815,7 @@
         tocFilterTimer = setTimeout(() => renderToc(tocFilter.value.trim()), 150);
     });
 
-    // ---- Read state controls (initial chapter's header) ----
+    // ---- Read state controls ----
     const readToggle = document.getElementById('readToggle');
 
     // queuedFetch parks the write in IndexedDB if we're offline and replays it
@@ -724,8 +836,8 @@
     }
 
     function setReadUi(read) {
-        readToggle.className = 'btn btn-sm ' + (read ? 'btn-success' : 'btn-outline-secondary');
-        readToggle.textContent = read ? '✓ Read' : 'Mark read';
+        readToggle.classList.toggle('is-read', read);
+        readToggle.textContent = read ? 'Read' : 'Mark read';
         readToggle.dataset.read = read ? '1' : '0';
         readToggle.setAttribute('aria-pressed', read ? 'true' : 'false');
     }
@@ -756,11 +868,12 @@
     // ---- Manual read/unread toggle ----
     // Uses the idempotent bulk-read endpoint (set, not toggle) so a queued
     // replay applies the exact state we intended regardless of ordering.
+    const BULK_READ_URL = '{{ route('chapters.bulk_read') }}';
     readToggle.addEventListener('click', async () => {
         readToggle.disabled = true;
         const desired = readToggle.dataset.read !== '1';
         try {
-            const data = await readFetch('{{ route('chapters.bulk_read') }}', { ids: [readToggle.dataset.id], read: desired });
+            const data = await readFetch(BULK_READ_URL, { ids: [readToggle.dataset.id], read: desired });
             if (data.success) {
                 setReadUi(desired);
                 if (data.queued) Novarr.showToast('Saved offline — will sync when you reconnect.', 'info');
@@ -771,6 +884,23 @@
             readToggle.disabled = false;
         }
     });
+
+    // ---- "Mark read & continue": the dominant binge-reading action ----
+    if (cta) {
+        cta.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const cur = sections[currentIdx];
+            const url = cta.href;
+            cta.classList.add('is-busy');
+            try {
+                await readFetch(BULK_READ_URL, { ids: [cur.id], read: true });
+                if (cur.id === state.id) setReadUi(true);
+            } catch (err) {
+                // Navigating still marks it read server-side when the page loads.
+            }
+            visit(url);
+        });
+    }
 
     // ---- Pending chapter: fetch just this one on demand ----
     const dlBtn = document.getElementById('downloadChapterBtn');
@@ -908,7 +1038,7 @@
 
     function reflectAutoScroll() {
         autoScrollToggle.textContent = autoScrollOn ? 'Stop' : 'Start';
-        autoScrollToggle.classList.toggle('active', autoScrollOn);
+        autoScrollToggle.classList.toggle('is-active', autoScrollOn);
         autoScrollToggle.setAttribute('aria-pressed', autoScrollOn ? 'true' : 'false');
         speedLabel.textContent = scrollSpeed + ' px/s';
     }
@@ -958,8 +1088,6 @@
 
     // ---- Text-to-speech (browser speechSynthesis) ----
     const synth = window.speechSynthesis;
-    const ttsBtn = document.getElementById('ttsBtn');
-    const ttsBar = document.getElementById('ttsBar');
     const ttsPlayPause = document.getElementById('ttsPlayPause');
     const ttsStatus = document.getElementById('ttsStatus');
     let ttsRate = parseFloat(localStorage.getItem('reader_ttsrate') || '1');
@@ -968,7 +1096,7 @@
     function reflectTtsRate() {
         document.querySelectorAll('#ttsRateGroup [data-ttsrate]').forEach(b => {
             const on = parseFloat(b.dataset.ttsrate) === ttsRate;
-            b.classList.toggle('active', on);
+            b.classList.toggle('is-active', on);
             b.setAttribute('aria-pressed', on ? 'true' : 'false');
         });
     }
@@ -1002,7 +1130,8 @@
         synth.cancel();
         ttsActive = true;
         ttsPausedState = false;
-        ttsPlayPause.textContent = '⏸ Pause';
+        ttsPlayPause.textContent = 'Pause';
+        ttsPlayPause.classList.add('is-active');
         // Start from the first paragraph currently in view.
         const paras = ttsParas();
         const ref = window.scrollY + 90;
@@ -1018,26 +1147,21 @@
         ttsPausedState = false;
         synth?.cancel();
         ttsHighlight(null);
-        ttsPlayPause.textContent = '▶ Play';
+        ttsPlayPause.textContent = 'Play';
+        ttsPlayPause.classList.remove('is-active');
         ttsStatus.textContent = '';
     }
 
-    ttsBtn.addEventListener('click', () => {
-        const showing = !ttsBar.classList.toggle('d-none');
-        ttsBtn.classList.toggle('active', showing);
-        ttsBtn.setAttribute('aria-pressed', showing ? 'true' : 'false');
-        if (!showing) ttsStopAll();
-    });
     ttsPlayPause.addEventListener('click', () => {
         if (!ttsActive) { ttsStart(); return; }
         if (ttsPausedState) {
             ttsPausedState = false;
             synth.resume();
-            ttsPlayPause.textContent = '⏸ Pause';
+            ttsPlayPause.textContent = 'Pause';
         } else {
             ttsPausedState = true;
             synth.pause();
-            ttsPlayPause.textContent = '▶ Resume';
+            ttsPlayPause.textContent = 'Resume';
         }
     });
     document.getElementById('ttsStop').addEventListener('click', ttsStopAll);
@@ -1059,7 +1183,7 @@
     @if(!$chapter->read_at)
     function offlineAutoMark() {
         if (navigator.onLine || !window.Novarr?.queuedFetch) return;
-        Novarr.queuedFetch('{{ route('chapters.bulk_read') }}', { method: 'POST', body: { ids: [{{ $chapter->id }}], read: true } });
+        Novarr.queuedFetch(BULK_READ_URL, { method: 'POST', body: { ids: [{{ $chapter->id }}], read: true } });
         markReadUi();
     }
     if (window.Novarr?.queuedFetch) offlineAutoMark();

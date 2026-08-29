@@ -1,38 +1,38 @@
 @extends('layouts.app')
 
 @section('content')
-<h1 class="mb-4">Settings</h1>
+<h1 class="page-title mb-4">Settings</h1>
 
 @if(session('status'))
-    <div class="alert alert-success py-2">{{ session('status') }}</div>
+    <div class="alert alert-success">{{ session('status') }}</div>
 @endif
 
 <div class="row justify-content-center">
     <div class="col-lg-8">
-        <div class="card">
+        <div class="card form-panel">
             <div class="card-body">
                 @if($errors->any())
-                    <div class="alert alert-danger py-2 mb-3">Please correct the highlighted fields below.</div>
+                    <div class="alert alert-danger mb-4">Please correct the highlighted fields below.</div>
                 @endif
 
                 <form method="POST" action="{{ route('settings.update') }}">
                     @csrf
 
                     @foreach(collect($fields)->groupBy('group') as $groupName => $groupFields)
-                        <fieldset class="mb-4">
-                            <legend class="h6 text-muted text-uppercase fw-semibold mb-3" style="font-size: 12px; letter-spacing: 0.5px;">{{ $groupName }}</legend>
+                        <fieldset class="form-fieldset">
+                            <legend>{{ $groupName }}</legend>
 
                             @foreach($groupFields as $field)
                                 @php $key = $field['key']; @endphp
                                 @if($field['type'] === 'checkbox')
-                                    <div class="mb-3 form-check form-switch">
+                                    <div class="form-row form-check form-switch">
                                         <input type="checkbox" name="{{ $key }}" id="{{ $key }}" class="form-check-input @error($key) is-invalid @enderror" value="1" @checked(old($key, $field['value']) === '1' || old($key, $field['value']) === 1)>
                                         <label for="{{ $key }}" class="form-check-label">{{ $field['label'] }}</label>
                                         <div class="form-text">{{ $field['help'] }}</div>
                                         @error($key)<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
                                     </div>
                                 @else
-                                    <div class="mb-3">
+                                    <div class="form-row">
                                         <label for="{{ $key }}" class="form-label">{{ $field['label'] }}</label>
                                         @if(!empty($field['secret']))
                                             <div class="input-group">
@@ -41,7 +41,7 @@
                                                        value="{{ old($key, $field['value']) }}"
                                                        autocomplete="off"
                                                        @if(!empty($field['default'])) placeholder="{{ $field['default'] }}" @endif>
-                                                <button type="button" class="btn btn-outline-secondary toggle-secret" data-target="{{ $key }}" aria-label="Show or hide value">Show</button>
+                                                <button type="button" class="btn btn-secondary toggle-secret" data-target="{{ $key }}" aria-label="Show or hide value">Show</button>
                                                 @error($key)<div class="invalid-feedback">{{ $message }}</div>@enderror
                                             </div>
                                         @else
@@ -58,36 +58,37 @@
                         </fieldset>
                     @endforeach
 
-                    <div class="d-flex flex-wrap gap-2">
+                    <div class="form-actions">
                         <button type="submit" class="btn btn-primary">Save settings</button>
-                        <button type="button" id="testEmail" class="btn btn-outline-secondary">Send test email</button>
-                        <button type="button" id="testFlare" class="btn btn-outline-secondary">Test FlareSolverr</button>
-                        <button type="button" id="testNotify" class="btn btn-outline-secondary">Test notification</button>
+                        <button type="button" id="testEmail" class="btn btn-secondary">Send test email</button>
+                        <button type="button" id="testFlare" class="btn btn-secondary">Test FlareSolverr</button>
+                        <button type="button" id="testNotify" class="btn btn-secondary">Test notification</button>
                     </div>
                 </form>
             </div>
         </div>
-        <p class="text-muted mt-3" style="font-size: 13px;">
+
+        <p class="page-note">
             Saved values override the matching <code>.env</code> entries. Leave a field blank to fall back to the <code>.env</code> default.
             Tests use the FlareSolverr URL currently in the form (save first to test the others).
         </p>
 
         {{-- Tailscale --}}
-        <div class="card mt-4" id="tailscaleCard">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h2 class="h6 mb-0">Tailscale</h2>
-                <span id="tsBadge" class="badge bg-secondary">Checking…</span>
+        <div class="card mt-4 form-panel" id="tailscaleCard">
+            <div class="panel-head">
+                <h2 class="panel-title">Tailscale</h2>
+                <span id="tsBadge" class="badge badge-paused">Checking…</span>
             </div>
             <div class="card-body">
                 {{-- Shown while loading --}}
-                <div id="tsLoading" class="text-muted" style="font-size: 14px;">
+                <div id="tsLoading" class="text-muted">
                     <span class="spinner-border spinner-border-sm me-1"></span> Checking Tailscale status…
                 </div>
 
                 {{-- Shown when Tailscale isn't reachable --}}
                 <div id="tsUnavailable" class="d-none">
-                    <p class="text-muted mb-2" style="font-size: 14px;">Tailscale isn't connected to this instance.</p>
-                    <p id="tsReason" class="text-muted fst-italic mb-2" style="font-size: 13px;"></p>
+                    <p class="mb-2">Tailscale isn't connected to this instance.</p>
+                    <p id="tsReason" class="mono-muted mb-3"></p>
                     <p class="text-muted mb-0" style="font-size: 13px;">
                         To put Novarr on your tailnet (and get automatic HTTPS for the PWA), run the bundled
                         Tailscale stack: <code>docker compose -f docker-compose.tailscale.yml up -d</code> with a
@@ -97,30 +98,22 @@
 
                 {{-- Shown when connected --}}
                 <div id="tsConnected" class="d-none">
-                    <dl class="row mb-3" style="font-size: 14px;">
-                        <dt class="col-sm-4 text-muted fw-normal">Machine</dt>
-                        <dd class="col-sm-8" id="tsHostname">—</dd>
-                        <dt class="col-sm-4 text-muted fw-normal">Tailnet address</dt>
-                        <dd class="col-sm-8" id="tsUrl">—</dd>
-                        <dt class="col-sm-4 text-muted fw-normal">IP</dt>
-                        <dd class="col-sm-8" id="tsIp">—</dd>
+                    <dl class="kv-grid mb-4">
+                        <dt>Machine</dt><dd id="tsHostname">—</dd>
+                        <dt>Tailnet address</dt><dd id="tsUrl">—</dd>
+                        <dt>IP</dt><dd id="tsIp">—</dd>
                     </dl>
 
-                    <div class="form-check form-switch mb-2">
+                    <div class="form-check form-switch mb-3">
                         <input type="checkbox" class="form-check-input" id="tsServe">
-                        <label class="form-check-label" for="tsServe">
-                            Serve over HTTPS <span class="text-muted">— private to your tailnet</span>
-                        </label>
+                        <label class="form-check-label" for="tsServe">Serve over HTTPS</label>
+                        <div class="form-text">Private to your tailnet — and it satisfies the PWA's HTTPS requirement. The choice persists across restarts.</div>
                     </div>
                     <div class="form-check form-switch">
                         <input type="checkbox" class="form-check-input" id="tsFunnel">
-                        <label class="form-check-label" for="tsFunnel">
-                            Funnel <span class="text-muted">— expose publicly on the internet (use with care)</span>
-                        </label>
+                        <label class="form-check-label" for="tsFunnel">Funnel</label>
+                        <div class="form-text">Exposes Novarr publicly on the internet — use with care.</div>
                     </div>
-                    <p class="text-muted mt-2 mb-0" style="font-size: 12px;">
-                        Turning on Serve gives Novarr an HTTPS URL on your tailnet (and satisfies the PWA's HTTPS requirement). The choice persists across restarts.
-                    </p>
                 </div>
             </div>
         </div>
@@ -166,15 +159,15 @@
     }
 
     document.getElementById('testEmail').addEventListener('click', (e) =>
-        runTest(e.target, '{{ route('settings.test_email') }}'));
+        runTest(e.currentTarget, '{{ route('settings.test_email') }}'));
 
     document.getElementById('testFlare').addEventListener('click', (e) =>
-        runTest(e.target, '{{ route('settings.test_flaresolverr') }}', {
+        runTest(e.currentTarget, '{{ route('settings.test_flaresolverr') }}', {
             flaresolverr_url: document.getElementById('flaresolverr_url').value,
         }));
 
     document.getElementById('testNotify').addEventListener('click', (e) =>
-        runTest(e.target, '{{ route('settings.test_notification') }}', {
+        runTest(e.currentTarget, '{{ route('settings.test_notification') }}', {
             notification_webhook_url: document.getElementById('notification_webhook_url').value,
         }));
 
@@ -192,7 +185,7 @@
                 show('tsUnavailable', true);
                 show('tsConnected', false);
                 document.getElementById('tsReason').textContent = d.reason || '';
-                tsBadge.className = 'badge bg-secondary';
+                tsBadge.className = 'badge badge-paused';
                 tsBadge.textContent = 'Not connected';
                 return;
             }
@@ -201,7 +194,7 @@
             show('tsConnected', true);
 
             const running = d.backend === 'Running';
-            tsBadge.className = 'badge ' + (running ? 'bg-success' : 'bg-warning text-dark');
+            tsBadge.className = 'badge ' + (running ? 'badge-active' : 'badge-attention');
             tsBadge.textContent = running ? 'Connected' : (d.backend || 'Unknown');
 
             document.getElementById('tsHostname').textContent = d.hostname || '—';

@@ -12,7 +12,7 @@
 
     {{-- PWA --}}
     <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
-    <meta name="theme-color" content="#16181d">
+    <meta name="theme-color" content="#0F1216">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -25,12 +25,15 @@
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to content</a>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand d-flex align-items-center" href="{{ url('/') }}">
-                <img src="{{ asset('logo.svg') }}" alt="Novarr" height="28">
+    <nav class="navbar navbar-expand-lg">
+        <div class="container d-flex align-items-center">
+            {{-- Brand lockup: 28px mark + 15px wordmark (handoff §4) --}}
+            <a class="navbar-brand" href="{{ url('/') }}">
+                <x-brand-mark :size="28" />
+                <span class="brand-wordmark">NOVARR<span class="brand-dot">.</span></span>
+                <span class="visually-hidden">Novarr home</span>
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
@@ -64,8 +67,10 @@
                     </li>
                 </ul>
 
-                <form class="d-flex position-relative" role="search" action="{{ route('search.index') }}" method="GET" id="navSearchForm">
-                    <input type="search" name="q" id="navSearch" class="form-control form-control-sm" placeholder="Search…" autocomplete="off" aria-label="Search novels" style="min-width: 200px;">
+                {{-- 240px search field; JS hooks in resources/js/navsearch.js --}}
+                <form class="nav-search" role="search" action="{{ route('search.index') }}" method="GET" id="navSearchForm">
+                    <x-icon name="search" :size="14" class="nav-search-icon" />
+                    <input type="search" name="q" id="navSearch" class="form-control" placeholder="Search library" autocomplete="off" aria-label="Search novels">
                     <div id="navSearchResults" class="dropdown-menu dropdown-menu-end p-0 w-100 d-none" style="position: absolute; top: 100%;"></div>
                 </form>
             </div>

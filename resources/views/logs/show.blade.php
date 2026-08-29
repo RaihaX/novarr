@@ -1,65 +1,56 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="mb-3 d-flex justify-content-between align-items-center">
-    <div>
-        <a href="{{ route('logs.index') }}" class="btn btn-outline-secondary btn-sm">&larr; Back to Logs</a>
-        <span class="ms-2 fw-bold">{{ $filename }}</span>
-    </div>
-    <div class="d-flex gap-2 align-items-center">
+<a href="{{ route('logs.index') }}" class="back-link">
+    <x-icon name="chevron-left" :size="14" :stroke="1.5" /> Logs
+</a>
+
+<div class="log-head">
+    <span class="log-head-name">{{ $filename }}</span>
+    <div class="log-head-tools">
         <div class="form-check form-switch mb-0 me-2">
             <input class="form-check-input" type="checkbox" id="liveTail">
-            <label class="form-check-label" for="liveTail" style="font-size: 13px;">Live tail</label>
+            <label class="form-check-label label-caption" for="liveTail">Live tail</label>
         </div>
-        <a href="{{ route('logs.download', $filename) }}" class="btn btn-outline-primary btn-sm">Download</a>
-        <button type="button" id="clearLog" class="btn btn-outline-warning btn-sm">Clear log</button>
+        <a href="{{ route('logs.download', $filename) }}" class="btn btn-secondary btn-sm">Download</a>
+        <button type="button" id="clearLog" class="btn btn-warning btn-sm">Clear log</button>
     </div>
 </div>
 
-<div class="card mb-3">
-    <div class="card-body py-2">
-        <form method="GET" action="{{ route('logs.show', $filename) }}" class="row g-2 align-items-center">
-            <div class="col-auto">
-                <select name="level" class="form-select form-select-sm">
-                    @foreach($levels as $lvl)
-                        <option value="{{ $lvl }}" @selected($level === $lvl)>{{ ucfirst($lvl) }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div class="col">
-                <input type="text" name="search" class="form-control form-control-sm" placeholder="Search..." value="{{ $search }}">
-            </div>
-            <div class="col-auto">
-                <button type="submit" class="btn btn-sm btn-primary">Filter</button>
-                <a href="{{ route('logs.show', $filename) }}" class="btn btn-sm btn-outline-secondary">Clear</a>
-            </div>
-            <div class="col-auto">
-                <small class="text-muted">{{ $totalEntries }} entries | Page {{ $currentPage }}/{{ $totalPages }}</small>
-            </div>
-        </form>
-    </div>
+<div class="card mb-3 form-panel">
+    <form method="GET" action="{{ route('logs.show', $filename) }}" class="log-toolbar">
+        <select name="level" class="form-select" aria-label="Minimum level">
+            @foreach($levels as $lvl)
+                <option value="{{ $lvl }}" @selected($level === $lvl)>{{ ucfirst($lvl) }}</option>
+            @endforeach
+        </select>
+        <input type="text" name="search" class="form-control log-search" placeholder="Search entries…" value="{{ $search }}" aria-label="Search log entries">
+        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+        <a href="{{ route('logs.show', $filename) }}" class="btn btn-ghost btn-sm">Reset</a>
+        <span class="log-count">{{ number_format($totalEntries) }} entries · page {{ $currentPage }}/{{ $totalPages }}</span>
+    </form>
 </div>
 
 @if($truncated)
-    <div class="alert alert-secondary py-2" style="font-size: 13px;">
+    <div class="alert alert-secondary mb-3">
         Large file — showing entries from the most recent 5&nbsp;MB only. Use Download for the full history.
     </div>
 @endif
 
 <div class="card">
     <div class="table-responsive">
-        <table class="table table-sm table-striped mb-0" style="font-size: 13px;">
+        <table class="table log-table mb-0">
             <thead>
                 <tr>
-                    <th style="width: 180px;">Timestamp</th>
-                    <th style="width: 80px;">Level</th>
+                    <th style="width: 190px;">Timestamp</th>
+                    <th style="width: 110px;">Level</th>
                     <th>Message</th>
                 </tr>
             </thead>
             <tbody id="logBody">
                 @forelse($entries as $entry)
                     <tr>
-                        <td class="text-nowrap"><code>{{ $entry['timestamp'] }}</code></td>
+                        <td class="log-time">{{ $entry['timestamp'] }}</td>
                         <td>
                             @php
                                 $levelColors = [
@@ -89,7 +80,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="3" class="text-center text-muted py-3">No log entries found.</td>
+                        <td colspan="3" class="text-center text-muted py-4">No log entries found.</td>
                     </tr>
                 @endforelse
             </tbody>
@@ -97,7 +88,7 @@
     </div>
     @if($totalPages > 1)
         <div class="card-footer">
-            <nav>
+            <nav aria-label="Log pages">
                 <ul class="pagination pagination-sm mb-0 justify-content-center">
                     @if($currentPage > 1)
                         <li class="page-item">
@@ -141,10 +132,8 @@
             const tr = document.createElement('tr');
 
             const tsTd = document.createElement('td');
-            tsTd.className = 'text-nowrap';
-            const code = document.createElement('code');
-            code.textContent = entry.timestamp;
-            tsTd.appendChild(code);
+            tsTd.className = 'log-time';
+            tsTd.textContent = entry.timestamp;
 
             const lvlTd = document.createElement('td');
             const badge = document.createElement('span');
@@ -163,7 +152,7 @@
         }
 
         if (!entries.length) {
-            tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">Log is empty.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">Log is empty.</td></tr>';
         }
     }
 

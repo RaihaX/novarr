@@ -1,104 +1,158 @@
-// Fonts: Inter Variable is self-hosted via @fontsource-variable/inter,
-// imported in resources/js/app.js (bundled by Vite, works offline).
+// ---------------------------------------------------------------------------
+// Novarr — global stylesheet
+//
+// Fonts (Geist, Geist Mono, Literata) are self-hosted via @fontsource-variable
+// and imported in resources/js/app.js, so Vite bundles the woff2 and the app
+// keeps its typography offline in the PWA.
+//
+// Load order matters:
+//   1. _variables      — brand tokens + Bootstrap variable overrides
+//   2. bootstrap       — components, themed via data-bs-theme="dark" on <html>
+//   3. base            — element-level defaults (this file)
+//   4. _components     — the brand component sheet (navbar, cards, badges…)
+//   5. view partials   — one per phase-2 agent, so they never merge-conflict
+// ---------------------------------------------------------------------------
 
-// Variables
 @import "variables";
 
-// Bootstrap (components themed via data-bs-theme="dark" on <html>)
 @import 'bootstrap/scss/bootstrap';
 
 // ---------------------------------------------------------------------------
-// Novarr dark-theme tweaks on top of Bootstrap's built-in dark mode
+// Base
 // ---------------------------------------------------------------------------
 
+html {
+    // Dark is canonical; keep native form controls in step.
+    color-scheme: dark;
+}
+
 body {
-    background-color: $novarr-body-bg;
-    color: $novarr-text;
+    background-color: $bg;
+    color: $text;
+    font-family: $font-ui;
+    font-size: $fs-body;
+    line-height: $lh-body;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-variant-numeric: tabular-nums;
+
+    // iOS/PWA safe areas (viewport-fit=cover): keep content out of the notch
+    // and home-indicator regions.
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
 }
 
-// Sticky, translucent navbar with backdrop blur
-.navbar {
-    position: sticky;
-    top: 0;
-    z-index: 1030;
-    background-color: rgba(22, 24, 29, 0.85) !important;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid $novarr-border;
-
-    .nav-link {
-        border-radius: $border-radius;
-        padding-inline: 0.85rem;
-        transition: background-color 0.15s ease, color 0.15s ease;
-
-        &:hover {
-            background-color: rgba(255, 255, 255, 0.06);
-        }
-
-        &.active {
-            background-color: rgba(110, 168, 254, 0.15);
-            color: $novarr-link-hover;
-            font-weight: 600;
-        }
-    }
+main#main-content {
+    padding-bottom: calc(#{$s-7} + env(safe-area-inset-bottom)) !important;
 }
 
-.navbar-brand {
-    font-weight: 700;
-    letter-spacing: 1px;
+h1, .h1 {
+    font-size: $fs-page-title;
+    font-weight: $fw-page-title;
+    letter-spacing: $ls-page-title;
+    line-height: 1.15;
 }
 
+h2, .h2 {
+    font-size: 24px;
+    font-weight: $fw-section;
+    letter-spacing: $ls-section;
+}
+
+h3, .h3 {
+    font-size: $fs-section-header;
+    font-weight: $fw-section;
+    letter-spacing: $ls-section;
+}
+
+h4, .h4 { font-size: $fs-card-title; font-weight: $fw-card-title; }
+h5, .h5 { font-size: $fs-body; font-weight: 600; }
+h6, .h6 { font-size: $fs-caption; font-weight: 600; }
+
+// Links carry colour, never decoration; hover is a colour change only.
 a {
-    color: $novarr-link;
-    text-underline-offset: 3px;
+    color: $link;
+    text-decoration: none;
+    transition: color $transition;
 
-    &:hover {
-        color: $novarr-link-hover;
-    }
+    &:hover { color: $link-hover; }
 }
 
-.table-hover > tbody > tr:hover a {
-    color: $novarr-link-hover;
-}
+.text-muted { color: $text-muted !important; }
+.text-secondary { color: $text-muted !important; }
+.small, small { font-size: $fs-caption; }
 
-// Cards: flatter borders, gentle elevation
-.card {
-    background-color: $novarr-surface;
-    border: 1px solid $novarr-border;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-}
-
-.card-header {
-    background-color: rgba(255, 255, 255, 0.03);
-    border-bottom-color: $novarr-border;
-}
-
-.table {
-    th, td {
-        padding-block: 0.65rem;
-    }
-}
-
-.badge {
-    border-radius: 50rem;
-    font-weight: 500;
-    padding: 0.35em 0.75em;
+code, kbd, samp, pre {
+    font-family: $font-mono;
 }
 
 code {
-    color: $novarr-code;
-    background-color: rgba(255, 255, 255, 0.05);
+    color: $code-fg;
+    background-color: $code-bg;
     padding: 2px 5px;
     border-radius: 3px;
+    font-size: $fs-mono;
 }
 
-// Visible keyboard-focus ring everywhere
+pre code {
+    background: none;
+    padding: 0;
+}
+
+hr {
+    border-top: $hairline solid $border;
+    opacity: 1;
+}
+
+::selection {
+    background: rgba($accent, 0.35);
+    color: $text;
+}
+
+// Scrollbars: recessive, on-palette.
+* {
+    scrollbar-width: thin;
+    scrollbar-color: $border transparent;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+    background: $border;
+    border-radius: $radius;
+
+    &:hover { background: $btn-secondary-border; }
+}
+
+// ---------------------------------------------------------------------------
+// Focus: themed, never the browser default.
+// ---------------------------------------------------------------------------
+:focus { outline: none; }
+
 :focus-visible {
-    outline: 2px solid $novarr-link;
+    outline: 2px solid $accent;
     outline-offset: 2px;
+    box-shadow: none;
 }
 
+// Bootstrap sprinkles focus box-shadows on interactive components; the ring
+// above replaces all of them.
+.btn:focus,
+.form-control:focus,
+.form-select:focus,
+.form-check-input:focus,
+.page-link:focus,
+.nav-link:focus,
+.navbar-toggler:focus,
+.dropdown-item:focus,
+.btn-close:focus,
+.accordion-button:focus {
+    box-shadow: none;
+}
+
+// ---------------------------------------------------------------------------
+// Motion: colour properties only (120ms), progress width (240ms).
+// ---------------------------------------------------------------------------
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
         transition: none !important;
@@ -107,735 +161,14 @@ code {
 }
 
 // ---------------------------------------------------------------------------
-// Components
+// Component sheet
 // ---------------------------------------------------------------------------
-
-// Novel cover thumbnails in list views. display/overflow keep the alt text
-// clipped to the thumbnail box when a cover file is missing.
-.cover-thumb {
-    display: block;
-    width: 36px;
-    height: 50px;
-    object-fit: cover;
-    border-radius: 4px;
-    overflow: hidden;
-    font-size: 10px;
-    color: $novarr-muted;
-}
-
-.cover-placeholder {
-    width: 36px;
-    height: 50px;
-    background: $novarr-surface-alt;
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    color: $novarr-muted;
-}
-
-// Mobile novel cards (novels index < md). The card is a row of
-// [select checkbox | link], so bulk actions work on touch too.
-.novel-card {
-    display: flex;
-    gap: 0.85rem;
-    align-items: center;
-    padding: 0.85rem 1rem;
-    border-bottom: 1px solid $novarr-border;
-    text-decoration: none;
-    color: $novarr-text;
-    transition: background-color 0.15s ease;
-
-    &:active, &:hover {
-        background-color: rgba(255, 255, 255, 0.04);
-        color: $novarr-text;
-    }
-
-    &:last-child {
-        border-bottom: 0;
-    }
-
-    .novel-card-link {
-        display: flex;
-        gap: 0.85rem;
-        align-items: center;
-        flex: 1;
-        min-width: 0;
-        text-decoration: none;
-        color: $novarr-text;
-    }
-
-    .cover-thumb, .cover-placeholder {
-        width: 44px;
-        height: 62px;
-        flex-shrink: 0;
-    }
-
-    .novel-card-body {
-        min-width: 0;
-        flex: 1;
-    }
-
-    .novel-card-title {
-        font-weight: 600;
-        color: $novarr-link;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .novel-card-meta {
-        font-size: 12px;
-        color: $novarr-muted;
-    }
-}
-
-// Continue-reading row (dashboard) — horizontal scroll of small posters
-.continue-row {
-    display: flex;
-    gap: 1rem;
-    overflow-x: auto;
-    padding-bottom: 0.5rem;
-}
-
-.continue-card {
-    flex: 0 0 110px;
-    width: 110px;
-    text-decoration: none;
-    color: $novarr-text;
-
-    .poster-cover {
-        position: relative;
-        aspect-ratio: 2 / 3;
-        border-radius: $border-radius;
-        overflow: hidden;
-        background: $novarr-surface-alt;
-        border: 1px solid $novarr-border;
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
-
-        img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    }
-
-    &:hover {
-        color: $novarr-text;
-        .poster-cover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45); }
-        .continue-title { color: $novarr-link-hover; }
-    }
-
-    .continue-title {
-        margin-top: 0.4rem;
-        font-size: 12px;
-        font-weight: 600;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .continue-meta {
-        font-size: 11px;
-        color: $novarr-muted;
-    }
-}
-
-// Dashboard stat cards
-.dash-stat {
-    height: 100%;
-    transition: transform 0.15s ease, border-color 0.15s ease;
-
-    .dash-stat-value {
-        font-size: 1.75rem;
-        font-weight: 700;
-        line-height: 1.1;
-    }
-
-    .dash-stat-label {
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: $novarr-muted;
-        margin-top: 0.25rem;
-    }
-}
-
-a.dash-stat:hover {
-    transform: translateY(-2px);
-    border-color: rgba(110, 168, 254, 0.4);
-}
-
-// Synopsis with clamped preview + read-more (novel detail page)
-.synopsis-body {
-    font-size: 13px;
-    line-height: 1.7;
-    color: #adb5bd;
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-
-    &.expanded {
-        display: block;
-        -webkit-line-clamp: unset;
-    }
-
-    p:last-child {
-        margin-bottom: 0;
-    }
-}
-
-.synopsis-toggle {
-    font-size: 12px;
-    text-decoration: none;
-}
-
-// Poster grid (novels index grid view, Sonarr-style)
-.poster-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-    gap: 1rem;
-
-    @include media-breakpoint-up(md) {
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-        gap: 1.25rem;
-    }
-}
-
-.poster-card {
-    display: flex;
-    flex-direction: column;
-    text-decoration: none;
-    color: $novarr-text;
-
-    &:hover {
-        color: $novarr-text;
-
-        .poster-cover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
-        }
-
-        .poster-title {
-            color: $novarr-link-hover;
-        }
-    }
-}
-
-.poster-cover {
-    position: relative;
-    aspect-ratio: 2 / 3;
-    border-radius: $border-radius;
-    overflow: hidden;
-    background: $novarr-surface-alt;
-    border: 1px solid $novarr-border;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-
-    img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: block;
-    }
-}
-
-.poster-cover-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.75rem;
-    text-align: center;
-
-    span {
-        font-size: 12px;
-        font-weight: 600;
-        color: $novarr-muted;
-        display: -webkit-box;
-        -webkit-line-clamp: 4;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-    }
-
-    // Initials variant (Discover tiles with no cover) — the title carries the
-    // full name, so the tile shows large, calm initials instead.
-    span.poster-initials {
-        font-size: 2rem;
-        letter-spacing: 1px;
-        -webkit-line-clamp: 1;
-    }
-}
-
-.poster-badge {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-}
-
-// Hover-revealed actions (complete + delete) on grid posters; always
-// visible on touch devices.
-.poster-actions {
-    position: absolute;
-    top: 6px;
-    left: 6px;
-    display: flex;
-    gap: 4px;
-    opacity: 0;
-    transition: opacity 0.15s ease;
-
-    .poster-action {
-        padding: 2px 7px;
-    }
-}
-
-.poster-cover:hover .poster-actions,
-.poster-actions:focus-within {
-    opacity: 1;
-}
-
-@media (hover: none) {
-    .poster-actions {
-        opacity: 0.85;
-    }
-}
-
-.poster-progress {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 4px;
-    background: rgba(0, 0, 0, 0.55);
-
-    .poster-progress-bar {
-        height: 100%;
-        background: var(--bs-info);
-
-        &.is-complete {
-            background: var(--bs-success);
-        }
-    }
-}
-
-.poster-title {
-    margin-top: 0.5rem;
-    font-size: 13px;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.poster-meta {
-    font-size: 11px;
-    color: $novarr-muted;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-height: 1.2em;
-}
-
-// Add button on discover cards: pinned to the bottom so a row of cards
-// stays aligned regardless of title/author wrapping.
-.poster-card .poster-add {
-    margin-top: auto !important;
-}
-
-.poster-card .poster-meta {
-    margin-bottom: 0.5rem;
-}
-
-// Uppercase column-header style used on list tables
-.table-head-label {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: $novarr-muted;
-}
-
-// Page toolbar (heading + filters) that wraps gracefully on small screens
-.page-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 1.5rem;
-
-    form {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        align-items: center;
-    }
-
-    @include media-breakpoint-down(md) {
-        form {
-            width: 100%;
-
-            input[type="search"] {
-                flex: 1;
-            }
-        }
-    }
-}
-
-// Reading view
-.chapter-content {
-    font-size: clamp(16px, 2.5vw, 18px);
-    line-height: 1.9;
-    color: #d6d6d6;
-    max-width: 720px;
-    margin: 0 auto;
-    overflow-wrap: break-word;
-
-    p {
-        margin-bottom: 1em;
-    }
-}
-
-.chapter-nav {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-
-    .btn {
-        @include media-breakpoint-up(md) {
-            min-width: 140px;
-        }
-    }
-
-    @include media-breakpoint-down(md) {
-        .btn {
-            flex: 1;
-        }
-    }
-}
-
-// Log viewer
-.log-pre {
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-size: 12px;
-    margin: 0;
-}
-
-details.log-entry summary {
-    cursor: pointer;
-    font-family: var(--bs-font-monospace);
-    font-size: 12px;
-    list-style-position: outside;
-}
-
-// Multi-select tag picker
-.tag-picker {
-    position: relative;
-    max-width: 520px;
-
-    .tag-picker-toggle {
-        cursor: pointer;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .tag-picker-menu {
-        position: absolute;
-        z-index: 1050;
-        top: calc(100% + 4px);
-        left: 0;
-        right: 0;
-        max-height: 300px;
-        overflow-y: auto;
-    }
-
-    .tag-picker-options {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        max-height: 180px;
-        overflow-y: auto;
-    }
-
-    .tag-picker-option {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 4px 6px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 13px;
-        margin: 0;
-
-        &:hover {
-            background: rgba(255, 255, 255, 0.06);
-        }
-
-        input {
-            cursor: pointer;
-        }
-    }
-}
-
-// Reader focus mode — hide app chrome for distraction-free reading.
-// Tapping the page toggles .chrome-peek, which brings the chrome back
-// without leaving focus mode (see chapters/show.blade.php).
-body.reader-focus:not(.chrome-peek) {
-    .navbar,
-    #readerToolbar,
-    .chapter-nav {
-        display: none !important;
-    }
-}
-
-// iOS/PWA safe areas (viewport-fit=cover): keep content and the navbar out
-// of the notch and home-indicator regions.
-body {
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-}
-
-.navbar {
-    padding-top: calc(0.5rem + env(safe-area-inset-top));
-}
-
-main#main-content {
-    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom)) !important;
-}
-
-// Thin reading-progress bar pinned to the top of the viewport.
-#readProgressBar {
-    position: fixed;
-    top: env(safe-area-inset-top, 0);
-    left: 0;
-    right: 0;
-    height: 3px;
-    z-index: 2000;
-    pointer-events: none;
-
-    #readProgressFill {
-        height: 100%;
-        width: 0;
-        background: var(--bs-primary);
-        transition: width 0.15s linear;
-    }
-}
-
-// Divider between continuously-loaded chapters.
-.reader-section-divider {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin: 1.75rem auto 1rem;
-    max-width: 760px;
-    color: $novarr-muted;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-
-    span {
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 70%;
-    }
-
-    &::before,
-    &::after {
-        content: '';
-        flex: 1;
-        border-top: 1px solid $novarr-border;
-    }
-}
-
-// In-reader chapter list: pending chapters are visually secondary.
-#tocList .toc-pending {
-    opacity: 0.55;
-}
-
-// PWA install nudge (bottom bar, above safe-area).
-.pwa-install-bar {
-    position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
-    bottom: calc(1rem + env(safe-area-inset-bottom));
-    z-index: 1080;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.6rem 1rem;
-    background: $novarr-surface;
-    border: 1px solid $novarr-border;
-    border-radius: 8px;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
-    font-size: 13px;
-    max-width: calc(100vw - 2rem);
-}
-
-// Paragraph currently being read aloud (TTS).
-.tts-active {
-    background: rgba(57, 135, 229, 0.18);
-    border-radius: 3px;
-}
-
-// Recessive chart chrome on the stats page; per-bar hover reveals the value.
-.stats-chart {
-    .grid-line {
-        stroke: rgba(128, 128, 128, 0.18);
-        stroke-width: 1;
-    }
-    .axis-label {
-        fill: $novarr-muted;
-        font-size: 11px;
-    }
-    .bar-value {
-        fill: $novarr-text;
-        font-size: 11px;
-        opacity: 0;
-        transition: opacity 0.1s;
-
-        &.always {
-            opacity: 1;
-        }
-    }
-    .chart-bar:hover {
-        path { filter: brightness(1.25); }
-        .bar-value { opacity: 1; }
-    }
-}
-
-// Reader colour themes. Applied to <body> (not just the card) so the whole
-// viewport recolours — otherwise sepia/light left a dark page around a light
-// card, most visibly in focus mode. Driven by JS in chapters/show.blade.php.
-body.reader-theme-sepia,
-body.reader-theme-light {
-    .reader-card,
-    .reader-card .card-header,
-    .reader-card .card-body {
-        background-color: var(--reader-bg) !important;
-        color: var(--reader-fg) !important;
-        border-color: var(--reader-border) !important;
-    }
-
-    .reader-card a:not(.btn) {
-        color: var(--reader-link);
-    }
-}
-
-body.reader-theme-sepia {
-    --reader-bg: #f4ecd8;
-    --reader-fg: #5b4636;
-    --reader-border: #e0d3b8;
-    --reader-link: #8a5a2b;
-    background-color: #ece3cf;
-}
-
-body.reader-theme-light {
-    --reader-bg: #ffffff;
-    --reader-fg: #1a1a1a;
-    --reader-border: #e3e3e3;
-    --reader-link: #0d6efd;
-    background-color: #f5f5f5;
-}
-
-// Prominent end-of-chapter "next" call to action for binge reading.
-.next-chapter-cta {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    width: 100%;
-    padding: 0.9rem 1rem;
-    font-size: 1.05rem;
-    min-height: 48px; // comfortable touch target
-}
-
-// Bump reader toolbar controls to a usable touch-target size on touch devices.
-@media (hover: none) {
-    #readerToolbar .btn-sm,
-    #readerSettings .btn {
-        min-height: 40px;
-        min-width: 40px;
-    }
-}
-
-// Command output panels
-.command-output {
-    max-height: 500px;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    font-size: 13px;
-}
-
-// Skip-to-content link: off-screen until focused, so keyboard users can jump
-// past the navbar + search to the page content.
-.skip-link {
-    position: absolute;
-    left: 0;
-    top: -48px;
-    z-index: 1100;
-    padding: 0.5rem 1rem;
-    background: var(--bs-primary, #0d6efd);
-    color: #fff;
-    border-radius: 0 0 4px 0;
-    transition: top 0.15s ease;
-
-    &:focus {
-        top: 0;
-        color: #fff;
-    }
-}
-
-// Don't show a focus outline when <main> is programmatically focused via the
-// skip link — the visible jump is feedback enough.
-#main-content:focus { outline: none; }
-
-// Toast notifications (see resources/js/toast.js)
-.toast-container {
-    z-index: 1090;
-    // Keep toasts clear of the iOS home indicator in the installed PWA.
-    padding-bottom: calc(1rem + env(safe-area-inset-bottom)) !important;
-}
-
-// Loading skeletons for the Discover / Offline-library grids while results load.
-.poster-skeleton {
-    pointer-events: none;
-
-    .skeleton-box,
-    .skeleton-line {
-        background: linear-gradient(
-            90deg,
-            rgba(255, 255, 255, 0.04) 25%,
-            rgba(255, 255, 255, 0.09) 37%,
-            rgba(255, 255, 255, 0.04) 63%
-        );
-        background-size: 400% 100%;
-        animation: skeleton-shimmer 1.4s ease infinite;
-        border-radius: 4px;
-    }
-
-    .skeleton-box {
-        width: 100%;
-        aspect-ratio: 2 / 3;
-    }
-
-    .skeleton-line {
-        height: 12px;
-        margin-top: 8px;
-
-        &.short {
-            width: 60%;
-        }
-    }
-}
-
-@keyframes skeleton-shimmer {
-    0% { background-position: 100% 50%; }
-    100% { background-position: 0 50%; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .poster-skeleton .skeleton-box,
-    .poster-skeleton .skeleton-line {
-        animation: none;
-    }
-}
+@import "components";
+
+// ---------------------------------------------------------------------------
+// Per-view partials — one owner each, so parallel work never collides.
+// These are imported last and therefore win any equal-specificity tie.
+// ---------------------------------------------------------------------------
+@import "dashboard";
+@import "reader";
+@import "views";

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 44" width="260" height="44">
+  <defs>
+    <linearGradient id="nv" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6470FF"></stop>
+      <stop offset="100%" stop-color="#9B6BFF"></stop>
+    </linearGradient>
+  </defs>
+  <rect width="260" height="44" fill="#F7F8FA"></rect>
+  <g transform="translate(0,0) scale(1.375)">
+    <path d="M6 5h5v22H6z" fill="url(#nv)"></path>
+    <path d="M11 5h5l10 22h-5z" fill="url(#nv)"></path>
+    <path d="M21 13h5v14h-5z" fill="url(#nv)"></path>
+    <path d="M21 5h5v8l-2.5-2.2L21 13z" fill="#F0B429"></path>
+  </g>
+  <text x="60" y="31" font-family="Geist, Inter, system-ui, sans-serif" font-size="30" font-weight="600" letter-spacing="5.1" fill="#1A1F27">NOVARR<tspan fill="#C98A00">.</tspan></text>
+</svg>

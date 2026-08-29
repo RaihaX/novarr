@@ -246,6 +246,12 @@ class GenerateePub extends Command
         }
 
         if (!$coverPath) {
+            // Last resort: render the Novarr brand placeholder cover so every
+            // book still gets a real library thumbnail instead of a grey tile.
+            if ($this->generatePlaceholderCover($novel, $imagesDir)) {
+                return;
+            }
+
             $this->info("  No cover image found.");
             return;
         }
@@ -294,6 +300,43 @@ class GenerateePub extends Command
 
         $converted = $mimeType === 'image/jpeg' ? '' : " (converted from {$mimeType})";
         $this->info("  Cover image added: {$coverFilename}{$converted}");
+    }
+
+    /**
+     * Render the brand fallback cover (1600x2400) for a novel with no artwork.
+     * Written as JPEG because Amazon's Send-to-Kindle converter only reliably
+     * renders JPEG covers — same constraint as the downloaded-cover path above.
+     */
+    protected function generatePlaceholderCover(Novel $novel, string $imagesDir): bool
+    {
+        $generator = app(\App\Services\DefaultCoverGenerator::class);
+
+        if (!$generator->isAvailable()) {
+            $this->warn("  No cover image found and the placeholder generator is unavailable (GD/FreeType or brand fonts missing).");
+            return false;
+        }
+
+        $coverFilename = "cover.jpg";
+        $destPath = "{$imagesDir}/{$coverFilename}";
+
+        try {
+            $generator->generateForNovel($novel, $destPath, 'jpg');
+        } catch (\Throwable $e) {
+            $this->warn("  Failed to render placeholder cover: " . $e->getMessage());
+            \Log::warning("Placeholder cover generation failed for novel {$novel->id}: " . $e->getMessage());
+            return false;
+        }
+
+        $this->coverInfo = [
+            'filename' => $coverFilename,
+            'mime' => 'image/jpeg',
+            'width' => \App\Services\DefaultCoverGenerator::WIDTH,
+            'height' => \App\Services\DefaultCoverGenerator::HEIGHT,
+        ];
+
+        $this->info("  No cover image found — generated the Novarr placeholder cover.");
+
+        return true;
     }
 
     /**

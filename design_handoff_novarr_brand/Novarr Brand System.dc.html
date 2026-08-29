@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/modernist-3bc587a2-25b7-4543-8efb-b0d4fad5f016/styles.css">
+<script src="_ds/modernist-3bc587a2-25b7-4543-8efb-b0d4fad5f016/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;0,7..72,600;1,7..72,400&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#08090c; }
+  a { color:#8ea2ff; text-decoration:none; }
+  a:hover { color:#b3c0ff; }
+</style>
+</helmet>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="nv-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6470ff"></stop>
+      <stop offset="100%" stop-color="#9b6bff"></stop>
+    </linearGradient>
+  </defs>
+  <symbol id="mk-grad" viewBox="0 0 32 32">
+    <path d="M6 5h5v22H6z" fill="url(#nv-grad)"></path>
+    <path d="M11 5h5l10 22h-5z" fill="url(#nv-grad)"></path>
+    <path d="M21 13h5v14h-5z" fill="url(#nv-grad)"></path>
+    <path d="M21 5h5v8l-2.5-2.2L21 13z" fill="#f0b429"></path>
+  </symbol>
+  <symbol id="mk-mono" viewBox="0 0 32 32">
+    <path d="M6 5h5v22H6z" fill="currentColor"></path>
+    <path d="M11 5h5l10 22h-5z" fill="currentColor"></path>
+    <path d="M21 13h5v14h-5z" fill="currentColor"></path>
+    <path d="M21 5h5v8l-2.5-2.2L21 13z" fill="currentColor" opacity="0.55"></path>
+  </symbol>
+</svg>
+
+<div style="font-family:Geist,Inter,system-ui,sans-serif;background:#08090c;color:#e8ebf0;padding:64px;display:flex;flex-direction:column;gap:72px;width:1688px;box-sizing:border-box">
+
+  <header style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;align-items:center;gap:14px">
+      <svg width="34" height="34" style="display:block"><use href="#mk-grad"></use></svg>
+      <div style="font-size:22px;font-weight:600;letter-spacing:0.16em">NOVARR<span style="color:#f0b429">.</span></div>
+    </div>
+    <div style="height:2px;background:#262d38"></div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:48px">
+      <h1 style="margin:0;font-size:40px;font-weight:600;letter-spacing:-0.02em;max-width:820px;text-wrap:pretty">Brand &amp; theme pack — dark-first, bookish, quietly technical</h1>
+      <p style="margin:0;font-size:13px;line-height:1.6;color:#8b95a5;max-width:420px">Seven artboards on one canvas. Every colour is labelled with the hex to lift straight into <span style="font-family:'Geist Mono',monospace;color:#ffd082">_variables.scss</span>.</p>
+    </div>
+  </header>
+
+  <!-- 01 LOGO SUITE -->
+  <section style="display:flex;flex-direction:column;gap:24px">
+    <div style="display:flex;align-items:baseline;gap:16px;border-bottom:2px solid #262d38;padding-bottom:12px">
+      <span style="font-size:11px;font-weight:600;letter-spacing:0.16em;color:#6470ff">01</span>
+      <h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Logo suite</h2>
+      <span style="font-size:12px;color:#8b95a5">Spines forming an N, with an amber bookmark ribbon. Flat — no tile, no glow.</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+      <div style="background:#101318;border:1px solid #262d38;padding:48px;display:flex;flex-direction:column;gap:32px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">PRIMARY LOCKUP / DARK</span>
+        <div style="display:flex;align-items:center;gap:16px">
+          <svg width="44" height="44" style="display:block"><use href="#mk-grad"></use></svg>
+          <div style="font-size:30px;font-weight:600;letter-spacing:0.17em;color:#e8ebf0">NOVARR<span style="color:#f0b429">.</span></div>
+        </div>
+      </div>
+      <div style="background:#f7f8fa;border:1px solid #dde1e8;padding:48px;display:flex;flex-direction:column;gap:32px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#5c6675">PRIMARY LOCKUP / LIGHT</span>
+        <div style="display:flex;align-items:center;gap:16px">
+          <svg width="44" height="44" style="display:block"><use href="#mk-grad"></use></svg>
+          <div style="font-size:30px;font-weight:600;letter-spacing:0.17em;color:#1a1f27">NOVARR<span style="color:#c98a00">.</span></div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:24px">
+      <div style="background:#101318;border:1px solid #262d38;padding:32px;display:flex;flex-direction:column;gap:24px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">ICON ONLY</span>
+        <svg width="72" height="72" style="display:block"><use href="#mk-grad"></use></svg>
+      </div>
+      <div style="background:#101318;border:1px solid #262d38;padding:32px;display:flex;flex-direction:column;gap:24px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">MONO / LIGHT INK</span>
+        <svg width="72" height="72" style="display:block;color:#e8ebf0"><use href="#mk-mono"></use></svg>
+      </div>
+      <div style="background:#f7f8fa;border:1px solid #dde1e8;padding:32px;display:flex;flex-direction:column;gap:24px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#5c6675">MONO / DARK INK</span>
+        <svg width="72" height="72" style="display:block;color:#1a1f27"><use href="#mk-mono"></use></svg>
+      </div>
+      <div style="background:#101318;border:1px solid #262d38;padding:32px;display:flex;flex-direction:column;gap:20px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">LEGIBILITY CHECK</span>
+        <div style="display:flex;align-items:flex-end;gap:24px">
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:center">
+            <svg width="28" height="28" style="display:block"><use href="#mk-grad"></use></svg>
+            <span style="font-size:10px;color:#8b95a5">28px navbar</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:center">
+            <svg width="16" height="16" style="display:block"><use href="#mk-grad"></use></svg>
+            <span style="font-size:10px;color:#8b95a5">16px favicon</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 COLOR -->
+  <section style="display:flex;flex-direction:column;gap:24px">
+    <div style="display:flex;align-items:baseline;gap:16px;border-bottom:2px solid #262d38;padding-bottom:12px">
+      <span style="font-size:11px;font-weight:600;letter-spacing:0.16em;color:#6470ff">02</span>
+      <h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Colour system</h2>
+      <span style="font-size:12px;color:#8b95a5">Dark is canonical; light is the companion. Same token names in both.</span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+      <div style="background:#101318;border:1px solid #262d38;padding:32px;display:flex;flex-direction:column;gap:20px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">DARK — CORE TOKENS</span>
+        <div style="display:flex;flex-direction:column;gap:1px;background:#262d38">
+          <div style="display:flex;align-items:center;gap:16px;background:#101318;padding:10px 12px"><span style="width:44px;height:44px;background:#0f1216;border:1px solid #262d38;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0">$bg</span><span style="font-size:12px;color:#8b95a5;flex:1">body background</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#ffd082">#0F1216</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#101318;padding:10px 12px"><span style="width:44px;height:44px;background:#161a20;border:1px solid #262d38;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0">$surface</span><span style="font-size:12px;color:#8b95a5;flex:1">raised surface / card</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#ffd082">#161A20</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#101318;padding:10px 12px"><span style="width:44px;height:44px;background:#1c222a;border:1px solid #262d38;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0">$surface-alt</span><span style="font-size:12px;color:#8b95a5;flex:1">table header, inputs, hover</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#ffd082">#1C222A</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#101318;padding:10px 12px"><span style="width:44px;height:44px;background:#262d38;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0">$border</span><span style="font-size:12px;color:#8b95a5;flex:1">hairline border / row rule</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#ffd082">#262D38</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#101318;padding:10px 12px"><span style="width:44px;height:44px;background:#e8ebf0;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0">$text</span><span style="font-size:12px;color:#8b95a5;flex:1">body text</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#ffd082">#E8EBF0</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#101318;padding:10px 12px"><span style="width:44px;height:44px;background:#8b95a5;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0">$text-muted</span><span style="font-size:12px;color:#8b95a5;flex:1">captions, metadata</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#ffd082">#8B95A5</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#101318;padding:10px 12px"><span style="width:44px;height:44px;background:#8ea2ff;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0">$link</span><span style="font-size:12px;color:#8b95a5;flex:1">inline link / novel title</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#ffd082">#8EA2FF</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#101318;padding:10px 12px"><span style="width:44px;height:44px;background:#b3c0ff;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0">$link-hover</span><span style="font-size:12px;color:#8b95a5;flex:1">link hover</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#ffd082">#B3C0FF</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#101318;padding:10px 12px"><span style="width:44px;height:44px;background:#6470ff;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0">$accent</span><span style="font-size:12px;color:#8b95a5;flex:1">primary action, focus ring</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#ffd082">#6470FF</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#101318;padding:10px 12px"><span style="width:44px;height:44px;background:#4f5ce6;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0">$accent-press</span><span style="font-size:12px;color:#8b95a5;flex:1">pressed / active</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#ffd082">#4F5CE6</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#101318;padding:10px 12px"><span style="width:44px;height:44px;background:#f0b429;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0">$brand-amber</span><span style="font-size:12px;color:#8b95a5;flex:1">bookmark, reading progress</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#ffd082">#F0B429</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#101318;padding:10px 12px"><span style="width:44px;height:44px;background:#1b2330;border:1px solid #262d38;flex:none;display:flex;align-items:center;justify-content:center;font-family:'Geist Mono',monospace;font-size:11px;color:#ffd082">{ }</span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0">$code-bg / $code-fg</span><span style="font-size:12px;color:#8b95a5;flex:1">code &amp; highlight</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#ffd082">#1B2330 / #FFD082</span></div>
+        </div>
+      </div>
+
+      <div style="background:#f7f8fa;border:1px solid #dde1e8;padding:32px;display:flex;flex-direction:column;gap:20px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#5c6675">LIGHT — SAME TOKENS</span>
+        <div style="display:flex;flex-direction:column;gap:1px;background:#dde1e8">
+          <div style="display:flex;align-items:center;gap:16px;background:#f7f8fa;padding:10px 12px"><span style="width:44px;height:44px;background:#f7f8fa;border:1px solid #dde1e8;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#1a1f27">$bg</span><span style="font-size:12px;color:#5c6675;flex:1">body background</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8a5a00">#F7F8FA</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#f7f8fa;padding:10px 12px"><span style="width:44px;height:44px;background:#ffffff;border:1px solid #dde1e8;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#1a1f27">$surface</span><span style="font-size:12px;color:#5c6675;flex:1">raised surface / card</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8a5a00">#FFFFFF</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#f7f8fa;padding:10px 12px"><span style="width:44px;height:44px;background:#eef0f5;border:1px solid #dde1e8;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#1a1f27">$surface-alt</span><span style="font-size:12px;color:#5c6675;flex:1">table header, inputs, hover</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8a5a00">#EEF0F5</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#f7f8fa;padding:10px 12px"><span style="width:44px;height:44px;background:#dde1e8;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#1a1f27">$border</span><span style="font-size:12px;color:#5c6675;flex:1">hairline border / row rule</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8a5a00">#DDE1E8</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#f7f8fa;padding:10px 12px"><span style="width:44px;height:44px;background:#1a1f27;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#1a1f27">$text</span><span style="font-size:12px;color:#5c6675;flex:1">body text</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8a5a00">#1A1F27</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#f7f8fa;padding:10px 12px"><span style="width:44px;height:44px;background:#5c6675;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#1a1f27">$text-muted</span><span style="font-size:12px;color:#5c6675;flex:1">captions, metadata</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8a5a00">#5C6675</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#f7f8fa;padding:10px 12px"><span style="width:44px;height:44px;background:#3d4ee0;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#1a1f27">$link</span><span style="font-size:12px;color:#5c6675;flex:1">inline link / novel title</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8a5a00">#3D4EE0</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#f7f8fa;padding:10px 12px"><span style="width:44px;height:44px;background:#2536c4;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#1a1f27">$link-hover</span><span style="font-size:12px;color:#5c6675;flex:1">link hover</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8a5a00">#2536C4</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#f7f8fa;padding:10px 12px"><span style="width:44px;height:44px;background:#4a58e8;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#1a1f27">$accent</span><span style="font-size:12px;color:#5c6675;flex:1">primary action, focus ring</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8a5a00">#4A58E8</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#f7f8fa;padding:10px 12px"><span style="width:44px;height:44px;background:#3543c9;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#1a1f27">$accent-press</span><span style="font-size:12px;color:#5c6675;flex:1">pressed / active</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8a5a00">#3543C9</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#f7f8fa;padding:10px 12px"><span style="width:44px;height:44px;background:#c98a00;flex:none"></span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#1a1f27">$brand-amber</span><span style="font-size:12px;color:#5c6675;flex:1">bookmark, reading progress</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8a5a00">#C98A00</span></div>
+          <div style="display:flex;align-items:center;gap:16px;background:#f7f8fa;padding:10px 12px"><span style="width:44px;height:44px;background:#eef0f5;border:1px solid #dde1e8;flex:none;display:flex;align-items:center;justify-content:center;font-family:'Geist Mono',monospace;font-size:11px;color:#8a5a00">{ }</span><span style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;color:#1a1f27">$code-bg / $code-fg</span><span style="font-size:12px;color:#5c6675;flex:1">code &amp; highlight</span><span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8a5a00">#EEF0F5 / #8A5A00</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:#101318;border:1px solid #262d38;padding:32px;display:flex;flex-direction:column;gap:20px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">SEMANTIC STATUS — DARK / LIGHT PAIRS</span>
+        <span style="font-size:12px;color:#8b95a5">Each status carries a text colour, a 12% tint fill and a border tint.</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:#262d38">
+        <div style="background:#101318;padding:20px;display:flex;flex-direction:column;gap:14px">
+          <span style="align-self:flex-start;font-size:11px;font-weight:600;letter-spacing:0.04em;padding:4px 10px;color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35)">DOWNLOADED</span>
+          <span style="height:40px;background:#3fb950"></span>
+          <div style="display:flex;flex-direction:column;gap:3px;font-family:'Geist Mono',monospace;font-size:11px">
+            <span style="color:#e8ebf0">$success</span>
+            <span style="color:#ffd082">#3FB950</span>
+            <span style="color:#8b95a5">light · #1A7F37</span>
+          </div>
+        </div>
+        <div style="background:#101318;padding:20px;display:flex;flex-direction:column;gap:14px">
+          <span style="align-self:flex-start;font-size:11px;font-weight:600;letter-spacing:0.04em;padding:4px 10px;color:#4cc4d1;background:rgba(76,196,209,0.12);border:1px solid rgba(76,196,209,0.35)">QUEUED</span>
+          <span style="height:40px;background:#4cc4d1"></span>
+          <div style="display:flex;flex-direction:column;gap:3px;font-family:'Geist Mono',monospace;font-size:11px">
+            <span style="color:#e8ebf0">$pending</span>
+            <span style="color:#ffd082">#4CC4D1</span>
+            <span style="color:#8b95a5">light · #0E7C8A</span>
+          </div>
+        </div>
+        <div style="background:#101318;padding:20px;display:flex;flex-direction:column;gap:14px">
+          <span style="align-self:flex-start;font-size:11px;font-weight:600;letter-spacing:0.04em;padding:4px 10px;color:#f0b429;background:rgba(240,180,41,0.12);border:1px solid rgba(240,180,41,0.35)">NEEDS ATTENTION</span>
+          <span style="height:40px;background:#f0b429"></span>
+          <div style="display:flex;flex-direction:column;gap:3px;font-family:'Geist Mono',monospace;font-size:11px">
+            <span style="color:#e8ebf0">$warning</span>
+            <span style="color:#ffd082">#F0B429</span>
+            <span style="color:#8b95a5">light · #A86A00</span>
+          </div>
+        </div>
+        <div style="background:#101318;padding:20px;display:flex;flex-direction:column;gap:14px">
+          <span style="align-self:flex-start;font-size:11px;font-weight:600;letter-spacing:0.04em;padding:4px 10px;color:#f0533f;background:rgba(240,83,63,0.12);border:1px solid rgba(240,83,63,0.35)">FAILED</span>
+          <span style="height:40px;background:#f0533f"></span>
+          <div style="display:flex;flex-direction:column;gap:3px;font-family:'Geist Mono',monospace;font-size:11px">
+            <span style="color:#e8ebf0">$danger</span>
+            <span style="color:#ffd082">#F0533F</span>
+            <span style="color:#8b95a5">light · #C0392B</span>
+          </div>
+        </div>
+        <div style="background:#101318;padding:20px;display:flex;flex-direction:column;gap:14px">
+          <span style="align-self:flex-start;font-size:11px;font-weight:600;letter-spacing:0.04em;padding:4px 10px;color:#9aa4b2;background:rgba(154,164,178,0.10);border:1px solid rgba(154,164,178,0.30)">PAUSED</span>
+          <span style="height:40px;background:#6b7684"></span>
+          <div style="display:flex;flex-direction:column;gap:3px;font-family:'Geist Mono',monospace;font-size:11px">
+            <span style="color:#e8ebf0">$muted</span>
+            <span style="color:#ffd082">#6B7684</span>
+            <span style="color:#8b95a5">light · #6B7684</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 TYPOGRAPHY -->
+  <section style="display:flex;flex-direction:column;gap:24px">
+    <div style="display:flex;align-items:baseline;gap:16px;border-bottom:2px solid #262d38;padding-bottom:12px">
+      <span style="font-size:11px;font-weight:600;letter-spacing:0.16em;color:#6470ff">03</span>
+      <h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Typography</h2>
+      <span style="font-size:12px;color:#8b95a5">Recommendation: retire Inter for the UI and pair Geist with Literata for the reader.</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:24px">
+      <div style="background:#101318;border:1px solid #262d38;padding:32px;display:flex;flex-direction:column;gap:24px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">UI FACE — GEIST</span>
+        <div style="display:flex;flex-direction:column;gap:1px;background:#262d38">
+          <div style="background:#101318;padding:16px 0;display:flex;align-items:baseline;gap:24px">
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5;width:190px;flex:none">32 / 600 / -0.02em</span>
+            <span style="font-size:32px;font-weight:600;letter-spacing:-0.02em">Page title — Dashboard</span>
+          </div>
+          <div style="background:#101318;padding:16px 0;display:flex;align-items:baseline;gap:24px">
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5;width:190px;flex:none">18 / 600 / -0.01em</span>
+            <span style="font-size:18px;font-weight:600;letter-spacing:-0.01em">Section header — Needs Attention</span>
+          </div>
+          <div style="background:#101318;padding:16px 0;display:flex;align-items:baseline;gap:24px">
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5;width:190px;flex:none">15 / 600</span>
+            <span style="font-size:15px;font-weight:600">Card title — Emperor's Domination</span>
+          </div>
+          <div style="background:#101318;padding:16px 0;display:flex;align-items:baseline;gap:24px">
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5;width:190px;flex:none">14 / 400 / 1.55</span>
+            <span style="font-size:14px;line-height:1.55">Body — 274 consecutive scrape runs failed; the source site may have changed.</span>
+          </div>
+          <div style="background:#101318;padding:16px 0;display:flex;align-items:baseline;gap:24px">
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5;width:190px;flex:none">12 / 500 / 0.06em</span>
+            <span style="font-size:12px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:#8b95a5">Caption — pending downloads</span>
+          </div>
+          <div style="background:#101318;padding:16px 0;display:flex;align-items:baseline;gap:24px">
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5;width:190px;flex:none">13 / 400 mono</span>
+            <span style="font-family:'Geist Mono',monospace;font-size:13px;color:#ffd082">Geist Mono — 9874 · 2026-08-23 06:08</span>
+          </div>
+        </div>
+      </div>
+      <div style="background:#101318;border:1px solid #262d38;padding:32px;display:flex;flex-direction:column;gap:24px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">READING FACE — LITERATA</span>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <span style="font-family:Literata,Georgia,serif;font-size:28px;font-weight:600;letter-spacing:-0.01em">Chapter 458 — The Grand Finale</span>
+          <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5">Chapter title · 28 / 600</span>
+          <p style="margin:0;font-family:Literata,Georgia,serif;font-size:19px;line-height:1.75;color:#d8dde6;max-width:44ch">Reader body sits at 19px on 1.75 with a 66–72 character measure. Literata was cut for long-form screen reading, so it holds up at low brightness where a UI sans starts to buzz.</p>
+          <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5">Reader body · 19 / 400 / 1.75 · 66–72ch</span>
+        </div>
+        <div style="border-top:1px solid #262d38;padding-top:20px;font-size:13px;line-height:1.6;color:#8b95a5">Inter stays a legitimate fallback in the stack, but Geist's tabular figures and tighter caps make dense tables read better, and a serif reader is the single clearest signal that this is a reading app first.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 COMPONENTS -->
+  <section style="display:flex;flex-direction:column;gap:24px">
+    <div style="display:flex;align-items:baseline;gap:16px;border-bottom:2px solid #262d38;padding-bottom:12px">
+      <span style="font-size:11px;font-weight:600;letter-spacing:0.16em;color:#6470ff">04</span>
+      <h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Component sheet</h2>
+      <span style="font-size:12px;color:#8b95a5">On the dark palette. Radius 4px, one hairline, no shadow below the navbar.</span>
+    </div>
+
+    <div style="background:#0f1216;border:1px solid #262d38;padding:0;display:flex;flex-direction:column">
+      <div style="background:#161a20;border-bottom:1px solid #262d38;padding:0 24px;height:56px;display:flex;align-items:center;gap:32px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <svg width="28" height="28" style="display:block"><use href="#mk-grad"></use></svg>
+          <span style="font-size:15px;font-weight:600;letter-spacing:0.16em">NOVARR<span style="color:#f0b429">.</span></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;font-size:14px">
+          <span style="padding:7px 12px;color:#e8ebf0;background:#1c222a;border-radius:4px;box-shadow:inset 0 -2px 0 #6470ff">Home</span>
+          <span style="padding:7px 12px;color:#8b95a5" style-hover="color:#e8ebf0">Novels</span>
+          <span style="padding:7px 12px;color:#8b95a5" style-hover="color:#e8ebf0">Library</span>
+          <span style="padding:7px 12px;color:#8b95a5" style-hover="color:#e8ebf0">Stats</span>
+          <span style="padding:7px 12px;color:#8b95a5" style-hover="color:#e8ebf0">Bookmarks</span>
+          <span style="padding:7px 12px;color:#8b95a5" style-hover="color:#e8ebf0">System</span>
+          <span style="padding:7px 12px;color:#8b95a5" style-hover="color:#e8ebf0">Settings</span>
+        </div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px;background:#0f1216;border:1px solid #262d38;border-radius:4px;padding:7px 12px;width:240px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b95a5" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.5-4.5"></path></svg>
+          <span style="font-size:13px;color:#8b95a5">Search library</span>
+        </div>
+      </div>
+
+      <div style="padding:32px;display:grid;grid-template-columns:340px 1fr;gap:32px">
+        <div style="display:flex;flex-direction:column;gap:24px">
+          <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">NOVEL CARD</span>
+          <div style="background:#161a20;border:1px solid #262d38;border-radius:4px;overflow:hidden;display:flex;flex-direction:column">
+            <div style="display:flex;gap:16px;padding:16px">
+              <div style="width:72px;height:104px;flex:none;background:linear-gradient(160deg,#1c222a,#0f1216);border:1px solid #262d38;display:flex;align-items:flex-end;padding:8px;box-sizing:border-box">
+                <svg width="18" height="18" style="display:block;opacity:0.5"><use href="#mk-mono"></use></svg>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;min-width:0">
+                <a href="#" style="font-size:15px;font-weight:600;color:#8ea2ff;line-height:1.3" style-hover="color:#b3c0ff">Emperor's Domination</a>
+                <span style="font-size:12px;color:#8b95a5">Yan Bi Xiao Sheng · 7174 chapters</span>
+                <span style="align-self:flex-start;font-size:11px;font-weight:600;letter-spacing:0.04em;padding:3px 8px;color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35)">DOWNLOADED</span>
+              </div>
+            </div>
+            <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5"><span>READ 4 612 / 7 174</span><span style="color:#f0b429">64%</span></div>
+              <div style="height:4px;background:#1c222a"><div style="width:64%;height:4px;background:#f0b429"></div></div>
+            </div>
+          </div>
+
+          <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">BUTTONS</span>
+          <div style="display:flex;flex-wrap:wrap;gap:10px">
+            <span style="font-size:13px;font-weight:500;padding:9px 16px;background:#6470ff;color:#fff;border-radius:4px" style-hover="background:#7480ff">Start reading</span>
+            <span style="font-size:13px;font-weight:500;padding:9px 16px;background:transparent;color:#e8ebf0;border:1px solid #384253;border-radius:4px" style-hover="background:#1c222a">Generate ePub</span>
+            <span style="font-size:13px;font-weight:500;padding:9px 16px;background:transparent;color:#f0533f;border:1px solid rgba(240,83,63,0.45);border-radius:4px" style-hover="background:rgba(240,83,63,0.12)">Delete</span>
+            <span style="font-size:13px;font-weight:500;padding:9px 16px;color:#8b95a5;border-radius:4px" style-hover="color:#e8ebf0;background:#1c222a">Ignore</span>
+            <span style="font-size:13px;font-weight:500;padding:9px 16px;background:#1c222a;color:#5b6472;border:1px solid #262d38;border-radius:4px">Disabled</span>
+          </div>
+
+          <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">STATUS BADGES</span>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <span style="font-size:11px;font-weight:600;letter-spacing:0.04em;padding:3px 8px;color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35)">DOWNLOADED</span>
+            <span style="font-size:11px;font-weight:600;letter-spacing:0.04em;padding:3px 8px;color:#4cc4d1;background:rgba(76,196,209,0.12);border:1px solid rgba(76,196,209,0.35)">QUEUED</span>
+            <span style="font-size:11px;font-weight:600;letter-spacing:0.04em;padding:3px 8px;color:#f0b429;background:rgba(240,180,41,0.12);border:1px solid rgba(240,180,41,0.35)">ATTENTION</span>
+            <span style="font-size:11px;font-weight:600;letter-spacing:0.04em;padding:3px 8px;color:#f0533f;background:rgba(240,83,63,0.12);border:1px solid rgba(240,83,63,0.35)">FAILED</span>
+            <span style="font-size:11px;font-weight:600;letter-spacing:0.04em;padding:3px 8px;color:#9aa4b2;background:rgba(154,164,178,0.10);border:1px solid rgba(154,164,178,0.30)">PAUSED</span>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:24px">
+          <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">NEEDS ATTENTION PANEL</span>
+          <div style="background:#161a20;border:1px solid #262d38;border-left:2px solid #f0b429;border-radius:0 4px 4px 0">
+            <div style="display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid #262d38;background:rgba(240,180,41,0.06)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f0b429" stroke-width="2"><path d="M12 3l9 16H3z"></path><path d="M12 9v5"></path><path d="M12 17h.01"></path></svg>
+              <span style="font-size:15px;font-weight:600;color:#e8ebf0">Needs attention</span>
+              <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:11px;font-weight:600;padding:3px 8px;color:#f0b429;background:rgba(240,180,41,0.12);border:1px solid rgba(240,180,41,0.35)">15</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px;padding:16px 20px;border-bottom:1px solid #262d38">
+              <div style="display:flex;flex-direction:column;gap:5px;min-width:0;flex:1">
+                <a href="#" style="font-size:14px;font-weight:600;color:#8ea2ff" style-hover="color:#b3c0ff">An Investor Who Sees The Future</a>
+                <span style="font-size:13px;color:#8b95a5">274 consecutive scrape runs failed — the source site may have changed</span>
+                <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#6b7684">novelarrow.com · last success 2026-06-14</span>
+              </div>
+              <div style="display:flex;gap:8px;flex:none">
+                <span style="font-size:13px;font-weight:500;padding:8px 14px;color:#f0b429;border:1px solid rgba(240,180,41,0.45);border-radius:4px" style-hover="background:rgba(240,180,41,0.12)">Test source ↗</span>
+                <span style="font-size:13px;font-weight:500;padding:8px 14px;color:#8b95a5;border:1px solid #262d38;border-radius:4px" style-hover="color:#e8ebf0;background:#1c222a">Ignore</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px;padding:16px 20px">
+              <div style="display:flex;flex-direction:column;gap:5px;min-width:0;flex:1">
+                <a href="#" style="font-size:14px;font-weight:600;color:#8ea2ff" style-hover="color:#b3c0ff">Martial God Asura</a>
+                <span style="font-size:13px;color:#8b95a5">1463 consecutive scrape runs failed — the source site may have changed</span>
+                <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#6b7684">wuxiaworld.site · last success 2026-02-01</span>
+              </div>
+              <div style="display:flex;gap:8px;flex:none">
+                <span style="font-size:13px;font-weight:500;padding:8px 14px;color:#f0b429;border:1px solid rgba(240,180,41,0.45);border-radius:4px" style-hover="background:rgba(240,180,41,0.12)">Test source ↗</span>
+                <span style="font-size:13px;font-weight:500;padding:8px 14px;color:#8b95a5;border:1px solid #262d38;border-radius:4px" style-hover="color:#e8ebf0;background:#1c222a">Ignore</span>
+              </div>
+            </div>
+          </div>
+
+          <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">TABLE ROWS</span>
+          <div style="border:1px solid #262d38;border-radius:4px;overflow:hidden">
+            <div style="display:grid;grid-template-columns:1fr 180px 120px 150px 110px;gap:16px;padding:11px 20px;background:#1c222a;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#8b95a5">
+              <span>NAME</span><span>AUTHOR</span><span>STATUS</span><span>PROGRESS</span><span style="text-align:right">CHAPTERS</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 180px 120px 150px 110px;gap:16px;padding:14px 20px;border-top:1px solid #262d38;background:#161a20;align-items:center" style-hover="background:#1c222a">
+              <a href="#" style="font-size:14px;font-weight:500;color:#8ea2ff" style-hover="color:#b3c0ff">A Hospital in Another World</a>
+              <span style="font-size:13px;color:#8b95a5">加兰2020</span>
+              <span style="justify-self:start;font-size:11px;font-weight:600;letter-spacing:0.04em;padding:3px 8px;color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35)">ACTIVE</span>
+              <span style="display:flex;align-items:center;gap:10px"><span style="flex:1;height:4px;background:#1c222a"><span style="display:block;width:100%;height:4px;background:#3fb950"></span></span><span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5">100%</span></span>
+              <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0;text-align:right">1028 / 1030</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 180px 120px 150px 110px;gap:16px;padding:14px 20px;border-top:1px solid #262d38;background:#161a20;align-items:center" style-hover="background:#1c222a">
+              <a href="#" style="font-size:14px;font-weight:500;color:#8ea2ff" style-hover="color:#b3c0ff">Chronicles of the Heavenly Demon</a>
+              <span style="font-size:13px;color:#8b95a5">Il-Hwang</span>
+              <span style="justify-self:start;font-size:11px;font-weight:600;letter-spacing:0.04em;padding:3px 8px;color:#4cc4d1;background:rgba(76,196,209,0.12);border:1px solid rgba(76,196,209,0.35)">QUEUED</span>
+              <span style="display:flex;align-items:center;gap:10px"><span style="flex:1;height:4px;background:#1c222a"><span style="display:block;width:8%;height:4px;background:#4cc4d1"></span></span><span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5">8%</span></span>
+              <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0;text-align:right">16 / 203</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 180px 120px 150px 110px;gap:16px;padding:14px 20px;border-top:1px solid #262d38;background:#161a20;align-items:center" style-hover="background:#1c222a">
+              <a href="#" style="font-size:14px;font-weight:500;color:#8ea2ff" style-hover="color:#b3c0ff">Eternal Heart</a>
+              <span style="font-size:13px;color:#8b95a5">Fast Food Restaurant</span>
+              <span style="justify-self:start;font-size:11px;font-weight:600;letter-spacing:0.04em;padding:3px 8px;color:#9aa4b2;background:rgba(154,164,178,0.10);border:1px solid rgba(154,164,178,0.30)">PAUSED</span>
+              <span style="display:flex;align-items:center;gap:10px"><span style="flex:1;height:4px;background:#1c222a"><span style="display:block;width:99%;height:4px;background:#6b7684"></span></span><span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5">99%</span></span>
+              <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#e8ebf0;text-align:right">1446 / 1447</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 READER -->
+  <section style="display:flex;flex-direction:column;gap:24px">
+    <div style="display:flex;align-items:baseline;gap:16px;border-bottom:2px solid #262d38;padding-bottom:12px">
+      <span style="font-size:11px;font-weight:600;letter-spacing:0.16em;color:#6470ff">05</span>
+      <h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Reader screen</h2>
+      <span style="font-size:12px;color:#8b95a5">Chrome recedes; the column is the interface.</span>
+    </div>
+    <div style="background:#0f1216;border:1px solid #262d38;display:flex;flex-direction:column">
+      <div style="height:52px;border-bottom:1px solid #1c222a;display:flex;align-items:center;padding:0 20px;gap:16px">
+        <span style="display:flex;align-items:center;gap:8px;font-size:13px;color:#8b95a5" style-hover="color:#e8ebf0">← A Horror Novel's Supporting Character Wants to Live as a Human</span>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+          <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8b95a5;padding:6px 10px;border:1px solid #262d38;border-radius:4px">Aa</span>
+          <span style="font-size:12px;color:#8b95a5;padding:6px 10px;border:1px solid #262d38;border-radius:4px">Contents</span>
+          <span style="font-size:12px;color:#8b95a5;padding:6px 10px;border:1px solid #262d38;border-radius:4px">Focus</span>
+        </div>
+      </div>
+      <div style="height:2px;background:#1c222a"><div style="width:38%;height:2px;background:#f0b429"></div></div>
+      <div style="padding:64px 0 48px;display:flex;justify-content:center">
+        <div style="width:680px;display:flex;flex-direction:column;gap:36px">
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.12em;color:#8b95a5">CHAPTER 12 OF 323 · 9 MIN LEFT</span>
+            <h3 style="margin:0;font-family:Literata,Georgia,serif;font-size:34px;font-weight:600;letter-spacing:-0.015em;line-height:1.2;color:#e8ebf0">The House That Kept Its Windows Shut</h3>
+            <div style="height:1px;background:#262d38;width:64px"></div>
+          </div>
+          <div style="{{ readerStyle }};font-family:Literata,Georgia,serif;color:#d8dde6;display:flex;flex-direction:column;gap:26px">
+            <p style="margin:0">The cart track ended where the pines closed over it, and after that there was only the sound of water moving somewhere below the road. Arenheit counted the turns out of habit. Four, then the ruined gate, then the long wall with its ivy grown thick enough to hide a man.</p>
+            <p style="margin:0">Nobody in the village would say the family name aloud, which he took as a courtesy rather than a warning. Courtesies were cheaper here than bread.</p>
+            <p style="margin:0">He had learned in his first month that a house tells you what it wants before anyone in it does. This one wanted the shutters left as they were.</p>
+            <p style="margin:0">So he left them, and went in, and set his bag down on a floor that had been swept very recently by someone who had not wanted to be seen sweeping.</p>
+          </div>
+          <div style="border-top:1px solid #1c222a;padding-top:24px;display:flex;align-items:center;justify-content:space-between">
+            <span style="display:flex;flex-direction:column;gap:3px;padding:10px 16px;border:1px solid #262d38;border-radius:4px" style-hover="background:#161a20">
+              <span style="font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.1em;color:#8b95a5">← PREVIOUS</span>
+              <span style="font-size:13px;color:#e8ebf0">Ch. 11 · A Debt in Coin</span>
+            </span>
+            <span style="font-size:13px;font-weight:500;padding:10px 18px;background:#6470ff;color:#fff;border-radius:4px" style-hover="background:#7480ff">Mark read &amp; continue</span>
+            <span style="display:flex;flex-direction:column;gap:3px;align-items:flex-end;padding:10px 16px;border:1px solid #262d38;border-radius:4px" style-hover="background:#161a20">
+              <span style="font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:0.1em;color:#8b95a5">NEXT →</span>
+              <span style="font-size:13px;color:#e8ebf0">Ch. 13 · The Sign of the Cross</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 06 ICONS -->
+  <section style="display:flex;flex-direction:column;gap:24px">
+    <div style="display:flex;align-items:baseline;gap:16px;border-bottom:2px solid #262d38;padding-bottom:12px">
+      <span style="font-size:11px;font-weight:600;letter-spacing:0.16em;color:#6470ff">06</span>
+      <h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">App icons &amp; email lockup</h2>
+      <span style="font-size:12px;color:#8b95a5">Maskable icon keeps the mark inside the 80% safe circle.</span>
+    </div>
+    <div style="display:grid;grid-template-columns:auto auto 1fr;gap:24px;align-items:start">
+      <div style="background:#101318;border:1px solid #262d38;padding:32px;display:flex;flex-direction:column;gap:20px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">PWA 512 MASKABLE</span>
+        <div style="width:180px;height:180px;background:#12151b;border-radius:14px;display:flex;align-items:center;justify-content:center;position:relative">
+          <svg width="96" height="96" style="display:block"><use href="#mk-grad"></use></svg>
+          <div style="position:absolute;inset:18px;border:1px dashed rgba(100,112,255,0.35);border-radius:50%"></div>
+        </div>
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5">tile #12151B · radius 40/512</span>
+      </div>
+      <div style="background:#101318;border:1px solid #262d38;padding:32px;display:flex;flex-direction:column;gap:20px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">FAVICON</span>
+        <div style="display:flex;align-items:flex-end;gap:24px">
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:center"><svg width="16" height="16" style="display:block"><use href="#mk-grad"></use></svg><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#8b95a5">16</span></div>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:center"><svg width="32" height="32" style="display:block"><use href="#mk-grad"></use></svg><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#8b95a5">32</span></div>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:center"><svg width="64" height="64" style="display:block;image-rendering:pixelated"><use href="#mk-grad"></use></svg><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#8b95a5">16 @4×</span></div>
+        </div>
+        <span style="font-size:12px;color:#8b95a5;max-width:220px;line-height:1.5">At 16px the bookmark reads as a single amber pixel-block; drop it below 16 and use the mono mark.</span>
+      </div>
+      <div style="background:#101318;border:1px solid #262d38;padding:32px;display:flex;flex-direction:column;gap:20px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">DAILY SUMMARY EMAIL — HEADER</span>
+        <div style="background:#0f1216;border:1px solid #262d38;width:100%;max-width:600px">
+          <div style="padding:20px 24px;border-bottom:2px solid #6470ff;display:flex;align-items:center;gap:12px">
+            <svg width="26" height="26" style="display:block"><use href="#mk-grad"></use></svg>
+            <span style="font-size:14px;font-weight:600;letter-spacing:0.16em;color:#e8ebf0">NOVARR<span style="color:#f0b429">.</span></span>
+            <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:11px;color:#8b95a5">29 AUG 2026 · DAILY SUMMARY</span>
+          </div>
+          <div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px">
+            <span style="font-size:18px;font-weight:600;color:#e8ebf0">1 026 chapters downloaded</span>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <span style="font-size:11px;font-weight:600;letter-spacing:0.04em;padding:3px 8px;color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35)">1026 DOWNLOADED</span>
+              <span style="font-size:11px;font-weight:600;letter-spacing:0.04em;padding:3px 8px;color:#f0b429;background:rgba(240,180,41,0.12);border:1px solid rgba(240,180,41,0.35)">15 NEED ATTENTION</span>
+            </div>
+            <span style="font-size:13px;color:#8b95a5;line-height:1.6">Email uses the dark tokens inline; table-based layout, 600px, no web fonts (Georgia / system sans fallback).</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 EPUB COVER -->
+  <section style="display:flex;flex-direction:column;gap:24px">
+    <div style="display:flex;align-items:baseline;gap:16px;border-bottom:2px solid #262d38;padding-bottom:12px">
+      <span style="font-size:11px;font-weight:600;letter-spacing:0.16em;color:#6470ff">07</span>
+      <h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Default ePub cover</h2>
+      <span style="font-size:12px;color:#8b95a5">1600 × 2400. Title steps 96 → 72 → 54px as length grows; author and mark are fixed.</span>
+    </div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div style="width:300px;height:450px;background:#12151b;border:1px solid #262d38;padding:36px;box-sizing:border-box;display:flex;flex-direction:column;position:relative">
+        <div style="position:absolute;top:0;left:36px;width:3px;height:120px;background:linear-gradient(#6470ff,#9b6bff)"></div>
+        <div style="margin-top:120px;display:flex;flex-direction:column;gap:14px">
+          <span style="font-family:Literata,Georgia,serif;font-size:34px;font-weight:600;line-height:1.15;letter-spacing:-0.015em;color:#e8ebf0;text-wrap:pretty">Ashen God</span>
+          <span style="font-size:12px;color:#8b95a5">Just call the polar bear</span>
+        </div>
+        <div style="margin-top:auto;display:flex;align-items:center;gap:10px;border-top:1px solid #262d38;padding-top:16px">
+          <svg width="18" height="18" style="display:block"><use href="#mk-grad"></use></svg>
+          <span style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#8b95a5">NOVARR<span style="color:#f0b429">.</span></span>
+          <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:10px;color:#6b7684">1093 CH</span>
+        </div>
+      </div>
+      <div style="width:300px;height:450px;background:#12151b;border:1px solid #262d38;padding:36px;box-sizing:border-box;display:flex;flex-direction:column;position:relative">
+        <div style="position:absolute;top:0;left:36px;width:3px;height:120px;background:linear-gradient(#6470ff,#9b6bff)"></div>
+        <div style="margin-top:120px;display:flex;flex-direction:column;gap:14px">
+          <span style="font-family:Literata,Georgia,serif;font-size:19px;font-weight:600;line-height:1.25;letter-spacing:-0.01em;color:#e8ebf0;text-wrap:pretty">A Horror Novel's Supporting Character Wants to Live as a Human</span>
+          <span style="font-size:12px;color:#8b95a5">인간추출기</span>
+        </div>
+        <div style="margin-top:auto;display:flex;align-items:center;gap:10px;border-top:1px solid #262d38;padding-top:16px">
+          <svg width="18" height="18" style="display:block"><use href="#mk-grad"></use></svg>
+          <span style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#8b95a5">NOVARR<span style="color:#f0b429">.</span></span>
+          <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:10px;color:#6b7684">323 CH</span>
+        </div>
+      </div>
+      <div style="width:300px;height:450px;background:#f7f8fa;border:1px solid #dde1e8;padding:36px;box-sizing:border-box;display:flex;flex-direction:column;position:relative">
+        <div style="position:absolute;top:0;left:36px;width:3px;height:120px;background:linear-gradient(#4a58e8,#8b5cf6)"></div>
+        <div style="margin-top:120px;display:flex;flex-direction:column;gap:14px">
+          <span style="font-family:Literata,Georgia,serif;font-size:30px;font-weight:600;line-height:1.15;letter-spacing:-0.015em;color:#1a1f27;text-wrap:pretty">Outside Of Time</span>
+          <span style="font-size:12px;color:#5c6675">Ergen</span>
+        </div>
+        <div style="margin-top:auto;display:flex;align-items:center;gap:10px;border-top:1px solid #dde1e8;padding-top:16px">
+          <svg width="18" height="18" style="display:block"><use href="#mk-grad"></use></svg>
+          <span style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#5c6675">NOVARR<span style="color:#c98a00">.</span></span>
+          <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:10px;color:#8b95a5">742 CH</span>
+        </div>
+      </div>
+      <div style="flex:1;min-width:280px;background:#101318;border:1px solid #262d38;padding:28px;display:flex;flex-direction:column;gap:14px">
+        <span style="font-size:11px;letter-spacing:0.14em;color:#8b95a5">RULES</span>
+        <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.75;color:#8b95a5;display:flex;flex-direction:column;gap:6px">
+          <li>Title in Literata 600, flush left, ragged right, never centred.</li>
+          <li>≤18 chars → 96px · ≤44 → 72px · ≤90 → 54px · beyond that truncate at a word with an ellipsis.</li>
+          <li>Gradient rule is the only ornament; it bleeds off the top edge.</li>
+          <li>Dark ground <span style="font-family:'Geist Mono',monospace;color:#ffd082">#12151B</span> by default; light variant for e-ink devices.</li>
+          <li>Chapter count in mono, bottom right — a quiet marker that the file came from Novarr.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer style="border-top:2px solid #262d38;padding-top:20px;display:flex;justify-content:space-between;font-size:12px;color:#6b7684">
+    <span>Novarr brand system · v1 · dark canonical</span>
+    <span style="font-family:'Geist Mono',monospace">Geist · Literata · Geist Mono</span>
+  </footer>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;readerFontSize&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:19,&quot;min&quot;:15,&quot;max&quot;:24,&quot;step&quot;:1,&quot;unit&quot;:&quot;px&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Reader&quot;},&quot;readerMeasure&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:68,&quot;min&quot;:56,&quot;max&quot;:80,&quot;step&quot;:2,&quot;unit&quot;:&quot;ch&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Reader&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const size = this.props.readerFontSize ?? 19;
+    return { readerStyle: `font-size:${size}px;line-height:1.75;max-width:${this.props.readerMeasure ?? 68}ch` };
+  }
+}
+</script>
+</body>
+</html>

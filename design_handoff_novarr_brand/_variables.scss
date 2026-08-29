@@ -1,0 +1,119 @@
+// ---------------------------------------------------------------------------
+// Novarr — design tokens
+// Dark is canonical. Light is a companion theme, not a peer.
+// Generated from the Novarr brand & theme pack (v1).
+// ---------------------------------------------------------------------------
+
+// --- Brand ---------------------------------------------------------------
+$brand-indigo:        #6470FF;
+$brand-violet:        #9B6BFF;
+$brand-amber:         #F0B429;   // bookmark + reading progress ONLY
+$brand-gradient:      linear-gradient(135deg, $brand-indigo, $brand-violet);
+$icon-tile:           #12151B;   // PWA / ePub cover ground
+
+// --- Dark theme (canonical) ----------------------------------------------
+$bg:                  #0F1216;   // body background
+$surface:             #161A20;   // raised surface / card / navbar
+$surface-alt:         #1C222A;   // table header, inputs, hover, tracks
+$border:              #262D38;   // hairline border / row rule
+$text:                #E8EBF0;   // body text
+$text-soft:           #D8DDE6;   // reader body (a step softer, less glare)
+$text-muted:          #8B95A5;   // captions, metadata
+$link:                #8EA2FF;
+$link-hover:          #B3C0FF;
+$accent:              #6470FF;   // primary action, focus ring
+$accent-hover:        #7480FF;
+$accent-press:        #4F5CE6;
+$code-bg:             #1B2330;
+$code-fg:             #FFD082;
+$btn-secondary-border:#384253;
+$btn-disabled-fg:     #5B6472;
+
+// Semantic status
+$success:             #3FB950;   // downloaded / active / completed
+$pending:             #4CC4D1;   // queued  (cyan, not blue — blue collides with $link)
+$warning:             #F0B429;   // needs attention
+$danger:              #F0533F;   // failed
+$muted:               #6B7684;   // paused
+$muted-fg:            #9AA4B2;   // paused badge label
+
+// --- Light theme (companion) ---------------------------------------------
+$bg-light:            #F7F8FA;
+$surface-light:       #FFFFFF;
+$surface-alt-light:   #EEF0F5;
+$border-light:        #DDE1E8;
+$text-light:          #1A1F27;
+$text-muted-light:    #5C6675;
+$link-light:          #3D4EE0;
+$link-hover-light:    #2536C4;
+$accent-light:        #4A58E8;
+$accent-press-light:  #3543C9;
+$amber-light:         #C98A00;   // amber needs darkening on a light ground
+$code-bg-light:       #EEF0F5;
+$code-fg-light:       #8A5A00;
+
+$success-light:       #1A7F37;
+$pending-light:       #0E7C8A;
+$warning-light:       #A86A00;
+$danger-light:        #C0392B;
+$muted-light:         #6B7684;
+
+// --- Status triad --------------------------------------------------------
+// Every badge, panel and progress element uses the same recipe:
+// full-value text, 12% fill, 35% border.
+@mixin status($c) {
+  color: $c;
+  background: rgba($c, 0.12);
+  border: 1px solid rgba($c, 0.35);
+}
+// Paused is quieter: 10% / 30%.
+@mixin status-muted($c: $muted-fg) {
+  color: $c;
+  background: rgba($c, 0.10);
+  border: 1px solid rgba($c, 0.30);
+}
+
+// --- Typography ----------------------------------------------------------
+$font-ui:      'Geist', 'Inter', system-ui, -apple-system, sans-serif;
+$font-read:    'Literata', Georgia, 'Times New Roman', serif;
+$font-mono:    'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+$fs-page-title:      32px;  $fw-page-title:   600;  $ls-page-title:  -0.02em;
+$fs-section-header:  18px;  $fw-section:      600;  $ls-section:     -0.01em;
+$fs-card-title:      15px;  $fw-card-title:   600;
+$fs-body:            14px;  $lh-body:         1.55;
+$fs-caption:         12px;  $fw-caption:      500;  $ls-caption:      0.06em;
+$fs-micro:           11px;  $fw-micro:        600;  $ls-micro:        0.14em;
+$fs-mono:            12px;
+$fs-chapter-title:   34px;  $lh-chapter:      1.2;  $ls-chapter:     -0.015em;
+$fs-reader:          19px;  $lh-reader:       1.75;
+$reader-measure:     68ch;                          // clamp 56–80ch
+$reader-column:      680px;
+
+$ls-wordmark:        0.17em;   // NOVARR lockup
+$ls-brand-nav:       0.16em;   // NOVARR in the navbar / email header
+
+// --- Space / shape ------------------------------------------------------
+$s-1: 4px;  $s-2: 8px;  $s-3: 10px; $s-4: 12px; $s-5: 16px;
+$s-6: 20px; $s-7: 24px; $s-8: 32px; $s-9: 48px; $s-10: 64px;
+
+$radius-flat:    0;      // badges, progress bars
+$radius:         4px;    // buttons, inputs, cards
+$radius-tile:    40px;   // 512px app icon (14px at 180px)
+
+$navbar-height:  56px;
+$reader-bar:     52px;
+$hairline:       1px;
+$rule-strong:    2px;
+$progress-track: 4px;
+$progress-rail:  2px;    // reader chapter rail
+
+$shadow-none:    none;   // the system uses rules, not elevation
+
+$transition:     120ms ease-out;   // colour properties only
+$transition-bar: 240ms ease-out;   // progress width
+
+// --- Focus --------------------------------------------------------------
+@mixin focus-ring {
+  &:focus-visible { outline: 2px solid $accent; outline-offset: 2px; }
+}

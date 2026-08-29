@@ -1,0 +1,559 @@
+// ---------------------------------------------------------------------------
+// Novarr — reader screen (handoff §5)
+//
+// "Chrome recedes; the column is the interface."
+//   · 52px chrome bar, no fill, 1px $surface-alt bottom rule
+//   · 2px chapter-progress rail directly under it (amber on $surface-alt)
+//   · 680px (68ch) centred column, 64px top padding
+//   · Literata 19/1.75 in $text-soft, 26px paragraph gap, no indents
+//
+// Everything visual is driven by the `--rd-*` custom properties below so the
+// three reading themes (dark canonical, sepia, light) swap by recolouring one
+// block, and the typography prefs (size / measure / family / spacing / gutter /
+// justify) are set as inline custom properties by chapters/show.blade.php.
+//
+// This file is imported last, so its rules win ties against _components.scss.
+// ---------------------------------------------------------------------------
+
+// --- Theme tokens ---------------------------------------------------------
+body {
+    --rd-ground:       #{$bg};            // page/chrome ground
+    --rd-raise:        #{$surface};       // popover + hover fill
+    --rd-line:         #{$surface-alt};   // chrome rules + progress track
+    --rd-border:       #{$border};        // hairlines on controls
+    --rd-text:         #{$text-soft};     // prose
+    --rd-title:        #{$text};
+    --rd-muted:        #{$text-muted};
+    --rd-amber:        #{$brand-amber};
+    --rd-accent:       #{$accent};
+    --rd-accent-hover: #{$accent-hover};
+    --rd-accent-press: #{$accent-press};
+    --rd-accent-fg:    #fff;
+    --rd-mark:         #{rgba($accent, 0.18)};
+    --rd-font-read:    #{$font-read};
+
+    // Typography prefs — JS overrides these on #reader; these are the defaults
+    // the page renders with before the script runs.
+    --rd-size:    #{$fs-reader};
+    --rd-measure: #{$reader-measure};
+    --rd-family:  #{$font-read};
+    --rd-line-h:  #{$lh-reader};
+    --rd-gutter:  #{$s-4};
+    --rd-align:   start;
+    --rd-hyphens: manual;
+}
+
+body.reader-theme-sepia {
+    --rd-ground:       #ece3cf;
+    --rd-raise:        #f4ecd8;
+    --rd-line:         #ddd0b3;
+    --rd-border:       #cbbb98;
+    --rd-text:         #4a3a2c;
+    --rd-title:        #3f3125;
+    --rd-muted:        #8a7658;
+    --rd-amber:        #{$amber-light};
+    --rd-accent:       #8a5a2b;
+    --rd-accent-hover: #9c6a38;
+    --rd-accent-press: #74491f;
+    --rd-mark:         rgba(201, 138, 0, 0.22);
+}
+
+body.reader-theme-light {
+    --rd-ground:       #{$bg-light};
+    --rd-raise:        #{$surface-light};
+    --rd-line:         #{$border-light};
+    --rd-border:       #{$border-light};
+    --rd-text:         #{$text-light};
+    --rd-title:        #{$text-light};
+    --rd-muted:        #{$text-muted-light};
+    --rd-amber:        #{$amber-light};
+    --rd-accent:       #{$accent-light};
+    --rd-accent-hover: #{$accent-light};
+    --rd-accent-press: #{$accent-press-light};
+    --rd-mark:         rgba($accent-light, 0.16);
+}
+
+// --- Shell ----------------------------------------------------------------
+.reader {
+    // Pull the chrome bar flush under the navbar (main carries py-4).
+    margin-top: -$s-7;
+
+    :focus-visible {
+        outline: 2px solid var(--rd-accent);
+        outline-offset: 2px;
+    }
+}
+
+// Chrome bar + progress rail travel together and stick below the navbar.
+.reader-chrome {
+    position: sticky;
+    top: calc(#{$navbar-height} + env(safe-area-inset-top, 0px));
+    z-index: 1020;
+    background: var(--rd-ground);
+    // Bleed to the container edges so the bottom rule spans the full width.
+    margin-inline: calc(var(--bs-gutter-x, 1.5rem) * -0.5);
+    padding-inline: calc(var(--bs-gutter-x, 1.5rem) * 0.5);
+}
+
+.reader-bar {
+    display: flex;
+    align-items: center;
+    gap: $s-5;
+    height: $reader-bar;
+    border-bottom: $hairline solid var(--rd-line);
+}
+
+.reader-back {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--rd-muted);
+    text-decoration: none;
+    transition: color $transition;
+
+    .reader-back-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &:hover,
+    &:focus-visible { color: var(--rd-title); }
+}
+
+.reader-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+// Compact outlined chrome controls (Aa / Contents / Focus).
+.reader-ctl {
+    padding: 6px $s-3;
+    font-size: 12px;
+    line-height: 1.2;
+    color: var(--rd-muted);
+    background: transparent;
+    border: $hairline solid var(--rd-border);
+    border-radius: $radius;
+    transition: color $transition, background-color $transition, border-color $transition;
+
+    &:hover {
+        color: var(--rd-title);
+        background: var(--rd-raise);
+    }
+
+    &.is-active {
+        color: var(--rd-title);
+        background: var(--rd-line);
+        border-color: var(--rd-border);
+    }
+}
+
+.reader-ctl-aa {
+    font-family: $font-mono;
+    letter-spacing: 0.02em;
+}
+
+// --- 2px chapter-progress rail -------------------------------------------
+// Overrides the viewport-fixed rail in _components.scss: here it belongs to
+// the chrome, sitting directly under the bar.
+#readProgressBar {
+    position: static;
+    height: $progress-rail;
+    background: var(--rd-line);
+    pointer-events: none;
+
+    #readProgressFill {
+        height: 100%;
+        width: 0;
+        background: var(--rd-amber);
+        transition: width $transition-bar;
+    }
+}
+
+// --- "Aa" settings popover ------------------------------------------------
+.reader-pop {
+    position: absolute;
+    top: 100%;
+    right: calc(var(--bs-gutter-x, 1.5rem) * 0.5);
+    z-index: 1040;
+    width: 330px;
+    max-width: calc(100vw - #{$s-7});
+    max-height: min(70vh, 620px);
+    overflow-y: auto;
+    margin-top: $s-2;
+    padding: $s-4;
+    background: var(--rd-raise);
+    border: $hairline solid var(--rd-border);
+    border-radius: $radius;
+    color: var(--rd-title);
+}
+
+.reader-pop-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $s-4;
+    padding: 5px 0;
+}
+
+.reader-pop-label {
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--rd-muted);
+    margin: 0;
+}
+
+.reader-pop-note {
+    min-height: 14px;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: var(--rd-muted);
+    padding-top: 0;
+}
+
+.reader-pop-sep {
+    height: $hairline;
+    background: var(--rd-border);
+    margin: $s-3 0;
+}
+
+// Segmented control: one outlined group, 1px dividers, fill-only hover.
+.reader-seg {
+    display: inline-flex;
+    align-items: stretch;
+    border: $hairline solid var(--rd-border);
+    border-radius: $radius;
+    overflow: hidden;
+
+    button,
+    .reader-seg-value {
+        padding: 5px 9px;
+        font-size: 12px;
+        line-height: 1.3;
+        white-space: nowrap;
+        background: transparent;
+        border: 0;
+        border-left: $hairline solid var(--rd-border);
+        color: var(--rd-muted);
+        transition: color $transition, background-color $transition;
+
+        &:first-child { border-left: 0; }
+    }
+
+    button:hover {
+        color: var(--rd-title);
+        background: var(--rd-line);
+    }
+
+    button.is-active {
+        color: var(--rd-title);
+        background: var(--rd-line);
+    }
+
+    .reader-seg-value {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        display: flex;
+        align-items: center;
+        min-width: 46px;
+        justify-content: center;
+    }
+}
+
+.reader-seg-wrap {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+// --- Reading column -------------------------------------------------------
+.reader-col {
+    // ch resolves against the reader face, so the measure control is honest.
+    font-family: var(--rd-family);
+    font-size: var(--rd-size);
+    width: min(var(--rd-measure), calc(100vw - #{$s-9}));
+    max-width: 100%;
+    margin: 0 auto;
+    padding: $s-10 var(--rd-gutter) $s-9;
+}
+
+.reader-head {
+    display: flex;
+    flex-direction: column;
+    gap: $s-4;
+    margin-bottom: 36px;
+    font-family: $font-ui;
+    font-size: $fs-body;
+}
+
+.reader-kicker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 6px;
+    margin: 0;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--rd-muted);
+
+    .reader-kicker-sep { opacity: 0.55; }
+    .reader-kicker-pending { color: var(--rd-amber); }
+}
+
+.reader-title {
+    margin: 0;
+    font-family: var(--rd-font-read);
+    font-size: clamp(26px, 5.5vw, #{$fs-chapter-title});
+    font-weight: 600;
+    line-height: $lh-chapter;
+    letter-spacing: $ls-chapter;
+    color: var(--rd-title);
+}
+
+.reader-title-rule {
+    width: 64px;
+    height: $hairline;
+    background: var(--rd-border);
+}
+
+// Prose. Overrides the generic .chapter-content block in _components.scss so
+// the column, not the paragraph, owns the measure.
+.reader-col .chapter-content {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: var(--rd-line-h);
+    color: var(--rd-text);
+    max-width: none;
+    margin: 0;
+    text-align: var(--rd-align);
+    hyphens: var(--rd-hyphens);
+
+    p {
+        margin: 0 0 26px;
+        text-indent: 0;
+    }
+
+    p:last-child { margin-bottom: 0; }
+
+    h1, h2, h3, h4, h5, h6 {
+        font-family: var(--rd-font-read);
+        color: var(--rd-title);
+        margin: 36px 0 $s-5;
+        letter-spacing: $ls-chapter;
+    }
+
+    a { color: var(--rd-accent); }
+
+    blockquote {
+        margin: 0 0 26px;
+        padding-left: $s-5;
+        border-left: $rule-strong solid var(--rd-line);
+        color: var(--rd-muted);
+    }
+
+    hr {
+        margin: 36px auto;
+        width: 64px;
+        border: 0;
+        border-top: $hairline solid var(--rd-border);
+        opacity: 1;
+    }
+
+    img { max-width: 100%; height: auto; }
+}
+
+// Continuously-loaded chapters get the same head; a rule separates them.
+.reader-section + .reader-section {
+    margin-top: $s-9;
+    padding-top: $s-9;
+    border-top: $hairline solid var(--rd-line);
+}
+
+// Paragraph currently being read aloud (TTS) — themed.
+.reader-col .tts-active {
+    background: var(--rd-mark);
+    border-radius: 3px;
+}
+
+// Pending chapter (no body yet).
+.reader-empty {
+    font-family: $font-ui;
+    font-size: $fs-body;
+    text-align: center;
+    padding: $s-9 0;
+    color: var(--rd-muted);
+
+    .reader-empty-note {
+        margin-top: $s-2;
+        font-size: $fs-caption;
+    }
+}
+
+// --- Footer ---------------------------------------------------------------
+.reader-foot {
+    font-family: $font-ui;
+    font-size: $fs-body;
+}
+
+.reader-foot-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: $s-2;
+    margin-top: $s-9;
+}
+
+.reader-ghost {
+    padding: 5px $s-3;
+    font-size: 12px;
+    color: var(--rd-muted);
+    background: transparent;
+    border: $hairline solid transparent;
+    border-radius: $radius;
+    transition: color $transition, background-color $transition, border-color $transition;
+
+    &:hover {
+        color: var(--rd-title);
+        background: var(--rd-line);
+    }
+
+    &.is-read {
+        color: $success;
+        background: rgba($success, 0.12);
+        border-color: rgba($success, 0.35);
+    }
+
+    &:disabled { opacity: 0.6; }
+}
+
+// Prev / "Mark read & continue" / next.
+.reader-nav.reader-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $s-4;
+    margin-top: $s-6;
+    padding-top: $s-7;
+    border-top: $hairline solid var(--rd-line);
+}
+
+.reader-navblock {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    max-width: 38%;
+    padding: $s-3 $s-5;
+    border: $hairline solid var(--rd-border);
+    border-radius: $radius;
+    text-decoration: none;
+    transition: background-color $transition, border-color $transition;
+
+    &:hover { background: var(--rd-raise); }
+
+    .reader-navblock-dir {
+        font-family: $font-mono;
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--rd-muted);
+    }
+
+    .reader-navblock-label {
+        font-size: 13px;
+        color: var(--rd-title);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &.reader-navblock-next {
+        align-items: flex-end;
+        text-align: right;
+    }
+
+    // Keeps the primary action optically centred when there is no prev/next.
+    &.is-empty {
+        visibility: hidden;
+        padding: 0;
+        border: 0;
+        flex: 0 0 auto;
+    }
+}
+
+.reader-continue {
+    flex-shrink: 0;
+    padding: $s-3 18px;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    text-decoration: none;
+    color: var(--rd-accent-fg);
+    background: var(--rd-accent);
+    border-radius: $radius;
+    transition: background-color $transition;
+
+    &:hover { background: var(--rd-accent-hover); color: var(--rd-accent-fg); }
+    &:active,
+    &.is-busy { background: var(--rd-accent-press); }
+}
+
+.reader-caughtup {
+    font-size: 13px;
+    color: var(--rd-muted);
+}
+
+// --- Focus mode -----------------------------------------------------------
+// _components.scss hides .navbar / #readerToolbar / .chapter-nav; the rail
+// stays so position is still legible, and the chrome re-anchors to the top.
+body.reader-focus:not(.chrome-peek) {
+    .reader-chrome { top: env(safe-area-inset-top, 0px); }
+    .reader-foot-actions { display: none !important; }
+}
+
+// --- Responsive -----------------------------------------------------------
+@include media-breakpoint-down(md) {
+    .reader-col { padding-top: $s-8; }
+
+    .reader-nav.reader-nav {
+        flex-wrap: wrap;
+        gap: $s-2;
+    }
+
+    .reader-navblock {
+        flex: 1 1 45%;
+        max-width: none;
+    }
+
+    .reader-continue {
+        order: -1;
+        flex: 1 1 100%;
+        padding: 12px 18px;
+    }
+
+    .reader-navblock.is-empty { display: none; }
+}
+
+@include media-breakpoint-down(sm) {
+    .reader-bar { gap: $s-3; }
+    .reader-ctl { padding: 6px $s-2; }
+    .reader-back { font-size: 12px; }
+}
+
+// Comfortable touch targets (re-homed from the old toolbar rule).
+@media (hover: none) {
+    .reader-ctl,
+    .reader-seg button,
+    .reader-ghost {
+        min-height: 38px;
+    }
+
+    .reader-ctl { min-width: 38px; }
+}

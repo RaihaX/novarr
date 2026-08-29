@@ -1,30 +1,32 @@
 @extends('layouts.app')
 
 @section('content')
-<h1 class="mb-4">Log Files</h1>
+<h1 class="page-title mb-4">Log files</h1>
 
 <div class="card">
     <div class="table-responsive">
-        <table class="table table-striped mb-0">
-            <thead class="table-dark">
+        <table class="table table-hover align-middle">
+            <thead>
                 <tr>
-                    <th>File Name</th>
-                    <th>Size</th>
-                    <th>Last Modified</th>
-                    <th>Actions</th>
+                    <th>File name</th>
+                    <th style="width: 110px;">Size</th>
+                    <th style="width: 190px;">Last modified</th>
+                    <th style="width: 300px;">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($logFiles as $file)
                     <tr>
-                        <td><code>{{ $file['name'] }}</code></td>
-                        <td>{{ $file['size'] }}</td>
-                        <td>{{ $file['modified'] }}</td>
+                        <td><span class="log-name">{{ $file['name'] }}</span></td>
+                        <td class="mono-muted">{{ $file['size'] }}</td>
+                        <td class="mono-muted">{{ $file['modified'] }}</td>
                         <td>
-                            <a href="{{ route('logs.show', $file['name']) }}" class="btn btn-sm btn-outline-primary">View</a>
-                            <a href="{{ route('logs.download', $file['name']) }}" class="btn btn-sm btn-outline-secondary">Download</a>
-                            <button class="btn btn-sm btn-outline-warning log-clear-btn" data-filename="{{ $file['name'] }}">Clear</button>
-                            <button class="btn btn-sm btn-outline-danger log-delete-btn" data-filename="{{ $file['name'] }}">Delete</button>
+                            <div class="job-actions justify-content-start">
+                                <a href="{{ route('logs.show', $file['name']) }}" class="btn btn-secondary">View</a>
+                                <a href="{{ route('logs.download', $file['name']) }}" class="btn btn-secondary">Download</a>
+                                <button class="btn btn-warning log-clear-btn" data-filename="{{ $file['name'] }}">Clear</button>
+                                <button class="btn btn-danger log-delete-btn" data-filename="{{ $file['name'] }}">Delete</button>
+                            </div>
                         </td>
                     </tr>
                 @empty

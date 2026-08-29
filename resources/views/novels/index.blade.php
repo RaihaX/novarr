@@ -3,59 +3,64 @@
 @php $hasFilters = request('search') || request()->filled('status') || request()->filled('tag'); @endphp
 
 @section('content')
-<div class="page-toolbar">
-    <div class="d-flex align-items-center gap-3">
-        <h1 class="mb-0">Novels</h1>
-        <a href="{{ route('novels.discover') }}" class="btn btn-sm btn-success">+ Add Novel</a>
+<div class="page-head">
+    <div class="page-head-titles">
+        <span class="page-head-kicker">{{ number_format($novels->total()) }} {{ Str::plural('novel', $novels->total()) }}{{ $hasFilters ? ' · filtered' : '' }}</span>
+        <h1 class="page-title mb-0">Novels</h1>
     </div>
-    <div class="d-flex flex-wrap gap-2 align-items-center">
-        <div class="btn-group" role="group" aria-label="View mode">
+    <div class="page-head-actions">
+        <div class="btn-group segmented" role="group" aria-label="View mode">
             <a href="{{ request()->fullUrlWithQuery(['view' => 'list', 'page' => null]) }}"
-               class="btn btn-sm btn-outline-secondary {{ $view === 'list' ? 'active' : '' }}" aria-label="List view" title="List view">
+               class="btn btn-secondary {{ $view === 'list' ? 'active' : '' }}" aria-label="List view" title="List view">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 3.5h12v2H2zm0 3.5h12v2H2zm0 3.5h12v2H2z"/></svg>
             </a>
             <a href="{{ request()->fullUrlWithQuery(['view' => 'grid', 'page' => null]) }}"
-               class="btn btn-sm btn-outline-secondary {{ $view === 'grid' ? 'active' : '' }}" aria-label="Grid view" title="Grid view">
+               class="btn btn-secondary {{ $view === 'grid' ? 'active' : '' }}" aria-label="Grid view" title="Grid view">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 2h5v5H2zm7 0h5v5H9zM2 9h5v5H2zm7 0h5v5H9z"/></svg>
             </a>
         </div>
-        <form method="GET" action="{{ route('novels.index') }}">
-            <select name="sort" aria-label="Sort" class="form-select form-select-sm w-auto" onchange="this.form.requestSubmit()">
-                <option value="name" @selected($sort === 'name')>A–Z</option>
-                <option value="progress" @selected($sort === 'progress')>Progress</option>
-                <option value="updated" @selected($sort === 'updated')>Recently updated</option>
-                <option value="chapters" @selected($sort === 'chapters')>Chapter count</option>
-            </select>
-            <select name="status" aria-label="Filter by status" class="form-select form-select-sm w-auto" onchange="this.form.requestSubmit()">
-                <option value="">All Status</option>
-                <option value="0" @selected(request('status') === '0')>Active</option>
-                <option value="1" @selected(request('status') === '1')>Completed</option>
-            </select>
-            @if($tags->isNotEmpty())
-                <select name="tag" aria-label="Filter by tag" class="form-select form-select-sm w-auto" onchange="this.form.requestSubmit()">
-                    <option value="">All tags</option>
-                    @foreach($tags as $tag)
-                        <option value="{{ $tag->id }}" @selected((string) $activeTag === (string) $tag->id)>{{ $tag->name }}</option>
-                    @endforeach
-                </select>
-            @endif
-            <input type="search" name="search" aria-label="Search novels" class="form-control form-control-sm w-auto" placeholder="Search novels..." value="{{ request('search') }}">
-            <button type="submit" class="btn btn-sm btn-primary">Search</button>
-            @if(request('search') || request()->filled('status') || request()->filled('tag'))
-                <a href="{{ route('novels.index') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
-            @endif
-        </form>
+        <a href="{{ route('novels.discover') }}" class="btn btn-primary">Add novel</a>
     </div>
 </div>
 
+<form method="GET" action="{{ route('novels.index') }}" class="filter-bar mb-4">
+    <select name="sort" aria-label="Sort" class="form-select" onchange="this.form.requestSubmit()">
+        <option value="name" @selected($sort === 'name')>A–Z</option>
+        <option value="progress" @selected($sort === 'progress')>Progress</option>
+        <option value="updated" @selected($sort === 'updated')>Recently updated</option>
+        <option value="chapters" @selected($sort === 'chapters')>Chapter count</option>
+    </select>
+    <select name="status" aria-label="Filter by status" class="form-select" onchange="this.form.requestSubmit()">
+        <option value="">All status</option>
+        <option value="0" @selected(request('status') === '0')>Active</option>
+        <option value="1" @selected(request('status') === '1')>Completed</option>
+    </select>
+    @if($tags->isNotEmpty())
+        <select name="tag" aria-label="Filter by tag" class="form-select" onchange="this.form.requestSubmit()">
+            <option value="">All tags</option>
+            @foreach($tags as $tag)
+                <option value="{{ $tag->id }}" @selected((string) $activeTag === (string) $tag->id)>{{ $tag->name }}</option>
+            @endforeach
+        </select>
+    @endif
+    <input type="search" name="search" aria-label="Search novels" class="form-control" placeholder="Search novels…" value="{{ request('search') }}">
+    <button type="submit" class="btn btn-secondary">Search</button>
+    @if($hasFilters)
+        <a href="{{ route('novels.index') }}" class="btn btn-ghost">Clear</a>
+    @endif
+</form>
+
 @if($view === 'grid')
-    {{-- Poster grid (Sonarr-style) --}}
+    {{-- Poster wall: covers first, one download rail per tile --}}
     <div class="poster-grid mb-4">
         @forelse($novels as $novel)
             @php
                 $total = $novel->chapters_count ?? 0;
                 $downloaded = $novel->downloaded_chapters_count ?? 0;
                 $pct = $total > 0 ? round(($downloaded / $total) * 100) : 0;
+                $isCompleted = (bool) $novel->status;
+                $isPaused = !$isCompleted && $novel->paused_at;
+                $barClass = $isPaused ? 'bar-muted' : 'bar-success';
             @endphp
             <a href="{{ route('novels.show', $novel->id) }}" class="poster-card" title="{{ $novel->name }}">
                 <div class="poster-cover">
@@ -64,21 +69,21 @@
                     @else
                         <div class="poster-cover-placeholder"><span>{{ $novel->name }}</span></div>
                     @endif
-                    @if($novel->status)
-                        <span class="poster-badge badge bg-info">Done</span>
-                    @elseif($novel->paused_at)
-                        <span class="poster-badge badge bg-secondary">Paused</span>
+                    @if($isCompleted)
+                        <span class="poster-badge badge badge-completed">Completed</span>
+                    @elseif($isPaused)
+                        <span class="poster-badge badge badge-paused">Paused</span>
                     @endif
                     <div class="poster-actions">
-                        <button type="button" class="btn btn-sm btn-success poster-action novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" data-paused="{{ $novel->paused_at ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
+                        <button type="button" class="btn btn-sm btn-outline-success poster-action novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" data-paused="{{ $novel->paused_at ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
                             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 4.5 6 12 2.5 8.5l1-1L6 10l6.5-6.5z"/></svg>
                         </button>
-                        <button type="button" class="btn btn-sm btn-danger poster-action novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
+                        <button type="button" class="btn btn-sm btn-outline-danger poster-action novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
                             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.5 1h3a.5.5 0 0 1 .5.5V2h4v1.5H2V2h4v-.5a.5.5 0 0 1 .5-.5zM3 4.5h10L12.2 14a1.5 1.5 0 0 1-1.5 1.4H5.3A1.5 1.5 0 0 1 3.8 14L3 4.5z"/></svg>
                         </button>
                     </div>
-                    <div class="poster-progress">
-                        <div class="poster-progress-bar {{ $pct >= 100 ? 'is-complete' : '' }}" style="width: {{ $pct }}%"></div>
+                    <div class="poster-progress" aria-hidden="true">
+                        <div class="poster-progress-bar {{ $barClass }}" style="width: {{ $pct }}%"></div>
                     </div>
                 </div>
                 <div class="poster-title">{{ $novel->name }}</div>
@@ -92,40 +97,45 @@
         {{ $novels->appends(request()->query())->links() }}
     @endif
 @else
-<div id="bulkBar" class="d-none align-items-center gap-2 mb-3 p-2 px-3 card flex-row">
-    <span id="bulkCount" class="fw-semibold"></span>
-    <button type="button" id="bulkComplete" class="btn btn-sm btn-outline-info">Mark complete</button>
-    <button type="button" id="bulkDelete" class="btn btn-sm btn-outline-danger">Delete</button>
-    <button type="button" id="bulkClear" class="btn btn-sm btn-link text-decoration-none ms-auto">Clear selection</button>
+<div id="bulkBar" class="novels-bulk-bar">
+    <span id="bulkCount" class="bulk-count"></span>
+    <button type="button" id="bulkComplete" class="btn btn-secondary">Mark complete</button>
+    <button type="button" id="bulkDelete" class="btn btn-outline-danger">Delete</button>
+    <button type="button" id="bulkClear" class="btn btn-ghost ms-auto">Clear selection</button>
 </div>
-<div class="card">
-    {{-- Mobile: compact card list --}}
-    <div class="d-md-none">
+
+<div class="dash-panel">
+    {{-- Below 900px the table collapses to the novel-row list (handoff) --}}
+    <div class="novels-list">
         @forelse($novels as $novel)
             @php
                 $total = $novel->chapters_count ?? 0;
                 $downloaded = $novel->downloaded_chapters_count ?? 0;
                 $pct = $total > 0 ? round(($downloaded / $total) * 100) : 0;
+                $isCompleted = (bool) $novel->status;
+                $isPaused = !$isCompleted && $novel->paused_at;
+                $barClass = $isPaused ? 'bar-muted' : 'bar-success';
             @endphp
-            <div class="novel-card">
-                <input type="checkbox" class="form-check-input novel-check mt-0 flex-shrink-0" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}">
-                <a href="{{ route('novels.show', $novel->id) }}" class="novel-card-link">
+            <div class="novel-row">
+                <input type="checkbox" class="form-check-input novel-check flex-shrink-0" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}">
+                <a href="{{ route('novels.show', $novel->id) }}" class="novel-row-link">
                     @if($novel->file)
                         <img src="{{ Storage::url($novel->file->file_path) }}" alt="Cover of {{ $novel->name }}" loading="lazy" class="cover-thumb">
                     @else
-                        <div class="cover-placeholder">N/A</div>
+                        <div class="cover-placeholder" aria-hidden="true"><x-brand-mark variant="mono" :size="16" /></div>
                     @endif
-                    <div class="novel-card-body">
-                        <div class="novel-card-title">{{ $novel->name }}</div>
-                        <div class="novel-card-meta mb-1">{{ $novel->author ?? 'Unknown author' }} · {{ $downloaded }}/{{ $total }}</div>
-                        <div class="progress" style="height: 5px;">
-                            <div class="progress-bar {{ $pct >= 100 ? 'bg-success' : 'bg-info' }}" style="width: {{ $pct }}%"></div>
-                        </div>
+                    <div class="novel-row-body">
+                        <div class="novel-row-title">{{ $novel->name }}</div>
+                        <div class="novel-row-meta">{{ $novel->author ?? 'Unknown author' }}</div>
+                        <div class="novel-row-counts">{{ $downloaded }} / {{ $total }} · {{ $pct }}%</div>
+                        <div class="novel-row-progress" aria-hidden="true"><span class="{{ $barClass }}" style="width: {{ $pct }}%"></span></div>
                     </div>
-                    @if($novel->status)
-                        <span class="badge bg-info">Done</span>
-                    @elseif($novel->paused_at)
-                        <span class="badge bg-secondary">Paused</span>
+                    @if($isCompleted)
+                        <span class="badge badge-completed">Completed</span>
+                    @elseif($isPaused)
+                        <span class="badge badge-paused">Paused</span>
+                    @else
+                        <span class="badge badge-active">Active</span>
                     @endif
                 </a>
             </div>
@@ -134,68 +144,71 @@
         @endforelse
     </div>
 
-    {{-- Desktop: full table --}}
-    <div class="table-responsive d-none d-md-block">
-        <table class="table table-hover mb-0 align-middle">
+    {{-- 900px and up: the full table (handoff §4 column recipe) --}}
+    <div class="table-responsive novels-table">
+        <table class="table table-hover table-novels align-middle">
             <thead>
-                <tr class="table-head-label">
-                    <th style="width: 34px"><input type="checkbox" id="selectAll" class="form-check-input" aria-label="Select all novels"></th>
-                    <th style="width: 50px"></th>
+                <tr>
+                    <th class="col-select"><input type="checkbox" id="selectAll" class="form-check-input" aria-label="Select all novels"></th>
+                    <th class="col-cover"><span class="visually-hidden">Cover</span></th>
                     <th>Name</th>
-                    <th style="width: 180px">Author</th>
-                    <th style="width: 90px">Status</th>
-                    <th style="width: 180px">Progress</th>
-                    <th style="width: 110px">Chapters</th>
-                    <th style="width: 46px"><span class="visually-hidden">Actions</span></th>
+                    <th class="col-author">Author</th>
+                    <th class="col-status">Status</th>
+                    <th class="col-progress">Progress</th>
+                    <th class="col-chapters">Chapters</th>
+                    <th class="col-actions"><span class="visually-hidden">Actions</span></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($novels as $novel)
+                    @php
+                        $total = $novel->chapters_count ?? 0;
+                        $downloaded = $novel->downloaded_chapters_count ?? 0;
+                        $pct = $total > 0 ? round(($downloaded / $total) * 100) : 0;
+                        $isCompleted = (bool) $novel->status;
+                        $isPaused = !$isCompleted && $novel->paused_at;
+                        $barClass = $isPaused ? 'bar-muted' : 'bar-success';
+                    @endphp
                     <tr>
-                        <td><input type="checkbox" class="form-check-input novel-check" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}"></td>
-                        <td>
+                        <td class="col-select"><input type="checkbox" class="form-check-input novel-check" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}"></td>
+                        <td class="col-cover">
                             @if($novel->file)
                                 <img src="{{ Storage::url($novel->file->file_path) }}" alt="Cover of {{ $novel->name }}" loading="lazy" class="cover-thumb">
                             @else
-                                <div class="cover-placeholder">N/A</div>
+                                <div class="cover-placeholder" aria-hidden="true"><x-brand-mark variant="mono" :size="16" /></div>
                             @endif
                         </td>
                         <td>
-                            <a href="{{ route('novels.show', $novel->id) }}" class="text-decoration-none fw-semibold">
-                                {{ $novel->name }}
-                            </a>
+                            <a href="{{ route('novels.show', $novel->id) }}" class="novel-name">{{ $novel->name }}</a>
                         </td>
-                        <td class="text-muted">{{ $novel->author ?? '-' }}</td>
-                        <td>
-                            @if($novel->status)
-                                <span class="badge bg-info">Completed</span>
-                            @elseif($novel->paused_at)
-                                <span class="badge bg-secondary">Paused</span>
+                        <td class="col-author">{{ $novel->author ?? '—' }}</td>
+                        <td class="col-status">
+                            @if($isCompleted)
+                                <span class="badge badge-completed">Completed</span>
+                            @elseif($isPaused)
+                                <span class="badge badge-paused">Paused</span>
                             @else
-                                <span class="badge bg-success">Active</span>
+                                <span class="badge badge-active">Active</span>
                             @endif
                         </td>
-                        <td>
-                            @php
-                                $total = $novel->chapters_count ?? 0;
-                                $downloaded = $novel->downloaded_chapters_count ?? 0;
-                                $pct = $total > 0 ? round(($downloaded / $total) * 100) : 0;
-                            @endphp
-                            <div class="d-flex align-items-center gap-2">
-                                <div class="progress flex-grow-1" style="height: 8px;">
-                                    <div class="progress-bar {{ $pct >= 100 ? 'bg-success' : 'bg-info' }}" style="width: {{ $pct }}%"></div>
+                        <td class="col-progress">
+                            <div class="progress-inline">
+                                <div class="progress" role="progressbar" aria-label="Downloaded chapters" aria-valuenow="{{ $pct }}" aria-valuemin="0" aria-valuemax="100">
+                                    <div class="progress-bar {{ $barClass }}" style="width: {{ $pct }}%"></div>
                                 </div>
-                                <small class="text-muted" style="width: 35px; text-align: right;">{{ $pct }}%</small>
+                                <span class="progress-value">{{ $pct }}%</span>
                             </div>
                         </td>
-                        <td class="text-muted">{{ $downloaded }} / {{ $total }}</td>
-                        <td class="text-end text-nowrap">
-                            <button type="button" class="btn btn-sm btn-outline-success novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" data-paused="{{ $novel->paused_at ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
-                                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 4.5 6 12 2.5 8.5l1-1L6 10l6.5-6.5z"/></svg>
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-danger novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
-                                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.5 1h3a.5.5 0 0 1 .5.5V2h4v1.5H2V2h4v-.5a.5.5 0 0 1 .5-.5zM3 4.5h10L12.2 14a1.5 1.5 0 0 1-1.5 1.4H5.3A1.5 1.5 0 0 1 3.8 14L3 4.5z"/></svg>
-                            </button>
+                        <td class="col-chapters">{{ $downloaded }} / {{ $total }}</td>
+                        <td class="col-actions">
+                            <span class="row-actions">
+                                <button type="button" class="btn btn-outline-success novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" data-paused="{{ $novel->paused_at ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
+                                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 4.5 6 12 2.5 8.5l1-1L6 10l6.5-6.5z"/></svg>
+                                </button>
+                                <button type="button" class="btn btn-outline-danger novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
+                                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.5 1h3a.5.5 0 0 1 .5.5V2h4v1.5H2V2h4v-.5a.5.5 0 0 1 .5-.5zM3 4.5h10L12.2 14a1.5 1.5 0 0 1-1.5 1.4H5.3A1.5 1.5 0 0 1 3.8 14L3 4.5z"/></svg>
+                                </button>
+                            </span>
                         </td>
                     </tr>
                 @empty
@@ -207,7 +220,7 @@
         </table>
     </div>
     @if($novels->hasPages())
-        <div class="card-footer">
+        <div class="dash-panel-foot">
             {{ $novels->appends(request()->query())->links() }}
         </div>
     @endif
@@ -230,8 +243,7 @@
     function refreshBulkBar() {
         const n = selected().length;
         if (bulkBar) {
-            bulkBar.classList.toggle('d-none', n === 0);
-            bulkBar.classList.toggle('d-flex', n > 0);
+            bulkBar.classList.toggle('is-active', n > 0);
             document.getElementById('bulkCount').textContent = `${n} selected`;
         }
         if (selectAll) {
@@ -250,6 +262,14 @@
         refreshBulkBar();
     });
 
+    // Status badge classes follow the brand mapping: completed/active are the
+    // success triad, paused is the muted one.
+    function badgeFor(completed, paused) {
+        if (completed) return ['badge badge-completed', 'Completed'];
+        if (paused) return ['badge badge-paused', 'Paused'];
+        return ['badge badge-active', 'Active'];
+    }
+
     // Update a novel's status badge + complete button in place (grid poster or
     // table row), so list actions don't trigger a full-page reload.
     function setNovelComplete(btn, completed) {
@@ -261,14 +281,17 @@
         const card = btn.closest('.poster-card');
 
         if (row) {
-            let badge = row.querySelector('.badge');
-            if (!badge) {
+            const cell = row.querySelector('td.col-status');
+            let badge = cell?.querySelector('.badge');
+            if (!badge && cell) {
                 badge = document.createElement('span');
-                row.querySelector('td:nth-child(5)')?.appendChild(badge);
+                cell.appendChild(badge);
             }
-            if (completed) { badge.className = 'badge bg-info'; badge.textContent = 'Completed'; }
-            else if (paused) { badge.className = 'badge bg-secondary'; badge.textContent = 'Paused'; }
-            else { badge.className = 'badge bg-success'; badge.textContent = 'Active'; }
+            if (badge) {
+                const [cls, label] = badgeFor(completed, paused);
+                badge.className = cls;
+                badge.textContent = label;
+            }
         } else if (card) {
             const cover = card.querySelector('.poster-cover');
             let badge = cover?.querySelector('.poster-badge');
@@ -277,8 +300,8 @@
                     badge = document.createElement('span');
                     cover.appendChild(badge);
                 }
-                badge.className = 'poster-badge badge ' + (completed ? 'bg-info' : 'bg-secondary');
-                badge.textContent = completed ? 'Done' : 'Paused';
+                badge.className = 'poster-badge badge ' + (completed ? 'badge-completed' : 'badge-paused');
+                badge.textContent = completed ? 'Completed' : 'Paused';
             } else {
                 badge?.remove();
             }
@@ -313,7 +336,7 @@
 
             if (data.success) {
                 if (action === 'delete') {
-                    boxes.forEach(c => c.closest('tr')?.remove());
+                    boxes.forEach(c => (c.closest('tr') ?? c.closest('.novel-row'))?.remove());
                     Novarr.showToast(`Deleted ${ids.length} novel(s).`, 'success');
                 } else {
                     boxes.forEach(c => {

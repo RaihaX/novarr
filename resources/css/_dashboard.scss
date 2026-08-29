@@ -1,0 +1,866 @@
+// ---------------------------------------------------------------------------
+// Novarr — dashboard & library views (phase 2A)
+//
+// Owner: home.blade.php, library.blade.php, novels/{index,discover,create,
+// edit,_empty}.blade.php.
+//
+// Everything here builds on the brand component sheet (_components.scss) — it
+// only adds the page-level scaffolding those views need (page headers, stat
+// tiles, panels, card grids, form panels) and never restyles a shared
+// component in place.
+//
+// House rules carried over: radius 4px on controls/cards, 0 on badges and
+// bars; one 1px hairline; no shadows; hover is a fill change only.
+// ---------------------------------------------------------------------------
+
+// The handoff's responsive rule ("below 900px the table collapses to the
+// novel card list") sits between Bootstrap's md and lg, so it gets its own
+// breakpoint rather than being rounded to one of theirs.
+$bp-table-collapse: 900px;
+
+// ===========================================================================
+// Page header — title block left, actions right
+// ===========================================================================
+.page-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-5;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: $s-7;
+}
+
+.page-head-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+// Mono kicker above a page title ("LIBRARY · 128 NOVELS").
+.page-head-kicker {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: $muted;
+}
+
+.page-head-sub {
+    font-size: 13px;
+    color: $text-muted;
+    max-width: 68ch;
+}
+
+.page-head-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2;
+}
+
+// A row of filter controls: keeps every select/input on the same 34px rhythm
+// as the navbar search.
+.filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2;
+
+    .form-select,
+    .form-control {
+        width: auto;
+        height: 34px;
+        padding: 6px $s-4;
+        font-size: 13px;
+        background-color: $surface-alt;
+        border-color: $border;
+        color: $text;
+
+        &:focus { background-color: $surface-alt; border-color: $accent; }
+    }
+
+    .form-select { padding-right: $s-8; }
+
+    input[type="search"] { min-width: 200px; }
+
+    .btn { padding: 7px $s-4; }
+
+    @media (max-width: $bp-table-collapse - 0.02px) {
+        width: 100%;
+
+        input[type="search"] { flex: 1 1 160px; min-width: 0; }
+    }
+}
+
+// Segmented control (list/grid, Popular/Completed). Bootstrap's .btn-group
+// with the system's flat-fill active state.
+.segmented {
+    display: inline-flex;
+
+    .btn {
+        padding: 7px $s-4;
+        justify-content: center;
+
+        &.active {
+            background-color: $surface-alt;
+            color: $text;
+            border-color: $btn-secondary-border;
+        }
+    }
+}
+
+// ===========================================================================
+// Stat tiles (dashboard)
+// ===========================================================================
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: $s-4;
+    margin-bottom: $s-8;
+
+    @include media-breakpoint-down(md) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.stat-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: $s-5 $s-6;
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    color: $text;
+    text-decoration: none;
+    transition: $transition-base;
+}
+
+a.stat-tile:hover,
+a.stat-tile:focus {
+    background-color: $surface-alt;
+    border-color: $btn-secondary-border;
+    color: $text;
+}
+
+.stat-tile-value {
+    font-family: $font-mono;
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: $text;
+}
+
+.stat-tile-label {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: $ls-micro;
+    text-transform: uppercase;
+    color: $text-muted;
+
+    // 6px status square: the tile's colour cue, so the figure itself can stay
+    // in $text and the row of tiles reads as one calm block.
+    &::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        flex: none;
+        background-color: currentColor;
+    }
+}
+
+.stat-tile-foot {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $muted;
+}
+
+.stat-tile-success .stat-tile-label { color: $success; }
+.stat-tile-pending .stat-tile-label { color: $pending; }
+.stat-tile-warning .stat-tile-label { color: $warning; }
+.stat-tile-accent  .stat-tile-label { color: $accent; }
+
+// ===========================================================================
+// Panels — a card with a hairline header/footer, used for the dashboard's
+// list sections and the novels table frame.
+// ===========================================================================
+.dash-panel {
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    overflow: hidden;
+}
+
+.dash-panel-head {
+    display: flex;
+    align-items: center;
+    gap: $s-4;
+    padding: 14px $s-6;
+    border-bottom: $hairline solid $border;
+}
+
+.dash-panel-title {
+    font-size: $fs-card-title;
+    font-weight: $fw-card-title;
+    color: $text;
+    margin: 0;
+}
+
+.dash-panel-tools {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    margin-left: auto;
+}
+
+.dash-panel-body { padding: $s-5 $s-6; }
+
+// Amber is the reading signal: the only icon tint that isn't $text-muted.
+.icon-amber { color: $brand-amber; }
+
+.dash-panel-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $s-4;
+    padding: $s-3 $s-6;
+    border-top: $hairline solid $border;
+
+    // A paginator dropped straight into the footer shouldn't add its own gap.
+    .pagination { margin-bottom: 0; }
+
+    nav { margin-left: auto; }
+}
+
+// Mono count chip in a neutral / status tint — the warning variant lives in
+// _components as .chip-count.
+.chip-mono {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    line-height: 1.4;
+    padding: 3px $s-2;
+    border-radius: $radius-flat;
+    @include status-muted();
+}
+
+.chip-mono-danger  { @include status($danger); }
+.chip-mono-success { @include status($success); }
+.chip-mono-pending { @include status($pending); }
+
+// Pager pair in a panel footer.
+.dash-pager {
+    display: flex;
+    align-items: center;
+    gap: $s-1;
+
+    .btn {
+        padding: 5px $s-3;
+        font-size: $fs-caption;
+        justify-content: center;
+    }
+}
+
+.dash-pager-status {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $muted;
+}
+
+// ===========================================================================
+// Dashboard specifics
+// ===========================================================================
+.dash-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: $s-5;
+    align-items: start;
+
+    @include media-breakpoint-down(lg) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+// Anchor targets from the stat tiles sit under the sticky navbar.
+#missing-section,
+#recent-section,
+#continue-section { scroll-margin-top: 72px; }
+
+// Compact data table used inside dashboard panels: same recipe as the main
+// table, one step tighter.
+.table-compact {
+    > tbody > tr > td { padding: $s-3 $s-6; }
+    > thead > tr > th { padding: $s-2 $s-6; }
+
+    .cell-title {
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .cell-label {
+        color: $text-muted;
+        max-width: 240px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .cell-num {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $text-muted;
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .cell-when {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $muted;
+        white-space: nowrap;
+        text-align: right;
+    }
+}
+
+// Empty body inside a panel.
+.dash-panel-empty {
+    padding: $s-8 $s-6;
+    text-align: center;
+    font-size: 13px;
+    color: $text-muted;
+}
+
+// --- Continue reading -----------------------------------------------------
+// The shelf keeps the component sheet's .continue-row / .continue-card and
+// adds the amber reading rail from the card recipe.
+.continue-card {
+    .poster-cover {
+        border: $hairline solid $border;
+        background: linear-gradient(160deg, $surface-alt, $bg);
+    }
+
+    .continue-rail {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: $progress-track;
+        background: $surface-alt;
+
+        span {
+            display: block;
+            height: 100%;
+            background: $brand-amber;   // reading progress is always amber
+            transition: width $transition-bar;
+        }
+    }
+
+    .continue-meta {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $muted;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+// --- Needs Attention ------------------------------------------------------
+// Panel chrome is in _components; these are the view-level bits: the scroll
+// container and the mono source line's separator.
+.attention-list {
+    max-height: 420px;
+    overflow-y: auto;
+}
+
+.attention-row-actions .btn { white-space: nowrap; }
+
+@include media-breakpoint-down(md) {
+    .attention-row-actions .btn { flex: 1; justify-content: center; }
+}
+
+// ===========================================================================
+// Novels index — table
+// ===========================================================================
+// Column recipe from the handoff: NAME 1fr · AUTHOR 180 · STATUS 120 ·
+// PROGRESS 150 · CHAPTERS 110 (right-aligned mono), plus this app's select,
+// cover and row-action columns.
+.table-novels {
+    th.col-select, td.col-select { width: 36px; }
+    th.col-cover,  td.col-cover  { width: 52px; }
+    th.col-author, td.col-author { width: 180px; }
+    th.col-status, td.col-status { width: 120px; }
+    th.col-progress, td.col-progress { width: 150px; }
+    th.col-chapters, td.col-chapters { width: 110px; }
+    th.col-actions, td.col-actions { width: 92px; }
+
+    td.col-author {
+        font-size: 13px;
+        color: $text-muted;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    td.col-chapters {
+        font-family: $font-mono;
+        font-size: $fs-mono;
+        color: $text;
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    th.col-chapters { text-align: right; }
+
+    .novel-name {
+        font-size: $fs-body;
+        font-weight: 500;
+        color: $link;
+
+        &:hover { color: $link-hover; }
+    }
+
+    .col-actions {
+        text-align: right;
+        white-space: nowrap;
+
+        .btn {
+            padding: 4px 7px;
+            justify-content: center;
+        }
+    }
+
+    // Row actions stay quiet until the row is hovered or focused, so a long
+    // list reads as data rather than as a wall of buttons.
+    .row-actions {
+        display: inline-flex;
+        gap: $s-1;
+        opacity: 0;
+        transition: opacity 0.12s ease-out;
+    }
+
+    tr:hover .row-actions,
+    .row-actions:focus-within { opacity: 1; }
+
+    @media (hover: none) {
+        .row-actions { opacity: 1; }
+    }
+}
+
+// Below 900px the table collapses to the novel-row list (handoff §
+// "Responsive"). These replace Bootstrap's d-md-* pair so the switch happens
+// at the documented width.
+.novels-list { display: block; }
+.novels-table { display: none; }
+
+@media (min-width: $bp-table-collapse) {
+    .novels-list { display: none; }
+    .novels-table { display: block; }
+}
+
+// Bulk-selection bar, shown once a row is checked.
+.novels-bulk-bar {
+    display: none;
+    align-items: center;
+    gap: $s-2;
+    padding: $s-2 $s-5;
+    margin-bottom: $s-4;
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-left: $rule-strong solid $accent;
+    border-radius: 0 $radius $radius 0;
+
+    &.is-active { display: flex; }
+
+    .bulk-count {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        font-weight: $fw-micro;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: $text;
+    }
+
+    .btn { padding: 5px $s-3; font-size: $fs-caption; }
+}
+
+// The mobile novel row carries the same amber-free download rail as the
+// table's PROGRESS column.
+.novel-row {
+    .novel-row-progress {
+        margin-top: 6px;
+        height: $progress-track;
+        background: $surface-alt;
+
+        span {
+            display: block;
+            height: 100%;
+            transition: width $transition-bar;
+        }
+    }
+
+    .novel-row-counts {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $muted;
+    }
+
+    .form-check-input { margin-top: 0; }
+}
+
+// Cover placeholders carry the mono mark at 50% instead of "N/A" text
+// (handoff §4: gradient ground, mark bottom-left / centred when tiny).
+.cover-placeholder .brand-mark {
+    color: $text-muted;
+    opacity: 0.5;
+}
+
+// Download progress takes the row's status colour (reading progress is the
+// only always-amber bar in the system).
+.bar-success { background-color: $success; }
+.bar-pending { background-color: $pending; }
+.bar-warning { background-color: $warning; }
+.bar-danger  { background-color: $danger; }
+.bar-muted   { background-color: $muted; }
+.bar-reading { background-color: $brand-amber; }
+
+// Poster wall (grid view) — the download rail follows the same rule.
+.poster-progress .poster-progress-bar {
+    &.bar-success { background: $success; }
+    &.bar-pending { background: $pending; }
+    &.bar-muted   { background: $muted; }
+}
+
+// ===========================================================================
+// Novel card grid (library + discover, handoff §4 recipe)
+// ===========================================================================
+.novel-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: $s-5;
+
+    @media (max-width: 575.98px) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.novel-card {
+    transition: $transition-base;
+
+    &:hover { border-color: $btn-secondary-border; }
+
+    // The cover is a link in list contexts; keep the 2:3 box exact.
+    .novel-card-cover {
+        overflow: hidden;
+
+        img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+    }
+
+    // Cover cell that wraps an <img> — drop the placeholder's inner padding.
+    a.novel-card-cover,
+    .novel-card-cover.has-image { padding: 0; }
+
+    .novel-card-body { flex: 1; }
+
+    .novel-card-title {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .novel-card-meta {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .novel-card-track {
+        height: $progress-track;
+        background: $surface-alt;
+
+        span {
+            display: block;
+            height: 100%;
+            background: $brand-amber;
+            transition: width $transition-bar;
+        }
+    }
+
+    // Pin the footer to the bottom so a row of cards keeps its actions on one
+    // line regardless of how far the title wraps.
+    .novel-card-foot { margin-top: auto; }
+
+    .novel-card-actions {
+        display: flex;
+        gap: $s-2;
+
+        .btn { flex: 1; justify-content: center; }
+    }
+}
+
+// Skeleton tiles reuse the card silhouette while a grid loads.
+.novel-card-skeleton {
+    pointer-events: none;
+
+    .skeleton-box,
+    .skeleton-line {
+        background: linear-gradient(90deg, $surface 25%, $surface-alt 37%, $surface 63%);
+        background-size: 400% 100%;
+        animation: skeleton-shimmer 1.4s ease infinite;
+        border-radius: $radius;
+    }
+
+    .skeleton-box { width: 72px; height: 104px; flex: none; border-radius: 0; }
+
+    .skeleton-line {
+        height: 10px;
+        margin-bottom: $s-2;
+
+        &.short { width: 55%; }
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .novel-card-skeleton .skeleton-box,
+    .novel-card-skeleton .skeleton-line { animation: none; }
+}
+
+// ===========================================================================
+// Empty state (novels/_empty)
+// ===========================================================================
+.novels-empty {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: $s-4;
+    padding: $s-10 $s-6;
+    text-align: center;
+
+    .novels-empty-icon {
+        width: 28px;
+        height: 28px;
+        color: $text-muted;
+        opacity: 0.5;
+    }
+
+    .novels-empty-title {
+        font-size: $fs-card-title;
+        font-weight: $fw-card-title;
+        color: $text;
+    }
+
+    .novels-empty-body {
+        font-size: 13px;
+        color: $text-muted;
+        max-width: 46ch;
+        margin: 0;
+    }
+
+    .novels-empty-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: $s-2;
+        justify-content: center;
+    }
+}
+
+// Inside a table cell the empty state must not inherit the cell's padding.
+td > .novels-empty { padding: $s-9 $s-6; }
+
+// ===========================================================================
+// Form panels (novels/create, novels/edit)
+// ===========================================================================
+.novel-form {
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    overflow: hidden;
+}
+
+// A titled group of fields, separated by the one hairline.
+.novel-form-section {
+    padding: $s-6;
+    border-bottom: $hairline solid $border;
+
+    &:last-child { border-bottom: 0; }
+}
+
+.novel-form-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: $s-4;
+    margin-bottom: $s-5;
+}
+
+.novel-form-section-title {
+    font-size: $fs-caption;
+    font-weight: $fw-caption;
+    letter-spacing: $ls-caption;
+    text-transform: uppercase;
+    color: $text;
+}
+
+.novel-form-section-note {
+    font-size: $fs-caption;
+    color: $muted;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: $s-5;
+
+    @include media-breakpoint-down(md) {
+        grid-template-columns: minmax(0, 1fr);
+
+        > * { grid-column: 1 / -1 !important; }
+    }
+}
+
+.field-full  { grid-column: span 12; }
+.field-half  { grid-column: span 6; }
+.field-third { grid-column: span 4; }
+.field-quarter { grid-column: span 3; }
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+
+    // Caption-style labels: 12px / 500 / uppercase / 0.06em (handoff §3).
+    .form-label {
+        margin-bottom: 0;
+        font-size: $fs-caption;
+        font-weight: $fw-caption;
+        letter-spacing: $ls-caption;
+        text-transform: uppercase;
+        color: $text-muted;
+    }
+
+    // Inputs sit on $surface-alt inside a $surface panel so the field boxes
+    // read without needing a second border weight.
+    .form-control,
+    .form-select {
+        background-color: $surface-alt;
+        border: $hairline solid $border;
+        border-radius: $radius;
+        color: $text;
+        font-size: 13px;
+        transition: $transition-base;
+
+        &::placeholder { color: $muted; }
+
+        &:hover { border-color: $btn-secondary-border; }
+
+        &:focus {
+            background-color: $surface-alt;
+            border-color: $accent;
+            box-shadow: none;
+        }
+    }
+
+    textarea.form-control { line-height: 1.6; }
+
+    .form-text {
+        margin-top: 0;
+        font-size: $fs-caption;
+        color: $muted;
+    }
+
+    // Optional-field qualifier next to a label.
+    .field-hint {
+        font-weight: 400;
+        letter-spacing: 0;
+        text-transform: none;
+        color: $muted;
+    }
+
+    .field-required { color: $danger; }
+
+    // The tag picker's toggle is a .form-select; keep it on the field fill.
+    .tag-picker {
+        max-width: none;
+
+        .tag-picker-menu { background: $surface; }
+
+        .tag-picker-toggle { font-size: 13px; }
+    }
+}
+
+// Sticky action bar at the foot of a form panel.
+.novel-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2;
+    padding: $s-4 $s-6;
+    background-color: $surface-alt;
+    border-top: $hairline solid $border;
+
+    .novel-form-actions-note {
+        margin-left: auto;
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $muted;
+    }
+}
+
+// Narrow reading measure for the form column.
+.novel-form-column {
+    max-width: 860px;
+    margin-inline: auto;
+}
+
+// Aside card under a form ("or use the command").
+.novel-form-aside {
+    margin-top: $s-5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-4;
+    padding: $s-5 $s-6;
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    font-size: 13px;
+    color: $text-muted;
+
+    .btn { margin-left: auto; }
+
+    @include media-breakpoint-down(md) {
+        .btn { margin-left: 0; width: 100%; justify-content: center; }
+    }
+}
+
+// (`.back-link` — the "← Back to X" control above a page title — is defined
+// once in _views.scss; these views reuse it rather than redeclaring it.)
+
+// ===========================================================================
+// Library (offline) status line
+// ===========================================================================
+.library-status {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: $muted;
+    margin-bottom: $s-6;
+}

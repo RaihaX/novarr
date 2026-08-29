@@ -1,0 +1,1522 @@
+// ---------------------------------------------------------------------------
+// Novarr — brand component sheet
+//
+// Section 4 of the design handoff, ported onto Bootstrap 5.3. Everything here
+// is global chrome + reusable components; per-view styling lives in
+// _dashboard.scss / _reader.scss / _views.scss.
+//
+// House rules (handoff §4 + "Interactions"):
+//   · radius 4px on controls and cards, 0 on badges and progress bars
+//   · one 1px hairline ($border); no shadows anywhere
+//   · hover is a fill/colour change, never a size or shadow change
+//   · 120ms ease-out on colour properties only; 240ms on progress width
+// ---------------------------------------------------------------------------
+
+// ===========================================================================
+// Navbar
+// ===========================================================================
+.navbar {
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+    min-height: $navbar-height;
+    padding: 0;
+    padding-top: env(safe-area-inset-top);
+    background-color: $surface;
+    border-bottom: $hairline solid $border;
+
+    > .container,
+    > .container-fluid {
+        min-height: $navbar-height;
+        gap: $s-8;
+    }
+
+    .navbar-nav {
+        gap: $s-1;
+        align-items: center;
+    }
+
+    .nav-link {
+        padding: 7px $s-4;
+        font-size: $fs-body;
+        color: $text-muted;
+        border-radius: $radius;
+        transition: $transition-base;
+
+        &:hover,
+        &:focus {
+            color: $text;
+            background-color: $surface-alt;
+        }
+
+        // Active item: surface-alt fill plus a 2px accent inset underline.
+        &.active,
+        &.show {
+            color: $text;
+            background-color: $surface-alt;
+            box-shadow: inset 0 -2px 0 $accent;
+        }
+    }
+
+    .navbar-toggler {
+        padding: 6px $s-3;
+        border-color: $border;
+        color: $text-muted;
+
+        &:focus { box-shadow: none; }
+    }
+
+    // The collapsed menu drops onto the body ground so it reads as a sheet
+    // rather than an extension of the bar.
+    .navbar-collapse.show,
+    .navbar-collapse.collapsing {
+        padding-bottom: $s-4;
+    }
+}
+
+// Brand lockup: 28px mark + 15px wordmark on a 12px gap (handoff §4).
+.navbar-brand {
+    display: flex;
+    align-items: center;
+    gap: $s-4;
+    padding: 0;
+    margin: 0;
+    color: $text;
+    font-size: $fs-card-title;
+    font-weight: 600;
+    letter-spacing: $ls-brand-nav;
+    text-decoration: none;
+
+    &:hover,
+    &:focus { color: $text; }
+}
+
+.brand-mark {
+    display: block;
+    width: 28px;
+    height: 28px;
+    flex: none;
+}
+
+.brand-wordmark {
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.brand-dot { color: $brand-amber; }
+
+// ---------------------------------------------------------------------------
+// Navbar search (240px, $bg fill, inline Lucide search icon)
+// ---------------------------------------------------------------------------
+.nav-search {
+    position: relative;
+    width: 240px;
+    max-width: 100%;
+
+    .nav-search-icon {
+        position: absolute;
+        top: 50%;
+        left: $s-4;
+        width: 14px;
+        height: 14px;
+        transform: translateY(-50%);
+        color: $text-muted;
+        pointer-events: none;
+    }
+
+    .form-control {
+        height: 34px;
+        padding: 7px $s-4 7px calc(#{$s-4} + 14px + #{$s-2});
+        font-size: 13px;
+        color: $text;
+        background-color: $bg;
+        border: $hairline solid $border;
+        border-radius: $radius;
+        transition: $transition-base;
+
+        &::placeholder { color: $text-muted; }
+
+        &:focus {
+            background-color: $bg;
+            border-color: $accent;
+            box-shadow: none;
+        }
+
+        // Kill the WebKit search decorations — they fight the icon.
+        &::-webkit-search-decoration,
+        &::-webkit-search-cancel-button { -webkit-appearance: none; }
+    }
+
+    // Autocomplete menu (see resources/js/navsearch.js, #navSearchResults).
+    .dropdown-menu {
+        margin-top: $s-1;
+        background-color: $surface;
+        border: $hairline solid $border;
+        border-radius: $radius;
+        overflow: hidden;
+
+        .dropdown-item {
+            padding: $s-2 $s-4;
+            font-size: 13px;
+            color: $text;
+
+            &:hover,
+            &:focus,
+            &.active {
+                color: $text;
+                background-color: $surface-alt;
+            }
+        }
+    }
+}
+
+@include media-breakpoint-down(lg) {
+    .nav-search { width: 100%; }
+}
+
+// ===========================================================================
+// Buttons
+// ===========================================================================
+// Labels flush left when the button is wider than its label (handoff §4).
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: $s-2;
+    border-radius: $radius;
+    box-shadow: none !important;
+    transition: $transition-base;
+
+    // Buttons that are laid out full-width in a stack read better centred.
+    &.btn-block,
+    &.w-100 { justify-content: center; }
+}
+
+// Bootstrap centres icon-only / equal-width groups; keep those centred.
+.btn-group .btn,
+.input-group .btn,
+.btn-close { justify-content: center; }
+
+.btn-primary {
+    --#{$prefix}btn-bg: #{$accent};
+    --#{$prefix}btn-border-color: #{$accent};
+    --#{$prefix}btn-color: #fff;
+    --#{$prefix}btn-hover-bg: #{$accent-hover};
+    --#{$prefix}btn-hover-border-color: #{$accent-hover};
+    --#{$prefix}btn-hover-color: #fff;
+    --#{$prefix}btn-active-bg: #{$accent-press};
+    --#{$prefix}btn-active-border-color: #{$accent-press};
+    --#{$prefix}btn-active-color: #fff;
+    --#{$prefix}btn-disabled-bg: #{$surface-alt};
+    --#{$prefix}btn-disabled-border-color: #{$border};
+    --#{$prefix}btn-disabled-color: #{$btn-disabled-fg};
+}
+
+// Secondary: transparent with a #384253 hairline.
+.btn-secondary,
+.btn-outline-secondary,
+.btn-outline-light,
+.btn-outline-primary {
+    --#{$prefix}btn-bg: transparent;
+    --#{$prefix}btn-border-color: #{$btn-secondary-border};
+    --#{$prefix}btn-color: #{$text};
+    --#{$prefix}btn-hover-bg: #{$surface-alt};
+    --#{$prefix}btn-hover-border-color: #{$btn-secondary-border};
+    --#{$prefix}btn-hover-color: #{$text};
+    --#{$prefix}btn-active-bg: #{$surface-alt};
+    --#{$prefix}btn-active-border-color: #{$btn-secondary-border};
+    --#{$prefix}btn-active-color: #{$text};
+    --#{$prefix}btn-disabled-bg: #{$surface-alt};
+    --#{$prefix}btn-disabled-border-color: #{$border};
+    --#{$prefix}btn-disabled-color: #{$btn-disabled-fg};
+}
+
+// Danger: transparent, 45% danger hairline, 12% fill on hover.
+.btn-danger,
+.btn-outline-danger {
+    --#{$prefix}btn-bg: transparent;
+    --#{$prefix}btn-border-color: #{rgba($danger, 0.45)};
+    --#{$prefix}btn-color: #{$danger};
+    --#{$prefix}btn-hover-bg: #{rgba($danger, 0.12)};
+    --#{$prefix}btn-hover-border-color: #{rgba($danger, 0.45)};
+    --#{$prefix}btn-hover-color: #{$danger};
+    --#{$prefix}btn-active-bg: #{rgba($danger, 0.2)};
+    --#{$prefix}btn-active-border-color: #{rgba($danger, 0.45)};
+    --#{$prefix}btn-active-color: #{$danger};
+    --#{$prefix}btn-disabled-bg: #{$surface-alt};
+    --#{$prefix}btn-disabled-border-color: #{$border};
+    --#{$prefix}btn-disabled-color: #{$btn-disabled-fg};
+}
+
+// Warning ("Test source ↗"): same recipe on the amber.
+.btn-warning,
+.btn-outline-warning {
+    --#{$prefix}btn-bg: transparent;
+    --#{$prefix}btn-border-color: #{rgba($warning, 0.45)};
+    --#{$prefix}btn-color: #{$warning};
+    --#{$prefix}btn-hover-bg: #{rgba($warning, 0.12)};
+    --#{$prefix}btn-hover-border-color: #{rgba($warning, 0.45)};
+    --#{$prefix}btn-hover-color: #{$warning};
+    --#{$prefix}btn-active-bg: #{rgba($warning, 0.2)};
+    --#{$prefix}btn-active-border-color: #{rgba($warning, 0.45)};
+    --#{$prefix}btn-active-color: #{$warning};
+    --#{$prefix}btn-disabled-bg: #{$surface-alt};
+    --#{$prefix}btn-disabled-border-color: #{$border};
+    --#{$prefix}btn-disabled-color: #{$btn-disabled-fg};
+}
+
+.btn-success,
+.btn-outline-success {
+    --#{$prefix}btn-bg: transparent;
+    --#{$prefix}btn-border-color: #{rgba($success, 0.45)};
+    --#{$prefix}btn-color: #{$success};
+    --#{$prefix}btn-hover-bg: #{rgba($success, 0.12)};
+    --#{$prefix}btn-hover-border-color: #{rgba($success, 0.45)};
+    --#{$prefix}btn-hover-color: #{$success};
+    --#{$prefix}btn-active-bg: #{rgba($success, 0.2)};
+    --#{$prefix}btn-active-border-color: #{rgba($success, 0.45)};
+    --#{$prefix}btn-active-color: #{$success};
+}
+
+.btn-info,
+.btn-outline-info {
+    --#{$prefix}btn-bg: transparent;
+    --#{$prefix}btn-border-color: #{rgba($pending, 0.45)};
+    --#{$prefix}btn-color: #{$pending};
+    --#{$prefix}btn-hover-bg: #{rgba($pending, 0.12)};
+    --#{$prefix}btn-hover-border-color: #{rgba($pending, 0.45)};
+    --#{$prefix}btn-hover-color: #{$pending};
+    --#{$prefix}btn-active-bg: #{rgba($pending, 0.2)};
+    --#{$prefix}btn-active-border-color: #{rgba($pending, 0.45)};
+    --#{$prefix}btn-active-color: #{$pending};
+}
+
+// Ghost: no border, muted label, fills on hover.
+.btn-ghost,
+.btn-link {
+    --#{$prefix}btn-bg: transparent;
+    --#{$prefix}btn-border-color: transparent;
+    --#{$prefix}btn-color: #{$text-muted};
+    --#{$prefix}btn-hover-bg: #{$surface-alt};
+    --#{$prefix}btn-hover-border-color: transparent;
+    --#{$prefix}btn-hover-color: #{$text};
+    --#{$prefix}btn-active-bg: #{$surface-alt};
+    --#{$prefix}btn-active-border-color: transparent;
+    --#{$prefix}btn-active-color: #{$text};
+    --#{$prefix}btn-disabled-bg: transparent;
+    --#{$prefix}btn-disabled-border-color: transparent;
+    --#{$prefix}btn-disabled-color: #{$btn-disabled-fg};
+    text-decoration: none;
+}
+
+// Disabled is a state, not a fade: $surface-alt fill, #5B6472 label, no hover.
+.btn:disabled,
+.btn.disabled,
+fieldset:disabled .btn {
+    background-color: $surface-alt;
+    border-color: $border;
+    color: $btn-disabled-fg;
+    opacity: 1;
+    pointer-events: none;
+}
+
+// ===========================================================================
+// Badges — status triad, flat, uppercase
+// ===========================================================================
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px $s-2;
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+    text-transform: uppercase;
+    border-radius: $radius-flat;
+}
+
+// Canonical five states.
+.badge-downloaded,
+.badge-success,
+.badge-active,
+.badge-completed { @include status($success); }
+
+.badge-queued,
+.badge-pending { @include status($pending); }
+
+.badge-attention,
+.badge-warning { @include status($warning); }
+
+.badge-failed,
+.badge-danger { @include status($danger); }
+
+.badge-paused,
+.badge-muted { @include status-muted(); }
+
+.badge-accent { @include status($accent); }
+
+// Bootstrap's `bg-*` badge utilities are re-pointed at the same triad so
+// existing views inherit the system without markup churn.
+.badge {
+    &.bg-success, &.text-bg-success { @include status($success); }
+    &.bg-info,    &.text-bg-info    { @include status($pending); }
+    &.bg-warning, &.text-bg-warning { @include status($warning); }
+    &.bg-danger,  &.text-bg-danger  { @include status($danger); }
+    &.bg-primary, &.text-bg-primary { @include status($accent); }
+    &.bg-secondary, &.text-bg-secondary,
+    &.bg-light, &.text-bg-light,
+    &.bg-dark, &.text-bg-dark       { @include status-muted(); }
+}
+
+// Mono count chip (the "15" in the Needs Attention header).
+.chip-count {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    padding: 3px $s-2;
+    border-radius: $radius-flat;
+    @include status($warning);
+}
+
+// ===========================================================================
+// Surfaces: cards, panels
+// ===========================================================================
+.card {
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    box-shadow: none;
+}
+
+.card-header,
+.card-footer {
+    background-color: $surface;
+    border-color: $border;
+}
+
+.card-header {
+    font-size: $fs-card-title;
+    font-weight: $fw-card-title;
+    color: $text;
+}
+
+// ---------------------------------------------------------------------------
+// Novel card (handoff §4)
+// ---------------------------------------------------------------------------
+.novel-card {
+    display: flex;
+    flex-direction: column;
+    background: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    overflow: hidden;
+}
+
+.novel-card-head {
+    display: flex;
+    gap: $s-5;
+    padding: $s-5;
+}
+
+.novel-card-cover {
+    width: 72px;
+    height: 104px;
+    flex: none;
+    box-sizing: border-box;
+    border: $hairline solid $border;
+    background: linear-gradient(160deg, $surface-alt, $bg);
+    object-fit: cover;
+    display: flex;
+    align-items: flex-end;
+    padding: $s-2;
+
+    // Placeholder: the mono mark, 18px, 50% opacity, bottom-left.
+    .novel-card-cover-mark {
+        display: block;
+        width: 18px;
+        height: 18px;
+        opacity: 0.5;
+        color: $text-muted;
+    }
+}
+
+img.novel-card-cover { display: block; padding: 0; }
+
+.novel-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: $s-2;
+    min-width: 0;
+}
+
+.novel-card-title {
+    font-size: $fs-card-title;
+    font-weight: $fw-card-title;
+    line-height: 1.3;
+    color: $link;
+    text-decoration: none;
+    transition: $transition-base;
+
+    &:hover { color: $link-hover; }
+}
+
+.novel-card-meta {
+    font-size: $fs-caption;
+    color: $text-muted;
+}
+
+.novel-card .badge { align-self: flex-start; }
+
+.novel-card-foot {
+    display: flex;
+    flex-direction: column;
+    gap: $s-2;
+    padding: 0 $s-5 $s-5;
+}
+
+.novel-card-counts {
+    display: flex;
+    justify-content: space-between;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $text-muted;
+
+    .novel-card-percent { color: $brand-amber; }
+}
+
+// ---------------------------------------------------------------------------
+// Novel row — the compact mobile list item (novels index below md).
+// Kept from the previous system, restyled onto the new tokens.
+// ---------------------------------------------------------------------------
+.novel-row {
+    display: flex;
+    gap: $s-4;
+    align-items: center;
+    padding: $s-4 $s-5;
+    border-bottom: $hairline solid $border;
+    text-decoration: none;
+    color: $text;
+    transition: $transition-base;
+
+    &:active,
+    &:hover {
+        background-color: $surface-alt;
+        color: $text;
+    }
+
+    &:last-child { border-bottom: 0; }
+
+    .novel-row-link {
+        display: flex;
+        gap: $s-4;
+        align-items: center;
+        flex: 1;
+        min-width: 0;
+        text-decoration: none;
+        color: $text;
+    }
+
+    .cover-thumb,
+    .cover-placeholder {
+        width: 44px;
+        height: 62px;
+        flex-shrink: 0;
+    }
+
+    .novel-row-body {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .novel-row-title {
+        font-weight: 600;
+        color: $link;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .novel-row-meta {
+        font-size: $fs-caption;
+        color: $text-muted;
+    }
+}
+
+// Small cover thumbs in list views. display/overflow keep the alt text
+// clipped to the thumbnail box when a cover file is missing.
+.cover-thumb {
+    display: block;
+    width: 36px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: $radius;
+    overflow: hidden;
+    font-size: 10px;
+    color: $text-muted;
+}
+
+.cover-placeholder {
+    width: 36px;
+    height: 50px;
+    background: linear-gradient(160deg, $surface-alt, $bg);
+    border: $hairline solid $border;
+    border-radius: $radius;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: $text-muted;
+}
+
+// Large cover placeholder (novel detail page).
+.cover-placeholder-panel {
+    background: linear-gradient(160deg, $surface-alt, $bg);
+    border: $hairline solid $border;
+    border-radius: $radius;
+    color: $text-muted;
+}
+
+// ---------------------------------------------------------------------------
+// Needs Attention panel (handoff §4)
+// ---------------------------------------------------------------------------
+.attention-panel {
+    background: $surface;
+    border: $hairline solid $border;
+    border-left: $rule-strong solid $warning;
+    border-radius: 0 $radius $radius 0;
+}
+
+.attention-header {
+    display: flex;
+    align-items: center;
+    gap: $s-4;
+    padding: 14px $s-6;
+    background: rgba($warning, 0.06);
+    border-bottom: $hairline solid $border;
+
+    .attention-icon {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        color: $warning;
+    }
+
+    .attention-title {
+        font-size: $fs-card-title;
+        font-weight: $fw-card-title;
+        color: $text;
+    }
+
+    .chip-count { margin-left: auto; }
+}
+
+.attention-row {
+    display: flex;
+    align-items: center;
+    gap: $s-5;
+    padding: $s-5 $s-6;
+    border-bottom: $hairline solid $border;
+
+    &:last-child { border-bottom: 0; }
+}
+
+.attention-row-body {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+    flex: 1;
+}
+
+.attention-row-title {
+    font-size: $fs-body;
+    font-weight: 600;
+    color: $link;
+    text-decoration: none;
+    transition: $transition-base;
+
+    &:hover { color: $link-hover; }
+}
+
+.attention-row-reason {
+    font-size: 13px;
+    color: $text-muted;
+}
+
+.attention-row-source {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $muted;
+}
+
+.attention-row-actions {
+    display: flex;
+    gap: $s-2;
+    flex: none;
+
+    .btn {
+        padding: $s-2 14px;
+        font-size: 13px;
+    }
+}
+
+@include media-breakpoint-down(md) {
+    .attention-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: $s-4;
+    }
+}
+
+// ===========================================================================
+// Tables (handoff §4)
+// ===========================================================================
+.table {
+    --#{$prefix}table-bg: #{$surface};
+    --#{$prefix}table-color: #{$text};
+    --#{$prefix}table-border-color: #{$border};
+    --#{$prefix}table-hover-bg: #{$surface-alt};
+    --#{$prefix}table-hover-color: #{$text};
+    margin-bottom: 0;
+    font-size: $fs-body;
+
+    > thead > tr > th {
+        padding: 11px $s-6;
+        background-color: $surface-alt;
+        color: $text-muted;
+        font-size: $fs-micro;
+        font-weight: $fw-micro;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border-bottom: 0;
+        white-space: nowrap;
+    }
+
+    > tbody > tr > td {
+        padding: 14px $s-6;
+        border-top: $hairline solid $border;
+        border-bottom: 0;
+        vertical-align: middle;
+    }
+
+    > tbody > tr:first-child > td { border-top: 0; }
+
+    a { color: $link; font-weight: 500; }
+}
+
+.table-hover > tbody > tr:hover > * { background-color: $surface-alt; }
+.table-hover > tbody > tr:hover a { color: $link-hover; }
+
+// A table wrapped in this gets the hairline frame from the mock.
+.table-frame {
+    border: $hairline solid $border;
+    border-radius: $radius;
+    overflow: hidden;
+}
+
+// Uppercase column-header style used outside real <table>s.
+.table-head-label {
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: $text-muted;
+}
+
+// Mono numeric cell (chapter counts, right-aligned in the mock).
+.cell-mono {
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    color: $text;
+}
+
+// ===========================================================================
+// Progress
+// ===========================================================================
+// 4px track on $surface-alt, square ends, width animates over 240ms.
+.progress,
+.progress-stacked {
+    height: $progress-track;
+    background-color: $surface-alt;
+    border-radius: $radius-flat;
+    box-shadow: none;
+}
+
+.progress-bar {
+    border-radius: $radius-flat;
+    background-color: $accent;
+    transition: width $transition-bar;
+}
+
+// Reading progress is *always* amber; download progress takes the status
+// colour of the row it belongs to.
+.progress-reading .progress-bar { background-color: $brand-amber; }
+.progress-downloaded .progress-bar { background-color: $success; }
+.progress-queued .progress-bar { background-color: $pending; }
+.progress-attention .progress-bar { background-color: $warning; }
+.progress-failed .progress-bar { background-color: $danger; }
+.progress-paused .progress-bar { background-color: $muted; }
+
+// Inline "track + mono percent" pair used in the table PROGRESS column.
+.progress-inline {
+    display: flex;
+    align-items: center;
+    gap: $s-3;
+
+    .progress { flex: 1; }
+
+    .progress-value {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $text-muted;
+    }
+}
+
+// ===========================================================================
+// Forms, dropdowns, alerts
+// ===========================================================================
+.form-control,
+.form-select {
+    background-color: $bg;
+    border-color: $border;
+    color: $text;
+    border-radius: $radius;
+    transition: $transition-base;
+
+    &::placeholder { color: $text-muted; }
+
+    &:focus {
+        background-color: $bg;
+        border-color: $accent;
+        color: $text;
+        box-shadow: none;
+    }
+}
+
+.form-label,
+.form-text {
+    font-size: $fs-caption;
+    color: $text-muted;
+}
+
+.form-label {
+    font-weight: $fw-caption;
+    letter-spacing: $ls-caption;
+    text-transform: uppercase;
+}
+
+.input-group-text {
+    background-color: $surface-alt;
+    border-color: $border;
+    color: $text-muted;
+}
+
+.dropdown-menu {
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    padding: $s-1;
+    box-shadow: none;
+}
+
+.dropdown-item {
+    border-radius: $radius;
+    color: $text-muted;
+    transition: $transition-base;
+
+    &:hover,
+    &:focus {
+        color: $text;
+        background-color: $surface-alt;
+    }
+
+    &.active,
+    &:active {
+        color: $text;
+        background-color: $surface-alt;
+    }
+}
+
+.dropdown-divider { border-top-color: $border; }
+
+// Alerts use the status triad so flash messages match the badges.
+.alert {
+    border-radius: $radius;
+    font-size: 13px;
+}
+
+.alert-success { @include status($success); }
+.alert-info    { @include status($pending); }
+.alert-warning { @include status($warning); }
+.alert-danger  { @include status($danger); }
+.alert-secondary { @include status-muted(); }
+.alert-primary { @include status($accent); }
+
+.alert .btn-close { filter: none; }
+
+// ===========================================================================
+// Modals, toasts, list groups, pagination
+// ===========================================================================
+.modal-content {
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+}
+
+.modal-header,
+.modal-footer { border-color: $border; }
+
+// Toast notifications (see resources/js/toast.js)
+.toast-container {
+    z-index: 1090;
+    // Keep toasts clear of the iOS home indicator in the installed PWA.
+    padding-bottom: calc(#{$s-5} + env(safe-area-inset-bottom)) !important;
+}
+
+.toast {
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    color: $text;
+    font-size: 13px;
+    box-shadow: none;
+
+    // toast.js builds `text-bg-{type}` — route each type through the triad.
+    &.text-bg-success { @include status($success); }
+    &.text-bg-info    { @include status($pending); }
+    &.text-bg-warning { @include status($warning); }
+    &.text-bg-danger  { @include status($danger); }
+    &.text-bg-secondary { @include status-muted(); }
+
+    &.text-bg-success { @include status($success); }
+    &.text-bg-danger  { @include status($danger); }
+    &.text-bg-warning { @include status($warning); }
+    &.text-bg-info    { @include status($pending); }
+}
+
+.toast-header {
+    background-color: $surface-alt;
+    border-bottom-color: $border;
+    color: $text;
+}
+
+.list-group-item {
+    background-color: $surface;
+    border-color: $border;
+    color: $text;
+}
+
+.page-link {
+    background-color: $surface;
+    border-color: $border;
+    color: $text-muted;
+    transition: $transition-base;
+
+    &:hover {
+        background-color: $surface-alt;
+        color: $text;
+        border-color: $border;
+    }
+}
+
+.page-item.active .page-link {
+    background-color: $accent;
+    border-color: $accent;
+    color: #fff;
+}
+
+.page-item.disabled .page-link {
+    background-color: $surface-alt;
+    border-color: $border;
+    color: $btn-disabled-fg;
+}
+
+// ===========================================================================
+// Page chrome
+// ===========================================================================
+// Page toolbar (heading + filters) that wraps gracefully on small screens.
+.page-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-4;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: $s-7;
+
+    form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: $s-2;
+        align-items: center;
+    }
+
+    @include media-breakpoint-down(md) {
+        form {
+            width: 100%;
+
+            input[type="search"] { flex: 1; }
+        }
+    }
+}
+
+.page-title {
+    font-size: $fs-page-title;
+    font-weight: $fw-page-title;
+    letter-spacing: $ls-page-title;
+    line-height: 1.15;
+    color: $text;
+}
+
+.section-header {
+    font-size: $fs-section-header;
+    font-weight: $fw-section;
+    letter-spacing: $ls-section;
+    line-height: 1.3;
+    color: $text;
+}
+
+.label-caption {
+    font-size: $fs-caption;
+    font-weight: $fw-caption;
+    letter-spacing: $ls-caption;
+    text-transform: uppercase;
+    color: $text-muted;
+}
+
+.label-micro {
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: $ls-micro;
+    text-transform: uppercase;
+    color: $text-muted;
+}
+
+.text-mono {
+    font-family: $font-mono;
+    font-size: $fs-mono;
+}
+
+// Skip-to-content link: off-screen until focused, so keyboard users can jump
+// past the navbar + search to the page content.
+.skip-link {
+    position: absolute;
+    left: 0;
+    top: -48px;
+    z-index: 1100;
+    padding: $s-2 $s-5;
+    background: $accent;
+    color: #fff;
+    border-radius: 0 0 $radius 0;
+    transition: top 0.15s ease;
+
+    &:focus {
+        top: 0;
+        color: #fff;
+    }
+}
+
+// Don't show a focus outline when <main> is programmatically focused via the
+// skip link — the visible jump is feedback enough.
+#main-content:focus { outline: none; }
+
+// PWA install nudge (bottom bar, above the safe area).
+.pwa-install-bar {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: calc(#{$s-5} + env(safe-area-inset-bottom));
+    z-index: 1080;
+    display: flex;
+    align-items: center;
+    gap: $s-4;
+    padding: $s-3 $s-5;
+    background: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    box-shadow: none;
+    font-size: 13px;
+    max-width: calc(100vw - #{$s-8});
+}
+
+// ===========================================================================
+// Multi-select tag picker (see resources/js/tagpicker.js)
+// ===========================================================================
+.tag-picker {
+    position: relative;
+    max-width: 520px;
+
+    .tag-picker-toggle {
+        cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        text-align: left;
+        justify-content: flex-start;
+    }
+
+    .tag-picker-menu {
+        position: absolute;
+        z-index: 1050;
+        top: calc(100% + #{$s-1});
+        left: 0;
+        right: 0;
+        max-height: 300px;
+        overflow-y: auto;
+        background: $surface;
+        border: $hairline solid $border;
+        border-radius: $radius;
+    }
+
+    .tag-picker-options {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        max-height: 180px;
+        overflow-y: auto;
+    }
+
+    .tag-picker-option {
+        display: flex;
+        align-items: center;
+        gap: $s-2;
+        padding: $s-1 6px;
+        border-radius: $radius;
+        cursor: pointer;
+        font-size: 13px;
+        color: $text;
+        margin: 0;
+        transition: $transition-base;
+
+        &:hover { background: $surface-alt; }
+
+        input { cursor: pointer; }
+    }
+}
+
+// ===========================================================================
+// Loading skeletons (Discover / Offline-library grids)
+// ===========================================================================
+.poster-skeleton {
+    pointer-events: none;
+
+    .skeleton-box,
+    .skeleton-line {
+        background: linear-gradient(
+            90deg,
+            $surface 25%,
+            $surface-alt 37%,
+            $surface 63%
+        );
+        background-size: 400% 100%;
+        animation: skeleton-shimmer 1.4s ease infinite;
+        border-radius: $radius;
+    }
+
+    .skeleton-box {
+        width: 100%;
+        aspect-ratio: 2 / 3;
+    }
+
+    .skeleton-line {
+        height: $s-4;
+        margin-top: $s-2;
+
+        &.short { width: 60%; }
+    }
+}
+
+@keyframes skeleton-shimmer {
+    0% { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .poster-skeleton .skeleton-box,
+    .poster-skeleton .skeleton-line { animation: none; }
+}
+
+// ===========================================================================
+// Lucide icon helper (see resources/views/partials/icon.blade.php)
+// ===========================================================================
+.icon {
+    display: inline-block;
+    flex: none;
+    vertical-align: -0.125em;
+    stroke: currentColor;
+    fill: none;
+}
+
+// ===========================================================================
+// Carried-over view styles
+//
+// These were in app.scss before the redesign and are still referenced by
+// existing Blade templates. They are restyled onto the new tokens here so
+// nothing regresses while the per-view agents work; anything a view agent
+// supersedes belongs in _dashboard.scss / _reader.scss / _views.scss, which
+// are imported after this file and therefore win.
+// ===========================================================================
+
+// --- Poster grid (novels index grid view, Sonarr-style) -------------------
+.poster-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: $s-5;
+
+    @include media-breakpoint-up(md) {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: $s-6;
+    }
+}
+
+.poster-card {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: $text;
+
+    &:hover {
+        color: $text;
+
+        .poster-cover { border-color: $btn-secondary-border; }
+        .poster-title { color: $link-hover; }
+    }
+}
+
+.poster-cover {
+    position: relative;
+    aspect-ratio: 2 / 3;
+    border-radius: $radius;
+    overflow: hidden;
+    background: linear-gradient(160deg, $surface-alt, $bg);
+    border: $hairline solid $border;
+    transition: $transition-base;
+
+    img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+}
+
+.poster-cover-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: $s-4;
+    text-align: center;
+
+    span {
+        font-size: $fs-caption;
+        font-weight: 600;
+        color: $text-muted;
+        display: -webkit-box;
+        -webkit-line-clamp: 4;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    // Initials variant (Discover tiles with no cover) — the title carries the
+    // full name, so the tile shows large, calm initials instead.
+    span.poster-initials {
+        font-size: 2rem;
+        letter-spacing: 1px;
+        -webkit-line-clamp: 1;
+    }
+}
+
+.poster-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+}
+
+// Hover-revealed actions (complete + delete) on grid posters; always
+// visible on touch devices.
+.poster-actions {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    display: flex;
+    gap: $s-1;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+
+    .poster-action { padding: 2px 7px; }
+}
+
+.poster-cover:hover .poster-actions,
+.poster-actions:focus-within { opacity: 1; }
+
+@media (hover: none) {
+    .poster-actions { opacity: 0.85; }
+}
+
+.poster-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: $progress-track;
+    background: $surface-alt;
+
+    .poster-progress-bar {
+        height: 100%;
+        background: $brand-amber;   // reading progress is always amber
+        transition: width $transition-bar;
+
+        &.is-complete { background: $success; }
+    }
+}
+
+.poster-title {
+    margin-top: $s-2;
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.poster-meta {
+    font-size: $fs-micro;
+    color: $text-muted;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-height: 1.2em;
+}
+
+// Add button on discover cards: pinned to the bottom so a row of cards
+// stays aligned regardless of title/author wrapping.
+.poster-card .poster-add { margin-top: auto !important; }
+.poster-card .poster-meta { margin-bottom: $s-2; }
+
+// --- Continue-reading row (dashboard) ------------------------------------
+.continue-row {
+    display: flex;
+    gap: $s-5;
+    overflow-x: auto;
+    padding-bottom: $s-2;
+}
+
+.continue-card {
+    flex: 0 0 110px;
+    width: 110px;
+    text-decoration: none;
+    color: $text;
+
+    .poster-cover {
+        position: relative;
+        aspect-ratio: 2 / 3;
+        border-radius: $radius;
+        overflow: hidden;
+
+        img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    }
+
+    &:hover {
+        color: $text;
+        .poster-cover { border-color: $btn-secondary-border; }
+        .continue-title { color: $link-hover; }
+    }
+
+    .continue-title {
+        margin-top: 6px;
+        font-size: $fs-caption;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .continue-meta {
+        font-size: $fs-micro;
+        color: $text-muted;
+    }
+}
+
+// --- Dashboard stat cards -------------------------------------------------
+.dash-stat {
+    height: 100%;
+    transition: $transition-base;
+
+    .dash-stat-value {
+        font-family: $font-mono;
+        font-size: 28px;
+        font-weight: 600;
+        line-height: 1.1;
+        color: $text;
+    }
+
+    .dash-stat-label {
+        font-size: $fs-micro;
+        font-weight: $fw-micro;
+        text-transform: uppercase;
+        letter-spacing: $ls-micro;
+        color: $text-muted;
+        margin-top: 6px;
+    }
+}
+
+a.dash-stat:hover { border-color: $btn-secondary-border; }
+
+// --- Synopsis with clamped preview + read-more (novel detail) -------------
+.synopsis-body {
+    font-size: 13px;
+    line-height: 1.7;
+    color: $text-muted;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+
+    &.expanded {
+        display: block;
+        -webkit-line-clamp: unset;
+    }
+
+    p:last-child { margin-bottom: 0; }
+}
+
+.synopsis-toggle {
+    font-size: $fs-caption;
+    text-decoration: none;
+}
+
+// --- Reading view ---------------------------------------------------------
+.chapter-content {
+    font-family: $font-read;
+    font-size: clamp(16px, 2.5vw, #{$fs-reader});
+    line-height: $lh-reader;
+    color: $text-soft;
+    max-width: $reader-column;
+    margin: 0 auto;
+    overflow-wrap: break-word;
+
+    p { margin-bottom: 26px; }
+    p:last-child { margin-bottom: 0; }
+}
+
+.chapter-nav {
+    display: flex;
+    gap: $s-2;
+    flex-wrap: wrap;
+
+    .btn {
+        justify-content: center;
+
+        @include media-breakpoint-up(md) { min-width: 140px; }
+    }
+
+    @include media-breakpoint-down(md) {
+        .btn { flex: 1; }
+    }
+}
+
+// Reader focus mode — hide app chrome for distraction-free reading.
+// Tapping the page toggles .chrome-peek, which brings the chrome back
+// without leaving focus mode (see chapters/show.blade.php).
+body.reader-focus:not(.chrome-peek) {
+    .navbar,
+    #readerToolbar,
+    .chapter-nav {
+        display: none !important;
+    }
+}
+
+// Thin reading-progress rail pinned to the top of the viewport.
+#readProgressBar {
+    position: fixed;
+    top: env(safe-area-inset-top, 0);
+    left: 0;
+    right: 0;
+    height: $progress-rail;
+    z-index: 2000;
+    pointer-events: none;
+    background: $surface-alt;
+
+    #readProgressFill {
+        height: 100%;
+        width: 0;
+        background: $brand-amber;
+        transition: width $transition-bar;
+    }
+}
+
+// In-reader chapter list: pending chapters are visually secondary.
+#tocList .toc-pending { opacity: 0.55; }
+
+// Reader colour themes. Applied to <body> (not just the card) so the whole
+// viewport recolours — otherwise sepia/light left a dark page around a light
+// card, most visibly in focus mode. Driven by JS in chapters/show.blade.php.
+body.reader-theme-sepia,
+body.reader-theme-light {
+    .reader-card,
+    .reader-card .card-header,
+    .reader-card .card-body {
+        background-color: var(--reader-bg) !important;
+        color: var(--reader-fg) !important;
+        border-color: var(--reader-border) !important;
+    }
+
+    .reader-card a:not(.btn) { color: var(--reader-link); }
+    .reader-card .chapter-content { color: var(--reader-fg); }
+}
+
+body.reader-theme-sepia {
+    --reader-bg: #f4ecd8;
+    --reader-fg: #5b4636;
+    --reader-border: #e0d3b8;
+    --reader-link: #8a5a2b;
+    background-color: #ece3cf;
+}
+
+body.reader-theme-light {
+    --reader-bg: #{$surface-light};
+    --reader-fg: #{$text-light};
+    --reader-border: #{$border-light};
+    --reader-link: #{$link-light};
+    background-color: $bg-light;
+}
+
+// --- Log viewer -----------------------------------------------------------
+.log-pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    margin: 0;
+}
+
+details.log-entry summary {
+    cursor: pointer;
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    list-style-position: outside;
+}
+
+// --- Recessive chart chrome on the stats page -----------------------------
+// Per-bar hover reveals the value.
+.stats-chart {
+    .grid-line {
+        stroke: $border;
+        stroke-width: 1;
+    }
+    .axis-label {
+        fill: $text-muted;
+        font-size: $fs-micro;
+    }
+    .bar-value {
+        fill: $text;
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        opacity: 0;
+        transition: opacity 0.1s;
+
+        &.always { opacity: 1; }
+    }
+    .chart-bar:hover .bar-value { opacity: 1; }
+}

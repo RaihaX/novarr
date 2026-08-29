@@ -1,0 +1,1182 @@
+// ---------------------------------------------------------------------------
+// Novarr — per-view styles
+//
+// Owner: the "remaining views" agent — novels/show, search, bookmarks, stats,
+// settings, commands, logs, health, offline.
+//
+// Imported last in app.scss, so anything here wins an equal-specificity tie
+// with _components.scss. House rules still apply everywhere below:
+//   · radius 4px on controls and cards, 0 on badges and progress bars
+//   · one 1px hairline ($border); no shadows, ever — rules, not elevation
+//   · hover is a fill/colour change only, 120ms ease-out
+//   · amber is reserved for reading signals; $accent carries actions
+// ---------------------------------------------------------------------------
+
+// ===========================================================================
+// Shared page furniture
+// ===========================================================================
+
+// "← Back to X" — a ghost control that sits above the page title.
+.back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px $s-2 5px 6px;
+    margin-bottom: $s-5;
+    font-size: 13px;
+    font-weight: 500;
+    color: $text-muted;
+    text-decoration: none;
+    border-radius: $radius;
+    transition: $transition-base;
+
+    &:hover,
+    &:focus {
+        color: $text;
+        background-color: $surface-alt;
+    }
+}
+
+// A micro label followed by a hairline that eats the rest of the row.
+.section-rule {
+    display: flex;
+    align-items: center;
+    gap: $s-5;
+    margin: $s-8 0 $s-5;
+
+    &:first-child { margin-top: 0; }
+
+    .section-rule-label {
+        flex: none;
+        font-size: $fs-micro;
+        font-weight: $fw-micro;
+        letter-spacing: $ls-micro;
+        text-transform: uppercase;
+        color: $text-muted;
+    }
+
+    &::after {
+        content: '';
+        flex: 1;
+        border-top: $hairline solid $border;
+    }
+}
+
+// Amber is a reading signal, not a warning, wherever this class is used.
+.text-amber { color: $brand-amber !important; }
+
+// A filled header row that starts a card has to follow the card's corner —
+// .table-responsive can't be clipped (it needs its own overflow) so the fill
+// is rounded on the cells themselves.
+.card > .table-responsive:first-child .table > thead > tr > th {
+    &:first-child { border-top-left-radius: #{$radius - 1px}; }
+    &:last-child { border-top-right-radius: #{$radius - 1px}; }
+}
+
+// Right-aligned mono figure used in table cells and meta rows.
+.mono-figure {
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    color: $text;
+    font-variant-numeric: tabular-nums;
+}
+
+.mono-muted {
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    color: $text-muted;
+    font-variant-numeric: tabular-nums;
+}
+
+// Empty / zero states: the mono mark, a line of copy, an optional action.
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: $s-4;
+    padding: $s-10 $s-6;
+    text-align: center;
+    background: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+
+    // .brand-mark (component sheet) pins 28px; empty states want it larger.
+    .empty-state-mark {
+        width: 40px;
+        height: 40px;
+        color: $text-muted;
+        opacity: 0.4;
+    }
+
+    .empty-state-title {
+        font-size: $fs-card-title;
+        font-weight: $fw-card-title;
+        color: $text;
+    }
+
+    .empty-state-body {
+        font-size: 13px;
+        color: $text-muted;
+        max-width: 46ch;
+        margin: 0;
+    }
+}
+
+// A card whose body is a bare hairline-separated list (search hits, bookmarks).
+.stack-card {
+    .stack-head {
+        display: flex;
+        align-items: center;
+        gap: $s-4;
+        flex-wrap: wrap;
+        padding: 12px $s-6;
+        background: $surface-alt;
+        border-bottom: $hairline solid $border;
+        border-radius: #{$radius - 1px} #{$radius - 1px} 0 0;
+
+        .stack-head-title {
+            font-size: $fs-card-title;
+            font-weight: $fw-card-title;
+            color: $link;
+            text-decoration: none;
+            transition: $transition-base;
+
+            &:hover { color: $link-hover; }
+        }
+
+        .stack-head-count {
+            margin-left: auto;
+            font-family: $font-mono;
+            font-size: $fs-micro;
+            color: $text-muted;
+        }
+    }
+
+    .stack-row {
+        display: block;
+        padding: 14px $s-6;
+        border-top: $hairline solid $border;
+        text-decoration: none;
+        color: $text;
+        transition: $transition-base;
+
+        &:first-of-type { border-top: 0; }
+    }
+
+    a.stack-row:hover,
+    a.stack-row:focus { background-color: $surface-alt; }
+}
+
+// ===========================================================================
+// Novel detail — hero
+// ===========================================================================
+.detail-hero {
+    display: grid;
+    grid-template-columns: 168px minmax(0, 1fr);
+    gap: $s-8;
+    margin-bottom: $s-8;
+}
+
+.detail-cover,
+.detail-cover-placeholder {
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    display: block;
+    object-fit: cover;
+}
+
+// Placeholder: the gradient ground with the mono mark bottom-left (handoff §4).
+.detail-cover-placeholder {
+    background: linear-gradient(160deg, $surface-alt, $bg);
+    display: flex;
+    align-items: flex-end;
+    padding: $s-4;
+
+    .brand-mark {
+        width: 34px;
+        height: 34px;
+        color: $text-muted;
+        opacity: 0.5;
+    }
+}
+
+.detail-main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: $s-5;
+}
+
+.detail-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: $s-6;
+    flex-wrap: wrap;
+}
+
+.detail-ident {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: $s-3;
+}
+
+.detail-title {
+    margin: 0;
+    font-size: $fs-page-title;
+    font-weight: $fw-page-title;
+    letter-spacing: $ls-page-title;
+    line-height: 1.15;
+    color: $text;
+    overflow-wrap: anywhere;
+}
+
+.detail-byline {
+    display: flex;
+    align-items: center;
+    gap: $s-4;
+    flex-wrap: wrap;
+    font-size: $fs-body;
+    color: $text-muted;
+
+    .detail-author { color: $text-soft; }
+}
+
+// Source / group / language: mono metadata, separated by hairline dots.
+.detail-meta {
+    display: flex;
+    align-items: center;
+    gap: $s-3;
+    flex-wrap: wrap;
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    color: $text-muted;
+
+    .detail-meta-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: $text-muted;
+        text-decoration: none;
+        transition: $transition-base;
+    }
+
+    a.detail-meta-item:hover { color: $link; }
+
+    .detail-meta-key {
+        font-size: $fs-micro;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: $muted;
+    }
+
+    .detail-meta-sep {
+        color: $border;
+        user-select: none;
+    }
+}
+
+.detail-actions {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    flex-wrap: wrap;
+
+    .btn {
+        padding: 7px 14px;
+        font-size: 13px;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Novel detail — metric strip (one hairline frame, four mono figures)
+// ---------------------------------------------------------------------------
+.metric-strip {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    background: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    overflow: hidden;
+}
+
+.metric {
+    padding: 12px $s-5;
+    border-left: $hairline solid $border;
+
+    &:first-child { border-left: 0; }
+
+    .metric-value {
+        font-family: $font-mono;
+        font-size: 22px;
+        font-weight: 600;
+        line-height: 1.1;
+        color: $text;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .metric-value.value-pending { color: $pending; }
+    .metric-value.value-muted { color: $text-muted; }
+
+    .metric-label {
+        margin-top: 5px;
+        font-size: $fs-caption;
+        font-weight: $fw-caption;
+        letter-spacing: $ls-caption;
+        text-transform: uppercase;
+        color: $text-muted;
+    }
+}
+
+@include media-breakpoint-down(sm) {
+    .metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .metric:nth-child(3) { border-left: 0; }
+    .metric:nth-child(n + 3) { border-top: $hairline solid $border; }
+}
+
+// ---------------------------------------------------------------------------
+// Novel detail — progress meters
+// ---------------------------------------------------------------------------
+.meter {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    + .meter { margin-top: $s-4; }
+}
+
+.meter-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: $s-4;
+
+    .meter-label {
+        font-size: $fs-caption;
+        font-weight: $fw-caption;
+        letter-spacing: $ls-caption;
+        text-transform: uppercase;
+        color: $text-muted;
+    }
+
+    .meter-value {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $text-muted;
+        font-variant-numeric: tabular-nums;
+    }
+}
+
+// Reading is always amber (handoff §4); the download meter takes accent.
+.meter-reading .meter-value { color: $brand-amber; }
+
+// ---------------------------------------------------------------------------
+// Novel detail — tags
+// ---------------------------------------------------------------------------
+.tag-strip {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    flex-wrap: wrap;
+    font-size: $fs-caption;
+
+    .tag-strip-key {
+        font-size: $fs-micro;
+        font-weight: $fw-micro;
+        letter-spacing: $ls-micro;
+        text-transform: uppercase;
+        color: $text-muted;
+    }
+
+    .tag-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px $s-2;
+        font-size: $fs-micro;
+        font-weight: $fw-micro;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        text-decoration: none;
+        border-radius: $radius-flat;
+        transition: $transition-base;
+        @include status($accent);
+
+        &:hover {
+            color: $accent;
+            background: rgba($accent, 0.2);
+        }
+    }
+
+    .tag-empty {
+        font-size: $fs-caption;
+        color: $muted;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Novel detail — synopsis
+// ---------------------------------------------------------------------------
+.detail-synopsis {
+    max-width: 88ch;
+
+    .synopsis-body {
+        font-size: 13px;
+        line-height: 1.7;
+        color: $text-muted;
+    }
+
+    .synopsis-toggle {
+        padding: 0;
+        font-size: $fs-caption;
+        font-weight: $fw-caption;
+        letter-spacing: $ls-caption;
+        text-transform: uppercase;
+        color: $link;
+        background: none;
+        border: 0;
+
+        &:hover { color: $link-hover; background: none; }
+    }
+}
+
+.detail-no-synopsis {
+    display: flex;
+    align-items: center;
+    gap: $s-4;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: $text-muted;
+}
+
+@include media-breakpoint-down(md) {
+    .detail-hero {
+        grid-template-columns: 108px minmax(0, 1fr);
+        gap: $s-5;
+        margin-bottom: $s-7;
+    }
+
+    .detail-title { font-size: 24px; }
+
+    .detail-head { gap: $s-4; }
+
+    .detail-actions {
+        width: 100%;
+
+        .btn { flex: 1 1 auto; justify-content: center; }
+    }
+}
+
+// ===========================================================================
+// Quick actions panel (novel detail)
+// ===========================================================================
+.qa-section {
+    display: flex;
+    align-items: flex-start;
+    gap: $s-5;
+    flex-wrap: wrap;
+    padding: 14px 0;
+    border-top: $hairline solid $border;
+
+    &:first-child {
+        border-top: 0;
+        padding-top: 0;
+    }
+
+    &:last-child { padding-bottom: 0; }
+}
+
+.qa-label {
+    flex: 0 0 96px;
+    padding-top: 7px;
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: $ls-micro;
+    text-transform: uppercase;
+    color: $text-muted;
+}
+
+.qa-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-2;
+    flex: 1;
+    min-width: 0;
+}
+
+.cmd-btn {
+    padding: 7px 14px;
+    font-size: 13px;
+    justify-content: center;
+}
+
+// Transient result state, applied by the runner instead of rewriting the
+// button's class list (so sizing and layout classes survive).
+.cmd-btn.cmd-state-done { @include status($success); }
+.cmd-btn.cmd-state-fail { @include status($danger); }
+
+@include media-breakpoint-down(sm) {
+    .qa-label {
+        flex-basis: 100%;
+        padding-top: 0;
+    }
+}
+
+// Command output: the code ground, mono, hairline-separated from the panel.
+.cmd-output-pane {
+    margin: 0;
+    padding: $s-5 $s-6;
+    max-height: 260px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    line-height: 1.6;
+    color: $code-fg;
+    background: $code-bg;
+    border-top: $hairline solid $border;
+    border-radius: 0 0 $radius $radius;
+}
+
+// ===========================================================================
+// Chapter table (novel detail)
+// ===========================================================================
+.panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $s-4;
+    flex-wrap: wrap;
+    padding: 12px $s-6;
+    background: $surface;
+    border-bottom: $hairline solid $border;
+
+    .panel-title {
+        display: flex;
+        align-items: center;
+        gap: $s-3;
+        margin: 0;
+        font-size: $fs-card-title;
+        font-weight: $fw-card-title;
+        color: $text;
+    }
+
+    .panel-note {
+        font-size: $fs-caption;
+        color: $text-muted;
+    }
+
+    .panel-tools {
+        display: flex;
+        align-items: center;
+        gap: $s-2;
+        flex-wrap: wrap;
+
+        .btn { padding: 6px 12px; font-size: $fs-caption; }
+
+        .form-control { height: 30px; font-size: $fs-caption; }
+    }
+}
+
+// Mono count chip in a panel header ("4 612").
+.count-chip {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    padding: 3px $s-2;
+    border-radius: $radius-flat;
+    @include status-muted();
+
+    &.is-danger { @include status($danger); }
+    &.is-warning { @include status($warning); }
+}
+
+.chapter-table {
+    > tbody > tr > td { padding: 10px $s-5; }
+    > thead > tr > th { padding: 10px $s-5; }
+
+    // Row status rule: a 2px inset bar in the row's own status colour.
+    .chapter-row > td:first-child {
+        border-left: $rule-strong solid transparent;
+        padding-left: 14px;
+    }
+
+    .chapter-row.is-downloaded > td:first-child { border-left-color: rgba($success, 0.55); }
+    .chapter-row.is-queued > td:first-child { border-left-color: rgba($pending, 0.55); }
+
+    .ch-num {
+        font-family: $font-mono;
+        font-size: $fs-mono;
+        font-weight: 500;
+        color: $text;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .ch-book {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $muted;
+    }
+
+    .ch-date {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $text-muted;
+        white-space: nowrap;
+    }
+
+    .chapter-link {
+        color: $link;
+        font-weight: 500;
+        text-decoration: none;
+        transition: $transition-base;
+
+        &:hover { color: $link-hover; }
+
+        // Read chapters recede — the amber tick carries the signal instead.
+        &.text-muted { color: $text-muted !important; font-weight: 400; }
+    }
+
+    // Reading signal: always amber.
+    .read-check {
+        color: $brand-amber;
+        margin-right: 6px;
+        font-size: $fs-caption;
+    }
+
+    .form-check-input {
+        margin: 0;
+        vertical-align: middle;
+    }
+}
+
+.bulk-bar {
+    display: none;
+    align-items: center;
+    gap: $s-2;
+    padding: 4px $s-3;
+    background: rgba($accent, 0.12);
+    border: $hairline solid rgba($accent, 0.35);
+    border-radius: $radius;
+
+    &.d-flex { display: flex !important; }
+
+    .bulk-count {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $link;
+    }
+}
+
+// ===========================================================================
+// Stats
+// ===========================================================================
+.dash-stat-value {
+    &.value-amber { color: $brand-amber; }
+    &.value-accent { color: $link; }
+    &.value-pending { color: $pending; }
+    &.value-success { color: $success; }
+    &.value-danger { color: $danger; }
+
+    .dash-stat-unit {
+        font-family: $font-ui;
+        font-size: $fs-caption;
+        font-weight: 500;
+        color: $text-muted;
+        letter-spacing: 0;
+        margin-left: 3px;
+    }
+}
+
+.stats-chart {
+    // Chapters read per day is a *reading* metric, so the bars are amber.
+    .bar-fill { fill: $brand-amber; }
+    .chart-bar:hover .bar-fill { fill: #F5C74E; }   // amber, one step brighter
+}
+
+.chart-note {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $text-muted;
+}
+
+// <details> disclosure used for the chart's data table.
+.disclosure {
+    margin-top: $s-5;
+    border-top: $hairline solid $border;
+    padding-top: $s-4;
+
+    > summary {
+        cursor: pointer;
+        list-style: none;
+        font-size: $fs-caption;
+        font-weight: $fw-caption;
+        letter-spacing: $ls-caption;
+        text-transform: uppercase;
+        color: $text-muted;
+        transition: $transition-base;
+
+        &::-webkit-details-marker { display: none; }
+
+        &::before {
+            content: '+';
+            display: inline-block;
+            width: 14px;
+            font-family: $font-mono;
+        }
+
+        &:hover { color: $text; }
+    }
+
+    &[open] > summary::before { content: '\2212'; }
+}
+
+.data-table {
+    font-size: 13px;
+
+    > thead > tr > th,
+    > tbody > tr > td { padding: 8px $s-5; }
+
+    .num {
+        font-family: $font-mono;
+        font-size: $fs-mono;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+}
+
+.page-note {
+    margin-top: $s-6;
+    font-size: $fs-caption;
+    color: $muted;
+}
+
+// ===========================================================================
+// Health
+// ===========================================================================
+.health-detail {
+    margin-top: 6px;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $text-muted;
+    display: block;
+}
+
+.job-error {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $danger;
+    word-break: break-word;
+}
+
+.job-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+
+    .btn { padding: 4px 10px; font-size: $fs-caption; }
+}
+
+.kv-grid {
+    display: grid;
+    grid-template-columns: 132px minmax(0, 1fr);
+    gap: $s-2 $s-5;
+    align-items: baseline;
+    margin: 0;
+
+    dt {
+        font-size: $fs-micro;
+        font-weight: $fw-micro;
+        letter-spacing: $ls-micro;
+        text-transform: uppercase;
+        color: $text-muted;
+    }
+
+    dd {
+        margin: 0;
+        font-family: $font-mono;
+        font-size: $fs-mono;
+        color: $text;
+        word-break: break-word;
+    }
+}
+
+.trace-pane {
+    margin: 0;
+    padding: $s-4 $s-5;
+    max-height: 50vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    line-height: 1.6;
+    color: $code-fg;
+    background: $code-bg;
+    border: $hairline solid $border;
+    border-radius: $radius;
+}
+
+// ===========================================================================
+// Logs
+// ===========================================================================
+.log-table {
+    font-family: $font-mono;
+    font-size: $fs-mono;
+
+    > tbody > tr > td { padding: 8px $s-5; vertical-align: top; }
+    > thead > tr > th { padding: 9px $s-5; }
+
+    .log-time {
+        color: $text-muted;
+        white-space: nowrap;
+    }
+
+    .log-pre {
+        margin: 0;
+        font-size: $fs-mono;
+        line-height: 1.55;
+        color: $text-soft;
+    }
+
+    // Severity carries the status triad, matching every other badge.
+    .badge { font-size: 10px; }
+
+    details.log-entry summary {
+        color: $text-soft;
+
+        .text-muted { color: $muted !important; }
+    }
+}
+
+.log-name {
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    color: $link;
+}
+
+.log-toolbar {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    flex-wrap: wrap;
+    padding: $s-3 $s-5;
+
+    .form-control,
+    .form-select { height: 32px; font-size: $fs-caption; }
+
+    .form-select { width: auto; }
+
+    .log-search { flex: 1; min-width: 160px; }
+
+    .log-count {
+        margin-left: auto;
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $text-muted;
+    }
+}
+
+.log-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $s-4;
+    flex-wrap: wrap;
+    margin-bottom: $s-5;
+
+    .log-head-name {
+        font-family: $font-mono;
+        font-size: $fs-section-header;
+        color: $text;
+    }
+
+    .log-head-tools {
+        display: flex;
+        align-items: center;
+        gap: $s-2;
+        flex-wrap: wrap;
+    }
+}
+
+// ===========================================================================
+// Settings / command forms
+// ===========================================================================
+// Forms sit on $surface panels, so their inputs step up to $surface-alt to
+// stay distinguishable without a shadow.
+.form-panel {
+    .form-control,
+    .form-select {
+        background-color: $surface-alt;
+        border: $hairline solid $border;
+        border-radius: $radius;
+        color: $text;
+        transition: $transition-base;
+
+        &:focus {
+            background-color: $surface-alt;
+            border-color: $accent;
+            box-shadow: none;
+        }
+    }
+
+    .input-group .form-control { border-right: 0; }
+
+    .form-label {
+        margin-bottom: 6px;
+        font-size: $fs-caption;
+        font-weight: $fw-caption;
+        letter-spacing: $ls-caption;
+        text-transform: uppercase;
+        color: $text-muted;
+    }
+
+    .form-text {
+        margin-top: 5px;
+        font-size: $fs-caption;
+        color: $muted;
+    }
+
+    .form-check-label {
+        font-size: $fs-body;
+        color: $text;
+    }
+
+    .form-check-input {
+        background-color: $surface-alt;
+        border-color: $btn-secondary-border;
+
+        &:checked {
+            background-color: $accent;
+            border-color: $accent;
+        }
+    }
+
+    .invalid-feedback { font-size: $fs-caption; }
+
+    .form-control.is-invalid,
+    .form-select.is-invalid { border-color: rgba($danger, 0.65); }
+}
+
+.form-fieldset {
+    padding: 0;
+    margin: 0 0 $s-8;
+    border: 0;
+
+    &:last-of-type { margin-bottom: $s-7; }
+
+    > legend {
+        float: none;
+        width: auto;
+        padding: 0 0 $s-4;
+        margin: 0 0 $s-5;
+        font-size: $fs-micro;
+        font-weight: $fw-micro;
+        letter-spacing: $ls-micro;
+        text-transform: uppercase;
+        color: $text-muted;
+        border-bottom: $hairline solid $border;
+    }
+}
+
+.form-row + .form-row { margin-top: $s-6; }
+
+.form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-2;
+    padding-top: $s-5;
+    border-top: $hairline solid $border;
+}
+
+// Toggle switches read better a touch larger in a settings list.
+.form-panel .form-switch .form-check-input {
+    width: 34px;
+    height: 18px;
+    margin-top: 2px;
+}
+
+// ===========================================================================
+// Commands index
+// ===========================================================================
+.command-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: $s-5;
+    background: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    transition: $transition-base;
+
+    &:hover { border-color: $btn-secondary-border; }
+
+    .command-name {
+        margin: 0 0 6px;
+        font-size: $fs-card-title;
+        font-weight: $fw-card-title;
+        color: $text;
+    }
+
+    .command-desc {
+        flex: 1;
+        margin: 0 0 $s-5;
+        font-size: 13px;
+        line-height: 1.55;
+        color: $text-muted;
+    }
+
+    .command-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: $s-4;
+        padding-top: $s-4;
+        border-top: $hairline solid $border;
+    }
+
+    .command-slug {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $muted;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .btn { padding: 6px 14px; font-size: $fs-caption; }
+}
+
+// ===========================================================================
+// Search
+// ===========================================================================
+.search-form {
+    max-width: 620px;
+    margin-bottom: $s-5;
+
+    .form-control { height: 38px; }
+}
+
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: $s-2;
+    padding: 3px $s-2;
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-radius: $radius-flat;
+    @include status($accent);
+
+    .filter-chip-clear {
+        color: inherit;
+        text-decoration: none;
+        opacity: 0.7;
+        transition: $transition-base;
+
+        &:hover { opacity: 1; color: inherit; }
+    }
+}
+
+.result-title {
+    font-size: $fs-body;
+    font-weight: 500;
+    color: $link;
+    transition: $transition-base;
+}
+
+a.stack-row:hover .result-title { color: $link-hover; }
+
+.result-snippet {
+    margin-top: 5px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: $text-muted;
+}
+
+.result-num {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $muted;
+    white-space: nowrap;
+}
+
+// ===========================================================================
+// Bookmarks
+// ===========================================================================
+.bookmark-quote {
+    margin: 0 0 $s-3;
+    padding-left: $s-4;
+    font-family: $font-read;
+    font-size: 15px;
+    line-height: 1.65;
+    color: $text-soft;
+    // A saved highlight is a reading signal, so the rule is amber.
+    border-left: $rule-strong solid $brand-amber;
+}
+
+.bookmark-note {
+    margin-bottom: $s-3;
+    padding: $s-2 $s-3;
+    font-size: 13px;
+    border-radius: $radius;
+    @include status($pending);
+}
+
+.bookmark-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $s-4;
+
+    .bookmark-source {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $text-muted;
+        text-decoration: none;
+        transition: $transition-base;
+
+        &:hover { color: $text; }
+    }
+
+    .bookmark-delete { padding: 3px $s-2; font-size: $fs-micro; }
+}
+
+// ===========================================================================
+// Offline
+// ===========================================================================
+.offline-state {
+    max-width: 460px;
+    margin: $s-10 auto;
+    text-align: center;
+
+    .offline-mark {
+        width: 48px;
+        height: 48px;
+        margin: 0 auto $s-6;
+        color: $text-muted;
+        opacity: 0.45;
+    }
+
+    .offline-title {
+        font-size: $fs-page-title;
+        font-weight: $fw-page-title;
+        letter-spacing: $ls-page-title;
+        line-height: 1.15;
+        margin-bottom: $s-4;
+        color: $text;
+    }
+
+    .offline-body {
+        font-size: $fs-body;
+        line-height: $lh-body;
+        color: $text-muted;
+        margin-bottom: $s-2;
+    }
+
+    .btn { margin-top: $s-6; justify-content: center; }
+}

@@ -15,7 +15,7 @@
  *
  * Bump CACHE_VERSION on any change here to roll the caches over.
  */
-const CACHE_VERSION = 'novarr-v2';
+const CACHE_VERSION = 'novarr-v3';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGE_CACHE = `${CACHE_VERSION}-pages`;
 const OFFLINE_CACHE = `${CACHE_VERSION}-offline`; // explicitly-downloaded novels
