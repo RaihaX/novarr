@@ -60,7 +60,7 @@ class DiscoverController extends Controller
             // Browse lists barely change — cache them. Searches are cached
             // briefly. A broken cache store must not take the feature down.
             $ttl = $data['type'] === 'search' ? 600 : 3600;
-            $cacheKey = 'discover_v3_' . md5($url);
+            $cacheKey = 'discover_v4_' . md5($url);
 
             try {
                 $items = Cache::remember($cacheKey, $ttl, fn() => $this->fetchList($url));
@@ -177,6 +177,30 @@ class DiscoverController extends Controller
     }
 
     /**
+     * Source synopses arrive as HTML fragments; discover cards show plain
+     * text. Block-level tags become spaces so paragraphs don't run together,
+     * and the result is capped — a card never needs the whole thing.
+     */
+    protected function plainSynopsis(string $html, int $limit = 900): string
+    {
+        // Opening tags count too: sources emit unclosed <p>s, and stripping
+        // those without a separator welds the last word to the next sentence.
+        $text = preg_replace('/<\/?(br|p|div|li|ul|ol|h[1-6]|blockquote)\b[^>]*>/i', ' ', $html);
+        $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = trim(preg_replace('/\s+/u', ' ', $text) ?? '');
+
+        if (mb_strlen($text) <= $limit) {
+            return $text;
+        }
+
+        // Cut on a word boundary rather than mid-word.
+        $cut = mb_substr($text, 0, $limit);
+        $lastSpace = mb_strrpos($cut, ' ');
+
+        return rtrim($lastSpace > $limit / 2 ? mb_substr($cut, 0, $lastSpace) : $cut, " \t\n.,;:") . '…';
+    }
+
+    /**
      * Fetch a novelarrow.com api-web novel list into result items.
      * Returns null when the endpoint cannot be fetched.
      */
@@ -216,6 +240,7 @@ class DiscoverController extends Controller
                 'cover' => "https://images.novelarrow.com/novel/{$slug}.jpg",
                 'cover_thumb' => '',
                 'author' => trim($row['novel_author'] ?? ''),
+                'description' => $this->plainSynopsis($row['novel_desc'] ?? ''),
             ];
         }
 

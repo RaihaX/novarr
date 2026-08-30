@@ -467,11 +467,52 @@ img.novel-card-cover { display: block; padding: 0; }
 
 .novel-card .badge { align-self: flex-start; }
 
+// Discover synopsis: three clamped lines, expanded in place by its toggle.
+.novel-card-synopsis {
+    margin: 0 $s-5 $s-4;
+    font-size: $fs-caption;
+    line-height: 1.5;
+    color: $text-muted;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+
+    &.is-expanded {
+        display: block;
+        overflow: visible;
+    }
+}
+
+.novel-card-synopsis-toggle {
+    align-self: flex-start;
+    margin: 0 $s-5 $s-4;
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: $fs-micro;
+    color: $link;
+    cursor: pointer;
+    transition: $transition-base;
+
+    &:hover {
+        color: $link-hover;
+        text-decoration: underline;
+    }
+}
+
+.novel-card-synopsis-skeleton {
+    padding: 0 $s-5 $s-4;
+}
+
 .novel-card-foot {
     display: flex;
     flex-direction: column;
     gap: $s-2;
     padding: 0 $s-5 $s-5;
+    // Synopses vary in length; keep the add buttons on one line across a row.
+    margin-top: auto;
 }
 
 .novel-card-counts {

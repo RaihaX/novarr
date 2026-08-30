@@ -61,6 +61,9 @@
             sk.innerHTML = '<div class="novel-card-head">'
                 + '<div class="skeleton-box"></div>'
                 + '<div class="novel-card-body w-100"><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>'
+                + '</div>'
+                + '<div class="novel-card-synopsis-skeleton">'
+                + '<div class="skeleton-line"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div>'
                 + '</div>';
             resultsEl.appendChild(sk);
         }
@@ -179,6 +182,16 @@
 
         head.append(cover, body);
 
+        // Synopsis: clamped to three lines, expandable when there's more.
+        // Only novelarrow's list API carries one; the search-only sources
+        // return an empty string, so the block is simply skipped.
+        let synopsis = null;
+        if (item.description) {
+            synopsis = document.createElement('p');
+            synopsis.className = 'novel-card-synopsis';
+            synopsis.textContent = item.description;
+        }
+
         const foot = document.createElement('div');
         foot.className = 'novel-card-foot';
 
@@ -195,8 +208,31 @@
         actions.appendChild(btn);
         foot.appendChild(actions);
 
-        card.append(head, foot);
+        card.append(head);
+        if (synopsis) card.append(synopsis);
+        card.append(foot);
         resultsEl.appendChild(card);
+
+        // A synopsis that already fits needs no toggle. Measured in a frame
+        // callback so the whole batch lays out once rather than per card.
+        if (synopsis) {
+            requestAnimationFrame(() => {
+                if (synopsis.scrollHeight <= synopsis.clientHeight + 1) {
+                    return;
+                }
+                const toggle = document.createElement('button');
+                toggle.type = 'button';
+                toggle.className = 'novel-card-synopsis-toggle';
+                toggle.textContent = 'More';
+                toggle.setAttribute('aria-expanded', 'false');
+                toggle.addEventListener('click', () => {
+                    const expanded = synopsis.classList.toggle('is-expanded');
+                    toggle.textContent = expanded ? 'Less' : 'More';
+                    toggle.setAttribute('aria-expanded', String(expanded));
+                });
+                card.insertBefore(toggle, foot);
+            });
+        }
     }
 
     async function addNovel(btn, item) {
