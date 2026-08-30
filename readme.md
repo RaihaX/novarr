@@ -56,7 +56,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
 ## Features
 
 ### Library & discovery
-- **Add novels from 3 sources** with a Sonarr-style discover/search flow, or paste a URL directly.
+- **Add novels from 3 sources** with a Sonarr-style discover/search flow, or paste a URL directly. Discover cards carry the cover, author, and a **synopsis** — three clamped lines with a More/Less toggle — so you can tell what a novel is about before adding it. (Synopses come from novelarrow's list API; the other two sources' search endpoints don't return one.)
 - **Automatic metadata** — title, author, description, genres, chapter count, and cover, pulled from the source and enriched/fallback-resolved via **NovelUpdates** (including alias resolution for series listed under a different title).
 - **Tags** (genre/custom) with a multi-select picker, plus tag filtering on the library.
 - **Bulk actions** — pause, mark complete, delete across many novels at once (desktop and mobile).
@@ -143,7 +143,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
 |---|---|---|
 | `EmpireNovelSource` | `empirenovel.com` | Paginated TOC via FlareSolverr + cookie reuse |
 | `NovelFullSource` | `novelfull.com` | AJAX chapter-list endpoint |
-| `NovelArrowSource` | `novelarrow.com` (and **default** fallback) | JSON api-web chapter list or page parse |
+| `NovelArrowSource` | `novelarrow.com` (and **default** fallback) | JSON api-web chapter list or page parse; browse/search results also carry a synopsis |
 
 Metadata for all sources is enriched from **NovelUpdates** (description, genres, cover, completion status), with the source's own page as a fallback.
 
