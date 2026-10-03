@@ -30,8 +30,17 @@
     </a>
     <a href="{{ route('activity.index') }}" class="home-strip-item {{ $strip['queue'] ? 'is-pending' : 'is-zero' }}" id="stripQueue">
         <span class="home-strip-dot" aria-hidden="true"></span>
-        <span class="home-strip-label">Queue</span>
-        <span class="home-strip-mono">{{ $strip['queue'] === null ? '—' : number_format($strip['queue']) }}</span>
+        @php
+            $queueNote = $strip['queue'] === 1 ? 'chapter' : 'chapters';
+            if ($strip['jobs'] === null) {
+                $queueNote .= ' · jobs —';
+            } elseif ($strip['jobs'] > 0) {
+                $queueNote .= ' · ' . $strip['jobs'] . ($strip['jobs'] === 1 ? ' job running' : ' jobs running');
+            }
+        @endphp
+        <span class="home-strip-label">Queued</span>
+        <span class="home-strip-mono">{{ number_format($strip['queue']) }}</span>
+        <span class="home-strip-sub">{{ $queueNote }}</span>
     </a>
     {{-- The P2 dashboard summary line, now a strip item (id kept). --}}
     <a href="{{ route('health.index') }}#attentionPanel" class="home-strip-item {{ $strip['attention'] > 0 ? 'is-warning' : 'is-zero' }}" id="attentionSummary">

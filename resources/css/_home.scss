@@ -481,3 +481,11 @@ $home-cover-sm: 140px;
 
     .home-new-side { justify-content: flex-start; }
 }
+
+// Secondary text inside a strip item ("chapters · 2 jobs running").
+.home-strip-sub {
+    color: var(--nv-muted, $muted);
+    font-size: 12px;
+    margin-left: 4px;
+    white-space: nowrap;
+}

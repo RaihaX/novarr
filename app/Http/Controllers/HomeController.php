@@ -92,19 +92,25 @@ class HomeController extends Controller
         $lastRun = Cache::get('scheduler_last_run');
         $lastRunAt = $lastRun ? Carbon::parse($lastRun) : null;
 
+        // "Queue" means what it means on Activity: chapters waiting to be
+        // downloaded. Background jobs on the worker queue are a different,
+        // usually empty, number — shown only when something is running.
         try {
-            $queue = (int) Queue::size('commands') + (int) Queue::size('default');
+            $jobs = (int) Queue::size('commands') + (int) Queue::size('default');
         } catch (\Throwable $e) {
             report($e);
-            $queue = null; // backend unreachable: shown as "—", not as an empty queue
+            $jobs = null; // backend unreachable: shown as "—", not as an empty queue
         }
+
+        $stats = static::stats();
 
         return [
             'scheduler_last_run' => $lastRunAt,
             'scheduler_ok' => $lastRunAt !== null && !$lastRunAt->lt(now()->subMinutes(3)),
-            'queue' => $queue,
+            'queue' => (int) ($stats['pending'] ?? 0),
+            'jobs' => $jobs,
             'attention' => $attentionCount,
-            'today' => static::stats()['today'] ?? 0,
+            'today' => $stats['today'] ?? 0,
         ];
     }
 

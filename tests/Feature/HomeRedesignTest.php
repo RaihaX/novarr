@@ -177,7 +177,10 @@ class HomeRedesignTest extends TestCase
         $html = $response->getContent();
 
         $this->assertMatchesRegularExpression('/id="stripScheduler"[^>]*>.*?Scheduler OK/s', $html);
-        $this->assertMatchesRegularExpression('/id="stripQueue"[^>]*>.*?Queue.*?<span class="home-strip-mono">0<\/span>/s', $html);
+        // "Queued" is pending chapter downloads (what Activity calls "chapters
+        // queued"), not background jobs — those only appear when running.
+        $pending = \App\NovelChapter::where('status', 0)->where('blacklist', 0)->count();
+        $this->assertMatchesRegularExpression('/id="stripQueue"[^>]*>.*?Queued.*?<span class="home-strip-mono">' . number_format($pending) . '<\/span>\s*<span class="home-strip-sub">chapters?<\/span>/s', $html);
         $this->assertMatchesRegularExpression('/id="stripToday"[^>]*>.*?<span class="home-strip-mono">2<\/span> chapters today/s', $html);
         $response->assertSee('1 novel</strong> needs attention', false)
             ->assertSee(route('health.index') . '#attentionPanel', false)
