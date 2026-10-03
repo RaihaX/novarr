@@ -122,7 +122,7 @@ class ContentExtractor
 
         // The page fetched fine but nothing looked like a whole chapter —
         // the strongest signal that the site changed its markup.
-        \Log::error(
+        \Log::warning(
             "ChapterGenerator found insufficient content for URL: {$urlForLog} "
             . "(paragraphs: " . count($best) . ", words: {$bestWords}"
             . ", html length: " . strlen($html) . "). "
