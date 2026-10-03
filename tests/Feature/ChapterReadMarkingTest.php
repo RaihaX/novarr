@@ -84,7 +84,7 @@ class ChapterReadMarkingTest extends TestCase
     {
         $chapter = $this->downloadedChapter();
 
-        $this->withoutMiddleware(\App\Http\Middleware\VerifyCsrfToken::class)
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class)
             ->postJson(route('chapters.progress', $chapter->id), ['read' => true])
             ->assertOk()
             ->assertJson(['success' => true, 'read' => true]);
@@ -98,11 +98,11 @@ class ChapterReadMarkingTest extends TestCase
     {
         $chapter = $this->downloadedChapter();
 
-        $this->withoutMiddleware(\App\Http\Middleware\VerifyCsrfToken::class)
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class)
             ->postJson(route('chapters.progress', $chapter->id), [])
             ->assertStatus(422);
 
-        $this->withoutMiddleware(\App\Http\Middleware\VerifyCsrfToken::class)
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class)
             ->postJson(route('chapters.progress', $chapter->id), ['progress' => 40])
             ->assertOk();
 

@@ -188,7 +188,7 @@ class HealthEndpointsTest extends TestCase
         $web = $this->app->make(\Illuminate\Contracts\Http\Kernel::class)->getMiddlewareGroups()['web'];
 
         $this->assertSame(array_values(array_unique($web)), array_values($web));
-        $this->assertNotContains(\App\Http\Middleware\VerifyCsrfToken::class, $web);
+        $this->assertNotContains('App\\Http\\Middleware\\VerifyCsrfToken', $web);
     }
 
     // ---- M13 ----

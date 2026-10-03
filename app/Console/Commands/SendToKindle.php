@@ -40,7 +40,11 @@ class SendToKindle extends Command
             }
 
             $this->info('ePub not found. Generating...');
-            $this->call('novel:epub', ['novel' => $novelId]);
+            $exit = $this->call('novel:epub', ['novel' => $novelId]);
+            if ($exit !== self::SUCCESS) {
+                $this->error("ePub generation failed (exit {$exit}); nothing sent.");
+                return self::FAILURE;
+            }
 
             if (!File::exists($epubPath)) {
                 $this->error("ePub generation completed but file is still missing: {$epubPath}");

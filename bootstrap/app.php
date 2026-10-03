@@ -32,15 +32,19 @@ return Application::configure(basePath: dirname(__DIR__))
             'chapters/bulk-read',
         ]);
 
-        // Global middleware
-        $middleware->append([
-            \Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance::class,
-            \Illuminate\Foundation\Http\Middleware\ValidatePostSize::class,
-            \App\Http\Middleware\TrimStrings::class,
-            \Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull::class,
-            \App\Http\Middleware\TrustProxies::class,
-            \App\Http\Middleware\PerformanceMonitoring::class,
-        ]);
+        // Global middleware. Laravel 11's default global stack already runs
+        // TrustProxies, PreventRequestsDuringMaintenance, ValidatePostSize,
+        // TrimStrings and ConvertEmptyStringsToNull; appending our own copies
+        // ran each twice per request. Configure the framework's instead.
+        $middleware->trimStrings(except: ['password', 'password_confirmation']);
+        $middleware->trustProxies(
+            at: env('TRUSTED_PROXIES', '*'),
+            headers: \Illuminate\Http\Request::HEADER_X_FORWARDED_FOR
+                | \Illuminate\Http\Request::HEADER_X_FORWARDED_HOST
+                | \Illuminate\Http\Request::HEADER_X_FORWARDED_PORT
+                | \Illuminate\Http\Request::HEADER_X_FORWARDED_PROTO,
+        );
+        $middleware->append(\App\Http\Middleware\PerformanceMonitoring::class);
 
         // Route middleware priority for optimal performance
         $middleware->priority([
