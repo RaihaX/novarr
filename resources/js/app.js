@@ -23,6 +23,7 @@ import { showToast } from './toast';
 import { confirmDialog } from './confirm';
 import { initTagPickers } from './tagpicker';
 import { initNavSearch } from './navsearch';
+import { initFunnelBanner, setFunnelState } from './funnel';
 import {
     initOffline, downloadNovel, removeNovel, getLibrary,
     getNovel, isDownloaded, queuedFetch, flushQueue,
@@ -51,7 +52,7 @@ document.addEventListener('turbo:load', () => {
 window.Novarr = {
     executeCommand, pollJobStatus, showToast, confirmDialog, initTagPickers,
     downloadNovel, removeNovel, getLibrary, getNovel, isDownloaded,
-    queuedFetch, flushQueue, softRefresh,
+    queuedFetch, flushQueue, softRefresh, setFunnelState,
 };
 
 // Flush any queued offline read-marks and watch for reconnects.
@@ -62,6 +63,7 @@ initOffline();
 document.addEventListener('turbo:load', () => {
     initTagPickers();
     initNavSearch();
+    initFunnelBanner();
 });
 
 // Register the service worker (PWA / offline). Only works in a secure
@@ -73,32 +75,79 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
 }
 
 // ---- Custom PWA install prompt ----
-// Browsers fire beforeinstallprompt when installable; show a small dismissible
-// banner instead of relying on the browser's buried menu entry. Dismissal is
-// remembered for 30 days.
-window.addEventListener('beforeinstallprompt', (e) => {
-    const standalone = window.matchMedia('(display-mode: standalone)').matches
-        || window.navigator.standalone === true;
-    const snoozedUntil = parseInt(localStorage.getItem('pwa_install_snooze') || '0', 10);
-    if (standalone || Date.now() < snoozedUntil) return;
+// Browsers fire beforeinstallprompt when installable. The event is held and
+// the small banner is only offered once the visitor has actually read
+// something (>= 2 chapters opened), at most once per browser session, never
+// on the reader itself (it would sit over the text and the drawer), and not
+// for 30 days after "Not now". All storage access is guarded — private
+// windows and blocked site data throw.
+const INSTALL_MIN_CHAPTERS = 2;
 
-    e.preventDefault();
+function storageGet(store, key) {
+    try { return window[store].getItem(key); } catch (_) { return null; }
+}
+function storageSet(store, key, value) {
+    try { window[store].setItem(key, value); } catch (_) { /* ignore */ }
+}
+function isReaderPage() {
+    return !!document.querySelector('[data-reader-page]')
+        || /^\/chapters\/\d+/.test(window.location.pathname);
+}
+
+// Count chapter opens (one per reader visit) so the nudge waits for real use.
+document.addEventListener('turbo:load', () => {
+    if (!isReaderPage()) return;
+    const n = parseInt(storageGet('localStorage', 'novarr_chapters_opened') || '0', 10) || 0;
+    storageSet('localStorage', 'novarr_chapters_opened', String(n + 1));
+});
+
+let deferredInstall = null;
+
+function maybeShowInstallBar() {
+    if (!deferredInstall || document.querySelector('.pwa-install-bar')) return;
+    if (isReaderPage()) return;
+    if (storageGet('sessionStorage', 'novarr_install_shown') === '1') return;
+    const opened = parseInt(storageGet('localStorage', 'novarr_chapters_opened') || '0', 10) || 0;
+    if (opened < INSTALL_MIN_CHAPTERS) return;
+
+    const prompt = deferredInstall;
+    storageSet('sessionStorage', 'novarr_install_shown', '1');
 
     const bar = document.createElement('div');
     bar.className = 'pwa-install-bar';
+    bar.setAttribute('role', 'region');
+    bar.setAttribute('aria-label', 'Install Novarr');
     bar.innerHTML = `
-        <span>Install Novarr as an app for offline reading.</span>
-        <button type="button" class="btn btn-sm btn-primary" data-install>Install</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-dismiss aria-label="Dismiss">Not now</button>`;
+        <span class="pwa-install-text">Install Novarr as an app for offline reading.</span>
+        <span class="pwa-install-actions">
+            <button type="button" class="btn btn-sm btn-primary" data-install>Install</button>
+            <button type="button" class="btn btn-sm btn-ghost" data-dismiss>Not now</button>
+        </span>`;
     document.body.appendChild(bar);
 
     bar.querySelector('[data-install]').addEventListener('click', async () => {
         bar.remove();
-        e.prompt();
-        await e.userChoice.catch(() => {});
+        deferredInstall = null;
+        prompt.prompt();
+        await prompt.userChoice.catch(() => {});
     });
     bar.querySelector('[data-dismiss]').addEventListener('click', () => {
-        localStorage.setItem('pwa_install_snooze', String(Date.now() + 30 * 24 * 3600 * 1000));
+        storageSet('localStorage', 'pwa_install_snooze', String(Date.now() + 30 * 24 * 3600 * 1000));
         bar.remove();
     });
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true;
+    const snoozedUntil = parseInt(storageGet('localStorage', 'pwa_install_snooze') || '0', 10);
+    if (standalone || Date.now() < snoozedUntil) return;
+
+    e.preventDefault();
+    deferredInstall = e;
+    maybeShowInstallBar();
 });
+
+// Turbo swaps <body>, which drops the bar; re-evaluate on every visit (this
+// also removes it on the way into the reader).
+document.addEventListener('turbo:load', maybeShowInstallBar);

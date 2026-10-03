@@ -49,11 +49,7 @@ class FixChapterNumbers extends Command
                     $bookNote = $book > 0 && $book != $row->book ? " book => {$book}" : '';
                     $this->line("  Fix: id={$row->id} chapter => {$number}{$bookNote} ({$reason}) \"" . trim((string) $row->label) . "\"");
                     if (!$dryRun) {
-                        $row->chapter = $number;
-                        if ($book > 0) {
-                            $row->book = $book;
-                        }
-                        $row->label = trim((string) $row->label);
+                        ChapterNumberResolver::applyResolution($row, $number, $reason, $book);
                         $row->save();
                     }
                     $totalFixed++;
@@ -103,6 +99,9 @@ class FixChapterNumbers extends Command
                         $row->chapter = $sameUrl->chapter;
                         $row->book = $sameUrl->book;
                         $row->label = trim((string) $row->label);
+                        $row->number = $sameUrl->number;
+                        $row->part = $sameUrl->part;
+                        $row->sort_key = $sameUrl->sort_key;
                         $sameUrl->delete();
                         $row->save();
                     }
@@ -141,6 +140,7 @@ class FixChapterNumbers extends Command
                 $existing->delete();
                 $row->chapter = $number;
                 $row->label = trim((string) $row->label);
+                $row->syncStructuredNumber();
                 $row->save();
             }
             return true;

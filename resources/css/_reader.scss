@@ -510,6 +510,26 @@ body.reader-theme-light {
     color: var(--rd-muted);
 }
 
+// --- Chromeless + auto-hide ---------------------------------------------
+// The reader renders without the global navbar (body.is-chromeless), so the
+// chrome sticks to the top edge. On scroll-down the chrome slides up by the
+// bar's height, leaving the 2px progress rail pinned at the top.
+body.is-chromeless .reader-chrome { top: env(safe-area-inset-top, 0px); }
+
+.reader-chrome {
+    transition: transform $transition-bar;
+
+    &.is-autohidden {
+        transform: translateY(-$reader-bar);
+
+        .reader-bar { visibility: hidden; transition: visibility 0s linear 240ms; }
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .reader-chrome { transition: none; }
+}
+
 // --- Focus mode -----------------------------------------------------------
 // _components.scss hides .navbar / #readerToolbar / .chapter-nav; the rail
 // stays so position is still legible, and the chrome re-anchors to the top.

@@ -151,20 +151,23 @@ class DiscoverController extends Controller
                 return null;
             }
 
+            // The adapter's parser (tested against a saved search page)
+            // returns cover and author too; the old inline parse left both
+            // blank although the page carries them.
             $items = [];
-            (new Crawler($html))->filter('h3.truyen-title a')->each(function ($node) use (&$items) {
-                $href = $node->attr('href');
-                $name = trim($node->attr('title') ?: $node->text());
-                if (!$href || !$name || !str_ends_with($href, '.html')) {
-                    return;
+            foreach (\App\Sources\NovelFullSource::parseSearchResults($html) as $row) {
+                $url = (string) ($row['url'] ?? '');
+                $name = trim((string) ($row['name'] ?? $row['title'] ?? ''));
+                if ($url === '' || $name === '' || !str_ends_with($url, '.html')) {
+                    continue;
                 }
                 $items[] = [
                     'name' => $name,
-                    'url' => 'https://novelfull.com' . $href,
-                    'cover' => '',
-                    'author' => '',
+                    'url' => $url,
+                    'cover' => (string) ($row['cover'] ?? ''),
+                    'author' => (string) ($row['author'] ?? ''),
                 ];
-            });
+            }
 
             return $items;
         };

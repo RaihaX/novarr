@@ -29,6 +29,26 @@ Artisan::command('inspire', function () {
 |
 */
 
+// withoutOverlapping() defaults to a 24h mutex: a scheduler killed mid-run
+// (container restart, OOM) blocked that task for a whole day. Scraping tasks
+// get an explicit expiry a bit past their realistic worst-case run instead.
+//
+// onOneServer() only helps when the cache store is shared between servers and
+// supports atomic locks (redis/database/memcached). On a file/array store it
+// is skipped — there is only ever one server reading that cache anyway.
+$oneServer = function ($event) {
+    try {
+        $store = cache()->store()->getStore();
+        $shared = $store instanceof \Illuminate\Contracts\Cache\LockProvider
+            && !$store instanceof \Illuminate\Cache\FileStore
+            && !$store instanceof \Illuminate\Cache\ArrayStore;
+    } catch (\Throwable $e) {
+        $shared = false;
+    }
+
+    return $shared ? $event->onOneServer() : $event;
+};
+
 // Heartbeat: record that the scheduler ran, for the Health page to detect
 // a stalled scheduler/cron.
 Schedule::call(fn() => cache()->put('scheduler_last_run', now()->toDateTimeString(), now()->addDay()))
@@ -48,32 +68,33 @@ Schedule::call(fn() => cache()->put(
 // Drain queued jobs (background commands from the web UI) without needing a
 // dedicated worker process: the cron-driven scheduler starts a worker every
 // minute and it exits as soon as the queue is empty. withoutOverlapping
-// prevents pile-up while a long command (e.g. a full chapter scrape) runs.
+// prevents pile-up while a long command (e.g. a full chapter scrape) runs;
+// the mutex expires just past the worker's 60-minute job timeout.
 Schedule::command('queue:work --queue=commands,default --stop-when-empty --timeout=3600')
     ->everyMinute()
     ->name('drain_queue')
-    ->withoutOverlapping();
+    ->withoutOverlapping(65);
 
 // Refresh the table of contents for all active (non-complete) novels once a day.
-Schedule::command('novel:toc')
+$oneServer(Schedule::command('novel:toc')
     ->dailyAt('01:00')
     ->name('daily_toc_check')
-    ->withoutOverlapping();
+    ->withoutOverlapping(90));
 
 // Novels flagged "check hourly" (frequent_toc) get their TOC re-checked every
 // hour so actively-updating series surface new chapters quickly. The 01:00
 // full sweep already covers that hour.
-Schedule::command('novel:toc --frequent-only')
+$oneServer(Schedule::command('novel:toc --frequent-only')
     ->hourly()
     ->unlessBetween('00:30', '01:30')
     ->name('frequent_toc_check')
-    ->withoutOverlapping();
+    ->withoutOverlapping(90));
 
 // Download any pending chapters found by the TOC check.
-Schedule::command('novel:chapter')
+$oneServer(Schedule::command('novel:chapter')
     ->everyTenMinutes()
     ->name('download_new_chapters')
-    ->withoutOverlapping();
+    ->withoutOverlapping(150));
 
 // Verify novels against NovelUpdates and mark fully-downloaded completed series.
 Schedule::command('novel:verify-completion')

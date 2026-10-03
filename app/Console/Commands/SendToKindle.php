@@ -29,8 +29,9 @@ class SendToKindle extends Command
             return self::FAILURE;
         }
 
-        $safeFilename = $this->sanitizeFilename($novel->name . ' - ' . ($novel->author ?: 'Unknown'));
-        $epubPath = storage_path("app/ePub/{$safeFilename}.epub");
+        // One definition of the ePub path, shared with the generator, the
+        // download route and OPDS, so the copies can't drift apart.
+        $epubPath = GenerateePub::epubPath($novel);
 
         if (!File::exists($epubPath)) {
             if (!$this->option('generate')) {
@@ -73,16 +74,4 @@ class SendToKindle extends Command
         return self::SUCCESS;
     }
 
-    protected function sanitizeFilename(string $filename): string
-    {
-        $filename = preg_replace('/[\/\\\\:*?"<>|]/', '', $filename);
-        $filename = preg_replace('/\s+/', ' ', $filename);
-        $filename = trim($filename);
-
-        if (strlen($filename) > 200) {
-            $filename = substr($filename, 0, 200);
-        }
-
-        return $filename ?: 'novel';
-    }
 }

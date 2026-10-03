@@ -40,6 +40,16 @@ class ValidTocUrlTest extends TestCase
         ));
     }
 
+    /** The 404 page of NovelFull's moved AJAX endpoint parsed as chapters. */
+    public function testOptionValuesFromAnErrorPageAreRejected(): void
+    {
+        $this->assertFalse(NovelScraper::validTocUrl('16px', 'https://novelfull.com'));
+        $this->assertFalse(NovelScraper::validTocUrl('https://novelfull.com16px', 'https://novelfull.com'));
+        $this->assertFalse(NovelScraper::validTocUrl('https://novelfull.com1', null));
+        $this->assertTrue(NovelScraper::validTocUrl('https://novelfull.com/shadow-slave/chapter-16.html', null));
+        $this->assertTrue(NovelScraper::validTocUrl('/shadow-slave/chapter-16.html', 'https://novelfull.com'));
+    }
+
     public function testEmptyUrlFallsBackToGroupPage(): void
     {
         // Matches pre-guard behavior: an item with no URL of its own is kept

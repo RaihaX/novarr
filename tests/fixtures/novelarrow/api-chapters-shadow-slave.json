@@ -1,0 +1,316 @@
+{
+    "items": [
+        {
+            "chapter_id": "chapter-1-nightmare-begins",
+            "chapter_name": "Chapter 1 Nightmare Begins"
+        },
+        {
+            "chapter_id": "chapter-2-slave-caravan",
+            "chapter_name": "Chapter 2 Slave Caravan"
+        },
+        {
+            "chapter_id": "chapter-3-the-strings-of-fate",
+            "chapter_name": "Chapter 3 The Strings Of Fate"
+        },
+        {
+            "chapter_id": "chapter-4-mountain-king",
+            "chapter_name": "Chapter 4 Mountain King"
+        },
+        {
+            "chapter_id": "chapter-5-broken-chains",
+            "chapter_name": "Chapter 5 Broken Chains"
+        },
+        {
+            "chapter_id": "chapter-6-confronting-the-tyrant",
+            "chapter_name": "Chapter 6 Confronting The Tyrant"
+        },
+        {
+            "chapter_id": "chapter-7-three-slaves-and-a-hero",
+            "chapter_name": "Chapter 7 Three Slaves And A Hero"
+        },
+        {
+            "chapter_id": "chapter-8-nothing-at-all",
+            "chapter_name": "Chapter 8 Nothing At All"
+        },
+        {
+            "chapter_id": "chapter-9-wishful-thinking",
+            "chapter_name": "Chapter 9 Wishful Thinking"
+        },
+        {
+            "chapter_id": "chapter-10-first-man-down",
+            "chapter_name": "Chapter 10 First Man Down"
+        },
+        {
+            "chapter_id": "chapter-11-crossroads",
+            "chapter_name": "Chapter 11 Crossroads"
+        },
+        {
+            "chapter_id": "chapter-12-the-smell-of-blood",
+            "chapter_name": "Chapter 12 The Smell Of Blood"
+        },
+        {
+            "chapter_id": "chapter-13-moment-of-truth",
+            "chapter_name": "Chapter 13 Moment Of Truth"
+        },
+        {
+            "chapter_id": "chapter-14-child-of-shadows",
+            "chapter_name": "Chapter 14 Child Of Shadows"
+        },
+        {
+            "chapter_id": "chapter-15-shadow-slave",
+            "chapter_name": "Chapter 15 Shadow Slave"
+        },
+        {
+            "chapter_id": "chapter-16-rebirth",
+            "chapter_name": "Chapter 16 Rebirth"
+        },
+        {
+            "chapter_id": "chapter-17-three-simple-words",
+            "chapter_name": "Chapter 17 Three Simple Words"
+        },
+        {
+            "chapter_id": "chapter-18-absence-of-light",
+            "chapter_name": "Chapter 18 Absence Of Light"
+        },
+        {
+            "chapter_id": "chapter-19-crossing-the-bridge",
+            "chapter_name": "Chapter 19 Crossing The Bridge"
+        },
+        {
+            "chapter_id": "chapter-20-outcast-once-again",
+            "chapter_name": "Chapter 20 Outcast Once Again"
+        },
+        {
+            "chapter_id": "chapter-21-first-performance",
+            "chapter_name": "Chapter 21 First Performance"
+        },
+        {
+            "chapter_id": "chapter-22-corpse-corner",
+            "chapter_name": "Chapter 22 Corpse Corner"
+        },
+        {
+            "chapter_id": "chapter-23-dreams-and-nightmares",
+            "chapter_name": "Chapter 23 Dreams And Nightmares"
+        },
+        {
+            "chapter_id": "chapter-24-moving-up-in-the-world",
+            "chapter_name": "Chapter 24 Moving Up In The World"
+        },
+        {
+            "chapter_id": "chapter-25-wilderness-survival",
+            "chapter_name": "Chapter 25 Wilderness Survival"
+        },
+        {
+            "chapter_id": "chapter-26-changing-star",
+            "chapter_name": "Chapter 26 Changing Star"
+        },
+        {
+            "chapter_id": "chapter-27-measure-of-power",
+            "chapter_name": "Chapter 27 Measure Of Power"
+        },
+        {
+            "chapter_id": "chapter-28-training-montage",
+            "chapter_name": "Chapter 28 Training Montage"
+        },
+        {
+            "chapter_id": "chapter-29-the-last-day-on-earth",
+            "chapter_name": "Chapter 29 The Last Day On Earth"
+        },
+        {
+            "chapter_id": "chapter-30-starless-void",
+            "chapter_name": "Chapter 30 Starless Void"
+        },
+        {
+            "chapter_id": "chapter-31-low-tide",
+            "chapter_name": "Chapter 31 Low Tide"
+        },
+        {
+            "chapter_id": "chapter-32-making-a-choice",
+            "chapter_name": "Chapter 32 Making A Choice"
+        },
+        {
+            "chapter_id": "chapter-33-carapace-scavenger",
+            "chapter_name": "Chapter 33 Carapace Scavenger"
+        },
+        {
+            "chapter_id": "chapter-34-only-steel-remembers",
+            "chapter_name": "Chapter 34 Only Steel Remembers"
+        },
+        {
+            "chapter_id": "chapter-35-a-shadow-a-star-and-an-oracle",
+            "chapter_name": "Chapter 35 A Shadow A Star And An Oracle"
+        },
+        {
+            "chapter_id": "chapter-36-bonfire",
+            "chapter_name": "Chapter 36 Bonfire"
+        },
+        {
+            "chapter_id": "chapter-37-getting-to-know-each-other",
+            "chapter_name": "Chapter 37 Getting To Know Each Other"
+        },
+        {
+            "chapter_id": "chapter-38-questions-in-the-dark",
+            "chapter_name": "Chapter 38 Questions In The Dark"
+        },
+        {
+            "chapter_id": "chapter-39-journey-to-the-west",
+            "chapter_name": "Chapter 39 Journey To The West"
+        },
+        {
+            "chapter_id": "chapter-40-weak-point",
+            "chapter_name": "Chapter 40 Weak Point"
+        },
+        {
+            "chapter_id": "chapter-2228-cloak-and-dagger",
+            "chapter_name": "Chapter 2228 Cloak and Dagger"
+        },
+        {
+            "chapter_id": "chapter-2229-great-citadels",
+            "chapter_name": "Chapter 2229 Great Citadels"
+        },
+        {
+            "chapter_id": "chapter-2230-lords-gift",
+            "chapter_name": "Chapter 2230 Lords Gift"
+        },
+        {
+            "chapter_id": "chapter-2231-first-domino",
+            "chapter_name": "Chapter 2231 First Domino"
+        },
+        {
+            "chapter_id": "chapter-2232-cold-front",
+            "chapter_name": "Chapter 2232 Cold Front"
+        },
+        {
+            "chapter_id": "chapter-2232-cold-front",
+            "chapter_name": "Chapter 2232 Cold Front"
+        },
+        {
+            "chapter_id": "chapter-2233-wrath-of-heaven",
+            "chapter_name": "Chapter 2233 Wrath of Heaven"
+        },
+        {
+            "chapter_id": "chapter-2234-darkness-falls",
+            "chapter_name": "Chapter 2234 Darkness Falls"
+        },
+        {
+            "chapter_id": "chapter-2233-wrath-of-heaven",
+            "chapter_name": "Chapter 2233 Wrath of Heaven"
+        },
+        {
+            "chapter_id": "chapter-2234-darkness-falls",
+            "chapter_name": "Chapter 2234 Darkness Falls"
+        },
+        {
+            "chapter_id": "chapter-2235-feeble-flame-of-hope",
+            "chapter_name": "Chapter 2235 Feeble Flame of Hope"
+        },
+        {
+            "chapter_id": "chapter-2236-heir-of-peace",
+            "chapter_name": "Chapter 2236 Heir of Peace"
+        },
+        {
+            "chapter_id": "chapter-2237-king-of-swords",
+            "chapter_name": "Chapter 2237 King of Swords"
+        },
+        {
+            "chapter_id": "chapter-2238-unassailable",
+            "chapter_name": "Chapter 2238 Unassailable"
+        },
+        {
+            "chapter_id": "chapter-3180-slither-of-doubt",
+            "chapter_name": "Chapter 3180 Slither of Doubt"
+        },
+        {
+            "chapter_id": "chapter-3181-bringer-of-light",
+            "chapter_name": "Chapter 3181 Bringer of Light"
+        },
+        {
+            "chapter_id": "chapter-3182-plight-of-gods",
+            "chapter_name": "Chapter 3182 Plight of Gods"
+        },
+        {
+            "chapter_id": "chapter-3183-gift-of-war",
+            "chapter_name": "Chapter 3183 Gift of War"
+        },
+        {
+            "chapter_id": "chapter-3184-insidious-traps",
+            "chapter_name": "Chapter 3184 Insidious Traps"
+        },
+        {
+            "chapter_id": "chapter-3185-mundane-fortune",
+            "chapter_name": "Chapter 3185 Mundane Fortune"
+        },
+        {
+            "chapter_id": "chapter-3186-lots-of-fishes",
+            "chapter_name": "Chapter 3186 Lots of Fishes"
+        },
+        {
+            "chapter_id": "chapter-3187-pursuit-of-light",
+            "chapter_name": "Chapter 3187 Pursuit of Light"
+        },
+        {
+            "chapter_id": "chapter-3188-lost-soul",
+            "chapter_name": "Chapter 3188 Lost Soul"
+        },
+        {
+            "chapter_id": "chapter-entertaining-guest",
+            "chapter_name": "Chapter 3189 Entertaining Guest"
+        },
+        {
+            "chapter_id": "chapter-3190-freedom-of-choice",
+            "chapter_name": "Chapter 3190 Freedom of Choice"
+        },
+        {
+            "chapter_id": "chapter-3191-there-and-back-again",
+            "chapter_name": "Chapter 3191 There and Back Again"
+        },
+        {
+            "chapter_id": "chapter-3192-miraculous-soul",
+            "chapter_name": "Chapter 3192 Miraculous Soul"
+        },
+        {
+            "chapter_id": "chapter-3193-regret-can",
+            "chapter_name": "Chapter 3193 Regret Can"
+        },
+        {
+            "chapter_id": "chapter-3194-fellow-wanderer",
+            "chapter_name": "Chapter 3194 Fellow Wanderer"
+        },
+        {
+            "chapter_id": "chapter-3195-young-hero",
+            "chapter_name": "Chapter 3195 Young Hero"
+        },
+        {
+            "chapter_id": "chapter-3196-twisting-roads",
+            "chapter_name": "Chapter 3196 Twisting Roads"
+        },
+        {
+            "chapter_id": "chapter-3197-beauty-of-life",
+            "chapter_name": "Chapter 3197 Beauty of Life"
+        },
+        {
+            "chapter_id": "chapter-3198-secret-technique",
+            "chapter_name": "Chapter 3198 Secret Technique"
+        },
+        {
+            "chapter_id": "chapter-3199-mortal-realms",
+            "chapter_name": "Chapter 3199 Mortal Realms"
+        },
+        {
+            "chapter_id": "chapter-3200-human-city",
+            "chapter_name": "Chapter 3200 Human City"
+        },
+        {
+            "chapter_id": "chapter-3201-a-land-without-monsters",
+            "chapter_name": "Chapter 3201 A Land Without Monsters"
+        },
+        {
+            "chapter_id": "chapter-3202-conflict-of-interests",
+            "chapter_name": "Chapter 3202 Conflict of Interests"
+        },
+        {
+            "chapter_id": "chapter-3203-ultima-ratio-regum",
+            "chapter_name": "Chapter 3203 Ultima Ratio Regum"
+        }
+    ]
+}

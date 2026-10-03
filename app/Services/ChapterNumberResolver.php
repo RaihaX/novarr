@@ -70,10 +70,11 @@ class ChapterNumberResolver
     public static function resolve(NovelChapter $row): ?array
     {
         // Book can come from the label when the parser missed it
-        // ("Volume 6 Chapter 43 ..." with book still 0).
+        // ("Volume 6 Chapter 43 ..." with book still 0). Same leading-prefix
+        // rule as generateTocChapterInfo() (shared helper in Helpers.php).
         $book = (int) $row->book;
-        if ($book === 0 && preg_match('/\bvol(?:ume)?\.?\s*(\d+)/i', (string) $row->label, $m)) {
-            $book = (int) $m[1];
+        if ($book === 0 && ($prefix = parseVolumePrefix((string) $row->label)) !== null) {
+            $book = $prefix;
         }
 
         $existing = self::existingNumbers($row, $book);
@@ -117,7 +118,7 @@ class ChapterNumberResolver
 
         // End-matter with no number belongs after the last chapter.
         if (empty($cands['strong']) && empty($cands['weak']) && preg_match('/afterword|epilogue|postscript/i', (string) $row->label)) {
-            return [$max + 1, 'end-matter', $book];
+            return [$max + 1, self::REASON_END_MATTER, $book];
         }
 
         return null;
@@ -182,6 +183,51 @@ class ChapterNumberResolver
             ->filter(fn($n) => $n > 0);
     }
 
+    /** resolve() reason for unnumbered end matter placed after the last chapter. */
+    public const REASON_END_MATTER = 'end-matter';
+
+    /**
+     * Fraction of an end-matter sort_key: max + 0.9 sorts after the last
+     * chapter (and its parts / decimals) without taking max+1, the number
+     * the next real chapter will have.
+     */
+    public const END_MATTER_OFFSET = 0.9;
+
+    /**
+     * Write a resolution onto the row (not saved): legacy `chapter`, book,
+     * and the structured number / part / sort_key. End matter keeps
+     * chapter = max+1 for compatibility but sorts at max+0.9.
+     */
+    public static function applyResolution(NovelChapter $row, float|int $number, string $reason, int $book): void
+    {
+        $row->chapter = $number;
+        if ($book > 0) {
+            $row->book = $book;
+        }
+        $row->label = trim((string) $row->label);
+
+        if ($reason === self::REASON_END_MATTER) {
+            $row->number = (float) $number;
+            $row->part = 0;
+            $row->sort_key = self::endMatterSortKey((float) $number - 1);
+            return;
+        }
+
+        $row->syncStructuredNumber();
+    }
+
+    /** sort_key for end matter following a book whose last chapter is $max. */
+    public static function endMatterSortKey(float $max): float
+    {
+        return round(floor($max) + self::END_MATTER_OFFSET, 4);
+    }
+
+    /** Is this sort_key an end-matter placement (whole + 0.9)? */
+    public static function isEndMatterSortKey(?float $sortKey): bool
+    {
+        return $sortKey !== null && abs(($sortKey - floor($sortKey)) - self::END_MATTER_OFFSET) < 1e-6;
+    }
+
     /**
      * Resolve and persist numbers for a novel's unnumbered chapters.
      * Only applies unambiguous resolutions; returns [fixedCount, unresolvedCount].
@@ -200,11 +246,7 @@ class ChapterNumberResolver
             $result = self::resolve($row);
             if ($result) {
                 [$number, $reason, $book] = $result;
-                $row->chapter = $number;
-                if ($book > 0) {
-                    $row->book = $book;
-                }
-                $row->label = trim((string) $row->label);
+                self::applyResolution($row, $number, $reason, $book);
                 $row->save();
                 $fixed++;
                 if ($report) {

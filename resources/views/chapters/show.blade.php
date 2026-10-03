@@ -19,12 +19,7 @@
     $chapterTotal = \App\NovelChapter::where('novel_id', $novelId)->where('blacklist', 0)->count();
     $chapterIndex = \App\NovelChapter::where('novel_id', $novelId)
         ->where('blacklist', 0)
-        ->where(function ($q) use ($chapter) {
-            $q->where('book', '<', $chapter->book)
-              ->orWhere(function ($q2) use ($chapter) {
-                  $q2->where('book', $chapter->book)->where('chapter', '<=', $chapter->chapter);
-              });
-        })
+        ->relativeTo($chapter, '<=')
         ->count();
     $chapterTitle = $chapter->label ?: 'Chapter ' . $chapter->chapter;
     // Honest minutes-left: real word count of this chapter's body, scaled by
@@ -32,8 +27,11 @@
     $wordCount = str_word_count(strip_tags((string) $chapter->description));
 @endphp
 
+{{-- Reader is chromeless: no global navbar (layouts/app.blade.php) --}}
+@section('chromeless', '1')
+
 @section('content')
-<div class="reader" id="reader">
+<div class="reader" id="reader" data-reader-page>
 
     {{-- 52px chrome bar + the 2px chapter-progress rail directly under it.
          The pair sticks below the navbar; in focus mode only the bar hides,
@@ -177,6 +175,9 @@
             <section class="reader-section" data-id="{{ $chapter->id }}" data-words="{{ $wordCount }}">
                 <header class="reader-head">
                     <p class="reader-kicker">
+                        @if($chapter->isNote())
+                            <span class="badge badge-attention" title="This chapter is a message from the author or translator">Author's note</span>
+                        @endif
                         <span>Chapter {{ $chapterIndex }} of {{ $chapterTotal }}</span>
                         @if($chapter->book)
                             <span class="reader-kicker-sep">&middot;</span><span>Book {{ $chapter->book }}</span>
@@ -280,6 +281,16 @@
 (() => {
     const state = JSON.parse(document.getElementById('readerState').textContent);
     const readerEl = document.getElementById('reader');
+
+    // ---- Per-visit lifecycle ----
+    // This script re-runs on every Turbo visit, but listeners on document /
+    // window outlive the page. One AbortController per visit: every such
+    // listener passes { signal }, and teardown() (turbo:before-cache /
+    // turbo:before-render, at the bottom) aborts them all, so handlers never
+    // pile up across visits (duplicate arrow-key/swipe navigations, stale
+    // progress reports for a chapter we've already left).
+    const pageAbort = new AbortController();
+    const signal = pageAbort.signal;
 
     // ---- Reader preferences (persisted in localStorage) ----
     // Typography keys can be overridden per novel ("This novel only"): the
@@ -396,13 +407,13 @@
     }
     settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleSettings(); });
     settingsPop.addEventListener('click', (e) => e.stopPropagation());
-    document.addEventListener('click', () => toggleSettings(false));
+    document.addEventListener('click', () => toggleSettings(false), { signal });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && !settingsPop.classList.contains('d-none')) {
             toggleSettings(false);
             settingsBtn.focus();
         }
-    });
+    }, { signal });
 
     const bindPref = (attr, apply) => document.querySelectorAll(`[data-${attr}]`).forEach(btn =>
         btn.addEventListener('click', () => { apply(btn.dataset[attr]); applyPrefs(); }));
@@ -503,7 +514,7 @@
         if (e.target.matches('input, textarea, select')) return;
         if (e.key === 'ArrowLeft') goPrev();
         if (e.key === 'ArrowRight') goNext();
-    });
+    }, { signal });
 
     // Horizontal swipe on touch devices: left = next, right = previous.
     // Ignored when it starts on a control, while text is selected, or when
@@ -515,7 +526,7 @@
             return;
         }
         touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
-    }, { passive: true });
+    }, { passive: true, signal });
     document.addEventListener('touchend', (e) => {
         if (!touchStart) return;
         const dx = e.changedTouches[0].clientX - touchStart.x;
@@ -526,7 +537,7 @@
         if (selection && !selection.isCollapsed) return;
         if (dt > 600 || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
         if (dx < 0) goNext(); else goPrev();
-    }, { passive: true });
+    }, { passive: true, signal });
 
     // ---- Focus mode: hide chrome; tap the page to peek at it ----
     const focusBtn = document.getElementById('focusBtn');
@@ -585,6 +596,10 @@
 
     let lastSynced = { id: null, pct: -1 };
     function syncProgress(id, pct, useBeacon = false) {
+        // Only ever report for this visit's own chapters, and only while this
+        // page is the one on screen — a stale handler or timer from a page
+        // we've left must not send progress for the wrong chapter.
+        if (signal.aborted || !readerEl.isConnected || !sections.some(s => s.id === id)) return;
         if (lastSynced.id === id && Math.abs(lastSynced.pct - pct) < 5 && pct < 98) return;
         lastSynced = { id, pct };
         if (useBeacon && navigator.sendBeacon) {
@@ -627,14 +642,45 @@
     function onScroll() {
         if (rafPending) return;
         rafPending = true;
-        requestAnimationFrame(() => { rafPending = false; updateProgress(); });
+        requestAnimationFrame(() => { rafPending = false; updateProgress(); updateChromeAutoHide(); });
     }
-    window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onScroll, { passive: true });
-    window.addEventListener('pagehide', () => syncProgress(sections[currentIdx].id, currentProgressPct(), true));
+
+    // ---- Reader bar auto-hide: slides away on scroll-down, returns on
+    // scroll-up, near the top, or a tap in the middle of the page. The
+    // progress rail (inside the chrome, under the bar) stays visible.
+    // Never hides while the Aa popover or the contents drawer is open.
+    const chromeEl = document.getElementById('readerChrome');
+    const tocPanelEl = document.getElementById('tocPanel');
+    let chromeLastY = window.scrollY;
+    function setChromeHidden(hidden) {
+        if (hidden && (!settingsPop.classList.contains('d-none') || tocPanelEl?.classList.contains('show'))) hidden = false;
+        chromeEl.classList.toggle('is-autohidden', hidden);
+    }
+    function updateChromeAutoHide() {
+        const y = window.scrollY;
+        const dy = y - chromeLastY;
+        if (y < 80) setChromeHidden(false);
+        else if (dy > 6) setChromeHidden(true);
+        else if (dy < -6) setChromeHidden(false);
+        if (Math.abs(dy) > 6 || y < 80) chromeLastY = y;
+    }
+    // Centre tap toggles the bar (outside focus mode — focus mode has its own
+    // tap-to-peek above). Taps on links/controls/selections are ignored.
+    sectionsEl.addEventListener('click', (e) => {
+        if (document.body.classList.contains('reader-focus')) return;
+        if (e.target.closest('a, button, input, select, textarea')) return;
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed) return;
+        const band = window.innerHeight;
+        if (e.clientY < band * 0.25 || e.clientY > band * 0.75) return;
+        setChromeHidden(!chromeEl.classList.contains('is-autohidden'));
+    }, { signal });
+    window.addEventListener('scroll', onScroll, { passive: true, signal });
+    window.addEventListener('resize', onScroll, { passive: true, signal });
+    window.addEventListener('pagehide', () => syncProgress(sections[currentIdx].id, currentProgressPct(), true), { signal });
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') syncProgress(sections[currentIdx].id, currentProgressPct(), true);
-    });
+    }, { signal });
 
     // Restore: local position wins (freshest on this device), else the synced
     // server position from another device. Legacy pixel keys still honoured.
@@ -675,7 +721,9 @@
 
         loadingNext = true;
         try {
-            const res = await fetch(last.next.url, { headers: { 'Accept': 'text/html' } });
+            // Tagged as a background fetch: the server must not mark the
+            // chapter read just because we loaded it ahead of the reader.
+            const res = await fetch(last.next.url, { headers: { 'Accept': 'text/html', 'X-Novarr-Fetch': 'continuous' } });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
             const nextState = JSON.parse(doc.getElementById('readerState').textContent);
@@ -705,7 +753,9 @@
 
             sections.push({ ...nextState, el: section, words: parseInt(section.dataset.words, 10) || 0 });
             updateCta(nextState.next);
-            // Fetching the page marked it read server-side (same as opening it).
+            // The fetch did NOT mark it read; that happens once the reader
+            // actually scrolls into it (sectionObserver below).
+            if (nextState.deferRead) sectionObserver?.observe(section);
         } catch (err) {
             autoLoadStopped = true; // fall back to the CTA link
         } finally {
@@ -713,11 +763,38 @@
         }
     }
 
+    let sentinelObserver = null;
     if (sentinel && 'IntersectionObserver' in window) {
-        new IntersectionObserver((entries) => {
+        sentinelObserver = new IntersectionObserver((entries) => {
             if (entries.some(e => e.isIntersecting)) loadNextInline();
-        }, { rootMargin: '600px 0px' }).observe(sentinel);
+        }, { rootMargin: '600px 0px' });
+        sentinelObserver.observe(sentinel);
     }
+
+    // ---- Mark read on view ----
+    // Chapters fetched in the background (inline continuous sections, or this
+    // page if it was rendered from a Turbo prefetch) arrive with deferRead:
+    // the server skipped the read-mark. Mark them via the progress endpoint
+    // only when actually shown — for inline sections, once the section's top
+    // passes 40% of the viewport (the same point findCurrentIdx switches the
+    // "current" chapter). queuedFetch parks the write if we're offline.
+    const markedOnView = new Set();
+    function markReadOnView(id) {
+        if (markedOnView.has(id) || signal.aborted) return;
+        markedOnView.add(id);
+        readFetch(`/chapters/${id}/progress`, { read: true })
+            .then((data) => { if (data?.success && id === state.id) markReadUi(); })
+            .catch(() => markedOnView.delete(id));
+    }
+    const sectionObserver = 'IntersectionObserver' in window
+        ? new IntersectionObserver((entries) => {
+            for (const e of entries) {
+                if (!e.isIntersecting) continue;
+                sectionObserver.unobserve(e.target);
+                markReadOnView(parseInt(e.target.dataset.id, 10));
+            }
+        }, { rootMargin: '0px 0px -60% 0px' })
+        : null;
 
     // ---- In-reader chapter list (offcanvas TOC) ----
     const tocList = document.getElementById('tocList');
@@ -733,6 +810,13 @@
         const label = document.createElement('span');
         label.className = 'text-truncate';
         label.textContent = (c.read ? '✓ ' : '') + (c.label || 'Chapter ' + c.chapter);
+        if (c.note) {
+            const note = document.createElement('span');
+            note.className = 'badge badge-muted ms-2';
+            note.textContent = 'note';
+            note.title = "Author's note";
+            label.appendChild(note);
+        }
         const meta = document.createElement('span');
         meta.className = 'text-nowrap ' + (c.id === currentId ? '' : 'text-muted');
         meta.style.fontSize = '11px';
@@ -1000,12 +1084,12 @@
         }
     });
 
-    document.addEventListener('mouseup', () => setTimeout(maybeShowHlPop, 10));
-    document.addEventListener('touchend', () => setTimeout(maybeShowHlPop, 150));
+    document.addEventListener('mouseup', () => setTimeout(maybeShowHlPop, 10), { signal });
+    document.addEventListener('touchend', () => setTimeout(maybeShowHlPop, 150), { signal });
     document.addEventListener('selectionchange', () => {
         const sel = window.getSelection();
         if ((!sel || sel.isCollapsed) && !hlNote.matches(':focus')) hideHlPop();
-    });
+    }, { signal });
 
     document.getElementById('hlSave').addEventListener('click', async () => {
         if (!hlPending) return;
@@ -1083,7 +1167,7 @@
         reflectAutoScroll();
     }));
     // Any manual scroll intent pauses auto-scroll.
-    ['wheel', 'touchmove'].forEach(ev => document.addEventListener(ev, stopAutoScroll, { passive: true }));
+    ['wheel', 'touchmove'].forEach(ev => document.addEventListener(ev, stopAutoScroll, { passive: true, signal }));
     reflectAutoScroll();
 
     // ---- Text-to-speech (browser speechSynthesis) ----
@@ -1174,21 +1258,53 @@
     reflectTtsRate();
 
     // Never leave speech running after leaving the page.
-    document.addEventListener('turbo:before-visit', ttsStopAll, { once: true });
-    window.addEventListener('pagehide', () => synth?.cancel(), { once: true });
+    document.addEventListener('turbo:before-visit', ttsStopAll, { once: true, signal });
+    window.addEventListener('pagehide', () => synth?.cancel(), { once: true, signal });
 
     // ---- Offline auto-mark ----
     // The server marks a chapter read when it serves the page; offline the page
     // comes from the cache, so queue the read-mark here instead.
     @if(!$chapter->read_at)
     function offlineAutoMark() {
-        if (navigator.onLine || !window.Novarr?.queuedFetch) return;
+        // A deferred page is marked by markReadOnView below instead.
+        if (state.deferRead || navigator.onLine || !window.Novarr?.queuedFetch) return;
         Novarr.queuedFetch(BULK_READ_URL, { method: 'POST', body: { ids: [{{ $chapter->id }}], read: true } });
         markReadUi();
     }
     if (window.Novarr?.queuedFetch) offlineAutoMark();
-    else window.addEventListener('load', offlineAutoMark, { once: true });
+    else window.addEventListener('load', offlineAutoMark, { once: true, signal });
     @endif
+
+    // This page itself was served to a prefetch (e.g. Turbo hover prefetch)
+    // and is now actually being shown — mark it read now. On a cold (offline)
+    // load the app module may not be ready yet; wait for it so the write can
+    // be queued rather than lost.
+    if (state.deferRead) {
+        if (window.Novarr?.queuedFetch) markReadOnView(state.id);
+        else window.addEventListener('load', () => markReadOnView(state.id), { once: true, signal });
+    }
+
+    // ---- Teardown: leaving this page via Turbo ----
+    // before-cache fires only when Turbo snapshots the page (this layout sets
+    // turbo-cache-control: no-cache, so usually it won't); before-render fires
+    // on every Turbo render that replaces this page. Both run while this page's
+    // DOM is still in place, so the final progress flush measures the right
+    // chapter. Idempotent.
+    function teardown() {
+        if (signal.aborted) return;
+        try { syncProgress(sections[currentIdx].id, currentProgressPct()); } catch (e) { /* best effort */ }
+        clearTimeout(scrollSaveTimer);
+        clearTimeout(syncTimer);
+        syncTimer = null;
+        clearTimeout(tocFilterTimer);
+        stopAutoScroll();
+        ttsStopAll();
+        sentinelObserver?.disconnect();
+        sectionObserver?.disconnect();
+        pageAbort.abort();   // removes every { signal } listener above, incl. these two
+    }
+    document.addEventListener('turbo:before-cache', teardown, { signal });
+    document.addEventListener('turbo:before-render', teardown, { signal });
 })();
 </script>
 @endpush

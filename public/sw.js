@@ -108,7 +108,13 @@ async function cacheUrls(urls, client) {
     let done = 0;
     for (const url of urls) {
         try {
-            const res = await fetch(url, { credentials: 'same-origin' });
+            // Tagged so the server knows this is a background download, not
+            // the reader opening the chapter — it must not mark it read.
+            // (Offline, the cached page queues the read-mark when opened.)
+            const res = await fetch(url, {
+                credentials: 'same-origin',
+                headers: { 'X-Novarr-Fetch': 'offline' },
+            });
             if (res.ok) await cache.put(url, res.clone());
         } catch (e) {
             // Skip failures; a partial download is still useful.

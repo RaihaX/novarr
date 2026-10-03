@@ -30,6 +30,10 @@
 
 <p id="discoverStatus" class="library-status">Loading…</p>
 <div id="discoverResults" class="novel-card-grid mb-4"></div>
+{{-- Results arrive in one batch; reveal them 20 at a time. --}}
+<div id="discoverMoreWrap" class="discover-more d-none">
+    <button type="button" id="discoverMore" class="btn btn-secondary">Load more</button>
+</div>
 @endsection
 
 @push('scripts')
@@ -43,6 +47,25 @@
     const tabsEl = document.getElementById('discoverTabs');
 
     const source = () => sourceEl.value;
+
+    // Client-side reveal: the browse endpoint returns every result at once
+    // (up to 40); render them PAGE_SIZE at a time behind "Load more".
+    const PAGE_SIZE = 20;
+    const moreWrap = document.getElementById('discoverMoreWrap');
+    const moreBtn = document.getElementById('discoverMore');
+    let pendingItems = [];
+
+    function renderNextPage() {
+        pendingItems.splice(0, PAGE_SIZE).forEach(renderCard);
+        moreWrap.classList.toggle('d-none', pendingItems.length === 0);
+        moreBtn.textContent = `Load more (${pendingItems.length})`;
+    }
+    moreBtn.addEventListener('click', () => {
+        const firstNew = resultsEl.children.length;
+        renderNextPage();
+        // Keep keyboard focus in the list: move it to the first newly shown card's button.
+        resultsEl.children[firstNew]?.querySelector('button, a')?.focus({ preventScroll: true });
+    });
 
     let slowTimer = null;
 
@@ -77,10 +100,14 @@
     function endLoading() {
         clearTimeout(slowTimer);
         resultsEl.innerHTML = '';
+        pendingItems = [];
+        moreWrap.classList.add('d-none');
     }
 
     async function loadList(type, q = '') {
         showLoading();
+        pendingItems = [];
+        moreWrap.classList.add('d-none');
 
         const params = new URLSearchParams({ type, source: source() });
         if (q) params.set('q', q);
@@ -103,7 +130,8 @@
             }
 
             statusEl.textContent = `${data.items.length} result${data.items.length === 1 ? '' : 's'} from ${source()}.com`;
-            data.items.forEach(renderCard);
+            pendingItems = data.items.slice();
+            renderNextPage();
         } catch (err) {
             endLoading();
             statusEl.textContent = 'Error: ' + err.message;
@@ -200,7 +228,9 @@
 
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'btn poster-add ' + (item.in_library ? 'btn-secondary' : 'btn-primary');
+        // Secondary, not primary: a grid of identical primary buttons drowns
+        // the page's real primary action (indigo is reserved for that).
+        btn.className = 'btn btn-secondary poster-add discover-add';
         btn.textContent = item.in_library ? 'Already added' : 'Add to library';
         btn.disabled = item.in_library;
         btn.addEventListener('click', () => addNovel(btn, item));
@@ -266,13 +296,13 @@
                 Novarr.showToast(`"${item.name}" is already in your library.`, 'warning');
             } else {
                 btn.disabled = false;
-                btn.className = 'btn btn-primary poster-add';
+                btn.className = 'btn btn-secondary poster-add discover-add';
                 btn.textContent = 'Add to library';
                 Novarr.showToast(result.error || result.message || 'Failed to add novel.', 'danger');
             }
         } catch (err) {
             btn.disabled = false;
-            btn.className = 'btn btn-primary poster-add';
+            btn.className = 'btn btn-secondary poster-add discover-add';
             btn.textContent = 'Add to library';
             Novarr.showToast('Error: ' + err.message, 'danger');
         }

@@ -22,36 +22,30 @@ class NovelChapterController extends Controller
     {
         $chapter = $this->novelchapters->with(['novel:id,name', 'text'])->findOrFail($id);
 
+        // Neighbours in reading order: (book, sort_key, chapter) tuple
+        // comparison — same book and a later key, else the next book. Rows
+        // without a sort_key fall back to the legacy chapter number.
         $prev = NovelChapter::where('novel_id', $chapter->novel_id)
             ->where('blacklist', 0)
-            ->where(function ($q) use ($chapter) {
-                $q->where('book', '<', $chapter->book)
-                  ->orWhere(function ($q2) use ($chapter) {
-                      $q2->where('book', $chapter->book)->where('chapter', '<', $chapter->chapter);
-                  });
-            })
-            ->orderBy('book', 'desc')->orderBy('chapter', 'desc')
+            ->relativeTo($chapter, '<')
+            ->orderedDesc()
             ->first(['id', 'chapter', 'label']);
 
         $next = NovelChapter::where('novel_id', $chapter->novel_id)
             ->where('blacklist', 0)
-            ->where(function ($q) use ($chapter) {
-                $q->where('book', '>', $chapter->book)
-                  ->orWhere(function ($q2) use ($chapter) {
-                      $q2->where('book', $chapter->book)->where('chapter', '>', $chapter->chapter);
-                  });
-            })
-            ->orderBy('book')->orderBy('chapter')
+            ->relativeTo($chapter, '>')
+            ->ordered()
             ->first(['id', 'chapter', 'label']);
 
-        // Opening a downloaded chapter marks it read — but not when the
-        // browser is only prefetching the prev/next pages (<link rel=prefetch>
-        // sends Sec-Purpose/Purpose: prefetch), which would mark chapters read
-        // before they were ever opened.
-        $purpose = strtolower($request->header('Sec-Purpose', $request->header('Purpose', '')));
-        $isPrefetch = str_contains($purpose, 'prefetch');
+        // Opening a downloaded chapter marks it read — but only when a person
+        // actually opened it. Background fetches are skipped (see
+        // isBackgroundFetch); the page tells the reader JS via `deferRead` so it
+        // can mark the chapter once it is genuinely shown (a rendered Turbo
+        // prefetch, or an inline continuous-reading section scrolled into view).
+        $background = $this->isBackgroundFetch($request);
+        $unread = $chapter->status && $chapter->read_at === null;
 
-        if (!$isPrefetch && $chapter->status && $chapter->read_at === null) {
+        if (!$background && $unread) {
             $chapter->forceFill(['read_at' => now()])->saveQuietly();
             CacheHelper::clearNovelCache($chapter->novel_id);
         }
@@ -71,11 +65,38 @@ class NovelChapterController extends Controller
                 'url' => route('chapters.show', $chapter->id),
                 'progress' => $chapter->read_progress,
                 'read' => $chapter->read_at !== null,
+                // Served to a background fetch without being marked read: the
+                // client marks it when the chapter is actually displayed.
+                'deferRead' => $background && $unread,
                 'hasContent' => (bool) $chapter->rawText(),
                 'prev' => $prev ? ['id' => $prev->id, 'chapter' => $prev->chapter, 'label' => $prev->label, 'url' => route('chapters.show', $prev->id)] : null,
                 'next' => $next ? ['id' => $next->id, 'chapter' => $next->chapter, 'label' => $next->label, 'url' => route('chapters.show', $next->id)] : null,
             ],
         ]);
+    }
+
+    /**
+     * Whether this request is a fetch the reader never asked to see:
+     *  - browser / Turbo prefetches (`Sec-Purpose`, `Purpose`, and Turbo 8's
+     *    `X-Sec-Purpose: prefetch` for hover/instant prefetch);
+     *  - our own background fetches, tagged `X-Novarr-Fetch: offline`
+     *    (service-worker "Download for offline") or `continuous` (the next
+     *    chapter appended inline before the reader reaches it);
+     *  - an explicit `?prefetch=1`.
+     */
+    protected function isBackgroundFetch(Request $request): bool
+    {
+        foreach (['Sec-Purpose', 'Purpose', 'X-Sec-Purpose', 'X-Purpose', 'X-Moz'] as $header) {
+            if (str_contains(strtolower((string) $request->header($header, '')), 'prefetch')) {
+                return true;
+            }
+        }
+
+        if (in_array(strtolower(trim((string) $request->header('X-Novarr-Fetch', ''))), ['offline', 'continuous', 'prefetch'], true)) {
+            return true;
+        }
+
+        return $request->boolean('prefetch');
     }
 
     /**
@@ -108,13 +129,33 @@ class NovelChapterController extends Controller
      */
     public function progress(Request $request, $id)
     {
-        $data = $request->validate(['progress' => 'required|integer|min:0|max:100']);
+        // `read` lets the reader mark a chapter read at the moment it is
+        // actually shown (continuous reading, a rendered prefetch) rather than
+        // when its HTML was fetched. Progress is then optional.
+        $data = $request->validate([
+            'progress' => 'required_without:read|nullable|integer|min:0|max:100',
+            'read' => 'sometimes|boolean',
+        ]);
 
-        $this->novelchapters->findOrFail($id)
-            ->forceFill(['read_progress' => $data['progress']])
-            ->saveQuietly();
+        $chapter = $this->novelchapters->findOrFail($id);
 
-        return response()->json(['success' => true]);
+        $fill = [];
+        if (isset($data['progress'])) {
+            $fill['read_progress'] = $data['progress'];
+        }
+        $markRead = !empty($data['read']) && $chapter->status && $chapter->read_at === null;
+        if ($markRead) {
+            $fill['read_at'] = now();
+        }
+
+        if ($fill) {
+            $chapter->forceFill($fill)->saveQuietly();
+        }
+        if ($markRead) {
+            CacheHelper::clearNovelCache($chapter->novel_id);
+        }
+
+        return response()->json(['success' => true, 'read' => $chapter->read_at !== null]);
     }
 
     /**
@@ -130,12 +171,7 @@ class NovelChapterController extends Controller
             ->where('blacklist', 0)
             ->where('status', 1)
             ->whereNull('read_at')
-            ->where(function ($q) use ($chapter) {
-                $q->where('book', '<', $chapter->book)
-                  ->orWhere(function ($q2) use ($chapter) {
-                      $q2->where('book', $chapter->book)->where('chapter', '<=', $chapter->chapter);
-                  });
-            })
+            ->relativeTo($chapter, '<=')
             ->update(['read_at' => now(), 'read_progress' => 100]);
 
         CacheHelper::clearNovelCache($chapter->novel_id);
@@ -148,7 +184,7 @@ class NovelChapterController extends Controller
      *
      * Scopes: 'ids' (explicit selection, default), 'all' (whole novel),
      * 'up_to' / 'from' (everything before-and-including / after-and-including
-     * an anchor chapter, in the list's (book, chapter) order).
+     * an anchor chapter, in the list's reading order — NovelChapter::ordered()).
      */
     public function bulkRead(Request $request)
     {
@@ -187,13 +223,7 @@ class NovelChapterController extends Controller
 
             $query = NovelChapter::where('novel_id', $novelId)
                 ->where('blacklist', 0)
-                ->where(function ($q) use ($anchor, $before) {
-                    $q->where('book', $before ? '<' : '>', $anchor->book)
-                        ->orWhere(function ($qq) use ($anchor, $before) {
-                            $qq->where('book', $anchor->book)
-                                ->where('chapter', $before ? '<=' : '>=', $anchor->chapter);
-                        });
-                });
+                ->relativeTo($anchor, $before ? '<=' : '>=');
         }
 
         $count = $query->update($values);

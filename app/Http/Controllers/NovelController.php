@@ -6,6 +6,7 @@ use App\Novel;
 use App\NovelChapter;
 use App\File;
 use App\Http\Helpers\CacheHelper;
+use App\Console\Commands\GenerateePub;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -72,7 +73,9 @@ class NovelController extends Controller
     public function download_epub($id) {
         $object = $this->novels->findOrFail($id);
 
-        $epub = storage_path('app/ePub/' . $object->name . ' - ' . $object->author . '.epub');
+        // Same sanitised name the generator writes (reserved characters
+        // stripped, "Unknown" for a missing author).
+        $epub = GenerateePub::epubPath($object);
 
         if (!is_file($epub)) {
             abort(404, 'No ePub has been generated for this novel yet. Use “Generate ePub” first.');
@@ -98,8 +101,8 @@ class NovelController extends Controller
     {
         $chapters = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
-            ->orderBy('book')->orderBy('chapter')
-            ->get(['id', 'chapter', 'book', 'label', 'status', 'read_at'])
+            ->ordered()
+            ->get(['id', 'chapter', 'book', 'label', 'status', 'read_at', 'kind'])
             ->map(fn($c) => [
                 'id' => $c->id,
                 'chapter' => $c->chapter,
@@ -107,6 +110,7 @@ class NovelController extends Controller
                 'label' => $c->label,
                 'downloaded' => (bool) $c->status,
                 'read' => $c->read_at !== null,
+                'note' => $c->isNote(),
             ]);
 
         return response()->json(['chapters' => $chapters]);
@@ -119,7 +123,7 @@ class NovelController extends Controller
         $query = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
             ->where('status', 1)
-            ->orderBy('book')->orderBy('chapter');
+            ->ordered();
 
         if ($request->boolean('unread')) {
             $query->whereNull('read_at');
@@ -164,6 +168,9 @@ class NovelController extends Controller
             ->withCount([
                 'chapters',
                 'chapters as downloaded_chapters_count' => fn($q) => $q->where('status', 1)->where('blacklist', 0),
+                // TOC rows known to the source — the progress denominator
+                // shared with the novel page (NovelHealth::downloadProgress).
+                'chapters as source_chapters_count' => fn($q) => $q->where('blacklist', 0),
             ]);
 
         if ($request->filled('search')) {
@@ -186,7 +193,9 @@ class NovelController extends Controller
         session(['novels_sort' => $sort]);
 
         match ($sort) {
-            'progress' => $query->orderByRaw('(downloaded_chapters_count / NULLIF(chapters_count, 0)) DESC'),
+            // Same denominator as NovelHealth::downloadProgress; * 1.0 avoids
+            // integer division on SQLite.
+            'progress' => $query->orderByRaw('(downloaded_chapters_count * 1.0 / NULLIF(CASE WHEN COALESCE(no_of_chapters, 0) > source_chapters_count THEN no_of_chapters ELSE source_chapters_count END, 0)) DESC'),
             'chapters' => $query->orderByDesc('chapters_count'),
             'updated' => $query->orderByDesc(
                 NovelChapter::select('download_date')
@@ -210,7 +219,7 @@ class NovelController extends Controller
         return view('novels.index', [
             'novels' => $query->paginate(
                 $view === 'grid' ? 48 : 25,
-                ['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id']
+                ['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters']
             ),
             'view' => $view,
             'sort' => $sort,
@@ -240,10 +249,13 @@ class NovelController extends Controller
     {
         $number = (float) $request->query('n');
 
+        // The structured number first ("12" finds chapter 12 even when its
+        // legacy value carries a part fraction), then the legacy value.
         $chapter = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
-            ->where('chapter', $number)
+            ->where(fn($q) => $q->where('number', $number)->orWhere('chapter', $number))
             ->orderByDesc('status')
+            ->ordered()
             ->first(['id']);
 
         if (!$chapter) {
@@ -469,6 +481,14 @@ class NovelController extends Controller
         }
 
         if ( $request->has('novelupdates_url') ) {
+            // A hand-edited NovelUpdates URL is a deliberate choice: treat it
+            // as a confirmed match, as the edit page's "Use this" does. Left
+            // unscored it would be auto-scored (often low) and completion
+            // refused for good.
+            $newUrl = $request->novelupdates_url ?: null;
+            if ($newUrl !== $object->novelupdates_url) {
+                $object->novelupdates_match_score = $newUrl === null ? null : 1.0;
+            }
             $object->novelupdates_url = $request->novelupdates_url ?: null;
         }
 
@@ -541,9 +561,8 @@ class NovelController extends Controller
 
         $chapters = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
-            ->orderBy('book')
-            ->orderBy('chapter')
-            ->paginate(50, ['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'download_date', 'read_at']);
+            ->ordered()
+            ->paginate(50, ['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'download_date', 'read_at', 'kind', 'attempts', 'last_failure_reason']);
 
         return view('novels.show', [
             'data' => $data,
@@ -572,7 +591,9 @@ class NovelController extends Controller
         }
 
         $html = preg_replace('/<h[1-6][^>]*>.*?<\/h[1-6]>/is', '', $html);
-        $html = trim($html);
+        // Rendered raw ({!! !!}) — sanitise here too, since rows stored
+        // before ingest-time sanitising may still carry scripts/attributes.
+        $html = sanitizeSynopsisHtml($html);
 
         $text = trim(html_entity_decode(strip_tags($html)));
 
@@ -632,6 +653,14 @@ class NovelController extends Controller
         }
 
         if ( $request->has('novelupdates_url') ) {
+            // A hand-edited NovelUpdates URL is a deliberate choice: treat it
+            // as a confirmed match, as the edit page's "Use this" does. Left
+            // unscored it would be auto-scored (often low) and completion
+            // refused for good.
+            $newUrl = $request->novelupdates_url ?: null;
+            if ($newUrl !== $object->novelupdates_url) {
+                $object->novelupdates_match_score = $newUrl === null ? null : 1.0;
+            }
             $object->novelupdates_url = $request->novelupdates_url ?: null;
         }
 
@@ -755,7 +784,7 @@ class NovelController extends Controller
                 ->where('blacklist', 0)
                 ->where('status', 1)
                 ->whereNull('read_at')
-                ->orderBy('book')->orderBy('chapter')
+                ->ordered()
                 ->value('id');
 
             // Duplicate (chapter, book) groups.
@@ -803,21 +832,16 @@ class NovelController extends Controller
     }
 
     /**
-     * Compute download progress percentage.
-     * Denominator: the largest of metadata's no_of_chapters vs the actual row count
-     * (downloaded + pending). This avoids >100% when metadata is stale or never populated.
+     * Download progress percentage — delegates to the single shared definition
+     * (NovelHealth::downloadProgress: downloaded ÷ chapters known to the
+     * source) so the novel page and the novels list never disagree.
      */
     protected function calculateProgress($novel, array $stats): int
     {
-        $total = max(
-            (int) ($novel->no_of_chapters ?? 0),
-            (int) $stats['count'] + (int) $stats['not_downloaded_count']
-        );
-
-        if ($total <= 0) {
-            return 0;
-        }
-
-        return (int) min(100, round(($stats['count'] / $total) * 100));
+        return \App\Services\NovelHealth::downloadProgress(
+            (int) $stats['count'],
+            (int) $stats['count'] + (int) $stats['not_downloaded_count'],
+            (int) ($novel->no_of_chapters ?? 0)
+        )['percent'];
     }
 }

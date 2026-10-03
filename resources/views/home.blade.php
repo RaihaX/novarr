@@ -12,24 +12,26 @@
     </div>
 </div>
 
-{{-- Stat tiles: mono figures, micro caption labels, one hairline, no shadow --}}
+{{-- Stat tiles: mono figures, micro caption labels, one hairline, no shadow.
+     Label colours follow the status triad: active/downloaded = green,
+     queued = cyan, completed (finished, nothing to do) = muted. --}}
 <div class="stat-grid">
     <a href="{{ route('novels.index', ['status' => 0]) }}" class="stat-tile stat-tile-success">
         <span class="stat-tile-value">{{ number_format($stats['active']) }}</span>
         <span class="stat-tile-label">Active</span>
         <span class="stat-tile-foot">novels tracking</span>
     </a>
-    <a href="{{ route('novels.index', ['status' => 1]) }}" class="stat-tile stat-tile-accent">
+    <a href="{{ route('novels.index', ['status' => 1]) }}" class="stat-tile stat-tile-muted">
         <span class="stat-tile-value">{{ number_format($stats['completed']) }}</span>
         <span class="stat-tile-label">Completed</span>
         <span class="stat-tile-foot">novels finished</span>
     </a>
-    <a href="#missing-section" class="stat-tile stat-tile-warning">
+    <a href="#missing-section" class="stat-tile stat-tile-pending">
         <span class="stat-tile-value">{{ number_format($stats['pending']) }}</span>
         <span class="stat-tile-label">Pending</span>
         <span class="stat-tile-foot">chapters queued</span>
     </a>
-    <a href="#recent-section" class="stat-tile stat-tile-pending">
+    <a href="#recent-section" class="stat-tile stat-tile-success">
         <span class="stat-tile-value">{{ number_format($stats['downloaded_today']) }}</span>
         <span class="stat-tile-label">Downloaded</span>
         <span class="stat-tile-foot">last 24 hours</span>
@@ -61,12 +63,15 @@
                         @if(!empty($item['url']))
                             <a href="{{ $item['url'] }}" target="_blank" rel="noopener" class="btn btn-outline-warning">Test source ↗</a>
                         @endif
-                        <button type="button" class="btn btn-secondary ignore-btn" data-id="{{ $item['id'] }}" title="Pause automatic downloads for this novel">Ignore</button>
+                        <button type="button" class="btn btn-secondary snooze-btn" data-id="{{ $item['id'] }}" data-url="{{ route('novels.attention_snooze', $item['id']) }}" title="Hide from this panel for 7 days. Downloads keep running.">Snooze 7 days</button>
                     </div>
                 </div>
             @endforeach
         </div>
+        @include('partials.snoozed-note', ['snoozed' => $snoozed ?? collect()])
     </section>
+@elseif(($snoozed ?? collect())->isNotEmpty())
+    <div class="mb-4">@include('partials.snoozed-note', ['snoozed' => $snoozed])</div>
 @endif
 
 {{-- Continue reading --}}
@@ -231,33 +236,45 @@
     const panel = document.getElementById('attentionPanel');
     const countChip = document.getElementById('attentionCount');
 
-    // "Ignore" drops the row from the panel (and pauses the novel). It must
-    // never navigate — the panel is the only thing that changes.
-    document.querySelectorAll('.ignore-btn').forEach(btn => {
+    // "Snooze 7 days" hides the row from the panel for a week. It never
+    // pauses the novel — downloads keep running — and never navigates: the
+    // row fades out in place and the count chip updates.
+    document.querySelectorAll('.snooze-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
             btn.disabled = true;
 
             try {
-                const response = await fetch(`/novels/${btn.dataset.id}/toggle-pause`, {
+                const response = await fetch(btn.dataset.url, {
                     method: 'POST',
                     headers: {
                         'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
                         'Accept': 'application/json',
+                        'Content-Type': 'application/json',
                     },
+                    body: JSON.stringify({ days: 7 }),
                 });
-                const data = await response.json();
+                const data = await response.json().catch(() => ({}));
 
-                if (data.success) {
-                    btn.closest('.attention-row')?.remove();
+                if (response.ok && data.success) {
+                    const row = btn.closest('.attention-row');
+                    const finish = () => {
+                        row?.remove();
+                        const left = panel ? panel.querySelectorAll('.attention-row').length : 0;
+                        if (countChip) countChip.textContent = left;
+                        if (!left) panel?.remove();
+                    };
+                    if (row && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                        row.classList.add('is-leaving');
+                        row.addEventListener('transitionend', finish, { once: true });
+                        setTimeout(finish, 400); // fallback if transitionend never fires
+                    } else {
+                        finish();
+                    }
 
-                    const left = panel ? panel.querySelectorAll('.attention-row').length : 0;
-                    if (countChip) countChip.textContent = left;
-                    if (!left) panel?.remove();
-
-                    Novarr.showToast('Novel paused — automatic downloads will skip it. Resume from the novel page.', 'success');
+                    Novarr.showToast(data.message || 'Snoozed for 7 days.', 'success');
                 } else {
                     btn.disabled = false;
-                    Novarr.showToast('Failed to pause novel.', 'danger');
+                    Novarr.showToast(data.message || 'Could not snooze this novel.', 'danger');
                 }
             } catch (err) {
                 btn.disabled = false;

@@ -23,8 +23,11 @@
     @vite(['resources/css/app.scss', 'resources/js/app.js'])
     @stack('styles')
 </head>
-<body>
+{{-- Views that @section('chromeless') (the reader) render without the global
+     navbar: the reader's own bar carries the way back. --}}
+<body @hasSection('chromeless') class="is-chromeless" @endif>
     <a href="#main-content" class="skip-link">Skip to content</a>
+    @unless(View::hasSection('chromeless'))
     <nav class="navbar navbar-expand-lg">
         <div class="container d-flex align-items-center">
             {{-- Brand lockup: 28px mark + 15px wordmark (handoff §4) --}}
@@ -76,6 +79,17 @@
             </div>
         </div>
     </nav>
+    @endunless
+
+    {{-- Shown by resources/js/funnel.js while Tailscale Funnel exposes this
+         instance to the public internet. Amber = warning (status triad). --}}
+    <div id="funnelBanner" class="funnel-banner d-none" role="status">
+        <div class="container funnel-banner-inner">
+            <x-icon name="triangle-alert" :size="14" class="icon" />
+            <span class="funnel-banner-text"><strong>Funnel is on.</strong> Novarr is reachable from the public internet, with no login in front of it.</span>
+            <a href="{{ route('settings.index') }}#tailscaleCard" class="funnel-banner-link">Turn off in Settings</a>
+        </div>
+    </div>
 
     <main class="py-4" id="main-content" tabindex="-1">
         <div class="container">

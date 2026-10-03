@@ -49,6 +49,11 @@ class HomeController extends Controller
         // hit should never pay for it. TTL is longer than the warm interval.
         $attention = Cache::remember('dashboard_attention', 900, fn() => $health->needingAttention());
 
+        // Novels snoozed out of the panel — listed under it so a snooze is
+        // never invisible. One indexed query, not cached (a snooze must show
+        // immediately).
+        $snoozed = $health->snoozed();
+
         $continue_reading = Cache::remember('dashboard_continue', 60, fn() => $this->continueReading());
 
         return view('home', [
@@ -56,6 +61,7 @@ class HomeController extends Controller
             'latest_chapters' => $latest_chapters,
             'stats' => $stats,
             'attention' => $attention,
+            'snoozed' => $snoozed,
             'continue_reading' => $continue_reading,
         ]);
     }
@@ -107,11 +113,11 @@ class HomeController extends Controller
             if ($inProgress) {
                 $items[] = ['novel' => $novel, 'next' => $inProgress, 'resume' => true];
             } else {
-                // Index-served by idx_novel_book_chapter (novel_id, book, chapter).
+                // First unread in reading order (idx_novel_book_sort_key).
                 $next = NovelChapter::where('novel_id', $novelId)
                     ->where('status', 1)->where('blacklist', 0)
                     ->whereNull('read_at')
-                    ->orderBy('book')->orderBy('chapter')
+                    ->ordered()
                     ->first(['id', 'chapter', 'label']);
 
                 if (!$next) {

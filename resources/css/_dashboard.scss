@@ -183,7 +183,7 @@ a.stat-tile:focus {
 .stat-tile-success .stat-tile-label { color: $success; }
 .stat-tile-pending .stat-tile-label { color: $pending; }
 .stat-tile-warning .stat-tile-label { color: $warning; }
-.stat-tile-accent  .stat-tile-label { color: $accent; }
+.stat-tile-muted   .stat-tile-label { color: $muted-fg; }
 
 // ===========================================================================
 // Panels — a card with a hairline header/footer, used for the dashboard's
@@ -536,6 +536,7 @@ a.stat-tile:focus {
     &.bar-success { background: $success; }
     &.bar-pending { background: $pending; }
     &.bar-muted   { background: $muted; }
+    &.bar-warning { background: $warning; }
 }
 
 // ===========================================================================

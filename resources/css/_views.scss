@@ -350,9 +350,10 @@
 
 .meter-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
-    gap: $s-4;
+    gap: $s-1 $s-4;
 
     .meter-label {
         font-size: $fs-caption;
@@ -651,6 +652,58 @@
         margin: 0;
         vertical-align: middle;
     }
+}
+
+// Mono "Ch. " / "Book " prefixes only appear in the stacked phone layout.
+.chapter-table .ch-num-prefix { display: none; }
+.ch-select-toggle { display: none; }
+
+// Below 768px each chapter is a two-line row: the label on line 1, then
+// number · book · status · date in mono on line 2. Checkboxes stay hidden
+// until "Select" switches the panel into selection mode.
+@include media-breakpoint-down(md) {
+    .ch-select-toggle { display: inline-flex; }
+
+    .chapter-table {
+        > thead { display: none; }
+
+        > tbody > .chapter-row {
+            display: grid;
+            grid-template-columns: auto auto auto auto minmax(0, 1fr);
+            align-items: center;
+            column-gap: $s-3;
+            row-gap: $s-1;
+            padding: $s-3 $s-5 $s-3 14px;
+            border-top: $hairline solid $border;
+            border-left: $rule-strong solid transparent;
+
+            &.is-downloaded { border-left-color: rgba($success, 0.55); }
+            &.is-queued { border-left-color: rgba($pending, 0.55); }
+
+            > td {
+                padding: 0;
+                border: 0;
+                background: transparent;
+            }
+
+            // The desktop status rule lives on the first cell; the row owns it here.
+            > td:first-child { border-left: 0; padding-left: 0; }
+
+            > .ch-select { grid-column: 1; grid-row: 1 / span 2; display: none; padding-right: $s-2; }
+            > .ch-title  { grid-column: 2 / -1; grid-row: 1; font-size: $fs-body; min-width: 0; overflow-wrap: anywhere; }
+            > .ch-num    { grid-column: 2; grid-row: 2; font-size: $fs-micro; color: $text-muted; font-weight: 400; }
+            > .ch-book   { grid-column: 3; grid-row: 2; }
+            > .ch-status { grid-column: 4; grid-row: 2; .badge { font-size: 10px; padding: 1px 6px; } }
+            > .ch-date   { grid-column: 5; grid-row: 2; justify-self: end; }
+        }
+
+        .ch-num-prefix { display: inline; color: $muted; }
+    }
+
+    .chapter-panel.is-selecting .chapter-table > tbody > .chapter-row > .ch-select { display: block; }
+
+    // A stacked table no longer needs the horizontal scroller.
+    .chapter-panel > .table-responsive { overflow-x: visible; }
 }
 
 .bulk-bar {
@@ -1105,6 +1158,44 @@ a.stack-row:hover .result-title { color: $link-hover; }
     white-space: nowrap;
 }
 
+// Unified search: "Novels" then "In chapters" section headers.
+.search-section-title {
+    display: flex;
+    align-items: center;
+    gap: $s-3;
+    margin: 0 0 $s-4;
+    font-size: $fs-section-header;
+    font-weight: $fw-section;
+    letter-spacing: $ls-section;
+    color: $text;
+}
+
+.search-novel-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $s-4;
+}
+
+.search-novel-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.search-novel-meta {
+    font-size: $fs-caption;
+    color: $text-muted;
+}
+
+.search-novel-side {
+    display: flex;
+    align-items: center;
+    gap: $s-3;
+    flex: none;
+}
+
 // ===========================================================================
 // Bookmarks
 // ===========================================================================
@@ -1179,4 +1270,21 @@ a.stack-row:hover .result-title { color: $link-hover; }
     }
 
     .btn { margin-top: $s-6; justify-content: center; }
+}
+
+// ===========================================================================
+// Discover — secondary "Add to library", indigo only on hover/focus; and the
+// client-side "Load more" reveal.
+// ===========================================================================
+.discover-add:not(:disabled):hover,
+.discover-add:not(:disabled):focus-visible {
+    color: #fff;
+    background-color: $accent;
+    border-color: $accent;
+}
+
+.discover-more {
+    display: flex;
+    justify-content: center;
+    margin-bottom: $s-8;
 }

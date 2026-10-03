@@ -1,0 +1,45 @@
+{
+    "count": 103,
+    "first": [
+        {
+            "label": "Chapter 1",
+            "url": "https://www.empirenovel.com/novel/taming-the-villainesses/1",
+            "chapter": "1",
+            "book": 0
+        },
+        {
+            "label": "Chapter 2",
+            "url": "https://www.empirenovel.com/novel/taming-the-villainesses/2",
+            "chapter": "2",
+            "book": 0
+        },
+        {
+            "label": "Chapter 3",
+            "url": "https://www.empirenovel.com/novel/taming-the-villainesses/3",
+            "chapter": "3",
+            "book": 0
+        }
+    ],
+    "last": [
+        {
+            "label": "Chapter 841",
+            "url": "https://www.empirenovel.com/novel/taming-the-villainesses/841",
+            "chapter": "841",
+            "book": 0
+        },
+        {
+            "label": "Chapter 842",
+            "url": "https://www.empirenovel.com/novel/taming-the-villainesses/842",
+            "chapter": "842",
+            "book": 0
+        },
+        {
+            "label": "Chapter 843",
+            "url": "https://www.empirenovel.com/novel/taming-the-villainesses/843",
+            "chapter": "843",
+            "book": 0
+        }
+    ],
+    "invalid_urls": 0,
+    "duplicate_urls": 0
+}

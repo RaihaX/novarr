@@ -355,19 +355,6 @@ fieldset:disabled .btn {
 
 .badge-accent { @include status($accent); }
 
-// Bootstrap's `bg-*` badge utilities are re-pointed at the same triad so
-// existing views inherit the system without markup churn.
-.badge {
-    &.bg-success, &.text-bg-success { @include status($success); }
-    &.bg-info,    &.text-bg-info    { @include status($pending); }
-    &.bg-warning, &.text-bg-warning { @include status($warning); }
-    &.bg-danger,  &.text-bg-danger  { @include status($danger); }
-    &.bg-primary, &.text-bg-primary { @include status($accent); }
-    &.bg-secondary, &.text-bg-secondary,
-    &.bg-light, &.text-bg-light,
-    &.bg-dark, &.text-bg-dark       { @include status-muted(); }
-}
-
 // Mono count chip (the "15" in the Needs Attention header).
 .chip-count {
     font-family: $font-mono;
@@ -699,6 +686,39 @@ img.novel-card-cover { display: block; padding: 0; }
         padding: $s-2 14px;
         font-size: 13px;
     }
+}
+
+// "Snoozed: X until 10 Oct" — muted footnote under the panel.
+.attention-snoozed {
+    margin: 0;
+    padding: $s-3 $s-6;
+    font-size: $fs-caption;
+    color: $text-muted;
+    border-top: $hairline solid $border;
+
+    .attention-panel > & { background: transparent; }
+    a { color: $text-muted; &:hover { color: $text; } }
+}
+.attention-snoozed-key {
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: $ls-micro;
+    text-transform: uppercase;
+    color: $muted;
+    margin-right: $s-2;
+}
+.attention-snoozed-until {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $muted;
+}
+div > .attention-snoozed { border-top: 0; padding: 0; }
+
+// Snoozed row fades out in place before it is removed (home.blade.php).
+.attention-row {
+    transition: opacity $transition-bar;
+
+    &.is-leaving { opacity: 0; pointer-events: none; }
 }
 
 @include media-breakpoint-down(md) {
@@ -1061,22 +1081,33 @@ img.novel-card-cover { display: block; padding: 0; }
 #main-content:focus { outline: none; }
 
 // PWA install nudge (bottom bar, above the safe area).
+// Pinned to both gutters and shrink-wrapped with fit-content so it is centred
+// without translateX (which capped its width at half the viewport and wrapped
+// one word per line on phones). Sits below the offcanvas layer (1040) so the
+// chapter drawer and modals always cover it.
 .pwa-install-bar {
     position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
+    left: $s-4;
+    right: $s-4;
+    width: fit-content;
+    max-width: calc(100vw - #{$s-4 * 2});
+    margin-inline: auto;
+    transform: none;
     bottom: calc(#{$s-5} + env(safe-area-inset-bottom));
-    z-index: 1080;
+    z-index: 1030;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: $s-4;
+    gap: $s-2 $s-4;
     padding: $s-3 $s-5;
     background: $surface;
     border: $hairline solid $border;
     border-radius: $radius;
     box-shadow: none;
     font-size: 13px;
-    max-width: calc(100vw - #{$s-8});
+
+    .pwa-install-text { flex: 1 1 14rem; min-width: 0; }
+    .pwa-install-actions { display: flex; gap: $s-2; }
 }
 
 // ===========================================================================
@@ -1560,4 +1591,54 @@ details.log-entry summary {
         &.always { opacity: 1; }
     }
     .chart-bar:hover .bar-value { opacity: 1; }
+}
+
+// ===========================================================================
+// Tailscale Funnel — app-wide warning strip under the navbar (amber triad,
+// full bleed, one hairline) and the danger-treated switch in Settings.
+// ===========================================================================
+.funnel-banner {
+    color: $warning;
+    background: rgba($warning, 0.12);
+    border-bottom: $hairline solid rgba($warning, 0.35);
+    font-size: 13px;
+
+    .funnel-banner-inner {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: $s-1 $s-3;
+        padding-block: $s-2;
+    }
+
+    strong { font-weight: 600; }
+    .icon { flex: none; }
+    .funnel-banner-text { flex: 1 1 0; min-width: 12rem; }
+}
+
+.funnel-banner-link {
+    margin-left: auto;
+    color: $warning;
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+
+    &:hover { color: $text; }
+}
+
+.funnel-switch {
+    padding-top: $s-4;
+    margin-top: $s-4;
+    border-top: $hairline solid $border;
+
+    // Doubled class outranks `.form-panel .form-switch .form-check-input`
+    // (_views.scss is imported after this sheet).
+    &.funnel-switch .form-check-input:checked {
+        background-color: $danger;
+        border-color: $danger;
+    }
+
+    .form-check-input:focus-visible { outline-color: $danger; }
+
+    &.funnel-switch .funnel-switch-help { color: $danger; }
 }

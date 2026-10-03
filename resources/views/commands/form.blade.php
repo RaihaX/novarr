@@ -28,7 +28,9 @@
                         <div class="form-row">
                             <label for="novel_id" class="form-label">Novel</label>
                             <select name="novel_id" id="novel_id" class="form-select">
-                                <option value="0">All novels</option>
+                                @if(empty($config['requires_novel']))
+                                    <option value="0">All novels</option>
+                                @endif
                                 @foreach($novels as $novel)
                                     <option value="{{ $novel->id }}">{{ $novel->name }}</option>
                                 @endforeach
@@ -58,6 +60,22 @@
                         </div>
                     @endif
 
+                    @if(in_array('renumber', $config['params']))
+                        <div class="form-row form-check form-switch">
+                            <input type="checkbox" name="renumber" id="renumber" class="form-check-input" value="1">
+                            <label for="renumber" class="form-check-label">Re-derive chapter numbers</label>
+                            <div class="form-text">Replace stored chapter numbers with the number read from the label/URL. Off: only chapters with no number are filled in.</div>
+                        </div>
+                    @endif
+
+                    @if(in_array('dedupe', $config['params']))
+                        <div class="form-row form-check form-switch">
+                            <input type="checkbox" name="dedupe" id="dedupe" class="form-check-input" value="1">
+                            <label for="dedupe" class="form-check-label">Remove duplicates</label>
+                            <div class="form-text">Soft-delete extra rows sharing the same book + chapter number (keeps the downloaded / oldest row).</div>
+                        </div>
+                    @endif
+
                     <div class="form-actions">
                         <button type="button" id="btnExecute" class="btn btn-primary">Execute now</button>
                         <button type="button" id="btnAsync" class="btn btn-secondary">Run in background</button>
@@ -84,6 +102,7 @@
     const output = document.getElementById('commandOutput');
     const badge = document.getElementById('statusBadge');
     const buttons = [document.getElementById('btnExecute'), document.getElementById('btnAsync')];
+    const isDestructive = @json($isDestructive);
 
     buttons[0].addEventListener('click', () => run(false));
     buttons[1].addEventListener('click', () => run(true));
@@ -95,6 +114,15 @@
 
     async function run(background) {
         const payload = Object.fromEntries(new FormData(document.getElementById('commandForm')));
+
+        // Destructive commands need an explicit OK unless it's only a dry run.
+        if (isDestructive && !payload.dry_run) {
+            const ok = await Novarr.confirmDialog(
+                @json($config['name'] . ' will modify chapter data for the selected novel. Tip: run it as a dry run first to preview the changes.'),
+                { title: @json($config['name']), confirmText: 'Run it', danger: true }
+            );
+            if (!ok) return;
+        }
 
         document.getElementById('outputPanel').classList.remove('d-none');
         output.textContent = background ? 'Command queued. Polling for results...' : 'Running...';

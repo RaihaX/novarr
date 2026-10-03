@@ -14,7 +14,8 @@ class UpdateMetadata extends Command
      *
      * @var string
      */
-    protected $signature = "novel:metadata {novel?}";
+    protected $signature = "novel:metadata {novel?}
+        {--novelupdates-url= : Force this NovelUpdates series URL for the novel (match score 1.0; requires a novel ID)}";
 
     /**
      * The console command description.
@@ -41,6 +42,28 @@ class UpdateMetadata extends Command
     public function handle()
     {
         $novelId = $this->argument("novel");
+
+        if ($forced = $this->option("novelupdates-url")) {
+            if (!$novelId) {
+                $this->error("--novelupdates-url requires a novel ID.");
+                return 1;
+            }
+            if (!preg_match('#^https?://(?:www\.)?novelupdates\.com/series/[a-z0-9-]+/?$#i', $forced)) {
+                $this->error("Not a NovelUpdates series URL: {$forced}");
+                return 1;
+            }
+            $target = Novel::find($novelId);
+            if (!$target) {
+                $this->error("Novel {$novelId} not found.");
+                return 1;
+            }
+            // A hand-picked match is fully trusted.
+            $target->forceFill([
+                "novelupdates_url" => rtrim($forced, "/") . "/",
+                "novelupdates_match_score" => 1.0,
+            ])->saveQuietly();
+            $this->info("NovelUpdates URL set to {$target->novelupdates_url} (score 1.0)");
+        }
 
         $query = Novel::with("file");
         if ($novelId) {

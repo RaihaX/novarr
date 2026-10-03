@@ -20,7 +20,7 @@ class SearchController extends Controller
             return response()->json([]);
         }
 
-        $novels = Novel::where('name', 'like', '%' . $q . '%')
+        $novels = Novel::whereRaw("name LIKE ? ESCAPE '\\'", ['%' . self::escapeLike($q) . '%'])
             ->orderBy('name')
             ->limit(8)
             ->get(['id', 'name', 'author']);
@@ -34,7 +34,8 @@ class SearchController extends Controller
     }
 
     /**
-     * Full-text search across downloaded chapter content + labels.
+     * Unified search: library novels whose title/author match (the same thing
+     * the navbar suggests), then downloaded chapters whose label or text match.
      */
     public function index(Request $request)
     {
@@ -43,8 +44,23 @@ class SearchController extends Controller
         $novelFilter = $novelId ? Novel::find($novelId, ['id', 'name']) : null;
         $results = collect();
         $paginator = null;
+        $novels = collect();
 
         if (mb_strlen($q) >= 2) {
+            // Novels by title or author — skipped when already scoped to one
+            // novel, and only on the first page of chapter results.
+            if (!$novelId && (int) $request->query('page', 1) <= 1) {
+                $like = '%' . self::escapeLike($q) . '%';
+                $novels = Novel::where(fn($w) => $w
+                        ->whereRaw("name LIKE ? ESCAPE '\\'", [$like])
+                        ->orWhereRaw("author LIKE ? ESCAPE '\\'", [$like]))
+                    ->withCount(['chapters as downloaded_chapters_count' => fn($c) => $c->where('status', 1)->where('blacklist', 0)])
+                    ->orderBy('name')
+                    ->orderBy('id')
+                    ->limit(10)
+                    ->get(['id', 'name', 'author', 'status', 'paused_at']);
+            }
+
             $isMysql = \Illuminate\Support\Facades\DB::connection()->getDriverName() === 'mysql';
 
             $paginator = NovelChapter::with(['novel:id,name', 'text'])
@@ -56,9 +72,14 @@ class SearchController extends Controller
                         ->whereFullText('label', $q)
                         ->orWhereHas('text', fn($t) => $t->whereFullText('content', $q))),
                     fn($query) => $query->where(fn($w) => $w
-                        ->where('label', 'like', '%' . $q . '%')
-                        ->orWhereHas('text', fn($t) => $t->where('content', 'like', '%' . $q . '%')))
+                        ->whereRaw("label LIKE ? ESCAPE '\\'", ['%' . self::escapeLike($q) . '%'])
+                        ->orWhereHas('text', fn($t) => $t->whereRaw("content LIKE ? ESCAPE '\\'", ['%' . self::escapeLike($q) . '%'])))
                 )
+                // Stable order so pagination never repeats or skips rows.
+                ->orderBy('novel_id')
+                ->orderBy('book')
+                ->orderBy('chapter')
+                ->orderBy('id')
                 ->paginate(40, ['id', 'novel_id', 'chapter', 'book', 'label'])
                 ->withQueryString();
 
@@ -79,6 +100,7 @@ class SearchController extends Controller
             'grouped' => $results->groupBy(fn($r) => $r['novel']->name),
             'paginator' => $paginator,
             'novelFilter' => $novelFilter,
+            'novels' => $novels,
         ]);
     }
 
@@ -101,5 +123,11 @@ class SearchController extends Controller
         $excerpt = ($start > 0 ? '… ' : '') . mb_substr($text, $start, 200) . ' …';
 
         return $excerpt;
+    }
+
+    /** Literal LIKE: "100%" must match the text "100%", not everything. */
+    public static function escapeLike(string $q): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q);
     }
 }

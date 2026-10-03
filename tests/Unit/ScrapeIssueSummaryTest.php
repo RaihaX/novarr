@@ -131,4 +131,28 @@ class ScrapeIssueSummaryTest extends TestCase
         unset($all['no_content'], $all['fetch_failed']);
         $this->assertStringContainsString('only contain 40–90 words', ChapterScraper::summarizeScrapeIssue($all));
     }
+
+    /** The "need >N" figure follows the configured minimum (audit F35). */
+    public function testShortContentSummaryUsesConfiguredMinimum()
+    {
+        $stats = ['short_content' => 2, 'short_min' => 40, 'short_max' => 90];
+
+        $this->assertSame(
+            'chapter pages only contain 40–90 words (need >150) '
+                . '— the source may only have stub chapters',
+            ChapterScraper::summarizeScrapeIssue($stats, 150)
+        );
+        $this->assertStringContainsString('(need >250)', ChapterScraper::summarizeScrapeIssue($stats));
+        $this->assertStringContainsString('(need >250)', ChapterScraper::summarizeScrapeIssue($stats, null));
+    }
+
+    /** Needs-review chapters (audit A7) are not failures and never name a cause. */
+    public function testNeedsReviewIsIgnored()
+    {
+        $this->assertNull(ChapterScraper::summarizeScrapeIssue(['needs_review' => 5]));
+        $this->assertSame(
+            'chapter pages could not be fetched',
+            ChapterScraper::summarizeScrapeIssue(['fetch_failed' => 1, 'needs_review' => 9])
+        );
+    }
 }

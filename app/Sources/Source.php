@@ -10,9 +10,10 @@ use App\Novel;
  * adding a new site is a single class rather than edits scattered across
  * Helpers.php and the metadata commands.
  *
- * Chapter *content* extraction is deliberately not here: chapterGenerator()
- * already pulls content generically via a shared multi-selector list that
- * covers every source, so there's nothing source-specific to encapsulate.
+ * Chapter content extraction is generic (App\Scraping\ContentExtractor);
+ * a source only supplies hints for it — where the body lives, what to
+ * strip, and how a chapter split over several pages links to its next
+ * part. Extend AbstractSource to get sensible defaults for those.
  */
 interface Source
 {
@@ -34,4 +35,26 @@ interface Source
 
     /** Short label for logs/UI, e.g. "novelarrow". */
     public function name(): string;
+
+    /**
+     * Ordered CSS selectors for the chapter body container. The first whose
+     * paragraphs look like a whole chapter wins.
+     *
+     * @return string[]
+     */
+    public function contentSelectors(): array;
+
+    /**
+     * CSS selectors for nodes removed from a chapter page before extraction
+     * (ad slots, nav bars, "report chapter" notices, share bars).
+     *
+     * @return string[]
+     */
+    public function removeSelectors(): array;
+
+    /**
+     * Selector for a "next part" link when the site splits one chapter over
+     * several pages, or null when it never does.
+     */
+    public function supportsMultiPage(): ?string;
 }

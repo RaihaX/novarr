@@ -3,6 +3,7 @@
 @php $hasFilters = request('search') || request()->filled('status') || request()->filled('tag'); @endphp
 
 @section('content')
+@php $attentionIds = \App\Services\NovelHealth::attentionIds(); @endphp
 <div class="page-head">
     <div class="page-head-titles">
         <span class="page-head-kicker">{{ number_format($novels->total()) }} {{ Str::plural('novel', $novels->total()) }}{{ $hasFilters ? ' · filtered' : '' }}</span>
@@ -55,12 +56,20 @@
     <div class="poster-grid mb-4">
         @forelse($novels as $novel)
             @php
-                $total = $novel->chapters_count ?? 0;
-                $downloaded = $novel->downloaded_chapters_count ?? 0;
-                $pct = $total > 0 ? round(($downloaded / $total) * 100) : 0;
+                // One progress definition, shared with the novel page:
+                // downloaded ÷ chapters known to the source (NovelHealth).
+                $prog = \App\Services\NovelHealth::downloadProgress(
+                    (int) ($novel->downloaded_chapters_count ?? 0),
+                    (int) ($novel->source_chapters_count ?? $novel->chapters_count ?? 0),
+                    (int) ($novel->no_of_chapters ?? 0)
+                );
+                $total = $prog['total'];
+                $downloaded = $prog['downloaded'];
+                $pct = $prog['percent'];
                 $isCompleted = (bool) $novel->status;
                 $isPaused = !$isCompleted && $novel->paused_at;
-                $barClass = $isPaused ? 'bar-muted' : 'bar-success';
+                $progState = \App\Services\NovelHealth::progressState($pct, $isCompleted, (bool) $isPaused, isset($attentionIds[$novel->id]));
+                $barClass = ['downloaded' => 'bar-success', 'queued' => 'bar-pending', 'attention' => 'bar-warning', 'paused' => 'bar-muted'][$progState];
             @endphp
             <a href="{{ route('novels.show', $novel->id) }}" class="poster-card" title="{{ $novel->name }}">
                 <div class="poster-cover">
@@ -87,7 +96,7 @@
                     </div>
                 </div>
                 <div class="poster-title">{{ $novel->name }}</div>
-                <div class="poster-meta">{{ $downloaded }} / {{ $total }}</div>
+                <div class="poster-meta">{{ number_format($downloaded) }} of {{ number_format($total) }} · {{ $pct }}%</div>
             </a>
         @empty
             @include('novels._empty', ['hasFilters' => $hasFilters])
@@ -109,12 +118,20 @@
     <div class="novels-list">
         @forelse($novels as $novel)
             @php
-                $total = $novel->chapters_count ?? 0;
-                $downloaded = $novel->downloaded_chapters_count ?? 0;
-                $pct = $total > 0 ? round(($downloaded / $total) * 100) : 0;
+                // One progress definition, shared with the novel page:
+                // downloaded ÷ chapters known to the source (NovelHealth).
+                $prog = \App\Services\NovelHealth::downloadProgress(
+                    (int) ($novel->downloaded_chapters_count ?? 0),
+                    (int) ($novel->source_chapters_count ?? $novel->chapters_count ?? 0),
+                    (int) ($novel->no_of_chapters ?? 0)
+                );
+                $total = $prog['total'];
+                $downloaded = $prog['downloaded'];
+                $pct = $prog['percent'];
                 $isCompleted = (bool) $novel->status;
                 $isPaused = !$isCompleted && $novel->paused_at;
-                $barClass = $isPaused ? 'bar-muted' : 'bar-success';
+                $progState = \App\Services\NovelHealth::progressState($pct, $isCompleted, (bool) $isPaused, isset($attentionIds[$novel->id]));
+                $barClass = ['downloaded' => 'bar-success', 'queued' => 'bar-pending', 'attention' => 'bar-warning', 'paused' => 'bar-muted'][$progState];
             @endphp
             <div class="novel-row">
                 <input type="checkbox" class="form-check-input novel-check flex-shrink-0" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}">
@@ -127,7 +144,7 @@
                     <div class="novel-row-body">
                         <div class="novel-row-title">{{ $novel->name }}</div>
                         <div class="novel-row-meta">{{ $novel->author ?? 'Unknown author' }}</div>
-                        <div class="novel-row-counts">{{ $downloaded }} / {{ $total }} · {{ $pct }}%</div>
+                        <div class="novel-row-counts">{{ number_format($downloaded) }} of {{ number_format($total) }} on source · {{ $pct }}%</div>
                         <div class="novel-row-progress" aria-hidden="true"><span class="{{ $barClass }}" style="width: {{ $pct }}%"></span></div>
                     </div>
                     @if($isCompleted)
@@ -162,12 +179,20 @@
             <tbody>
                 @forelse($novels as $novel)
                     @php
-                        $total = $novel->chapters_count ?? 0;
-                        $downloaded = $novel->downloaded_chapters_count ?? 0;
-                        $pct = $total > 0 ? round(($downloaded / $total) * 100) : 0;
+                        // One progress definition, shared with the novel page:
+                        // downloaded ÷ chapters known to the source (NovelHealth).
+                        $prog = \App\Services\NovelHealth::downloadProgress(
+                            (int) ($novel->downloaded_chapters_count ?? 0),
+                            (int) ($novel->source_chapters_count ?? $novel->chapters_count ?? 0),
+                            (int) ($novel->no_of_chapters ?? 0)
+                        );
+                        $total = $prog['total'];
+                        $downloaded = $prog['downloaded'];
+                        $pct = $prog['percent'];
                         $isCompleted = (bool) $novel->status;
                         $isPaused = !$isCompleted && $novel->paused_at;
-                        $barClass = $isPaused ? 'bar-muted' : 'bar-success';
+                        $progState = \App\Services\NovelHealth::progressState($pct, $isCompleted, (bool) $isPaused, isset($attentionIds[$novel->id]));
+                        $barClass = ['downloaded' => 'bar-success', 'queued' => 'bar-pending', 'attention' => 'bar-warning', 'paused' => 'bar-muted'][$progState];
                     @endphp
                     <tr>
                         <td class="col-select"><input type="checkbox" class="form-check-input novel-check" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}"></td>
@@ -196,10 +221,10 @@
                                 <div class="progress" role="progressbar" aria-label="Downloaded chapters" aria-valuenow="{{ $pct }}" aria-valuemin="0" aria-valuemax="100">
                                     <div class="progress-bar {{ $barClass }}" style="width: {{ $pct }}%"></div>
                                 </div>
-                                <span class="progress-value">{{ $pct }}%</span>
+                                <span class="progress-value" data-progress-percent>{{ $pct }}%</span>
                             </div>
                         </td>
-                        <td class="col-chapters">{{ $downloaded }} / {{ $total }}</td>
+                        <td class="col-chapters" title="Downloaded of chapters on source">{{ number_format($downloaded) }} / {{ number_format($total) }}</td>
                         <td class="col-actions">
                             <span class="row-actions">
                                 <button type="button" class="btn btn-outline-success novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" data-paused="{{ $novel->paused_at ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">

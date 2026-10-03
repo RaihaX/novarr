@@ -115,15 +115,30 @@
             </div>
         </div>
 
-        {{-- Meters: download progress (accent), reading progress (always amber) --}}
+        {{-- Meters: download progress (status colour), reading progress (always amber).
+             Download progress uses the one shared definition — downloaded ÷
+             chapters known to the source — so it matches the novels list. --}}
+        @php
+            $dl = \App\Services\NovelHealth::downloadProgress(
+                (int) $current_chapters,
+                (int) $current_chapters + (int) $current_chapters_not_downloaded,
+                (int) ($data->no_of_chapters ?? 0)
+            );
+            $dlState = \App\Services\NovelHealth::progressState(
+                $dl['percent'],
+                (bool) $data->status,
+                !$data->status && (bool) $data->paused_at,
+                isset(\App\Services\NovelHealth::attentionIds()[$data->id])
+            );
+        @endphp
         <div>
             <div class="meter">
                 <div class="meter-head">
-                    <span class="meter-label">Library progress</span>
-                    <span class="meter-value">{{ $progress }}%</span>
+                    <span class="meter-label">Downloaded</span>
+                    <span class="meter-value">{{ number_format($dl['downloaded']) }} of {{ number_format($dl['total']) }} on source · <span data-progress-percent>{{ $dl['percent'] }}%</span></span>
                 </div>
-                <div class="progress {{ $progress >= 100 ? 'progress-downloaded' : '' }}" role="progressbar" aria-label="Download progress" aria-valuenow="{{ $progress }}" aria-valuemin="0" aria-valuemax="100">
-                    <div class="progress-bar" style="width: {{ $progress }}%"></div>
+                <div class="progress progress-{{ $dlState }}" role="progressbar" aria-label="Download progress" aria-valuenow="{{ $dl['percent'] }}" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress-bar" style="width: {{ $dl['percent'] }}%"></div>
                 </div>
             </div>
 
@@ -232,38 +247,89 @@
 
         <div class="qa-section">
             <div class="qa-label">Maintenance</div>
-            <div class="qa-buttons">
+            {{-- Buttons with data-dry-run-first preview the change (dry run) and
+                 ask for confirmation before the real run; see script below. --}}
+            <div class="qa-buttons" id="maintenanceButtons">
                 <button class="btn btn-secondary cmd-btn" data-command="metadata" data-novel="{{ $data->id }}" title="Re-fetch title, author, cover and synopsis from the source">
                     <span class="cmd-label">Refresh metadata</span>
                     <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
                     <span class="cmd-done d-none">Done</span>
                     <span class="cmd-fail d-none">Failed</span>
                 </button>
-                <button class="btn btn-secondary cmd-btn" data-command="normalize_labels" data-novel="{{ $data->id }}" title="Rewrite chapter labels/numbers to a consistent format">
+                <button class="btn btn-secondary cmd-btn" data-command="normalize_labels" data-novel="{{ $data->id }}" data-dry-run-first title="Rewrite chapter labels/numbers to a consistent format">
                     <span class="cmd-label">Normalize labels</span>
                     <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
                     <span class="cmd-done d-none">Done</span>
                     <span class="cmd-fail d-none">Failed</span>
                 </button>
-                <button class="btn btn-secondary cmd-btn" data-command="fix_chapters" data-novel="{{ $data->id }}" title="Resolve chapters with missing numbers by elimination against the novel sequence">
+                <button class="btn btn-secondary cmd-btn" data-command="fix_chapters" data-novel="{{ $data->id }}" data-dry-run-first title="Resolve chapters with missing numbers by elimination against the novel sequence">
                     <span class="cmd-label">Fix chapter numbers</span>
                     <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
                     <span class="cmd-done d-none">Done</span>
                     <span class="cmd-fail d-none">Failed</span>
                 </button>
-                <button class="btn btn-secondary cmd-btn" data-command="clean_content" data-novel="{{ $data->id }}" title="Strip leftover CSS and ad-widget text from downloaded chapters">
+                <button class="btn btn-secondary cmd-btn" data-command="clean_content" data-novel="{{ $data->id }}" data-dry-run-first title="Strip leftover CSS and ad-widget text from downloaded chapters">
                     <span class="cmd-label">Clean formatting</span>
                     <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
                     <span class="cmd-done d-none">Done</span>
                     <span class="cmd-fail d-none">Failed</span>
                 </button>
-                <button class="btn btn-secondary cmd-btn" data-command="chapter_cleaner" data-novel="{{ $data->id }}" title="Re-download chapters that saved with little or no content">
+                <button class="btn btn-secondary cmd-btn" data-command="chapter_cleaner" data-novel="{{ $data->id }}" data-dry-run-first title="Re-download chapters that saved with little or no content">
                     <span class="cmd-label">Fix empty chapters</span>
                     <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
                     <span class="cmd-done d-none">Done</span>
                     <span class="cmd-fail d-none">Failed</span>
                 </button>
+                <a href="{{ route('novels.snapshots', $data->id) }}" class="btn btn-secondary" title="Pages the scraper fetched but could not read, kept for diagnosis">Snapshots</a>
             </div>
+            <script>
+            // Destructive maintenance commands: run a dry run first, show its
+            // output, and only start the real run (via the page's normal
+            // cmd-btn handler) once the user confirms. Capture phase on the
+            // container fires before the button's own click listener.
+            (function () {
+                const box = document.getElementById('maintenanceButtons');
+                box.addEventListener('click', async (e) => {
+                    const btn = e.target.closest('button[data-dry-run-first]');
+                    if (!btn || btn.disabled) return;
+                    if (btn.dataset.confirmed === '1') { delete btn.dataset.confirmed; return; }
+                    e.stopImmediatePropagation();
+                    e.preventDefault();
+
+                    const label = btn.querySelector('.cmd-label')?.textContent.trim() || btn.dataset.command;
+                    const pane = document.getElementById('cmdOutput');
+                    const out = document.getElementById('cmdOutputText');
+                    pane.classList.remove('d-none');
+                    out.textContent = `> ${btn.dataset.command} --novel=${btn.dataset.novel} --dry-run\nPreviewing...`;
+                    btn.disabled = true;
+
+                    let result;
+                    try {
+                        result = await Novarr.executeCommand({ command: btn.dataset.command, novel_id: btn.dataset.novel, dry_run: 1 });
+                    } catch (err) {
+                        result = { success: false, message: err.message };
+                    } finally {
+                        btn.disabled = false;
+                    }
+
+                    const text = result.output || result.error || result.message || '';
+                    out.textContent = `> ${btn.dataset.command} --novel=${btn.dataset.novel} --dry-run\n${text}`;
+                    if (!result.success) {
+                        Novarr.showToast(`${label}: dry run failed — nothing was changed.`, 'danger');
+                        return;
+                    }
+
+                    const summary = text.split('\n').map(l => l.trim()).filter(Boolean).slice(-3).join(' · ');
+                    const ok = await Novarr.confirmDialog(
+                        `Dry run finished (output below the buttons). ${summary} — apply these changes for real?`,
+                        { title: label, confirmText: 'Apply', danger: true }
+                    );
+                    if (!ok) return;
+                    btn.dataset.confirmed = '1';
+                    btn.click();
+                }, true);
+            })();
+            </script>
         </div>
     </div>
     <div id="cmdOutput" class="d-none">
@@ -274,10 +340,16 @@
 {{-- ===================================================================== --}}
 {{-- Chapters                                                               --}}
 {{-- ===================================================================== --}}
-<div class="card">
+@php
+    // The Book column only earns its space when some chapter is in a book.
+    $showBookCol = $chapters->contains(fn($c) => (int) $c->book !== 0);
+@endphp
+<div class="card chapter-panel" id="chapterPanel">
     <div class="panel-head">
         <h2 class="panel-title">Chapters <span class="count-chip">{{ number_format($chapters->total()) }}</span></h2>
         <div class="panel-tools">
+            {{-- Phones: checkboxes stay hidden until selection mode is on --}}
+            <button type="button" id="chSelectToggle" class="btn btn-ghost btn-sm ch-select-toggle" aria-pressed="false" aria-controls="chapterTable">Select</button>
             <div id="chBulkBar" class="bulk-bar">
                 <span id="chBulkCount" class="bulk-count"></span>
                 <button type="button" id="chMarkRead" class="btn btn-ghost btn-sm">Mark read</button>
@@ -309,12 +381,14 @@
         </div>
     </div>
     <div class="table-responsive">
-        <table class="table table-hover chapter-table align-middle">
+        <table class="table table-hover chapter-table align-middle" id="chapterTable">
             <thead>
                 <tr>
                     <th style="width: 46px"><input type="checkbox" id="chSelectAll" class="form-check-input" aria-label="Select all chapters"></th>
                     <th style="width: 84px">Ch.</th>
-                    <th style="width: 60px">Book</th>
+                    @if($showBookCol)
+                        <th style="width: 60px">Book</th>
+                    @endif
                     <th>Title</th>
                     <th style="width: 118px">Status</th>
                     <th style="width: 150px">Downloaded</th>
@@ -323,10 +397,12 @@
             <tbody>
                 @forelse($chapters as $chapter)
                     <tr class="chapter-row {{ $chapter->status ? 'is-downloaded' : 'is-queued' }}">
-                        <td><input type="checkbox" class="form-check-input ch-check" value="{{ $chapter->id }}" aria-label="Select chapter {{ $chapter->chapter }}"></td>
-                        <td class="ch-num">{{ $chapter->chapter }}</td>
-                        <td class="ch-book">{{ $chapter->book ?: '—' }}</td>
-                        <td>
+                        <td class="ch-select"><input type="checkbox" class="form-check-input ch-check" value="{{ $chapter->id }}" aria-label="Select chapter {{ $chapter->chapter }}"></td>
+                        <td class="ch-num"><span class="ch-num-prefix">Ch. </span>{{ $chapter->chapter }}</td>
+                        @if($showBookCol)
+                            <td class="ch-book"><span class="ch-num-prefix">Book </span>{{ $chapter->book ?: '—' }}</td>
+                        @endif
+                        <td class="ch-title">
                             @if($chapter->read_at)
                                 <span class="read-check" title="Read {{ $chapter->read_at->format('Y-m-d H:i') }}">✓</span>
                             @endif
@@ -335,8 +411,15 @@
                             @else
                                 <span class="text-muted">{{ Str::limit($chapter->label, 90) }}</span>
                             @endif
+                            @if($chapter->isNote())
+                                <span class="badge badge-muted ms-1" title="Author's note — a message from the author or translator, not a story chapter">Note</span>
+                            @endif
+                            {{-- attempts may not be selected/migrated yet; ?? keeps this safe either way --}}
+                            @if((int) ($chapter->attempts ?? 0) >= \App\NovelChapter::REVIEW_ATTEMPTS)
+                                <span class="badge badge-muted ms-1" title="Download failed {{ (int) ($chapter->attempts ?? 0) }} times — still retried every 3 days, but it needs a look{{ !empty($chapter->last_failure_reason) ? ' (last: ' . $chapter->last_failure_reason . ')' : '' }}">Needs review</span>
+                            @endif
                         </td>
-                        <td>
+                        <td class="ch-status">
                             @if($chapter->status)
                                 <span class="badge badge-downloaded">Downloaded</span>
                             @else
@@ -347,7 +430,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="6" class="text-center text-muted py-4">No chapters found.</td>
+                        <td colspan="{{ $showBookCol ? 6 : 5 }}" class="text-center text-muted py-4">No chapters found.</td>
                     </tr>
                 @endforelse
             </tbody>
@@ -591,6 +674,20 @@
     }
 
     chChecks().forEach(c => c.addEventListener('change', refreshChBulk));
+
+    // Phones: "Select" reveals the row checkboxes; turning it off clears them.
+    const chPanel = document.getElementById('chapterPanel');
+    const chSelectToggle = document.getElementById('chSelectToggle');
+    chSelectToggle?.addEventListener('click', () => {
+        const on = !chPanel.classList.contains('is-selecting');
+        chPanel.classList.toggle('is-selecting', on);
+        chSelectToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+        chSelectToggle.textContent = on ? 'Done' : 'Select';
+        if (!on) {
+            chChecks().forEach(c => c.checked = false);
+            refreshChBulk();
+        }
+    });
     chSelectAll?.addEventListener('change', () => {
         chChecks().forEach(c => c.checked = chSelectAll.checked);
         refreshChBulk();
@@ -599,7 +696,7 @@
     // Toggle a chapter row's read indicator (amber ✓ + muted title) in place,
     // so the long paginated table keeps its scroll position after a bulk action.
     function setChapterRowRead(checkbox, read) {
-        const cell = checkbox.closest('tr')?.querySelector('td:nth-child(4)');
+        const cell = checkbox.closest('tr')?.querySelector('td.ch-title');
         if (!cell) return;
 
         let mark = cell.querySelector('.read-check');

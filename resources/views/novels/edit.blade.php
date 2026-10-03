@@ -80,6 +80,29 @@
                         <input type="url" name="novelupdates_url" id="novelupdates_url" class="form-control" value="{{ old('novelupdates_url', $novel->novelupdates_url) }}" placeholder="https://www.novelupdates.com/series/…">
                         <div class="form-text">Set this when the title differs from NovelUpdates. Leave blank to auto-resolve, then run Refresh Metadata.</div>
                     </div>
+                    <div class="field field-full" id="nuMatch" data-candidates-url="{{ route('novels.metadata_candidates', $novel->id) }}" data-choose-url="{{ route('novels.metadata_choose', $novel->id) }}">
+                        @php
+                            $nuScore = $novel->novelupdates_match_score;
+                            $nuThreshold = \App\Scraping\NovelUpdatesMatcher::THRESHOLD;
+                        @endphp
+                        <label class="form-label">NovelUpdates match <span class="field-hint">completion is only trusted at a score of {{ number_format($nuThreshold, 2) }}+</span></label>
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            @if($novel->novelupdates_url)
+                                <a href="{{ $novel->novelupdates_url }}" target="_blank" rel="noopener" class="mono">{{ Str::after($novel->novelupdates_url, 'novelupdates.com') }}</a>
+                            @else
+                                <span class="text-muted">No series matched yet</span>
+                            @endif
+                            @if($nuScore === null)
+                                <span class="badge badge-muted">unscored</span>
+                            @elseif((float) $nuScore >= $nuThreshold)
+                                <span class="badge badge-success">score {{ number_format((float) $nuScore, 3) }}</span>
+                            @else
+                                <span class="badge badge-warning">score {{ number_format((float) $nuScore, 3) }}</span>
+                            @endif
+                            <button type="button" class="btn btn-secondary btn-sm" data-nu-find>Find candidates</button>
+                        </div>
+                        <ul class="list-unstyled mt-2 mb-0 d-none" data-nu-list></ul>
+                    </div>
                     <div class="field field-half">
                         <label for="chapter_url" class="form-label">Chapter URL base</label>
                         <input type="url" name="chapter_url" id="chapter_url" class="form-control" value="{{ old('chapter_url', $novel->chapter_url) }}">
@@ -117,3 +140,95 @@
     </form>
 </div>
 @endsection
+
+@push('scripts')
+<script>
+(() => {
+    // NovelUpdates match: list scored search candidates, pick one by hand.
+    const box = document.getElementById('nuMatch');
+    if (!box) return;
+
+    const list = box.querySelector('[data-nu-list]');
+    const findBtn = box.querySelector('[data-nu-find]');
+    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+
+    const row = (c, threshold) => {
+        const li = document.createElement('li');
+        li.className = 'd-flex flex-wrap align-items-center gap-2 py-1';
+
+        const badge = document.createElement('span');
+        badge.className = 'badge ' + (c.score >= threshold ? 'badge-success' : 'badge-muted');
+        badge.textContent = c.score.toFixed(3);
+
+        const link = document.createElement('a');
+        link.href = c.url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = c.title || c.url;
+
+        const use = document.createElement('button');
+        use.type = 'button';
+        use.className = 'btn btn-ghost btn-sm';
+        use.textContent = 'Use this';
+        use.addEventListener('click', () => choose(c, use));
+
+        li.append(badge, link, use);
+        return li;
+    };
+
+    async function choose(candidate, btn) {
+        const ok = await Novarr.confirmDialog(
+            `Use "${candidate.title || candidate.url}" as this novel's NovelUpdates series? Metadata will be refreshed from it.`,
+            { title: 'Use this match', confirmText: 'Use this' }
+        );
+        if (!ok) return;
+
+        btn.disabled = true;
+        try {
+            const response = await fetch(box.dataset.chooseUrl, {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': csrf(), 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: candidate.url }),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || 'Could not save the match.');
+
+            Novarr.showToast(data.message, 'success');
+            const urlInput = document.getElementById('novelupdates_url');
+            if (urlInput) urlInput.value = data.url;
+            Novarr.softRefresh(800);
+        } catch (err) {
+            Novarr.showToast(err.message, 'danger');
+            btn.disabled = false;
+        }
+    }
+
+    findBtn.addEventListener('click', async () => {
+        findBtn.disabled = true;
+        const label = findBtn.textContent;
+        findBtn.textContent = 'Searching…';
+        list.replaceChildren();
+        try {
+            const response = await fetch(box.dataset.candidatesUrl, { headers: { 'Accept': 'application/json' } });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || 'Search failed.');
+
+            if (!data.candidates.length) {
+                const li = document.createElement('li');
+                li.className = 'text-muted';
+                li.textContent = 'No NovelUpdates results for this name — paste the series URL above instead.';
+                list.append(li);
+            } else {
+                data.candidates.forEach(c => list.append(row(c, data.threshold)));
+            }
+            list.classList.remove('d-none');
+        } catch (err) {
+            Novarr.showToast(err.message, 'danger');
+        } finally {
+            findBtn.disabled = false;
+            findBtn.textContent = label;
+        }
+    });
+})();
+</script>
+@endpush

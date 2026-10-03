@@ -53,19 +53,21 @@
                         <td class="log-time">{{ $entry['timestamp'] }}</td>
                         <td>
                             @php
-                                $levelColors = [
-                                    'emergency' => 'danger',
-                                    'alert' => 'danger',
-                                    'critical' => 'danger',
-                                    'error' => 'danger',
-                                    'warning' => 'warning',
-                                    'notice' => 'info',
-                                    'info' => 'info',
-                                    'debug' => 'secondary',
+                                // Status-triad badge classes, never Bootstrap bg-* (their
+                                // !important fills defeat the triad).
+                                $levelStates = [
+                                    'emergency' => 'failed',
+                                    'alert' => 'failed',
+                                    'critical' => 'failed',
+                                    'error' => 'failed',
+                                    'warning' => 'attention',
+                                    'notice' => 'queued',
+                                    'info' => 'queued',
+                                    'debug' => 'muted',
                                 ];
-                                $color = $levelColors[$entry['level']] ?? 'secondary';
+                                $state = $levelStates[$entry['level']] ?? 'muted';
                             @endphp
-                            <span class="badge bg-{{ $color }}">{{ $entry['level'] }}</span>
+                            <span class="badge badge-{{ $state }}">{{ $entry['level'] }}</span>
                         </td>
                         <td>
                             @if(mb_strlen($entry['message']) > 400)
@@ -117,9 +119,9 @@
 <script>
 (function(){
 
-    const levelColors = {
-        emergency: 'danger', alert: 'danger', critical: 'danger', error: 'danger',
-        warning: 'warning', notice: 'info', info: 'info', debug: 'secondary',
+    const levelStates = {
+        emergency: 'failed', alert: 'failed', critical: 'failed', error: 'failed',
+        warning: 'attention', notice: 'queued', info: 'queued', debug: 'muted',
     };
     const tbody = document.getElementById('logBody');
     const liveToggle = document.getElementById('liveTail');
@@ -137,7 +139,7 @@
 
             const lvlTd = document.createElement('td');
             const badge = document.createElement('span');
-            badge.className = 'badge bg-' + (levelColors[entry.level] || 'secondary');
+            badge.className = 'badge badge-' + (levelStates[entry.level] || 'muted');
             badge.textContent = entry.level;
             lvlTd.appendChild(badge);
 

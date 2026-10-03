@@ -35,6 +35,7 @@ Route::put('/novels/{id}', [NovelController::class, 'update'])->name('novels.upd
 Route::post('/novels/{id}/toggle-pause', [NovelController::class, 'togglePause'])->name('novels.toggle_pause');
 Route::post('/novels/{id}/toggle-frequent', [NovelController::class, 'toggleFrequent'])->name('novels.toggle_frequent');
 Route::post('/novels/{id}/toggle-complete', [NovelController::class, 'toggleComplete'])->name('novels.toggle_complete');
+Route::post('/novels/{id}/attention/snooze', [\App\Http\Controllers\AttentionController::class, 'snooze'])->name('novels.attention_snooze');
 Route::post('/novels/{id}/tags', [NovelController::class, 'syncTags'])->name('novels.sync_tags');
 Route::post('/tags', [NovelController::class, 'storeTag'])->name('tags.store');
 Route::get('/novels/{id}/jump', [NovelController::class, 'jumpChapter'])->name('novels.jump_chapter');
@@ -42,8 +43,11 @@ Route::post('/novels/{id}/remove-duplicates', [NovelController::class, 'removeDu
 Route::delete('/novels/{id}', [NovelController::class, 'destroy'])->name('novels.destroy');
 Route::get('/novels/{id}/epub', [NovelController::class, 'download_epub'])->name('novels.download_epub');
 Route::get('/novels/{id}/metadata', [NovelController::class, 'update_metadata'])->name('novels.get_metadata');
+Route::get('/novels/{id}/metadata/candidates', [\App\Http\Controllers\MetadataController::class, 'candidates'])->name('novels.metadata_candidates');
+Route::post('/novels/{id}/metadata/choose', [\App\Http\Controllers\MetadataController::class, 'choose'])->name('novels.metadata_choose');
 Route::get('/novels/{id}/offline-manifest', [NovelController::class, 'offlineManifest'])->name('novels.offline_manifest');
 Route::get('/novels/{id}/chapters-json', [NovelController::class, 'chaptersJson'])->name('novels.chapters_json');
+Route::get('/novels/{id}/snapshots/{file?}', [\App\Http\Controllers\SnapshotController::class, 'show'])->where('file', '[0-9]+-[a-z_]+-[0-9_]+\.html\.gz')->name('novels.snapshots');
 
 // Chapters
 Route::get('/chapters/{id}', [NovelChapterController::class, 'show'])->name('chapters.show');

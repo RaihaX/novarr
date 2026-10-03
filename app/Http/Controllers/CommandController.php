@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\RateLimiter;
 class CommandController extends Controller
 {
     protected $destructiveCommands = [
+        'normalize_labels',
+        'fix_chapters',
         'clean_content',
         'chapter_cleaner',
     ];
@@ -61,7 +63,9 @@ class CommandController extends Controller
             'name' => 'Normalize Chapter Labels',
             'description' => 'Normalize chapter labels to consistent format',
             'command' => 'novel:normalize_labels',
-            'params' => ['novel_id', 'dry_run'],
+            'params' => ['novel_id', 'dry_run', 'renumber', 'dedupe'],
+            // Rewrites labels/numbers — never sweep every novel from the UI.
+            'requires_novel' => true,
         ],
         'fix_chapters' => [
             'name' => 'Fix Chapter Numbers',
@@ -80,12 +84,14 @@ class CommandController extends Controller
             'description' => 'Strip leftover CSS and ad-widget text from downloaded chapters',
             'command' => 'novel:clean_chapter_content',
             'params' => ['novel_id', 'dry_run'],
+            'requires_novel' => true,
         ],
         'chapter_cleaner' => [
             'name' => 'Fix Empty Chapters',
             'description' => 'Re-download chapters that saved with little or no content',
             'command' => 'novel:chaptercleaner',
-            'params' => ['novel_id'],
+            'params' => ['novel_id', 'dry_run'],
+            'requires_novel' => true,
         ],
         'create_novel' => [
             'name' => 'Create Novel',
@@ -131,6 +137,11 @@ class CommandController extends Controller
         }
 
         $commandConfig = $this->commands[$command];
+
+        if ($error = $this->missingNovelError($commandConfig, $request->input('novel_id'))) {
+            return $error;
+        }
+
         $artisanCommand = $commandConfig['command'];
         $params = $this->buildParams($request, $commandConfig);
 
@@ -168,6 +179,10 @@ class CommandController extends Controller
             return response()->json(['success' => false, 'message' => 'Command not found'], 404);
         }
 
+        if ($error = $this->missingNovelError($this->commands[$command], $request->input('novel_id'))) {
+            return $error;
+        }
+
         $userId = 'local';
         $rateLimitKey = "{$this->rateLimitPrefix}:{$userId}";
 
@@ -203,8 +218,14 @@ class CommandController extends Controller
         if (in_array('url', $commandConfig['params']) && !empty($requestData['url'])) {
             $params['url'] = $requestData['url'];
         }
-        if (in_array('dry_run', $commandConfig['params']) && !empty($requestData['dry_run'])) {
+        if (in_array('dry_run', $commandConfig['params']) && $request->boolean('dry_run')) {
             $params['--dry-run'] = true;
+        }
+        if (in_array('renumber', $commandConfig['params']) && $request->boolean('renumber')) {
+            $params['--renumber'] = true;
+        }
+        if (in_array('dedupe', $commandConfig['params']) && $request->boolean('dedupe')) {
+            $params['--dedupe'] = true;
         }
 
         Log::info("Queuing async command: {$artisanCommand}", ['job_id' => $jobId, 'params' => $params]);
@@ -245,10 +266,32 @@ class CommandController extends Controller
         if (in_array('url', $commandConfig['params'])) {
             $params['url'] = $request->input('url', '');
         }
-        if (in_array('dry_run', $commandConfig['params']) && $request->input('dry_run')) {
+        if (in_array('dry_run', $commandConfig['params']) && $request->boolean('dry_run')) {
             $params['--dry-run'] = true;
+        }
+        if (in_array('renumber', $commandConfig['params']) && $request->boolean('renumber')) {
+            $params['--renumber'] = true;
+        }
+        if (in_array('dedupe', $commandConfig['params']) && $request->boolean('dedupe')) {
+            $params['--dedupe'] = true;
         }
 
         return $params;
+    }
+
+    /**
+     * Commands flagged requires_novel must target one novel: id 0 means
+     * "all novels" to the artisan command, which the UI must never trigger.
+     */
+    protected function missingNovelError(array $commandConfig, $novelId): ?\Illuminate\Http\JsonResponse
+    {
+        if (!empty($commandConfig['requires_novel']) && (int) $novelId <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Pick a specific novel — this command cannot run against all novels.',
+            ], 422);
+        }
+
+        return null;
     }
 }

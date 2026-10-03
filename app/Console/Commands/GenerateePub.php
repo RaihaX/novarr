@@ -100,8 +100,7 @@ class GenerateePub extends Command
         $chapters = $novel->chapters()
             ->where("blacklist", 0)
             ->where("status", 1)
-            ->orderBy("book")
-            ->orderBy("chapter")
+            ->ordered()
             ->get(["id", "novel_id", "label", "book", "chapter"]);
         $novel->setRelation("chapters", $chapters);
 
@@ -114,9 +113,9 @@ class GenerateePub extends Command
         $chapterCount = $novel->chapters->count();
         $this->info("  Found {$chapterCount} chapters.");
 
-        // Sanitize filename
-        $safeFilename = $this->sanitizeFilename($novel->name . " - " . ($novel->author ?: "Unknown"));
-        $epubPath = storage_path("app/ePub/{$safeFilename}.epub");
+        // Sanitize filename (shared with the download action / OPDS feed)
+        $safeFilename = basename(self::epubFilename($novel), ".epub");
+        $epubPath = self::epubPath($novel);
 
         // Clean up existing files if regenerating
         if ($forceRegenerate) {
@@ -151,8 +150,12 @@ class GenerateePub extends Command
             ->leftJoin("chapter_texts", "chapter_texts.novel_chapter_id", "=", "novel_chapters.id")
             ->where("blacklist", 0)
             ->where("status", 1)
-            ->orderBy("book")
-            ->orderBy("chapter")
+            // Same reading order as the metadata list above (columns
+            // qualified: chapter_texts is joined).
+            ->orderBy("novel_chapters.book")
+            ->orderBy("novel_chapters.sort_key")
+            ->orderBy("novel_chapters.chapter")
+            ->orderBy("novel_chapters.id")
             ->select(["novel_chapters.id", "novel_chapters.label", "chapter_texts.content as raw_content"])
             ->cursor()
             ->each(function ($chapter) use ($id, $textDir, $bar) {
@@ -842,9 +845,28 @@ XHTML;
     }
 
     /**
+     * The ePub file name for a novel ("{name} - {author}.epub", sanitised,
+     * "Unknown" for a missing author). The single source of truth for the
+     * generator, the download action and the OPDS feed — so names with
+     * reserved characters ("Re:Zero") or no author resolve to the same file.
+     */
+    public static function epubFilename(Novel $novel): string
+    {
+        return self::sanitizeFilename($novel->name . " - " . ($novel->author ?: "Unknown")) . ".epub";
+    }
+
+    /**
+     * Absolute path of a novel's generated ePub (it may not exist yet).
+     */
+    public static function epubPath(Novel $novel): string
+    {
+        return storage_path("app/ePub/" . self::epubFilename($novel));
+    }
+
+    /**
      * Sanitize filename for safe filesystem usage
      */
-    protected function sanitizeFilename(string $filename): string
+    protected static function sanitizeFilename(string $filename): string
     {
         // Remove or replace problematic characters
         $filename = preg_replace('/[\/\\\\:*?"<>|]/', '', $filename);

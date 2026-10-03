@@ -109,10 +109,11 @@
                         <label class="form-check-label" for="tsServe">Serve over HTTPS</label>
                         <div class="form-text">Private to your tailnet — and it satisfies the PWA's HTTPS requirement. The choice persists across restarts.</div>
                     </div>
-                    <div class="form-check form-switch">
-                        <input type="checkbox" class="form-check-input" id="tsFunnel">
-                        <label class="form-check-label" for="tsFunnel">Funnel</label>
-                        <div class="form-text">Exposes Novarr publicly on the internet — use with care.</div>
+                    {{-- Danger treatment: Funnel puts Novarr on the public internet --}}
+                    <div class="form-check form-switch funnel-switch">
+                        <input type="checkbox" class="form-check-input" id="tsFunnel" aria-describedby="tsFunnelHelp">
+                        <label class="form-check-label" for="tsFunnel">Funnel <span class="badge badge-failed ms-1">Public</span></label>
+                        <div class="form-text funnel-switch-help" id="tsFunnelHelp">Exposes Novarr to anyone on the internet who has the address. Novarr has no login, so they can read, add and delete everything. You'll be asked to confirm.</div>
                     </div>
                 </div>
             </div>
@@ -187,6 +188,7 @@
                 document.getElementById('tsReason').textContent = d.reason || '';
                 tsBadge.className = 'badge badge-paused';
                 tsBadge.textContent = 'Not connected';
+                window.Novarr?.setFunnelState?.(false);
                 return;
             }
 
@@ -212,6 +214,7 @@
 
             document.getElementById('tsServe').checked = !!d.serve;
             document.getElementById('tsFunnel').checked = !!d.funnel;
+            window.Novarr?.setFunnelState?.(!!d.funnel);
         } catch (err) {
             show('tsLoading', false);
             show('tsUnavailable', true);
@@ -241,8 +244,20 @@
 
     document.getElementById('tsServe')?.addEventListener('change', (e) =>
         toggleTs('serve', e.target, '{{ route('settings.tailscale_serve') }}'));
-    document.getElementById('tsFunnel')?.addEventListener('change', (e) =>
-        toggleTs('funnel', e.target, '{{ route('settings.tailscale_funnel') }}'));
+    // Enabling Funnel needs an explicit confirmation; disabling never does.
+    document.getElementById('tsFunnel')?.addEventListener('change', async (e) => {
+        const checkbox = e.target;
+        if (checkbox.checked) {
+            checkbox.checked = false;   // stays off unless confirmed
+            const ok = await Novarr.confirmDialog(
+                'Funnel publishes Novarr on the public internet. Novarr has no login, so anyone with the address can read, add and delete novels and run commands. Only turn this on briefly, and turn it off when you are done.',
+                { title: 'Expose Novarr publicly?', confirmText: 'Turn on Funnel', cancelText: 'Keep private', danger: true },
+            );
+            if (!ok) return;
+            checkbox.checked = true;
+        }
+        toggleTs('funnel', checkbox, '{{ route('settings.tailscale_funnel') }}');
+    });
 
     loadTailscale();
 

@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 use App\Novel;
 use App\NovelChapter;
+use App\Scraping\NovelUpdatesMatcher;
 use Carbon\Carbon;
 
 class VerifyCompletion extends Command
@@ -55,8 +56,17 @@ class VerifyCompletion extends Command
                 continue;
             }
 
-            $metadata = getMetadata($novel);
+            // getMetadata() also records how confidently novelupdates_url
+            // identifies this novel (novelupdates_match_score).
+            $metadata = $this->fetchMetadata($novel);
             $reasons = $this->failureReasons($metadata, $local);
+
+            // Never complete a novel against a series we aren't sure is it:
+            // a wrong NovelUpdates match would report someone else's status.
+            if ($refusal = self::matchRefusalReason($novel->novelupdates_match_score)) {
+                $reasons[] = $refusal;
+                Log::info("novel:verify-completion: not completing {$novel->name} (ID {$novel->id}): {$refusal}");
+            }
 
             $this->line(sprintf(
                 "  NU: %s | translated: %s | NU chapters: %d | latest local: %s | downloaded: %d | pending: %d | missing: %d",
@@ -84,6 +94,33 @@ class VerifyCompletion extends Command
 
         $this->info("Done. {$completed} novel(s) " . ($this->option("dry-run") ? "would be" : "") . " marked complete.");
         return 0;
+    }
+
+    /** NovelUpdates metadata for the novel. Overridable so tests avoid the network. */
+    protected function fetchMetadata(Novel $novel): array
+    {
+        return getMetadata($novel);
+    }
+
+    /**
+     * Why the novel's NovelUpdates match can't be trusted for completion, or
+     * null when it can (score >= NovelUpdatesMatcher::THRESHOLD). Pure.
+     */
+    public static function matchRefusalReason($score): ?string
+    {
+        if ($score === null || $score === "") {
+            return "the NovelUpdates match is unverified (no match score) — confirm it on the novel's edit page";
+        }
+
+        if ((float) $score < NovelUpdatesMatcher::THRESHOLD) {
+            return sprintf(
+                "the NovelUpdates match is uncertain (score %.3f < %.2f) — confirm it on the novel's edit page",
+                (float) $score,
+                NovelUpdatesMatcher::THRESHOLD
+            );
+        }
+
+        return null;
     }
 
     /**

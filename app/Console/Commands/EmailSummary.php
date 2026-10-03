@@ -36,8 +36,7 @@ class EmailSummary extends Command
             ->where("blacklist", 0)
             ->where("download_date", ">=", $since)
             ->orderBy("novel_id")
-            ->orderBy("book")
-            ->orderBy("chapter")
+            ->ordered()
             ->get(["id", "novel_id", "label", "chapter", "book", "download_date"]);
 
         $newChapters = $chapters

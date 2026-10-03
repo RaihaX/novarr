@@ -10,7 +10,7 @@ use App\Novel;
  * the richer description/genres come from NovelUpdates while the chapter
  * count comes from Empire Novel itself (the source we actually scrape).
  */
-class EmpireNovelSource implements Source
+class EmpireNovelSource extends AbstractSource
 {
     public function name(): string
     {
@@ -20,6 +20,21 @@ class EmpireNovelSource implements Source
     public function matches(Novel $novel): bool
     {
         return stripos($novel->translator_url ?? '', 'empirenovel.com') !== false;
+    }
+
+    public function contentSelectors(): array
+    {
+        return ['#read-novel', '.reader-page', ...self::GENERIC_CONTENT_SELECTORS];
+    }
+
+    public function removeSelectors(): array
+    {
+        return [
+            ...self::GENERIC_REMOVE_SELECTORS,
+            '#read-novel ul',          // "Quality checked by: …" credit
+            '.pub',                    // ad block
+            '#reader-bottom', '#chapter-right', '.cookie-consent', 'nav', 'footer',
+        ];
     }
 
     public function tableOfContents(Novel $novel): array

@@ -57,6 +57,37 @@ class AcceptableWordCountTest extends TestCase
             'Extra 1',
             'Special Chapter — Author Q&A',
             'Announcement',
+            // Closing / author notes — the real "Afterwords" page of White
+            // Dragon Lord is ~200 words of thank-yous, not a stub.
+            'Afterwords',
+            "Author's Note",
+            "Author's Notes",
+            'Author Note',
+            'Authors Note',
+            'Author\'s words',
+            "Translator's Note",
+            'Postscript',
+            'P.S.',
+            'Closing Thoughts',
+            'Final Words',
+            'Parting Words',
+            'Thank You',
+            'Thanks',
+            'Acknowledgements',
+            'Acknowledgments',
+            'Foreword',
+            'Preface',
+            'Bonus',
+            'Omake',
+            'Q&A',
+            'Q & A',
+            'Glossary',
+            'Character Sheet',
+            'Character Profiles',
+            'Notice',
+            'Hiatus',
+            'Side Stories',
+            'Extras',
         ];
 
         foreach ($labels as $label) {
@@ -96,6 +127,10 @@ class AcceptableWordCountTest extends TestCase
         $this->assertFalse(ChapterScraper::acceptableWordCount('Chapter 88: Extraction', 150));
         $this->assertFalse(ChapterScraper::acceptableWordCount('Chapter 89: The Specialist', 150));
         $this->assertFalse(ChapterScraper::acceptableWordCount('Chapter 90: Prologues Aside', 150));
+        $this->assertFalse(ChapterScraper::acceptableWordCount('Chapter 91: Thankless Work', 150));
+        $this->assertFalse(ChapterScraper::acceptableWordCount('Chapter 92: The Bonuses', 150));
+        $this->assertFalse(ChapterScraper::acceptableWordCount('Chapter 93: Unnoticed', 150));
+        $this->assertFalse(ChapterScraper::acceptableWordCount('Chapter 94: Final Battle', 150));
     }
 
     /** No label to judge by: the normal rule is all we have. */

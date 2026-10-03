@@ -3,6 +3,8 @@
 namespace App\Sources;
 
 use App\Novel;
+use App\Scraping\FailureSnapshot;
+use App\Scraping\Fetcher;
 use Symfony\Component\DomCrawler\Crawler;
 
 /**
@@ -11,7 +13,7 @@ use Symfony\Component\DomCrawler\Crawler;
  * ~30 chapters), with a generic page-parse fallback for unrecognised sites.
  * Metadata is NovelUpdates first, Novel Arrow as fallback.
  */
-class NovelArrowSource implements Source
+class NovelArrowSource extends AbstractSource
 {
     public function name(): string
     {
@@ -22,6 +24,20 @@ class NovelArrowSource implements Source
     {
         // Default source — handles novelarrow and anything unrecognised.
         return true;
+    }
+
+    public function contentSelectors(): array
+    {
+        return ['#chr-content', '.chr-c', ...self::GENERIC_CONTENT_SELECTORS];
+    }
+
+    public function removeSelectors(): array
+    {
+        return [
+            ...self::GENERIC_REMOVE_SELECTORS,
+            '.chr-nav', '#chr-nav-top', '#chr-nav-bottom', '.chr-nav-top', '.chr-nav-bottom',
+            '.chapter-nav', '.report-chapter', '.ads', '.ad-container', '.share-buttons',
+        ];
     }
 
     public function tableOfContents(Novel $novel): array
@@ -37,11 +53,15 @@ class NovelArrowSource implements Source
 
         // Generic page parse (the novel page's embedded chapter list).
         $result = [];
-        $html = fetchWithBrowser($novel->translator_url, '.list-chapter');
+        $reason = null;
+        $html = app(Fetcher::class)->html($novel->translator_url, $reason, '.list-chapter');
         if ($html !== null) {
             (new Crawler($html))->filter('.list-chapter > li > a')->each(function ($node) use (&$result) {
                 $result[] = generateTocChapterInfo($node->text(), trim($node->attr('href')));
             });
+            if (array_filter($result) === []) {
+                FailureSnapshot::noteTocHtml($html);
+            }
         }
 
         return $result;

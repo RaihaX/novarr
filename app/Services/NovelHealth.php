@@ -20,6 +20,10 @@ class NovelHealth
      * have no failed runs are given a grace period — their chapters are just
      * queued behind the download backlog, not stuck.
      *
+     * Novels snoozed from the dashboard ("Snooze 7 days" sets
+     * attention_ignored_until) are left out until the snooze expires. Snoozing
+     * never pauses downloads — the scraper keeps working on them.
+     *
      * @return array<int, array{id: int, name: string, reason: string, url: ?string}>
      */
     public function needingAttention(): array
@@ -28,6 +32,7 @@ class NovelHealth
 
         $failing = Novel::where('status', 0)
             ->whereNull('paused_at')
+            ->where($this->notSnoozed(...))
             ->where('scrape_failures', '>=', 3)
             ->whereHas('chapters', fn($q) => $q->where('status', 0)->where('blacklist', 0))
             ->orderBy('name')
@@ -45,7 +50,12 @@ class NovelHealth
 
         $stalled = Novel::where('status', 0)
             ->whereNull('paused_at')
-            ->whereHas('chapters', fn($q) => $q->where('status', 0)->where('blacklist', 0))
+            ->where($this->notSnoozed(...))
+            // A backlog made only of needs-review chapters (8+ failed
+            // attempts, retried every 3 days) isn't a stall the scraper can
+            // fix, so it doesn't count — same rule the scraper applies.
+            ->whereHas('chapters', fn($q) => $q->where('status', 0)->where('blacklist', 0)
+                ->where('attempts', '<', NovelChapter::REVIEW_ATTEMPTS))
             ->orderBy('name')
             ->get(['id', 'name', 'translator_url', 'created_at', 'scrape_failures']);
 
@@ -61,6 +71,7 @@ class NovelHealth
 
         $pendingCounts = NovelChapter::whereIn('novel_id', $stalledIds)
             ->where('status', 0)->where('blacklist', 0)
+            ->where('attempts', '<', NovelChapter::REVIEW_ATTEMPTS)
             ->selectRaw('novel_id, COUNT(*) as pending')
             ->groupBy('novel_id')
             ->pluck('pending', 'novel_id');
@@ -109,14 +120,90 @@ class NovelHealth
             ->where('novel_id', $novel->id)
             ->where('status', 0)
             ->where('blacklist', 0)
-            ->orderBy('book')
-            ->orderBy('chapter')
-            ->first(['id', 'novel_id', 'chapter', 'book', 'url']);
+            ->ordered()
+            ->first(['id', 'novel_id', 'chapter', 'book', 'sort_key', 'url']);
 
         if ($chapter && $chapter->novel) {
             return chapterSourceUrl($chapter);
         }
 
         return $novel->translator_url ?: null;
+    }
+
+    /**
+     * Query constraint: not snoozed, i.e. attention_ignored_until is null or past.
+     */
+    protected function notSnoozed($q): void
+    {
+        $q->whereNull('attention_ignored_until')
+            ->orWhere('attention_ignored_until', '<=', Carbon::now());
+    }
+
+    /**
+     * Novels currently snoozed out of the needs-attention list, soonest
+     * expiry first — the health page lists them so a snooze is never silent.
+     *
+     * @return \Illuminate\Support\Collection<int, Novel>
+     */
+    public function snoozed()
+    {
+        return Novel::where('attention_ignored_until', '>', Carbon::now())
+            ->orderBy('attention_ignored_until')
+            ->get(['id', 'name', 'attention_ignored_until']);
+    }
+
+    /**
+     * The one definition of download progress, shared by the novel page and
+     * the novels list so both always show the same figure:
+     *
+     *   downloaded ÷ chapters known to the source
+     *
+     * "Known to the source" is the TOC rows we hold (downloaded + queued,
+     * blacklist excluded), or the source's own advertised chapter count when
+     * that is larger (the TOC hasn't been fully synced yet) — so a novel with
+     * 20 of 323 chapters reads 6%, never 100%.
+     *
+     * @return array{downloaded: int, total: int, percent: int}
+     */
+    public static function downloadProgress(int $downloaded, int $tocRows, ?int $advertised = null): array
+    {
+        $total = max($tocRows, (int) $advertised, $downloaded);
+        $percent = $total > 0 ? (int) min(100, floor($downloaded / $total * 100)) : 0;
+
+        return ['downloaded' => $downloaded, 'total' => $total, 'percent' => $percent];
+    }
+
+    /**
+     * IDs of novels currently in the needs-attention list, read from the same
+     * cache the dashboard uses (re-warmed by the scheduler), so list pages
+     * can tint progress bars amber without recomputing stall detection.
+     *
+     * @return array<int, true>
+     */
+    public static function attentionIds(): array
+    {
+        $items = \Illuminate\Support\Facades\Cache::remember(
+            'dashboard_attention',
+            900,
+            fn() => app(self::class)->needingAttention()
+        );
+
+        return array_fill_keys(array_column($items, 'id'), true);
+    }
+
+    /**
+     * Status-triad state for a novel's download progress bar: green once
+     * everything known is downloaded (or the novel is finished), amber when it
+     * needs attention, muted while paused, cyan while chapters are queued.
+     * Never the indigo accent — that colour is reserved for actions.
+     */
+    public static function progressState(int $percent, bool $completed, bool $paused, bool $attention): string
+    {
+        return match (true) {
+            $percent >= 100 || $completed => 'downloaded',
+            $attention => 'attention',
+            $paused => 'paused',
+            default => 'queued',
+        };
     }
 }

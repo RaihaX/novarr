@@ -1,0 +1,45 @@
+{
+    "count": 78,
+    "first": [
+        {
+            "label": "Chapter 1 Nightmare Begins",
+            "url": "https://novelarrow.com/chapter/shadow-slave/chapter-1-nightmare-begins",
+            "chapter": "1",
+            "book": 0
+        },
+        {
+            "label": "Chapter 2 Slave Caravan",
+            "url": "https://novelarrow.com/chapter/shadow-slave/chapter-2-slave-caravan",
+            "chapter": "2",
+            "book": 0
+        },
+        {
+            "label": "Chapter 3 The Strings Of Fate",
+            "url": "https://novelarrow.com/chapter/shadow-slave/chapter-3-the-strings-of-fate",
+            "chapter": "3",
+            "book": 0
+        }
+    ],
+    "last": [
+        {
+            "label": "Chapter 3201 A Land Without Monsters",
+            "url": "https://novelarrow.com/chapter/shadow-slave/chapter-3201-a-land-without-monsters",
+            "chapter": "3201",
+            "book": 0
+        },
+        {
+            "label": "Chapter 3202 Conflict of Interests",
+            "url": "https://novelarrow.com/chapter/shadow-slave/chapter-3202-conflict-of-interests",
+            "chapter": "3202",
+            "book": 0
+        },
+        {
+            "label": "Chapter 3203 Ultima Ratio Regum",
+            "url": "https://novelarrow.com/chapter/shadow-slave/chapter-3203-ultima-ratio-regum",
+            "chapter": "3203",
+            "book": 0
+        }
+    ],
+    "invalid_urls": 0,
+    "duplicate_urls": 3
+}
