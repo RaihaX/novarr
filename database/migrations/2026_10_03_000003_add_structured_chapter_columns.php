@@ -54,11 +54,25 @@ return new class extends Migration
         if ($duplicates > 0) {
             Log::warning("novel_chapters: {$duplicates} (novel_id, url) pair(s) appear on more than one row (incl. soft-deleted); (novel_id, url) index created non-unique");
         }
-        Schema::table('novel_chapters', function (Blueprint $table) {
-            $table->index(['novel_id', 'url'], 'idx_novel_url');
-        });
+        // Production's url column is wider than MySQL/MariaDB allow in a full
+        // index key ("Specified key was too long"), so index a 191-char
+        // prefix there; SQLite has no prefix indexes and no key limit.
+        if (!self::indexExists('idx_novel_url')) {
+            if (in_array(DB::getDriverName(), ['mysql', 'mariadb'], true)) {
+                DB::statement('ALTER TABLE `novel_chapters` ADD INDEX `idx_novel_url` (`novel_id`, `url`(191))');
+            } else {
+                Schema::table('novel_chapters', function (Blueprint $table) {
+                    $table->index(['novel_id', 'url'], 'idx_novel_url');
+                });
+            }
+        }
 
         ChapterLabelParser::backfill(null, 1000);
+    }
+
+    private static function indexExists(string $name): bool
+    {
+        return collect(Schema::getIndexes('novel_chapters'))->contains(fn($i) => $i['name'] === $name);
     }
 
     public function down(): void
