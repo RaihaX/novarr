@@ -30,25 +30,6 @@ class NovelController extends Controller
         $this->novels = $novels;
     }
 
-    public function update_metadata($id) {
-        $data = $this->novels->findOrFail($id);
-
-        $metadata = getMetadata($data);
-
-        if ( isset($metadata["description"]) && $metadata["description"] != "" ) {
-            $data->description = $metadata["description"];
-        }
-
-        if ( isset($metadata["author"]) && $metadata["author"] != "" ) {
-            $data->author = $metadata["author"];
-        }
-
-        if ( isset($metadata["no_of_chapters"]) && $metadata["no_of_chapters"] > 0 ) {
-            $data->no_of_chapters = $metadata["no_of_chapters"];
-        }
-
-        $data->save();
-    }
 
     public function get_novel($id) {
         $data = $this->novels->with(['file' => function($q) {

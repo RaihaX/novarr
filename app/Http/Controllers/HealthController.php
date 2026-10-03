@@ -3,10 +3,21 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
-use Exception;
+use Illuminate\Support\Str;
+use Throwable;
 
+/**
+ * Public (unauthenticated) health probes under /api/health.
+ *
+ * Responses only carry a status per service and a latency — never exception
+ * messages, connection names or filesystem paths. Failures are logged with
+ * the detail instead. Redis is only checked when a configured cache store,
+ * the session driver or the queue connection actually uses it.
+ */
 class HealthController extends Controller
 {
     /**
@@ -19,47 +30,29 @@ class HealthController extends Controller
     }
 
     /**
-     * Comprehensive health check for all services.
+     * Health of every service the app depends on.
      */
     public function index(): JsonResponse
     {
-        $health = [
-            'status' => 'healthy',
+        $services = [
+            'database' => $this->checkDatabase(),
+            'cache' => $this->checkCache(),
+            'storage' => $this->checkStorage(),
+        ];
+
+        if (self::redisInUse()) {
+            $services['redis'] = $this->checkRedis();
+        }
+
+        $healthy = collect($services)->every(fn ($s) => $s['status'] === 'healthy');
+
+        return response()->json([
+            'status' => $healthy ? 'healthy' : 'unhealthy',
             'timestamp' => now()->toIso8601String(),
             'app' => config('app.name'),
             'version' => config('app.version', '1.0.0'),
-            'services' => [],
-        ];
-
-        $allHealthy = true;
-
-        // Check database
-        $dbHealth = $this->checkDatabase();
-        $health['services']['database'] = $dbHealth;
-        if ($dbHealth['status'] !== 'healthy') {
-            $allHealthy = false;
-        }
-
-        // Check Redis
-        $redisHealth = $this->checkRedis();
-        $health['services']['redis'] = $redisHealth;
-        if ($redisHealth['status'] !== 'healthy') {
-            $allHealthy = false;
-        }
-
-        // Check storage
-        $storageHealth = $this->checkStorage();
-        $health['services']['storage'] = $storageHealth;
-        if ($storageHealth['status'] !== 'healthy') {
-            $allHealthy = false;
-        }
-
-        if (!$allHealthy) {
-            $health['status'] = 'unhealthy';
-            return response()->json($health, 503);
-        }
-
-        return response()->json($health, 200);
+            'services' => $services,
+        ], $healthy ? 200 : 503);
     }
 
     /**
@@ -67,112 +60,117 @@ class HealthController extends Controller
      */
     public function database(): JsonResponse
     {
-        $health = $this->checkDatabase();
-        $statusCode = $health['status'] === 'healthy' ? 200 : 503;
-
-        return response()->json([
-            'status' => $health['status'],
-            'timestamp' => now()->toIso8601String(),
-            'service' => 'database',
-            'details' => $health,
-        ], $statusCode);
+        return $this->single('database', $this->checkDatabase());
     }
 
     /**
-     * Redis/Cache connectivity check.
+     * Cache connectivity check (plus Redis when it backs anything).
      */
     public function cache(): JsonResponse
     {
-        $health = $this->checkRedis();
-        $statusCode = $health['status'] === 'healthy' ? 200 : 503;
+        $health = $this->checkCache();
 
+        if (self::redisInUse() && $health['status'] === 'healthy') {
+            $redis = $this->checkRedis();
+            if ($redis['status'] !== 'healthy') {
+                $health = $redis;
+            }
+        }
+
+        return $this->single('cache', $health);
+    }
+
+    /**
+     * Whether Redis backs the default cache store, the session store or the
+     * default queue connection.
+     */
+    public static function redisInUse(): bool
+    {
+        $cacheStore = config('cache.default');
+        $queueConnection = config('queue.default');
+
+        return config("cache.stores.{$cacheStore}.driver") === 'redis'
+            || config('session.driver') === 'redis'
+            || config("queue.connections.{$queueConnection}.driver") === 'redis';
+    }
+
+    private function single(string $service, array $health): JsonResponse
+    {
         return response()->json([
             'status' => $health['status'],
             'timestamp' => now()->toIso8601String(),
-            'service' => 'redis',
+            'service' => $service,
             'details' => $health,
-        ], $statusCode);
+        ], $health['status'] === 'healthy' ? 200 : 503);
     }
 
-    /**
-     * Check database connectivity.
-     */
     private function checkDatabase(): array
     {
-        try {
-            $startTime = microtime(true);
+        return $this->timed('database', function () {
             DB::connection()->getPdo();
-            $latency = round((microtime(true) - $startTime) * 1000, 2);
-
-            return [
-                'status' => 'healthy',
-                'latency_ms' => $latency,
-                'connection' => config('database.default'),
-            ];
-        } catch (Exception $e) {
-            return [
-                'status' => 'unhealthy',
-                'error' => $e->getMessage(),
-                'connection' => config('database.default'),
-            ];
-        }
+            return true;
+        });
     }
 
-    /**
-     * Check Redis connectivity.
-     */
+    /** Round-trip a short-lived key through the default cache store. */
+    private function checkCache(): array
+    {
+        return $this->timed('cache', function () {
+            $key = 'health:' . Str::random(12);
+            Cache::put($key, 'ok', 10);
+            $ok = Cache::get($key) === 'ok';
+            Cache::forget($key);
+            return $ok;
+        });
+    }
+
     private function checkRedis(): array
     {
-        try {
-            $startTime = microtime(true);
+        return $this->timed('redis', function () {
             $response = Redis::connection()->ping();
-            $latency = round((microtime(true) - $startTime) * 1000, 2);
 
-            $isHealthy = $response === true || $response === 'PONG' || (is_object($response) && method_exists($response, 'getPayload') && $response->getPayload() === 'PONG');
+            return $response === true
+                || $response === 'PONG'
+                || $response === '+PONG'
+                || (is_object($response) && method_exists($response, 'getPayload') && $response->getPayload() === 'PONG');
+        });
+    }
 
-            if ($isHealthy) {
-                return [
-                    'status' => 'healthy',
-                    'latency_ms' => $latency,
-                ];
-            }
+    private function checkStorage(): array
+    {
+        $path = storage_path();
+        $ok = is_dir($path) && is_writable($path);
 
-            return [
-                'status' => 'unhealthy',
-                'error' => 'Unexpected ping response',
-            ];
-        } catch (Exception $e) {
-            return [
-                'status' => 'unhealthy',
-                'error' => $e->getMessage(),
-            ];
+        if (!$ok) {
+            Log::warning('Health check: storage directory is missing or not writable.');
         }
+
+        return ['status' => $ok ? 'healthy' : 'unhealthy'];
     }
 
     /**
-     * Check storage directory is writable.
+     * Run a probe, timing it. Any exception (or a false result) is logged in
+     * full and reported publicly only as "unhealthy".
      */
-    private function checkStorage(): array
+    private function timed(string $service, callable $probe): array
     {
-        $storagePath = storage_path();
+        $start = microtime(true);
 
-        if (!is_dir($storagePath)) {
-            return [
-                'status' => 'unhealthy',
-                'error' => 'Storage directory does not exist',
-            ];
+        try {
+            $ok = (bool) $probe();
+        } catch (Throwable $e) {
+            Log::warning("Health check: {$service} failed: " . $e->getMessage());
+            return ['status' => 'unhealthy'];
         }
 
-        if (!is_writable($storagePath)) {
-            return [
-                'status' => 'unhealthy',
-                'error' => 'Storage directory is not writable',
-            ];
+        if (!$ok) {
+            Log::warning("Health check: {$service} returned an unexpected response.");
+            return ['status' => 'unhealthy'];
         }
 
         return [
             'status' => 'healthy',
-            'path' => $storagePath,
+            'latency_ms' => round((microtime(true) - $start) * 1000, 2),
         ];
     }
 }

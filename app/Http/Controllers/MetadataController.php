@@ -34,7 +34,7 @@ class MetadataController extends Controller
             'success' => true,
             'novel_id' => $novel->id,
             'name' => $novel->name,
-            'threshold' => NovelUpdatesMatcher::THRESHOLD,
+            'threshold' => NovelUpdatesMatcher::threshold(),
             'current' => [
                 'url' => $novel->novelupdates_url,
                 'score' => $novel->novelupdates_match_score === null ? null : (float) $novel->novelupdates_match_score,

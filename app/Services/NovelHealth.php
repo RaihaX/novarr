@@ -9,9 +9,10 @@ use Carbon\Carbon;
 class NovelHealth
 {
     /**
-     * Active novels that look unhealthy: repeated all-failed scrape runs, or
-     * pending chapters that haven't progressed in over a week (stalled).
-     * Both branches require chapters still pending — the failure counter goes
+     * Active novels that look unhealthy: repeated all-failed scrape runs,
+     * pending chapters that haven't progressed in over a week (stalled), or
+     * a TOC sync failing on 2+ consecutive runs (toc_failures, see
+     * NovelScraper::recordTocHealth()). The first two require chapters still pending — the failure counter goes
      * stale once a novel is fully caught up, and a novel with nothing pending
      * has nothing failing. Shared by the daily summary email and the dashboard
      * so both always report the same problems.
@@ -55,7 +56,9 @@ class NovelHealth
             // attempts, retried every 3 days) isn't a stall the scraper can
             // fix, so it doesn't count — same rule the scraper applies.
             ->whereHas('chapters', fn($q) => $q->where('status', 0)->where('blacklist', 0)
-                ->where('attempts', '<', NovelChapter::REVIEW_ATTEMPTS))
+                ->where('attempts', '<', NovelChapter::REVIEW_ATTEMPTS)
+                // Chapters the source no longer lists are parked, not stalled.
+                ->where(fn($m) => $m->whereNull('last_failure_reason')->orWhere('last_failure_reason', '!=', 'source_missing')))
             ->orderBy('name')
             ->get(['id', 'name', 'translator_url', 'created_at', 'scrape_failures']);
 
@@ -72,6 +75,7 @@ class NovelHealth
         $pendingCounts = NovelChapter::whereIn('novel_id', $stalledIds)
             ->where('status', 0)->where('blacklist', 0)
             ->where('attempts', '<', NovelChapter::REVIEW_ATTEMPTS)
+            ->where(fn($m) => $m->whereNull('last_failure_reason')->orWhere('last_failure_reason', '!=', 'source_missing'))
             ->selectRaw('novel_id, COUNT(*) as pending')
             ->groupBy('novel_id')
             ->pluck('pending', 'novel_id');
@@ -105,6 +109,28 @@ class NovelHealth
                     'url' => $this->sourceUrlFor($novel),
                 ];
             }
+        }
+
+        // TOC sync failing (empty / partial / shrinking list) on 2+
+        // consecutive runs. No pending chapters required: a broken TOC is
+        // exactly what hides new chapters from the queue.
+        $tocFailing = Novel::where('status', 0)
+            ->whereNull('paused_at')
+            ->where($this->notSnoozed(...))
+            ->where('toc_failures', '>=', 2)
+            ->orderBy('name')
+            ->get(['id', 'name', 'translator_url', 'group_id', 'toc_failures', 'last_toc_issue']);
+
+        foreach ($tocFailing as $novel) {
+            if (isset($attention[$novel->id])) {
+                continue;
+            }
+            $attention[$novel->id] = [
+                'id' => $novel->id,
+                'name' => $novel->name,
+                'reason' => $novel->last_toc_issue ?: "{$novel->toc_failures} consecutive TOC runs failed",
+                'url' => $this->sourceUrlFor($novel),
+            ];
         }
 
         return array_values($attention);

@@ -1288,3 +1288,346 @@ a.stack-row:hover .result-title { color: $link-hover; }
     justify-content: center;
     margin-bottom: $s-8;
 }
+
+// ===========================================================================
+// UI P2 — novel header, maintenance disclosure, breadcrumb, menus
+// ===========================================================================
+
+// Icons inside buttons and menu items sit on the label's baseline grid.
+.btn > .icon,
+.dropdown-item > .icon {
+    flex-shrink: 0;
+}
+
+.btn:has(> .icon) {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dropdown-item:has(> .icon) {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+}
+
+// Command buttons living in a menu keep menu-item geometry, not .cmd-btn's.
+.dropdown-item.cmd-btn {
+    justify-content: flex-start;
+    padding: $dropdown-item-padding-y $dropdown-item-padding-x;
+    font-size: inherit;
+}
+
+.dropdown-item {
+    > .icon { color: $text-muted; }
+    &:hover > .icon { color: $text; }
+
+    &.item-danger {
+        color: $danger;
+        > .icon { color: $danger; }
+        &:hover { background: rgba($danger, 0.12); color: $danger; }
+    }
+}
+
+// Dropdown headers in menus with sections (Download ▸ offline / ePub).
+.dropdown-header.label-caption {
+    padding: 6px $s-4 4px;
+    color: $muted;
+}
+
+// Square icon-only control (the ⋯ overflow menu).
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    padding-inline: 9px !important;
+}
+
+#offlineBtn {
+    .caret { opacity: 0.7; margin-left: -2px; }
+
+    .offline-btn-count {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        padding: 1px 6px;
+        @include status($success);
+    }
+}
+
+.download-menu { min-width: 270px; }
+
+// Hourly checks switch under the byline.
+.detail-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: $s-2;
+    padding-left: 0;
+    min-height: 0;
+    font-size: 13px;
+    color: $text-muted;
+
+    .form-check-input {
+        float: none;
+        margin: 0;
+        cursor: pointer;
+    }
+
+    .form-check-label { cursor: pointer; }
+}
+
+.metric .metric-value { display: block; }
+
+.chapter-table .read-check {
+    display: inline-flex;
+    vertical-align: -2px;
+}
+
+// Maintenance: a card-shaped <details>; the summary is the panel head.
+.maintenance-panel {
+    > .maintenance-summary {
+        cursor: pointer;
+        list-style: none;
+        border-bottom: 0;
+
+        &::-webkit-details-marker { display: none; }
+
+        .panel-note { margin-left: auto; }
+
+        .maintenance-caret {
+            flex-shrink: 0;
+            color: $text-muted;
+            transition: transform $transition;
+        }
+
+        &:hover .panel-title { color: $link; }
+    }
+
+    &[open] > .maintenance-summary {
+        border-bottom: $hairline solid $border;
+        .maintenance-caret { transform: rotate(180deg); }
+    }
+}
+
+#cmdOutput .cmd-output-pane {
+    max-height: 260px;
+    overflow: auto;
+    padding: $s-4 $s-5;
+}
+
+@include media-breakpoint-down(md) {
+    .maintenance-panel > .maintenance-summary .panel-note { display: none; }
+
+    .detail-actions {
+        > .btn-primary { flex: 1 1 100%; }
+        > #offlineControls { flex: 1 1 auto; }
+        > #offlineControls .dropdown,
+        > #offlineControls #offlineBtn { width: 100%; justify-content: center; }
+        > .dropdown .btn-icon { flex: 0 0 auto; }
+    }
+}
+
+// Page-level breadcrumb (System pages): "System / Logs / laravel.log".
+.page-breadcrumb {
+    margin-bottom: $s-5;
+
+    ol {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0 $s-2;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        font-size: $fs-caption;
+        font-weight: $fw-caption;
+        letter-spacing: $ls-caption;
+        text-transform: uppercase;
+        color: $muted;
+    }
+
+    li + li::before {
+        content: '/';
+        margin-right: $s-2;
+        color: $border;
+    }
+
+    a { color: $text-muted; &:hover { color: $text; } }
+
+    [aria-current="page"] span { color: $text; }
+
+    // Identifiers (a log file name) drop the caps and go mono.
+    .is-mono span {
+        text-transform: none;
+        letter-spacing: 0;
+        font-family: $font-mono;
+    }
+}
+
+// System dropdown: the current child gets the accent rule the top-level
+// nav items carry, so hover and "you are here" never look the same.
+.navbar .dropdown-item.active {
+    color: $text;
+    background-color: $surface-alt;
+    box-shadow: inset 2px 0 0 $accent;
+}
+
+.detail-no-synopsis .btn-link { color: $link; font-size: inherit; &:hover { color: $link-hover; } }
+
+// Dashboard: one-line Needs-attention summary linking to Health (the full
+// panel lives on health/index). Same warning rule as the panel it stands for.
+.attention-summary {
+    display: flex;
+    align-items: center;
+    gap: $s-3;
+    padding: $s-4 $s-6;
+    background: rgba($warning, 0.06);
+    border: $hairline solid $border;
+    border-left: $rule-strong solid $warning;
+    border-radius: 0 $radius $radius 0;
+    color: $text-soft;
+    font-size: $fs-body;
+    text-decoration: none;
+    transition: background-color $transition;
+
+    .attention-icon { color: $warning; flex-shrink: 0; }
+    strong { color: $text; font-weight: 600; }
+
+    .attention-summary-link {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        color: $link;
+        white-space: nowrap;
+    }
+
+    &:hover {
+        background: rgba($warning, 0.12);
+        color: $text;
+        .attention-summary-link { color: $link-hover; }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stats — HTML bar chart (stats/index). Axes are real text, so they keep
+// their size at any width; bars are amber (a reading metric), square-ended.
+// ---------------------------------------------------------------------------
+.bar-chart {
+    margin-top: $s-5;   // room for the peak's value label
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: 200px auto;
+    column-gap: $s-3;
+    row-gap: 6px;
+}
+
+.bar-chart-y {
+    position: relative;
+    min-width: 2ch;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $text-muted;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+
+    // Each label is centred on its gridline (top set inline per tick).
+    span {
+        position: absolute;
+        right: 0;
+        line-height: 1;
+        transform: translateY(-50%);
+    }
+}
+
+.bar-chart-plot {
+    position: relative;
+    border-bottom: $hairline solid $btn-secondary-border;
+}
+
+.bar-chart-grid {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    pointer-events: none;
+
+    span { height: 0; border-top: $hairline solid $border; }
+    span:last-child { border-top-color: transparent; }
+}
+
+.bar-chart-bars {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.bar-chart-col {
+    flex: 1 1 0;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    min-width: 0;
+
+    &:hover .bar-chart-bar { background: #F5C74E; }
+    &:hover .bar-chart-value,
+    &.is-peak .bar-chart-value { opacity: 1; }
+}
+
+.bar-chart-bar {
+    position: relative;
+    width: 100%;
+    background: $brand-amber;
+    transition: background-color $transition;
+}
+
+.bar-chart-value {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding-bottom: 3px;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $text;
+    opacity: 0;
+    transition: opacity $transition;
+    white-space: nowrap;
+}
+
+.bar-chart-x {
+    display: grid;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $text-muted;
+
+    span {
+        white-space: nowrap;
+        overflow: visible;
+        text-align: left;
+    }
+
+    span.is-last { justify-self: end; }
+}
+
+.chart-empty {
+    display: flex;
+    flex-direction: column;
+    gap: $s-4;
+    font-size: 13px;
+    color: $text-muted;
+
+    .chart-empty-rule {
+        height: 0;
+        border-top: $hairline solid $btn-secondary-border;
+    }
+}
+
+@include media-breakpoint-down(md) {
+    .bar-chart { grid-template-rows: 150px auto; }
+    // Phones: every other shown label only, so dates never collide.
+    .bar-chart-x span.is-shown:not(.is-last):nth-child(10n + 6) { visibility: hidden; }
+}

@@ -101,7 +101,11 @@ class NovelChapter extends Model
      */
     public static function presentContent(?string $value): string
     {
-        $value = strip_tags($value ?? '', '<p><br><hr><em><strong><i><b><u><s>');
+        // A bare "<" that doesn't start a tag ("I <3 you", "a < b") would be
+        // read as a tag by strip_tags and swallow everything up to the next
+        // ">". Escape it first so the prose survives.
+        $value = preg_replace('/<(?![a-zA-Z\/!?])/', '&lt;', $value ?? '') ?? '';
+        $value = strip_tags($value, '<p><br><hr><em><strong><i><b><u><s>');
         // strip_tags keeps attributes on allowed tags, so <p onclick> or
         // <b style> would reach the reader. Drop every attribute.
         $value = preg_replace('/<(\/?)(\w+)\b[^>]*>/', '<$1$2>', $value);

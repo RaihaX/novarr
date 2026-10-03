@@ -40,8 +40,8 @@ class SnapshotController extends Controller
             'novel' => $novel,
             'snapshots' => $snapshots,
             'enabled' => FailureSnapshot::enabled(),
-            'keep' => (int) config('novarr.snapshots.keep_per_novel', 5),
-            'days' => (int) config('novarr.snapshots.days', 14),
+            'keep' => FailureSnapshot::keepPerNovel(),
+            'days' => FailureSnapshot::days(),
         ]);
     }
 

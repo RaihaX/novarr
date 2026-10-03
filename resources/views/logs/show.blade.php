@@ -1,9 +1,11 @@
 @extends('layouts.app')
 
+@section('title', $filename . ' · Logs')
+@section('breadcrumb')
+    @include('partials.breadcrumb', ['trail' => [['System'], ['Logs', route('logs.index')], [$filename, null, true]]])
+@endsection
+
 @section('content')
-<a href="{{ route('logs.index') }}" class="back-link">
-    <x-icon name="chevron-left" :size="14" :stroke="1.5" /> Logs
-</a>
 
 <div class="log-head">
     <span class="log-head-name">{{ $filename }}</span>

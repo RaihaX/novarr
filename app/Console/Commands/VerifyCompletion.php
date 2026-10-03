@@ -104,7 +104,7 @@ class VerifyCompletion extends Command
 
     /**
      * Why the novel's NovelUpdates match can't be trusted for completion, or
-     * null when it can (score >= NovelUpdatesMatcher::THRESHOLD). Pure.
+     * null when it can (score >= NovelUpdatesMatcher::threshold()).
      */
     public static function matchRefusalReason($score): ?string
     {
@@ -112,11 +112,13 @@ class VerifyCompletion extends Command
             return "the NovelUpdates match is unverified (no match score) — confirm it on the novel's edit page";
         }
 
-        if ((float) $score < NovelUpdatesMatcher::THRESHOLD) {
+        $threshold = NovelUpdatesMatcher::threshold();
+
+        if ((float) $score < $threshold) {
             return sprintf(
                 "the NovelUpdates match is uncertain (score %.3f < %.2f) — confirm it on the novel's edit page",
                 (float) $score,
-                NovelUpdatesMatcher::THRESHOLD
+                $threshold
             );
         }
 

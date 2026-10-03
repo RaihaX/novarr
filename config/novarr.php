@@ -89,4 +89,28 @@ return [
     | fetch in chapterGenerator(). Tests set it to [0, 0].
     */
     'chapter_fetch_delay_ms' => [500, 1500],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Settings-page defaults
+    |--------------------------------------------------------------------------
+    |
+    | Fallbacks for the DB-backed settings (Settings page / setting()) that
+    | have no other config home. A blank field on the Settings page falls
+    | back to these. Snapshot retention defaults live under `snapshots`.
+    |
+    */
+    'defaults' => [
+        'scrape_min_delay' => 30,
+        'scrape_max_delay' => 90,
+        'min_chapter_words' => 250,
+        // 0 = no per-novel cap.
+        'max_chapters_per_novel_per_run' => 25,
+        // Must stay below the 150-minute withoutOverlapping() lock on the
+        // scheduled novel:chapter run, or a run can still be going when the
+        // lock expires and a second run starts on top of it.
+        'max_run_minutes' => 100,
+        // Mirrors App\Scraping\NovelUpdatesMatcher::THRESHOLD.
+        'novelupdates_match_threshold' => 0.85,
+    ],
 ];

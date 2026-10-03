@@ -152,7 +152,7 @@ class UiP1Test extends TestCase
     {
         $this->failingNovel();
 
-        $this->get(route('home'))
+        $this->get(route('health.index'))
             ->assertOk()
             ->assertSee('Snooze 7 days')
             ->assertDontSee('toggle-pause', false);

@@ -67,6 +67,21 @@ class HomeController extends Controller
     }
 
     /**
+     * GET /continue — the PWA "Continue Reading" shortcut. 302s to the same
+     * resume point the dashboard's first Continue-reading card links to (the
+     * most recently read novel's in-progress or next unread chapter), or to
+     * the dashboard when there is nothing to continue.
+     */
+    public function continue()
+    {
+        $first = $this->continueReading(8)[0] ?? null;
+
+        return $first
+            ? redirect()->route('chapters.show', $first['next']->id)
+            : redirect()->route('home');
+    }
+
+    /**
      * Novels you're partway through: most-recently-read first, each with its
      * next unread downloaded chapter. Skips novels you've fully caught up on.
      */

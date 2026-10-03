@@ -23,9 +23,27 @@ class FailureSnapshot
     /** HTML of the last TOC page that parsed to nothing (see noteTocHtml()). */
     private static ?string $pendingTocHtml = null;
 
+    /**
+     * Settings page (snapshots_enabled) first, then config. The setting is
+     * stored as '0'/'1'; filter_var also copes with 'false'/'off' strings.
+     */
     public static function enabled(): bool
     {
-        return (bool) config('novarr.snapshots.enabled', true);
+        $value = setting('snapshots_enabled', config('novarr.snapshots.enabled', true));
+
+        return (bool) filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+    }
+
+    /** Newest snapshots kept per novel (Settings page, then config). */
+    public static function keepPerNovel(): int
+    {
+        return max(0, (int) setting('snapshots_keep_per_novel', config('novarr.snapshots.keep_per_novel', 5)));
+    }
+
+    /** Retention window in days (Settings page, then config). */
+    public static function days(): int
+    {
+        return max(0, (int) setting('snapshots_days', config('novarr.snapshots.days', 14)));
     }
 
     public static function root(): string
@@ -77,8 +95,8 @@ class FailureSnapshot
      */
     public static function prune(int $novelId): void
     {
-        $keep = max(0, (int) config('novarr.snapshots.keep_per_novel', 5));
-        $cutoff = Carbon::now()->subDays(max(0, (int) config('novarr.snapshots.days', 14)))->getTimestamp();
+        $keep = self::keepPerNovel();
+        $cutoff = Carbon::now()->subDays(self::days())->getTimestamp();
 
         $files = self::files($novelId);
         foreach ($files as $i => $file) {

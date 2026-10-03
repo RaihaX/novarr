@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -34,9 +35,25 @@ class SystemHealthController extends Controller
         return view('health.index', [
             'scheduler_last_run' => $lastRun,
             'scheduler_stale' => $lastRun ? \Carbon\Carbon::parse($lastRun)->lt(now()->subMinutes(3)) : true,
-            'queue_depth' => Schema::hasTable('jobs') ? DB::table('jobs')->count() : 0,
+            'queue_depth' => $this->queueDepth(),
             'failed_jobs' => $failed,
         ]);
+    }
+
+    /**
+     * Pending jobs on the two queues the worker drains (`commands`, then
+     * `default`), via the configured queue connection so it is right for the
+     * database and Redis drivers alike. An unreachable backend is reported
+     * and shown as 0 (the view formats an int).
+     */
+    private function queueDepth(): int
+    {
+        try {
+            return (int) Queue::size('commands') + (int) Queue::size('default');
+        } catch (\Throwable $e) {
+            report($e);
+            return 0;
+        }
     }
 
     /**
@@ -65,7 +82,7 @@ class SystemHealthController extends Controller
             // Reconstruct and unserialize just the params array for a clean
             // "key=value" display instead of raw serialized tokens.
             if (preg_match('/s:6:"params";(a:\d+:\{.*?\})s:5:"jobId"/s', $raw, $m)) {
-                $arr = @unserialize($m[1]);
+                $arr = @unserialize($m[1], ['allowed_classes' => false]);
                 if (is_array($arr)) {
                     $params = collect($arr)
                         ->map(fn($v, $k) => "{$k}=" . (is_scalar($v) ? $v : json_encode($v)))

@@ -30,20 +30,40 @@ accurately. The one deliberately loose area is illustration/imagery: there is no
 ## Screens / Views
 
 ### 1. Logo suite
-- **Mark**: three book spines forming an N, with an amber bookmark ribbon on the right spine.
-  Flat — no rounded gradient tile (the old tile is retired). Gradient `#6470FF → #9B6BFF`
-  on a 135° axis; bookmark `#F0B429`.
-  Geometry on a 32×32 grid (SVG source in `novarr-mark.svg`, `novarr-mark-mono.svg`):
-  - left spine: rect x6 y5 w5 h22
-  - diagonal: polygon 11,5 → 16,5 → 26,27 → 21,27
-  - right spine: rect x21 y13 w5 h14
-  - bookmark: polygon 21,5 → 26,5 → 26,13 → 23.5,10.8 → 21,13
+- **Mark — "Serial"**: four flat horizontal bars, read as lines of text / a chapter list.
+  Three indigo bars stepping down in length, the last (shortest) bar in amber — the reading
+  accent. Radius 0, no gradient, no tile. Indigo `#6470FF`; amber `#F0B429`.
+  Geometry on a 32×32 grid (SVG source in `novarr-mark.svg`):
+
+  | Bar | Path | Colour |
+  |---|---|---|
+  | 1 | `M5 5h22v4H5z` (x5 y5 w22 h4) | `#6470FF` |
+  | 2 | `M5 11.5h22v4H5z` (x5 y11.5 w22 h4) | `#6470FF` |
+  | 3 | `M5 18h15v4H5z` (x5 y18 w15 h4) | `#6470FF` |
+  | 4 | `M5 24.5h8v4H5z` (x5 y24.5 w8 h4) | `#F0B429` |
+
+  Bars are 4 units tall on a 6.5-unit pitch; the visible bbox is x5–27, y5–28.5 (centre 16, 16.75).
+- **Favicon cut** (`novarr-mark-favicon.svg`, `public/favicon.svg`): below **20px** the 2.5-unit
+  gaps close up, so use the heavier three-bar cut — `M4 4h24v6H4z`, `M4 13h24v6H4z` in indigo and
+  `M4 22h11v6H4z` in amber. It lands on whole pixels at 32px. The 16/48px frames of
+  `favicon.ico` are hand-hinted to the pixel grid (16: 3px bars, 2px gaps; 48: four bars,
+  6px on a 10px pitch).
+- **Mono variant** (`novarr-mark-mono.svg`): single `currentColor`; the last bar stays but drops to
+  55% opacity. Same rule for the three-bar cut.
+- **Light grounds**: amber drops to `#C98A00` for contrast (last bar and the wordmark's full stop).
+  Indigo is unchanged.
 - **Wordmark**: "NOVARR" uppercase, Geist 600, letter-spacing 0.17em, followed by a full stop
-  in `$brand-amber`. On light grounds the stop drops to `#C98A00` for contrast.
-- **Lockup**: mark and wordmark on a 16px gap, optically centred; wordmark cap-height ≈ 0.62×
-  mark height (44px mark → 30px type).
-- **Mono variant**: single `currentColor`; the bookmark shape stays but drops to 55% opacity.
-- **Legibility**: verified at 28px (navbar) and 16px (favicon). Below 16px use the mono mark.
+  in `$brand-amber` (`#C98A00` on light grounds). Unchanged from the previous suite.
+- **Lockup** (`novarr-lockup-dark.svg`, `novarr-lockup-light.svg`, `public/logo.svg`): mark and
+  wordmark centred on one horizontal axis, 16px visible gap from the bars' right edge to the N;
+  the wordmark is outlined (no font dependency). At 44px the 32-grid is ×1.375 and the wordmark
+  is 30px. In the navbar: 28px mark + 16px/600 wordmark on a 12px gap.
+- **App icons**: `novarr-app-icon-512.svg` — Serial mark on `#0F1216`, visible bars ≈62% of the
+  canvas, centred inside a 16% safe margin; square, corners are left to the OS mask.
+  `novarr-app-icon-maskable-512.svg` — full-bleed indigo with the bars knocked out in `#0F1216`
+  and the last bar amber, bars within the centre 50% (well inside the 80% maskable safe zone).
+- **Legibility**: verified at 28px (navbar), 18px (ePub cover footer, 96px at output) and
+  16px (favicon cut).
 
 ### 2. Colour system
 See `_variables.scss` for the authoritative list. Notes on intent:
@@ -133,10 +153,9 @@ sits on a divider).
 - Sample prose in the mock is placeholder written for the mock — replace with real chapter text.
 
 ### 6. App icons & email
-- **PWA maskable 512**: tile `#12151B`, corner radius 40/512, mark at 96/180 of the tile
-  (≈ 273px on 512) centred — inside the 80% safe circle.
-- **Favicon**: ship 16/32/48. At 16px the bookmark reads as a single amber block; below 16px
-  swap to the mono mark.
+- **PWA icons**: see §1 — `any` icons are the Serial mark on `#0F1216` at ≈62%; the maskable
+  icon is full-bleed indigo with knocked-out bars in the centre 50%.
+- **Favicon**: ship 16/32/48 using the three-bar favicon cut below 20px (see §1).
 - **Daily summary email header**: 600px table layout, `$bg` ground, 20px/24px padding, a **2px
   `$accent` bottom rule**, 26px mark + 14px wordmark left, mono 11px date/label right. Body:
   18/600 headline, then status chips. No web fonts — Georgia for serif, system sans otherwise;
@@ -188,11 +207,12 @@ helpers, type scale, spacing, radii). Spacing scale used throughout: 4 / 8 / 10 
 (app tile). Shadows: none.
 
 ## Assets
-- `novarr-mark.svg` — gradient mark, 32×32 viewBox, no tile.
-- `novarr-mark-mono.svg` — single-colour mark using `currentColor`.
+- `novarr-mark.svg` — Serial mark (four flat bars), 32×32 viewBox, no tile.
+- `novarr-mark-favicon.svg` — heavier three-bar cut for sizes below 20px.
+- `novarr-mark-mono.svg` — single-colour mark using `currentColor`, last bar at 55%.
 - `novarr-lockup-dark.svg` / `novarr-lockup-light.svg` — horizontal lockups with the wordmark
-  drawn as text (Geist 600); convert to outlines if you need font-independence.
-- `novarr-app-icon-512.svg` — maskable PWA tile.
+  outlined (font-independent).
+- `novarr-app-icon-512.svg` / `novarr-app-icon-maskable-512.svg` — PWA icons (any / maskable).
 - Icons: **Lucide** (https://lucide.dev), 1.5–2px stroke. Used in the mocks: `search`,
   `triangle-alert`, `book-open`, `chevron-left`, `chevron-right`.
 - Fonts: Geist, Geist Mono, Literata — all on Google Fonts, all OFL. Self-host for a

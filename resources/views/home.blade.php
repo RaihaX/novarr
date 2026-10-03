@@ -1,5 +1,7 @@
 @extends('layouts.app')
 
+@section('title', 'Dashboard')
+
 @section('content')
 <div class="page-head">
     <div class="page-head-titles">
@@ -7,7 +9,7 @@
         <h1 class="page-title mb-0">Dashboard</h1>
     </div>
     <div class="page-head-actions">
-        <a href="{{ route('novels.index') }}" class="btn btn-secondary">All novels</a>
+        <a href="{{ route('novels.index') }}" class="btn btn-secondary">Library</a>
         <a href="{{ route('novels.discover') }}" class="btn btn-primary">Add novel</a>
     </div>
 </div>
@@ -38,39 +40,18 @@
     </a>
 </div>
 
-{{-- Needs attention (handoff §4): 2px warning left border, tinted header,
-     count chip, title / reason / mono source per row. --}}
+{{-- Needs attention lives on the Health page (System ▸ Health); the
+     dashboard keeps a one-line summary so it is never missed. --}}
 @if(count($attention) > 0)
-    <section class="attention-panel mb-4" id="attentionPanel" aria-labelledby="attentionTitle">
-        <div class="attention-header">
-            <x-icon name="triangle-alert" :size="16" class="icon attention-icon" />
-            <span class="attention-title" id="attentionTitle">Needs attention</span>
-            <span class="chip-count" id="attentionCount">{{ count($attention) }}</span>
-        </div>
-        <div class="attention-list">
-            @foreach($attention as $item)
-                @php
-                    $host = !empty($item['url']) ? parse_url($item['url'], PHP_URL_HOST) : null;
-                    $host = $host ? preg_replace('/^www\./', '', $host) : null;
-                @endphp
-                <div class="attention-row">
-                    <div class="attention-row-body">
-                        <a href="{{ route('novels.show', $item['id']) }}" class="attention-row-title">{{ $item['name'] }}</a>
-                        <span class="attention-row-reason">{{ $item['reason'] }}</span>
-                        <span class="attention-row-source">{{ $host ?? 'no source url configured' }}</span>
-                    </div>
-                    <div class="attention-row-actions">
-                        @if(!empty($item['url']))
-                            <a href="{{ $item['url'] }}" target="_blank" rel="noopener" class="btn btn-outline-warning">Test source ↗</a>
-                        @endif
-                        <button type="button" class="btn btn-secondary snooze-btn" data-id="{{ $item['id'] }}" data-url="{{ route('novels.attention_snooze', $item['id']) }}" title="Hide from this panel for 7 days. Downloads keep running.">Snooze 7 days</button>
-                    </div>
-                </div>
-            @endforeach
-        </div>
-        @include('partials.snoozed-note', ['snoozed' => $snoozed ?? collect()])
-    </section>
-@elseif(($snoozed ?? collect())->isNotEmpty())
+    <a href="{{ route('health.index') }}#attentionPanel" class="attention-summary mb-4" id="attentionSummary">
+        <x-icon name="triangle-alert" :size="16" class="icon attention-icon" />
+        <span class="attention-summary-text">
+            <strong>{{ count($attention) }} {{ Str::plural('novel', count($attention)) }}</strong> {{ count($attention) === 1 ? 'needs' : 'need' }} attention
+        </span>
+        <span class="attention-summary-link">Health <x-icon name="chevron-right" :size="14" /></span>
+    </a>
+@endif
+@if(($snoozed ?? collect())->isNotEmpty())
     <div class="mb-4">@include('partials.snoozed-note', ['snoozed' => $snoozed])</div>
 @endif
 
@@ -228,61 +209,3 @@
     </section>
 </div>
 @endsection
-
-@push('scripts')
-<script>
-(function(){
-
-    const panel = document.getElementById('attentionPanel');
-    const countChip = document.getElementById('attentionCount');
-
-    // "Snooze 7 days" hides the row from the panel for a week. It never
-    // pauses the novel — downloads keep running — and never navigates: the
-    // row fades out in place and the count chip updates.
-    document.querySelectorAll('.snooze-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            btn.disabled = true;
-
-            try {
-                const response = await fetch(btn.dataset.url, {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ days: 7 }),
-                });
-                const data = await response.json().catch(() => ({}));
-
-                if (response.ok && data.success) {
-                    const row = btn.closest('.attention-row');
-                    const finish = () => {
-                        row?.remove();
-                        const left = panel ? panel.querySelectorAll('.attention-row').length : 0;
-                        if (countChip) countChip.textContent = left;
-                        if (!left) panel?.remove();
-                    };
-                    if (row && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-                        row.classList.add('is-leaving');
-                        row.addEventListener('transitionend', finish, { once: true });
-                        setTimeout(finish, 400); // fallback if transitionend never fires
-                    } else {
-                        finish();
-                    }
-
-                    Novarr.showToast(data.message || 'Snoozed for 7 days.', 'success');
-                } else {
-                    btn.disabled = false;
-                    Novarr.showToast(data.message || 'Could not snooze this novel.', 'danger');
-                }
-            } catch (err) {
-                btn.disabled = false;
-                Novarr.showToast('Error: ' + err.message, 'danger');
-            }
-        });
-    });
-
-})();
-</script>
-@endpush

@@ -19,6 +19,7 @@ use App\Http\Controllers\LogController;
 
 // Dashboard
 Route::get('/', [HomeController::class, 'index'])->name('home');
+Route::get('/continue', [HomeController::class, 'continue'])->name('continue');
 Route::view('/offline', 'offline')->name('offline');
 Route::view('/library', 'library')->name('library');
 
@@ -42,7 +43,6 @@ Route::get('/novels/{id}/jump', [NovelController::class, 'jumpChapter'])->name('
 Route::post('/novels/{id}/remove-duplicates', [NovelController::class, 'removeDuplicates'])->name('novels.remove_duplicates');
 Route::delete('/novels/{id}', [NovelController::class, 'destroy'])->name('novels.destroy');
 Route::get('/novels/{id}/epub', [NovelController::class, 'download_epub'])->name('novels.download_epub');
-Route::get('/novels/{id}/metadata', [NovelController::class, 'update_metadata'])->name('novels.get_metadata');
 Route::get('/novels/{id}/metadata/candidates', [\App\Http\Controllers\MetadataController::class, 'candidates'])->name('novels.metadata_candidates');
 Route::post('/novels/{id}/metadata/choose', [\App\Http\Controllers\MetadataController::class, 'choose'])->name('novels.metadata_choose');
 Route::get('/novels/{id}/offline-manifest', [NovelController::class, 'offlineManifest'])->name('novels.offline_manifest');

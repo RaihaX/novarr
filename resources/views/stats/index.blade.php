@@ -1,5 +1,7 @@
 @extends('layouts.app')
 
+@section('title', 'Stats')
+
 @section('content')
 <div class="page-toolbar">
     <h1 class="page-title mb-0">Reading stats</h1>
@@ -43,15 +45,26 @@
     </div>
 </div>
 
-{{-- Daily chart --}}
+{{-- Daily chart — HTML axes (text never scales with the plot), integer
+     ticks on a "nice" step, and a collapsed empty state when nothing was read. --}}
 @php
-    $max = max(1, max(array_column($daily, 'chapters')));
-    $w = 900; $h = 200; $padL = 34; $padB = 22; $padT = 8;
-    $plotW = $w - $padL - 8; $plotH = $h - $padT - $padB;
+    $counts = array_column($daily, 'chapters');
+    $max = max($counts ?: [0]);
     $n = count($daily);
-    $step = $plotW / $n;
-    $barW = max(4, $step - 2); // 2px surface gap between bars
-    $maxIdx = array_search($max, array_column($daily, 'chapters'));
+    // Integer ticks: step from {1, 2, 5} × 10^k so there are at most 4 bands.
+    $step = 1;
+    if ($max > 4) {
+        $raw = $max / 4;
+        $mag = 10 ** floor(log10($raw));
+        foreach ([1, 2, 5, 10] as $m) {
+            if ($m * $mag >= $raw) { $step = (int) ($m * $mag); break; }
+        }
+    }
+    $top = max(1, (int) (ceil($max / $step) * $step));
+    $ticks = range($top, 0, -$step);
+    $maxIdx = $max > 0 ? array_search($max, $counts) : null;
+    // Label every ~5th day, always the last; fewer on phones via CSS.
+    $labelEvery = $n > 14 ? 5 : 1;
 @endphp
 <div class="card mb-4">
     <div class="panel-head">
@@ -59,36 +72,43 @@
         <span class="chart-note">{{ number_format($window_chapters) }} chapters · &asymp;{{ number_format($window_words) }} words · {{ $active_days }}/{{ $window_days }} active days</span>
     </div>
     <div class="card-body">
-        <svg viewBox="0 0 {{ $w }} {{ $h }}" width="100%" role="img" aria-label="Bar chart of chapters read per day over the last {{ $window_days }} days" class="stats-chart">
-            {{-- recessive gridlines + y labels --}}
-            @foreach([0, 0.5, 1] as $f)
-                @php $y = $padT + $plotH - $f * $plotH; @endphp
-                <line x1="{{ $padL }}" y1="{{ $y }}" x2="{{ $w - 8 }}" y2="{{ $y }}" class="grid-line"/>
-                <text x="{{ $padL - 6 }}" y="{{ $y + 4 }}" text-anchor="end" class="axis-label">{{ round($f * $max) }}</text>
-            @endforeach
-
-            @foreach($daily as $i => $day)
-                @php
-                    $bh = $day['chapters'] > 0 ? max(3, ($day['chapters'] / $max) * $plotH) : 0;
-                    $x = $padL + $i * $step + 1;
-                    $y = $padT + $plotH - $bh;
-                @endphp
-                <g class="chart-bar">
-                    @if($bh > 0)
-                        {{-- Square ends: bars follow the flat-bar rule of the system. --}}
-                        <rect class="bar-fill" x="{{ $x }}" y="{{ $y }}" width="{{ $barW }}" height="{{ $bh }}"/>
-                    @endif
-                    {{-- oversized invisible hit target + hover value --}}
-                    <rect x="{{ $padL + $i * $step }}" y="{{ $padT }}" width="{{ $step }}" height="{{ $plotH }}" fill="transparent">
-                        <title>{{ $day['label'] }}: {{ $day['chapters'] }} chapter{{ $day['chapters'] === 1 ? '' : 's' }}@if($day['words'] > 0) (&asymp;{{ number_format($day['words']) }} words)@endif</title>
-                    </rect>
-                    <text x="{{ $padL + $i * $step + $step / 2 }}" y="{{ max($padT + 10, $y - 5) }}" text-anchor="middle" class="bar-value {{ $i === $maxIdx && $day['chapters'] > 0 ? 'always' : '' }}">{{ $day['chapters'] }}</text>
-                </g>
-                @if($i % 5 === 0 || $i === $n - 1)
-                    <text x="{{ $padL + $i * $step + $step / 2 }}" y="{{ $h - 6 }}" text-anchor="middle" class="axis-label">{{ $day['label'] }}</text>
-                @endif
-            @endforeach
-        </svg>
+        @if($max === 0)
+            <div class="chart-empty">
+                <div class="chart-empty-rule" aria-hidden="true"></div>
+                <p class="mb-0">No chapters read in the last {{ $window_days }} days. Days you read will show up here as bars.</p>
+            </div>
+        @else
+            <div class="bar-chart" role="img" aria-label="Bar chart of chapters read per day over the last {{ $window_days }} days; peak {{ $max }} on {{ $daily[$maxIdx]['label'] }}" style="--ticks: {{ count($ticks) - 1 }};">
+                <div class="bar-chart-y" aria-hidden="true">
+                    @foreach($ticks as $k => $t)
+                        <span style="top: {{ count($ticks) > 1 ? round($k / (count($ticks) - 1) * 100, 3) : 100 }}%">{{ $t }}</span>
+                    @endforeach
+                </div>
+                <div class="bar-chart-plot" aria-hidden="true">
+                    <div class="bar-chart-grid">
+                        @foreach($ticks as $t)<span></span>@endforeach
+                    </div>
+                    <div class="bar-chart-bars">
+                        @foreach($daily as $i => $day)
+                            @php $pct = $day['chapters'] > 0 ? max(1.5, $day['chapters'] / $top * 100) : 0; @endphp
+                            <div class="bar-chart-col {{ $i === $maxIdx ? 'is-peak' : '' }}" title="{{ $day['label'] }}: {{ $day['chapters'] }} chapter{{ $day['chapters'] === 1 ? '' : 's' }}@if($day['words'] > 0) (&asymp;{{ number_format($day['words']) }} words)@endif">
+                                @if($pct > 0)
+                                    <div class="bar-chart-bar" style="height: {{ $pct }}%">
+                                        <span class="bar-chart-value">{{ $day['chapters'] }}</span>
+                                    </div>
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+                <div></div>
+                <div class="bar-chart-x" aria-hidden="true" style="grid-template-columns: repeat({{ $n }}, minmax(0, 1fr));">
+                    @foreach($daily as $i => $day)
+                        <span class="{{ ($i % $labelEvery === 0 || $i === $n - 1) ? 'is-shown' : '' }} {{ $i === $n - 1 ? 'is-last' : '' }}">{{ ($i % $labelEvery === 0 || $i === $n - 1) ? $day['label'] : '' }}</span>
+                    @endforeach
+                </div>
+            </div>
+        @endif
 
         <details class="disclosure">
             <summary>View as table</summary>

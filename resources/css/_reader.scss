@@ -273,6 +273,444 @@ body.reader-theme-light {
     justify-content: flex-end;
 }
 
+// Icon + label chrome controls (Playback / Contents / Focus).
+.reader-ctl-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+// --- Aa popover: head, tabs, panes, footer ---------------------------------
+.reader-sheet-grip { display: none; }
+
+// Focus lands on the dialog itself when it opens; no ring for that.
+.reader-pop:focus { outline: none; }
+
+.reader-pop-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: $s-3;
+}
+
+.reader-pop-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--rd-title);
+}
+
+.reader-pop-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    color: var(--rd-muted);
+    background: transparent;
+    border: 0;
+    border-radius: $radius;
+    transition: color $transition, background-color $transition;
+
+    &:hover { color: var(--rd-title); background: var(--rd-line); }
+}
+
+// Tabs: an underlined row, the active tab carries the accent rule
+// (same recipe as the active navbar item).
+.reader-tabs {
+    display: flex;
+    gap: 2px;
+    margin: 0 (-$s-4) $s-4;
+    padding: 0 $s-4;
+    border-bottom: $hairline solid var(--rd-border);
+
+    [role="tab"] {
+        flex: 1 1 0;
+        padding: 8px $s-2;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--rd-muted);
+        background: transparent;
+        border: 0;
+        border-radius: $radius $radius 0 0;
+        transition: color $transition, background-color $transition;
+
+        &:hover { color: var(--rd-title); background: var(--rd-line); }
+
+        &[aria-selected="true"] {
+            color: var(--rd-title);
+            box-shadow: inset 0 -2px 0 var(--rd-accent);
+        }
+    }
+}
+
+.reader-pane[hidden] { display: none !important; }
+
+.reader-pop-block {
+    display: flex;
+    flex-direction: column;
+    gap: $s-2;
+    padding: 6px 0 $s-3;
+}
+
+.reader-pop-hint {
+    margin: $s-3 0 0;
+    font-size: 12px;
+    color: var(--rd-muted);
+
+    .icon { vertical-align: -2px; }
+}
+
+.reader-pop-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: $s-3;
+    padding-top: $s-3;
+    border-top: $hairline solid var(--rd-border);
+}
+
+// Segmented control that fills the row (text size on the Text tab).
+.reader-seg-fill {
+    display: flex;
+    width: 100%;
+
+    button, .reader-seg-value { flex: 1 1 0; justify-content: center; text-align: center; }
+    .seg-a-small { font-size: 12px; }
+    .seg-a-large { font-size: 17px; line-height: 1; }
+}
+
+// Theme swatches: a tile per theme, drawn in that theme's own colours.
+.reader-swatches,
+.reader-faces {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: $s-2;
+
+    button {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        padding: $s-2 $s-1;
+        font-size: 12px;
+        color: var(--rd-muted);
+        background: transparent;
+        border: $hairline solid var(--rd-border);
+        border-radius: $radius;
+        transition: color $transition, background-color $transition, border-color $transition;
+
+        &:hover { color: var(--rd-title); background: var(--rd-line); }
+
+        &.is-active {
+            color: var(--rd-title);
+            border-color: var(--rd-accent);
+            box-shadow: inset 0 0 0 1px var(--rd-accent);
+        }
+    }
+}
+
+.reader-faces { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+.reader-swatch {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 32px;
+    font-family: $font-read;
+    font-size: 15px;
+    border-radius: 3px;
+    border: $hairline solid rgba(128, 128, 128, 0.35);
+
+    &.swatch-dark  { background: $bg; color: $text-soft; }
+    &.swatch-sepia { background: #ece3cf; color: #4a3a2c; }
+    &.swatch-light { background: $bg-light; color: $text-light; }
+}
+
+.face-sample {
+    font-size: 20px;
+    line-height: 1.1;
+    color: var(--rd-title);
+
+    &.face-read    { font-family: $font-read; }
+    &.face-sans    { font-family: $font-ui; }
+    &.face-serif   { font-family: Georgia, 'Times New Roman', serif; }
+    &.face-legible { font-family: 'Atkinson Hyperlegible', $font-ui; }
+}
+
+// --- Phones: the Aa popover becomes a bottom sheet -------------------------
+.reader-backdrop { display: none; }
+
+@include media-breakpoint-down(md) {
+    .reader-backdrop:not(.d-none) {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 1035;
+        background: rgba(0, 0, 0, 0.5);
+        animation: reader-fade 200ms ease-out;
+    }
+
+    .reader-pop {
+        position: fixed;
+        top: auto;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        max-width: none;
+        max-height: 82vh;
+        margin: 0;
+        padding: $s-2 $s-5 calc(#{$s-5} + env(safe-area-inset-bottom, 0px));
+        border-width: $hairline 0 0;
+        border-radius: 12px 12px 0 0;
+        animation: reader-sheet-up 240ms ease-out;
+    }
+
+    .reader-sheet-grip {
+        display: block;
+        width: 36px;
+        height: 4px;
+        margin: 0 auto $s-2;
+        border-radius: 2px;
+        background: var(--rd-border);
+    }
+
+    .reader-tabs {
+        margin-inline: -$s-5;
+        padding-inline: $s-5;
+
+        [role="tab"] { min-height: 44px; font-size: 13px; }
+    }
+
+    // 36px+ hit targets everywhere in the sheet.
+    .reader-pop .reader-seg button,
+    .reader-pop .reader-seg .reader-seg-value { min-height: 40px; padding-inline: 12px; }
+    .reader-pop .reader-pop-close { width: 40px; height: 40px; }
+    .reader-swatches button,
+    .reader-faces button { min-height: 64px; }
+    .reader-swatch { height: 36px; }
+    .reader-pop-row { padding: 8px 0; }
+    .reader-pop .form-switch .form-check-input { width: 2.6em; height: 1.4em; }
+
+    // Icon-only chrome controls on phones.
+    .reader-ctl-text { @include visually-hidden(); }
+    .reader-ctl-icon { min-width: 36px; justify-content: center; }
+}
+
+// The sheet sits inside the sticky chrome's stacking context, so lift the
+// chrome above the backdrop while the sheet is open.
+body.reader-sheet-open .reader-chrome { z-index: 1040; }
+
+@keyframes reader-sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes reader-fade { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+    .reader-pop, .reader-backdrop:not(.d-none), .reader-playbar { animation: none !important; }
+}
+
+// --- Playback bar: Listen + Auto-scroll, docked to the bottom --------------
+.reader-playbar {
+    position: fixed;
+    left: 50%;
+    bottom: calc(#{$s-4} + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    z-index: 1030;
+    display: flex;
+    align-items: center;
+    gap: $s-4;
+    width: max-content;
+    max-width: calc(100vw - #{$s-5});
+    padding: $s-2 $s-2 $s-2 $s-4;
+    font-family: $font-ui;
+    background: var(--rd-raise);
+    border: $hairline solid var(--rd-border);
+    border-radius: $radius;
+    color: var(--rd-title);
+    animation: reader-fade 160ms ease-out;
+}
+
+.reader-playbar-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    & + & {
+        padding-left: $s-4;
+        border-left: $hairline solid var(--rd-border);
+    }
+}
+
+.reader-playbar-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 2px;
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--rd-muted);
+}
+
+.reader-playbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0 $s-3;
+    font-size: 12px;
+    color: var(--rd-title);
+    background: transparent;
+    border: $hairline solid var(--rd-border);
+    border-radius: $radius;
+    transition: color $transition, background-color $transition, border-color $transition;
+
+    &:hover { background: var(--rd-line); }
+
+    &.is-active {
+        color: var(--rd-accent-fg);
+        background: var(--rd-accent);
+        border-color: var(--rd-accent);
+    }
+}
+
+.reader-playbar .reader-seg {
+    button, .reader-seg-value { min-height: 36px; }
+}
+
+.reader-playbar-note {
+    min-width: 0;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: var(--rd-muted);
+    white-space: nowrap;
+
+    &:empty { display: none; }
+}
+
+// Leave room so the last paragraph / footer isn't hidden under the bar.
+body.reader-playbar-open .reader-col { padding-bottom: 140px; }
+
+@include media-breakpoint-down(md) {
+    .reader-playbar {
+        left: $s-2;
+        right: $s-2;
+        transform: none;
+        width: auto;
+        max-width: none;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: $s-2;
+        padding: $s-2 $s-3;
+    }
+
+    .reader-playbar-group { flex: 1 1 100%; }
+    .reader-playbar-group + .reader-playbar-group {
+        padding-left: 0;
+        padding-top: $s-2;
+        border-left: 0;
+        border-top: $hairline solid var(--rd-border);
+    }
+    .reader-playbar-label { min-width: 92px; }
+    .reader-playbar-close { position: absolute; top: 2px; right: 2px; }
+    .reader-playbar-group:first-child { padding-right: 40px; }
+}
+
+// --- Chapter drawer (offcanvas TOC) ----------------------------------------
+// The drawer keeps the app's dark surface ($offcanvas-bg-color) whatever the
+// reading theme, so it uses the static tokens rather than --rd-*.
+.toc-tools {
+    display: flex;
+    flex-direction: column;
+    gap: $s-2;
+    padding: $s-2 $s-4 $s-3;
+    border-bottom: $hairline solid $border;
+}
+
+.toc-tools-row {
+    display: flex;
+    gap: 6px;
+}
+
+.toc-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px $s-3;
+    font-size: 12px;
+    color: $text-muted;
+    background: transparent;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    transition: color $transition, background-color $transition, border-color $transition;
+
+    &:hover { color: $text; background: $surface-alt; }
+
+    &.is-active {
+        @include status($brand-amber);
+    }
+
+    &:last-child { margin-left: auto; }
+}
+
+.toc-list {
+    font-size: 13px;
+
+    .toc-row {
+        display: flex;
+        align-items: center;
+        gap: $s-2;
+        padding: 9px $s-4 9px 14px;
+        color: $text-muted;
+        border-left: $rule-strong solid transparent;
+
+        &.is-read .toc-label { color: $text-muted; }
+    }
+
+    // Current chapter: surface-alt fill + 2px amber rule (a reading signal).
+    .toc-row.is-current,
+    .toc-row.is-current:hover,
+    .toc-row.is-current:focus {
+        color: $text;
+        background: $surface-alt;
+        border-left-color: $brand-amber;
+        font-weight: 500;
+
+        .toc-label { color: $text; }
+    }
+
+    .toc-mark {
+        display: inline-flex;
+        flex: 0 0 14px;
+        color: $brand-amber;
+    }
+
+    .toc-label {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .toc-meta {
+        flex-shrink: 0;
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $text-muted;
+    }
+
+    .toc-more {
+        text-align: center;
+        font-size: 12px;
+        color: $text-muted;
+    }
+}
+
 // --- Reading column -------------------------------------------------------
 .reader-col {
     // ch resolves against the reader face, so the measure control is honest.
@@ -577,3 +1015,7 @@ body.reader-focus:not(.chrome-peek) {
 
     .reader-ctl { min-width: 38px; }
 }
+
+// Bootstrap focuses the drawer container on open; that's not a user focus.
+#tocPanel:focus,
+#tocPanel:focus-visible { outline: none; }

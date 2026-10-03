@@ -17,6 +17,8 @@ public_html/storage
 public_html/hot
 
 storage/*.key
+# Pre-migration DB dumps written by deploy.sh
+storage/backups/
 .env
 Homestead.yaml
 Homestead.json

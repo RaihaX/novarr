@@ -1,9 +1,11 @@
 @extends('layouts.app')
 
+@section('title', $config['name'] . ' · Commands')
+@section('breadcrumb')
+    @include('partials.breadcrumb', ['trail' => [['System'], ['Commands', route('commands.index')], [$config['name']]]])
+@endsection
+
 @section('content')
-<a href="{{ route('commands.index') }}" class="back-link">
-    <x-icon name="chevron-left" :size="14" :stroke="1.5" /> Commands
-</a>
 
 <div class="row">
     <div class="col-lg-8">

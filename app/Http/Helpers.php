@@ -1021,9 +1021,37 @@ function isChapterSpamLine($text)
     return false;
 }
 
+/**
+ * Last-run partial flag for the TOC helpers. A source TOC walk that had to
+ * stop early (a page failed even after a retry) still returns what it
+ * parsed, and calls markTocRunPartial(); NovelScraper reads
+ * tocRunWasPartial() after tableOfContentGenerator() to record the run as
+ * partial in the novel's TOC health. tableOfContentGenerator() resets it.
+ */
+function tocRunPartialState(?bool $set = null): bool
+{
+    static $partial = false;
+    if ($set !== null) {
+        $partial = $set;
+    }
+
+    return $partial;
+}
+
+function markTocRunPartial(bool $partial = true): void
+{
+    tocRunPartialState($partial);
+}
+
+function tocRunWasPartial(): bool
+{
+    return tocRunPartialState();
+}
+
 function tableOfContentGenerator($data)
 {
     $result = [];
+    markTocRunPartial(false);
     \App\Scraping\FailureSnapshot::takeTocHtml(); // clear any stale note
 
     try {
@@ -1262,7 +1290,16 @@ function empireNovelToc(string $novelUrl): array
     for ($page = 2; $page <= $lastPage; $page++) {
         $html = $fetchPage($page);
         if (empty($html)) {
-            \Log::warning("empireNovelToc: page {$page} failed for {$novelUrl}; stopping");
+            // One retry (same Fetcher path) before giving up on the walk.
+            \Log::info("empireNovelToc: page {$page} failed for {$novelUrl}; retrying once");
+            $html = $fetchPage($page);
+        }
+        if (empty($html)) {
+            // Pages run newest → oldest, so stopping here loses the older
+            // chapters: return what was parsed but flag the run as partial
+            // so the TOC health doesn't take it for a complete list.
+            \Log::warning("empireNovelToc: page {$page} of {$lastPage} failed twice for {$novelUrl}; stopping (partial TOC)");
+            markTocRunPartial();
             break;
         }
         $parsePage($html);
@@ -1541,6 +1578,17 @@ function getMetadataFromNovelFull(string $novelUrl): array
             if ($genres->count() > 0) {
                 $metadata["genres"] = normalizeGenres($genres->each(fn($n) => $n->text()));
             }
+
+            // "Status: Ongoing" / "Status: Completed" — used when
+            // NovelUpdates has no status for the novel.
+            $status = $info->filterXPath('.//div[h3[normalize-space(.)="Status:"]]');
+            if ($status->count() > 0) {
+                $text = trim(preg_replace('/\s+/u', ' ', str_ireplace('Status:', '', $status->first()->text())));
+                if ($text !== '') {
+                    $metadata["status_text"] = $text;
+                    $metadata["completed"] = stripos($text, "complete") !== false;
+                }
+            }
         }
     } catch (\Throwable $e) {
         \Log::error("getMetadataFromNovelFull error for {$novelUrl}: " . $e->getMessage());
@@ -1583,7 +1631,7 @@ function resolveNovelUpdatesUrl(string $name, ?string $author = null, ?array &$r
         return null;
     }
 
-    $threshold = \App\Scraping\NovelUpdatesMatcher::THRESHOLD;
+    $threshold = \App\Scraping\NovelUpdatesMatcher::threshold();
     $ranked = \App\Scraping\NovelUpdatesMatcher::rank($candidates, $name, $author);
     $best = $ranked[0];
 
@@ -1711,7 +1759,7 @@ function fetchNovelUpdatesMetadata(string $url): array
  */
 function getMetadata($data)
 {
-    $threshold = \App\Scraping\NovelUpdatesMatcher::THRESHOLD;
+    $threshold = \App\Scraping\NovelUpdatesMatcher::threshold();
     $persist = function (array $attributes) use ($data) {
         if (($data->exists ?? false)) {
             $data->forceFill($attributes)->saveQuietly();
@@ -1801,6 +1849,34 @@ function normalizeGenres(array $genres): array
 }
 
 /**
+ * Novel Arrow's `novel_status` (0 = ongoing, 1 = completed — the API's
+ * "completed" browse list only carries 1s) as a status_text, or null when
+ * absent / unrecognised. Strings ("Completed", "ONGOING") are accepted too.
+ */
+function novelArrowStatus($status): ?string
+{
+    if ($status === null || $status === '') {
+        return null;
+    }
+    if (is_numeric($status)) {
+        return match ((int) $status) {
+            0 => "Ongoing",
+            1 => "Completed",
+            default => null,
+        };
+    }
+    $status = strtolower(trim((string) $status));
+    if (str_contains($status, "complete")) {
+        return "Completed";
+    }
+    if (str_contains($status, "ongoing")) {
+        return "Ongoing";
+    }
+
+    return null;
+}
+
+/**
  * Fetch novel metadata from novelarrow.com (formerly novelbin) as a fallback
  * source, via its JSON API. Tries the slug from translator_url first when
  * it's already a Novel Arrow URL, then a slug built from the novel name.
@@ -1843,6 +1919,12 @@ function getMetadataFromNovelArrow($data)
         $metadata["description"] = trim($info["novel_desc"] ?? "");
         $metadata["author"] = trim($info["novel_author"] ?? "");
         $metadata["no_of_chapters"] = (int) ($info["totalChapter"] ?? 0);
+
+        $status = novelArrowStatus($info["novel_status"] ?? null);
+        if ($status !== null) {
+            $metadata["status_text"] = $status;
+            $metadata["completed"] = $status === "Completed";
+        }
 
         // Covers live on the image host, keyed by slug (see the site's
         // og:image tags) — downloadCoverImage() validates it's a real image.
@@ -1935,138 +2017,36 @@ function encodeChapterPart(string $base, int $part): string
 /**
  * Parse a TOC entry into [label, book, url, chapter], or null for teasers.
  *
- * The returned label is the ORIGINAL text (trimmed, whitespace collapsed,
- * mb-safe) for display; numbers are parsed from an ASCII-folded copy.
+ * A thin adapter over ChapterLabelParser (the single label parser): `book`
+ * is the parsed volume, `chapter` the legacy encoded value
+ * (ChapterLabel::legacyChapter(), as a string: "12", "12.5", part 2 of 12 →
+ * "12.2"; "0" when no number), `label` the ORIGINAL text (trimmed,
+ * whitespace collapsed, mb-safe, capped at 250 chars) for display.
  */
 function generateTocChapterInfo($label, $url)
 {
     $label = (string) $label;
     $url = (string) $url;
 
-    // Display copy. preg /u returns null on invalid UTF-8 — scrub and retry.
-    $display = preg_replace('/[\x{200B}-\x{200D}\x{2060}\x{FEFF}]/u', '', $label);
-    if ($display === null) {
-        $display = mb_convert_encoding($label, 'UTF-8', 'UTF-8');
-        $display = preg_replace('/[\x{200B}-\x{200D}\x{2060}\x{FEFF}]/u', '', $display) ?? $display;
-    }
-    $display = trim(preg_replace('/\s+/u', ' ', $display) ?? $display);
-
-    // Only a teaser *marker* drops the entry ("[Teaser] …", "… Teaser"), not
-    // a title that merely contains the word ("Chapter 50: The Teaser Trap").
-    if (preg_match('/^\s*\[?teaser\b/iu', $display) || preg_match('/\bteaser\]?\s*$/iu', $display)) {
+    if (\App\Scraping\ChapterLabelParser::isTeaser($label)) {
         return null;
     }
 
-    // ASCII-folded copy used only for number parsing. Trim is load-bearing:
-    // a leading space breaks every ^-anchored pattern below.
-    $parse = preg_replace('/[\x{2010}-\x{2015}\x{2212}]/u', '-', $display) ?? $display;
-    $parse = str_replace('(', ' (', $parse);
-    $parse = preg_replace('/[^A-Za-z0-9 _\.\-\+\&\(\)]/', '', $parse);
-    $parse = trim(preg_replace('/ +/', ' ', $parse));
+    $parsed = \App\Scraping\ChapterLabelParser::parse($label, $url);
 
-    $path = parse_url($url, PHP_URL_PATH) ?: '';
-    $lastSegment = strtolower(basename(rtrim($path, '/')));
-    $lastSegment = preg_replace('/\.(html?|php)$/', '', $lastSegment);
-
-    $chapter = '0';
-    $book = 0;
-    $afterNumber = null; // label text after the chapter number (for parts)
-
-    // Volume/book: a LEADING label prefix only ("Vol. 2 Chapter 3", "Volume 2
-    // …", "Book 2 …") — "Chapter 300: Book 2 Begins" is a title, not a
-    // volume. Else the URL (see parseVolumeFromUrlPath()).
-    if (($prefixBook = parseVolumePrefix($parse)) !== null) {
-        $book = $prefixBook;
-    } elseif (($urlBook = parseVolumeFromUrlPath($path)) !== null) {
-        $book = $urlBook;
-    }
-
-    // The FIRST chapter number is the ordering number ("Chapter 164 - 106
-    // Title" → 164). Decimals are kept ("Chapter 12.5").
-    if (preg_match('/^chapter\s*(\d+(?:\.\d+)?)/i', $parse, $cm)) {
-        $chapter = $cm[1];
-        $afterNumber = substr($parse, strlen($cm[0]));
-    } elseif (preg_match('/^ch[aphter]{3,6}\s*(\d+(?:\.\d+)?)/i', $parse, $cm)) {
-        // Leading typo of "Chapter" ("Chpater 12", "Chaper 12", "Chaptet 12",
-        // "Chhapter 12"): letters drawn from c-h-a-p-t-e-r only, so words
-        // like "Chosen" don't qualify.
-        $chapter = $cm[1];
-        $afterNumber = substr($parse, strlen($cm[0]));
-    } elseif (preg_match('/^(\d+(?:\.\d+)?)/', $parse, $cm)) {
-        $chapter = $cm[1];
-        $afterNumber = substr($parse, strlen($cm[0]));
-    } elseif (preg_match('/^side\s*(?:chapter|story)\b/i', $parse)) {
-        // "Side chapter 3" has its own numbering — leave it at 0 for
-        // ChapterNumberResolver rather than colliding with main chapter 3.
-    } elseif (preg_match('/\b(?:ch{1,2}ap\w*|ch\.|cap[ií]?tulo)\s+(\d+(?:\.\d+)?)/iu', $parse, $cm, PREG_OFFSET_CAPTURE)) {
-        // Tolerate source typos (Chaper/Chaptet/Chhapter/Captulo) and labels
-        // where "Chapter N" isn't at the start ("Vol. 2 Chapter 3", "Novel
-        // Name Chapter 1161 ..."). \s+ only: a dash may mean a negative
-        // ("Chapter -1 - Glossary").
-        $chapter = $cm[1][0];
-        $afterNumber = substr($parse, $cm[0][1] + strlen($cm[0][0]));
-    } elseif (
-        !preg_match('/\b(?:ch{1,2}ap\w*|ch\.|cap[ií]?tulo)/iu', $parse) &&
-        !preg_match('/\d/', $parse) &&
-        preg_match('/(?:^|[-\/])ch(?:ap(?:ter)?)?-(\d+)/i', $path, $um)
-    ) {
-        // Last resort: the URL slug ("...-chapter-86", "...-ch-40") — only
-        // when the label carries no chapter token and no number at all;
-        // "Chapter -1 - Glossary" with slug "chapter-1-glossary" must NOT
-        // steal chapter 1, and a label like "epl1" carries its own (non-
-        // chapter) numbering, so it stays 0 for the resolver.
-        $chapter = $um[1];
-    }
-
-    // Split / part suffixes — only for a whole-number chapter parsed from
-    // the label. First match wins.
-    $part = 0;
-    if ($afterNumber !== null && !str_contains($chapter, '.')) {
-        $whole = $chapter;
-
-        if (
-            preg_match('/^\s*\((\d{1,2})\)/', $afterNumber, $pm) ||
-            preg_match('/\((\d{1,2})\)\s*$/', $afterNumber, $pm) ||
-            preg_match('/\((\d{1,2})\)\s*-\s*[A-Z]\s*-/', $afterNumber, $pm)
-        ) {
-            // "(N)" right after the number ("Chapter 164(2)"), as the label's
-            // final token ("Chapter 12: Title (2)"), or the "(1) – A –" form —
-            // not mid-title ("Chapter 30: Heroes of (2) Worlds").
-            $part = (int) $pm[1];
-        } elseif (preg_match('/\bpart\s*(\d{1,2})\b/i', $afterNumber, $pm)) {
-            // "Chapter 12 Part 2", "Chapter 12 (Part 2)"
-            $part = (int) $pm[1];
-        } elseif (
-            preg_match('/^chapter\s*\d+\s*-\s*(\d)\b(?!\d)/i', $parse, $pm) &&
-            preg_match('/-' . $pm[1] . '$/', $lastSegment)
-        ) {
-            // "Chapter 12-2" — only when the URL agrees (".../chapter-12-2");
-            // otherwise "Chapter 12 - 3 Title" is a second numbering.
-            $part = (int) $pm[1];
-        } elseif (
-            preg_match('/^chapter\s*\d+\s*([A-H])(?:\s*-|\s*$)/i', $parse, $pm) &&
-            (
-                // URL carries no chapter number (id-based, e.g. NovelArrow
-                // /chapter/slug/123): trust the label, as before.
-                !preg_match('/(?:^|[-\/_])ch(?:ap(?:ter)?)?-?\d/i', $path) ||
-                // URL has a chapter number: it must carry the letter too.
-                preg_match('/(?:^|\D)' . preg_quote($whole, '/') . '-?' . strtolower($pm[1]) . '(?:-|$)/', $lastSegment)
-            )
-        ) {
-            // "Chapter 164A" / "Chapter 164 B - …". A–H only: "Chapter 5 I"
-            // is a title.
-            $part = ord(strtoupper($pm[1])) - ord('A') + 1;
-        } elseif (preg_match('/_(\d{1,2})$/', $parse, $pm)) {
-            // "_2" suffix at the END of the label (multi-part chapters)
-            $part = (int) $pm[1];
-        }
-
-        $chapter = encodeChapterPart($whole, $part);
+    if ($parsed->number === null) {
+        $chapter = '0';
+    } elseif ($parsed->part > 0) {
+        $chapter = encodeChapterPart((string) (int) floor($parsed->number), $parsed->part);
+    } else {
+        // Float → string drops a whole number's ".0" ("12") and keeps a
+        // decimal ("374.5").
+        $chapter = (string) $parsed->number;
     }
 
     return [
-        "label" => mb_substr($display, 0, 250), // keep the column bounded
-        "book" => $book,
+        "label" => mb_substr($parsed->sourceLabel, 0, 250), // keep the column bounded
+        "book" => $parsed->volume,
         "url" => $url,
         "chapter" => $chapter,
     ];

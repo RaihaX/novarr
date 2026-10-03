@@ -75,6 +75,8 @@ Open **http://&lt;host&gt;/** and start adding novels.
 - **NovelUpdates identity scoring** — candidate series are scored against the local title, the series' associated names and the author; a match is persisted only at ≥ 0.85 (`novels.novelupdates_match_score`), sequels are penalised, and the edit page lists the top candidates with a "Use this" button (`novel:metadata --novelupdates-url=` from the CLI). **Completion is refused while a novel's match is unscored or weak**, so existing libraries are re-scored on their next metadata refresh.
 - **Failure snapshots** — a page that fetched but could not be read is kept gzipped (5 per novel, 14 days; `NOVARR_SNAPSHOTS_*`) and listed under **Snapshots** on the novel page for diagnosis.
 - **Structured chapter numbering** — chapters carry `number` (decimals kept), `part`, `title` and a computed `sort_key`; every list, prev/next, ePub and digest orders by it, so parts, decimals, volumes and end matter sort correctly.
+- **Table-of-contents health** — every TOC run records its time and count. An empty, partial or shrinking TOC (more than 5% fewer entries) flags the novel in **Needs attention** after two bad runs; a source advertising far more chapters than it lists is called out; a shrink that holds for three runs is accepted as the new baseline. Pending chapters the source stops listing for 3 days are parked as `source_missing` (retried every 3 days) and no longer count as a stall.
+- **Tunables in Settings** — minimum chapter words, chapters per novel per run, run-time bound (must stay under the 150-minute scheduler lock), NovelUpdates match threshold, and failure-snapshot retention, each shown with its default and effective value.
 - **Auto-complete** — daily verification against NovelUpdates marks a series complete once every chapter is downloaded, then generates the ePub and (optionally) sends it to Kindle, with webhook notifications at each step.
 - **On-demand single chapter** — a pending chapter's page offers "Download this chapter now."
 - **Content extraction v2** — chapter text is found by each source's own container selectors first, then a readability-style scorer (text length × (1 − link density), penalising comment/nav/footer/sidebar/share blocks), so a reskinned site degrades gracefully instead of yielding nothing. Headings, "report chapter" notices, reader nav and watermark tails (`.me`) are dropped; inline emphasis is kept. Chapters split over several pages (`-2` / `?page=2`) are stitched together for sources that declare it.
@@ -85,9 +87,10 @@ Open **http://&lt;host&gt;/** and start adding novels.
 - **Persisted preferences** behind one **Aa** popover: font size (15–24px), measure (56–80ch), margins, justification/hyphenation, theme (dark/sepia/light), font (Literata / sans / Georgia / Atkinson Hyperlegible), line spacing, auto-scroll and read-aloud — with optional **per-novel overrides** ("This novel only").
 - **Continuous reading** — the next chapter loads inline as you approach the end (toggleable), with swipe gestures on touch and a slide-out **chapter list** with filtering.
 - **Focus mode** — hides all chrome; tap the page to peek at the controls.
+- **`/continue`** — jumps straight to your resume point (the PWA's "Continue reading" shortcut uses it).
 - **Read tracking** — chapters auto-mark read on open, "Continue reading" resumes **mid-chapter across devices** (scroll position syncs to the server), "Mark to here" bulk-marks earlier chapters.
 - **Auto-scroll** (adjustable speed) and **read-aloud** text-to-speech with paragraph highlighting and speed control.
-- **Bookmarks & highlights** — select text to save an excerpt with an optional note; browse them per novel on the Bookmarks page. Single-word selections offer a **dictionary lookup**.
+- **Bookmarks & highlights** — select text to save an excerpt with an optional note; browse them per novel on the **Highlights** page. Single-word selections offer a **dictionary lookup**.
 - **Reading stats** — streak, chapters/words per day (30-day chart), all-time totals, most-read novels.
 - **Full-text search** across chapter content (MySQL `FULLTEXT`), paginated, scoped to one novel or the whole library, plus a navbar quick-search with autocomplete.
 
@@ -259,7 +262,7 @@ Novarr is **scheduler-driven**. Add the single Laravel cron entry and everything
 | Task | Schedule | What it does |
 |---|---|---|
 | Scheduler heartbeat | every minute | Records last-run time for the health check |
-| Attention pre-warm | every 5 min | Pre-computes the dashboard "Needs Attention" panel |
+| Attention pre-warm | every 5 min | Pre-computes the Needs attention panel (shown on **System → Health**, summarised on the dashboard) |
 | Queue drain (fallback) | every minute | `queue:work --stop-when-empty` — safety net behind the persistent worker |
 | TOC refresh | daily @ 01:00 | `novel:toc` — refresh chapter lists for active novels |
 | Priority TOC refresh | hourly | `novel:toc --frequent-only` — novels flagged "hourly checks" |
@@ -316,13 +319,13 @@ Novarr is an installable Progressive Web App. **HTTPS is required** (service wor
 
 **App shell & automatic caching** — the manifest + service worker (`public/sw.js`) make Novarr installable; static assets are cached-first and any chapter you open is cached for later. Offline navigations fall back to the cache, then a friendly `/offline` page.
 
-**Download for offline** — on a novel's page, the "Download for offline" dropdown pre-caches chapters via the service worker with live progress. Range options keep big series manageable:
+**Download for offline** — on a novel's page, the **Download ▾** menu pre-caches chapters via the service worker with live progress. Range options keep big series manageable:
 - **Next 100 unread**
 - **All unread**
 - **All chapters**
 - **Custom range** (from / to chapter number)
 
-Downloads **merge** into any existing offline copy (union by chapter), so you can pull a long series down in chunks. A record of what's saved lives in **IndexedDB**, powering the **Offline Library** page (`/library`), which renders with no connection.
+Downloads **merge** into any existing offline copy (union by chapter), so you can pull a long series down in chunks. A record of what's saved lives in **IndexedDB**, powering the **Downloads** page (`/library`), which renders with no connection.
 
 **Read-state sync queue** — marking chapters read (and opening cached chapters) while offline is queued in IndexedDB and **replayed automatically when you reconnect** (on the `online` event and next app open — iOS Safari has no Background Sync). The read-state endpoints are CSRF-exempt specifically so these tokenless replays succeed.
 
@@ -357,6 +360,9 @@ After enabling Serve, set `APP_URL` to that HTTPS origin in the compose file.
 ---
 
 ## Deployment (Docker / Unraid)
+
+> Bare-metal deploys via `deploy.sh` now back up the database first (`storage/backups/`, five copies kept) and refuse to continue if the dump fails, enter maintenance mode around the migration, pull with `--ff-only`, and rebuild caches from a cleared config. deploy.sh takes a database backup before anything else touches the box.
+
 
 This is the **build-from-source** stack with Nginx and zero-downtime updates — for most people the [one-command install](#quick-install-one-command) is easier. A full container stack is included (PHP-FPM app, Nginx, MySQL, Redis, scheduler, and queue worker), driven by a `Makefile`.
 
@@ -397,7 +403,7 @@ Novarr's look is a documented design system, not ad-hoc CSS. The full brand pack
 - **Tokens are the single source of truth** — `resources/css/_variables.scss` holds the palette, type scale, spacing, and radii, mapped onto Bootstrap 5.3's variables. Component recipes live in `_components.scss`; per-view styling in `_dashboard.scss` / `_reader.scss` / `_views.scss`.
 - **Type**: **Geist** for UI, **Geist Mono** for counts/timestamps/chapter numbers, **Literata** for reading — all self-hosted (Fontsource, OFL). Static TTF instances are bundled in `resources/fonts/` for server-side (GD) rendering of ePub covers.
 - **One status recipe everywhere** — badges, panels, and progress bars all use the same triad (full-value text, 12% fill, 35% border) across five states: downloaded (green), queued (**cyan**, deliberately not blue so it never collides with links), needs-attention (amber), failed (red), paused (muted). Amber is otherwise reserved for *reading* signals (bookmark, reading-progress bars); indigo `#6470FF` carries all primary action.
-- **Logo suite** — the three-spines-forming-an-N mark with the amber bookmark, as `<x-brand-mark>` in Blade, `public/logo.svg` (wordmark outlined, no font dependency), `favicon.svg` + multi-size `favicon.ico`, and maskable PWA icons.
+- **Logo suite** — **Serial**: four flat horizontal bars on a 32×32 grid (three indigo `#6470FF`, stepping down in length, the last and shortest in amber `#F0B429`; radius 0, no gradient), beside the "NOVARR." wordmark (Geist 600, amber full stop). Below 20px a heavier three-bar cut takes over; the mono variant is `currentColor` with the last bar at 55%. Ships as `<x-brand-mark>` in Blade (`variant="mono"`/`"favicon"`, auto three-bar under 20px), `public/logo.svg` (wordmark outlined, no font dependency), `favicon.svg` + pixel-hinted 16/32/48 `favicon.ico`, PWA icons (`icon-192/512`, full-bleed `icon-maskable-512`, `apple-touch-icon`), and the GD-drawn mark on generated ePub covers.
 
 Restyling something? Start from the tokens and the recipes in `_components.scss`; if a value isn't a token, it probably shouldn't exist.
 

@@ -1,12 +1,14 @@
 @extends('layouts.app')
 
+@section('title', 'Highlights')
+
 @section('content')
-<h1 class="page-title mb-4">Bookmarks</h1>
+<h1 class="page-title mb-4">Highlights</h1>
 
 @if($grouped->isEmpty())
     <div class="empty-state">
         <x-brand-mark variant="mono" :size="40" class="empty-state-mark" />
-        <div class="empty-state-title">No bookmarks yet</div>
+        <div class="empty-state-title">No highlights yet</div>
         <p class="empty-state-body">Select any text while reading and tap &ldquo;Save highlight&rdquo; — saved passages collect here, grouped by novel.</p>
     </div>
 @else
@@ -39,7 +41,7 @@
 <script>
 (() => {
     document.querySelectorAll('.bookmark-delete').forEach(btn => btn.addEventListener('click', async () => {
-        if (!await Novarr.confirmDialog('Delete this bookmark?', { title: 'Delete bookmark', confirmText: 'Delete', danger: true })) return;
+        if (!await Novarr.confirmDialog('Delete this highlight?', { title: 'Delete highlight', confirmText: 'Delete', danger: true })) return;
         btn.disabled = true;
         try {
             const res = await fetch(`/bookmarks/${btn.dataset.id}`, {

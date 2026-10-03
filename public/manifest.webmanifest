@@ -16,23 +16,31 @@
     "shortcuts": [
         {
             "name": "Continue Reading",
-            "url": "/",
-            "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+            "short_name": "Continue",
+            "description": "Resume the chapter you were reading",
+            "url": "/continue",
+            "icons": [{ "src": "/shortcut-continue.png", "sizes": "96x96", "type": "image/png" }]
         },
         {
             "name": "Discover",
+            "short_name": "Discover",
+            "description": "Find and add a novel",
             "url": "/novels/discover",
-            "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+            "icons": [{ "src": "/shortcut-discover.png", "sizes": "96x96", "type": "image/png" }]
         },
         {
-            "name": "Offline Library",
+            "name": "Downloads",
+            "short_name": "Downloads",
+            "description": "Novels saved on this device for offline reading",
             "url": "/library",
-            "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+            "icons": [{ "src": "/shortcut-downloads.png", "sizes": "96x96", "type": "image/png" }]
         },
         {
             "name": "Reading Stats",
+            "short_name": "Stats",
+            "description": "Streaks and chapters read per day",
             "url": "/stats",
-            "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+            "icons": [{ "src": "/shortcut-stats.png", "sizes": "96x96", "type": "image/png" }]
         }
     ]
 }

@@ -13,6 +13,12 @@ class NovelScraper extends Command
     protected $signature = "novel:toc {novel=0} {--frequent-only : Only novels flagged for hourly TOC checks}";
     protected $description = "Scrape all active novels to create the chapter list.";
 
+    /** Retry-state reason for pending rows the source's TOC no longer lists. */
+    public const SOURCE_MISSING = "source_missing";
+
+    /** Days a pending row may go unlisted by the TOC before it is parked. */
+    public const STALE_DAYS = 3;
+
     public function __construct()
     {
         parent::__construct();
@@ -38,7 +44,15 @@ class NovelScraper extends Command
         foreach ($novels as $novel) {
             $this->info("Processing: {$novel->name}");
             $toc = tableOfContentGenerator($novel);
-            $this->syncTableOfContents($novel, is_array($toc) ? $toc : []);
+            $toc = is_array($toc) ? $toc : [];
+            $partial = tocRunWasPartial();
+            $counts = $this->syncTableOfContents($novel, $toc);
+
+            // TOC health: valid entries only (skipped junk doesn't count).
+            $healthy = $this->recordTocHealth($novel, count($toc) - $counts["skipped"], $partial);
+            if ($healthy) {
+                $this->markStaleRows($novel);
+            }
 
             // Self-heal any chapter the parser couldn't number (e.g. labels
             // carrying two numbers) via elimination against the sequence.
@@ -191,7 +205,7 @@ class NovelScraper extends Command
         if ($pending) {
             $now = now();
             $insert = array_map(
-                fn($attrs) => $attrs + ["created_at" => $now, "updated_at" => $now],
+                fn($attrs) => $attrs + ["created_at" => $now, "updated_at" => $now, "last_seen_in_toc_at" => $now],
                 array_values($pending)
             );
             foreach (array_chunk($insert, 200) as $batch) {
@@ -200,6 +214,8 @@ class NovelScraper extends Command
             $counts["created"] = count($insert);
             $this->info("  Created {$counts["created"]} new chapter row(s)");
         }
+
+        $this->stampSeenInToc(array_map(fn($m) => $m[0]->id, $matches));
 
         foreach ($endMatter as $row) {
             $max = (float) NovelChapter::where("novel_id", $novel->id)
@@ -219,6 +235,121 @@ class NovelScraper extends Command
         }
 
         return $counts;
+    }
+
+    /**
+     * Mark rows matched by this sync as listed in the TOC now (bulk, by id
+     * chunks; updated_at untouched). A row parked as `source_missing` that
+     * the source lists again is released back to the sweep.
+     */
+    private function stampSeenInToc(array $ids): void
+    {
+        $now = now();
+        foreach (array_chunk($ids, 500) as $chunk) {
+            NovelChapter::query()->toBase()->whereIn("id", $chunk)
+                ->update(["last_seen_in_toc_at" => $now]);
+            NovelChapter::query()->toBase()->whereIn("id", $chunk)
+                ->where("last_failure_reason", self::SOURCE_MISSING)
+                ->update(["last_failure_reason" => null, "next_attempt_at" => null]);
+        }
+    }
+
+    /**
+     * Record one TOC run in the novel's TOC health (audit F26/A13) and
+     * return whether the run was healthy.
+     *
+     * Unhealthy — toc_failures + 1, last_toc_issue set, last_toc_count left
+     * at the last healthy count (so a persistent shrink keeps failing rather
+     * than becoming the new baseline after one run):
+     *  - no entries ("TOC returned 0 entries"),
+     *  - a partial walk (a page failed even after a retry),
+     *  - more than 5% fewer entries than last time ("TOC shrank from N to M").
+     *
+     * Healthy — toc_failures = 0, last_toc_count = M, and last_toc_issue is
+     * cleared, unless the source advertises over 10% more chapters than the
+     * TOC lists ("source lists N chapters but TOC has M": informational,
+     * not a failure).
+     */
+    public function recordTocHealth(Novel $novel, int $count, bool $partial = false): bool
+    {
+        $previous = $novel->last_toc_count;
+        $issue = null;
+
+        if ($count <= 0) {
+            $issue = "TOC returned 0 entries";
+        } elseif ($partial) {
+            $issue = "TOC was partial: a page failed to load, only {$count} entries read";
+        } elseif ($previous !== null && $previous > 0 && $count < $previous * 0.95) {
+            $issue = "TOC shrank from {$previous} to {$count}";
+        }
+
+        $novel->last_toc_at = now();
+
+        // A shrink that holds steady for three runs is the source's new
+        // reality (chapters removed, series split), not a glitch: accept it
+        // as the baseline instead of flagging the novel forever.
+        if ($issue !== null && str_starts_with($issue, "TOC shrank")
+            && (int) $novel->toc_failures >= 3 && $novel->last_toc_issue === $issue) {
+            \Log::info("TOC health for {$novel->name}: accepting {$count} as the new baseline after a stable shrink from {$previous}");
+            $this->warn("  TOC health: shrink stable for 3 runs — accepting {$count} as the new baseline");
+            $issue = null;
+        }
+
+        if ($issue !== null) {
+            $novel->toc_failures = (int) $novel->toc_failures + 1;
+            $novel->last_toc_issue = $issue;
+            $novel->saveQuietly();
+            $this->warn("  TOC health: {$issue} ({$novel->toc_failures} consecutive)");
+            \Log::warning("TOC health for {$novel->name}: {$issue} ({$novel->toc_failures} consecutive)");
+
+            return false;
+        }
+
+        $advertised = (int) $novel->no_of_chapters;
+        $novel->toc_failures = 0;
+        $novel->last_toc_count = $count;
+        $novel->last_toc_issue = $advertised > $count * 1.1
+            ? "source lists {$advertised} chapters but TOC has {$count}"
+            : null;
+        $novel->saveQuietly();
+
+        if ($novel->last_toc_issue !== null) {
+            $this->warn("  TOC health: {$novel->last_toc_issue}");
+        }
+
+        return true;
+    }
+
+    /**
+     * After a healthy TOC run: pending rows the TOC hasn't listed for over
+     * STALE_DAYS (at least 3 runs at the daily cadence — and this run, a
+     * complete one, didn't list them either) are parked as
+     * `source_missing` until now + STALE_DAYS, so they stop burning sweep
+     * slots. Rows never stamped (NULL) are left alone. Returns the count.
+     */
+    public function markStaleRows(Novel $novel): int
+    {
+        $marked = NovelChapter::query()->toBase()
+            ->where("novel_id", $novel->id)
+            ->where("status", 0)
+            ->where("blacklist", 0)
+            ->where("last_seen_in_toc_at", "<", now()->subDays(self::STALE_DAYS))
+            // Rows already parked keep their schedule (so they do get retried
+            // when it comes round), and a longer backoff is never shortened.
+            ->where(fn($q) => $q->whereNull("last_failure_reason")->orWhere("last_failure_reason", "!=", self::SOURCE_MISSING))
+            ->where(fn($q) => $q->whereNull("next_attempt_at")->orWhere("next_attempt_at", "<", now()->addDays(self::STALE_DAYS)))
+            ->update([
+                "last_failure_reason" => self::SOURCE_MISSING,
+                "next_attempt_at" => now()->addDays(self::STALE_DAYS),
+            ]);
+
+        if ($marked > 0) {
+            $this->warn("  {$marked} pending chapter(s) no longer listed by the source — parked for " . self::STALE_DAYS . " days");
+            \Log::info("TOC sync for {$novel->name}: {$marked} pending chapter(s) not in the TOC for "
+                . self::STALE_DAYS . "+ days marked source_missing");
+        }
+
+        return $marked;
     }
 
     /**

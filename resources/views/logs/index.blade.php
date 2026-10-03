@@ -1,5 +1,10 @@
 @extends('layouts.app')
 
+@section('title', 'Logs')
+@section('breadcrumb')
+    @include('partials.breadcrumb', ['trail' => [['System'], ['Logs']]])
+@endsection
+
 @section('content')
 <h1 class="page-title mb-4">Log files</h1>
 

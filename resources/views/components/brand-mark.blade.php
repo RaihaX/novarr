@@ -1,44 +1,56 @@
 {{--
-    Novarr mark — three book spines forming an N with an amber bookmark ribbon
-    on the right spine. 32×32 grid, flat (the old rounded tile is retired).
+    Novarr mark — "Serial": four flat horizontal bars on a 32×32 grid, read
+    as lines of text / a chapter list. Three indigo bars stepping down in
+    length, the last (shortest) bar in amber. Radius 0, no gradient.
 
     Variants:
-        <x-brand-mark />                      gradient (#6470FF → #9B6BFF)
-        <x-brand-mark variant="mono" />       single currentColor, ribbon at 55%
+        <x-brand-mark />                      colour (indigo #6470FF + amber #F0B429)
+        <x-brand-mark variant="mono" />       single currentColor, last bar at 55%
+        <x-brand-mark :mono="true" />         same as variant="mono"
+        <x-brand-mark variant="favicon" />    heavier three-bar cut for tiny sizes
+
+    Below 20px the three-bar favicon cut is used automatically (in colour or
+    mono) — the four-bar mark's 4-unit gaps close up at that size.
+
+    Props: size (px, default 28), variant, mono, title. Pass a title to expose
+    the mark as an image (role="img" + <title>); otherwise it is decorative.
+    "gradient" / "color" are accepted as legacy aliases of the colour variant.
 --}}
 @props([
-    'variant' => 'gradient',
+    'variant' => 'color',
     'size' => 28,
+    'mono' => false,
+    'title' => null,
 ])
 
 @php
-    // Each gradient instance needs its own id so multiple marks on one page
-    // don't collide.
-    $gradientId = 'novarr-mark-' . \Illuminate\Support\Str::random(6);
+    $isMono = $mono || $variant === 'mono';
+    $isFaviconCut = $variant === 'favicon' || (is_numeric($size) && $size < 20);
+
+    $indigo = '#6470FF';
+    $amber = '#F0B429';
+
+    // [x, y, width, height] on the 32-grid; the last bar is the amber one.
+    $bars = $isFaviconCut
+        ? [[4, 4, 24, 6], [4, 13, 24, 6], [4, 22, 11, 6]]
+        : [[5, 5, 22, 4], [5, 11.5, 22, 4], [5, 18, 15, 4], [5, 24.5, 8, 4]];
+    $last = count($bars) - 1;
+
+    $a11y = $title !== null && $title !== ''
+        ? ['role' => 'img']
+        : ['aria-hidden' => 'true'];
 @endphp
 
-@if($variant === 'mono')
-    <svg {{ $attributes->merge(['class' => 'brand-mark', 'aria-hidden' => 'true']) }}
-         xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"
-         width="{{ $size }}" height="{{ $size }}" fill="currentColor" focusable="false">
-        <path d="M6 5h5v22H6z"/>
-        <path d="M11 5h5l10 22h-5z"/>
-        <path d="M21 13h5v14h-5z"/>
-        <path d="M21 5h5v8l-2.5-2.2L21 13z" opacity="0.55"/>
-    </svg>
-@else
-    <svg {{ $attributes->merge(['class' => 'brand-mark', 'aria-hidden' => 'true']) }}
-         xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"
-         width="{{ $size }}" height="{{ $size }}" focusable="false">
-        <defs>
-            <linearGradient id="{{ $gradientId }}" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#6470FF"/>
-                <stop offset="100%" stop-color="#9B6BFF"/>
-            </linearGradient>
-        </defs>
-        <path d="M6 5h5v22H6z" fill="url(#{{ $gradientId }})"/>
-        <path d="M11 5h5l10 22h-5z" fill="url(#{{ $gradientId }})"/>
-        <path d="M21 13h5v14h-5z" fill="url(#{{ $gradientId }})"/>
-        <path d="M21 5h5v8l-2.5-2.2L21 13z" fill="#F0B429"/>
-    </svg>
-@endif
+<svg {{ $attributes->merge(['class' => 'brand-mark'] + $a11y) }}
+     xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"
+     width="{{ $size }}" height="{{ $size }}" focusable="false"
+     @if($isMono) fill="currentColor" @endif>
+    @if($title !== null && $title !== '')<title>{{ $title }}</title>@endif
+    @foreach($bars as $i => [$x, $y, $w, $h])
+        @if($isMono)
+            <rect x="{{ $x }}" y="{{ $y }}" width="{{ $w }}" height="{{ $h }}"@if($i === $last) opacity="0.55"@endif/>
+        @else
+            <rect x="{{ $x }}" y="{{ $y }}" width="{{ $w }}" height="{{ $h }}" fill="{{ $i === $last ? $amber : $indigo }}"/>
+        @endif
+    @endforeach
+</svg>

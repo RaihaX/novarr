@@ -26,6 +26,21 @@ class GenerateePub extends Command
     protected ?array $coverInfo = null;
 
     /**
+     * OEBPS-relative paths of every file listed in the OPF manifest for the
+     * current book. createEpub() zips exactly these (plus mimetype and
+     * META-INF/container.xml) and nothing else.
+     *
+     * @var string[]
+     */
+    protected array $manifestFiles = [];
+
+    /** Elements kept in chapter bodies (the reader's allowlist plus a few harmless blocks). */
+    protected const ALLOWED_TAGS = ['p', 'br', 'hr', 'em', 'strong', 'i', 'b', 'u', 's', 'sub', 'sup', 'blockquote'];
+
+    /** Elements removed together with their content. */
+    protected const DROP_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'noscript', 'template', 'head', 'title', 'meta', 'link', 'form', 'input', 'button', 'select', 'textarea', 'svg', 'math'];
+
+    /**
      * Execute the console command.
      */
     public function handle(): int
@@ -39,9 +54,9 @@ class GenerateePub extends Command
         }
 
         // Chapters are NOT eager-loaded here: their `description` is a longtext
-        // and loading every chapter for 5 novels at once (the chunk size) is the
-        // whole book ×5 in RAM. generateEpubForNovel() loads lightweight chapter
-        // metadata once and streams the bodies with a cursor.
+        // and loading every chapter for a batch of novels at once is the whole
+        // book xN in RAM. generateEpubForNovel() loads lightweight chapter
+        // metadata once and streams the bodies in id-keyed batches.
         $query = Novel::whereHas("chapters")
             ->with("file"); // cover file relationship only
 
@@ -55,35 +70,55 @@ class GenerateePub extends Command
 
         if ($totalNovels === 0) {
             $this->info("No novels found to process.");
-            return 0;
+            return self::SUCCESS;
         }
 
         $this->info("Found {$totalNovels} novel(s) to process.");
         $processed = 0;
+        $failed = [];
 
-        $query->chunk(5, function ($novels) use ($novelId, &$processed, $totalNovels) {
-            foreach ($novels as $novel) {
-                $processed++;
-                $this->line("");
-                $this->info("[{$processed}/{$totalNovels}] Processing: {$novel->name}");
+        // lazyById, not chunk(): each successful novel gets epub_generated set,
+        // which drops it out of the whereNull() filter. Offset-based chunk()
+        // would then skip a page's worth of eligible novels on every batch;
+        // keyset pagination on the id is immune to the result set shrinking.
+        foreach ($query->lazyById(5) as $novel) {
+            $processed++;
+            $this->line("");
+            $this->info("[{$processed}/{$totalNovels}] Processing: {$novel->name}");
 
-                try {
-                    $this->generateEpubForNovel($novel, $novelId != 0);
-                } catch (\Exception $e) {
-                    $this->error("  Error: " . $e->getMessage());
-                    \Log::error("ePub generation failed for novel {$novel->id}: " . $e->getMessage());
-                }
+            try {
+                $this->generateEpubForNovel($novel, $novelId != 0);
+            } catch (\Throwable $e) {
+                $failed[] = $novel->id;
+                $this->error("  Error: " . $e->getMessage());
+                \Log::error("ePub generation failed for novel {$novel->id}: " . $e->getMessage());
             }
-        });
+        }
 
         $this->line("");
+
+        // A non-zero exit is what VerifyCompletion (and the scheduler) key off
+        // to raise the "ePub generation failed" webhook.
+        if ($failed) {
+            $this->error(sprintf(
+                "ePub generation finished with %d failure(s) (novel id: %s).",
+                count($failed),
+                implode(", ", $failed)
+            ));
+            return self::FAILURE;
+        }
+
         $this->info("ePub generation completed.");
 
-        return 0;
+        return self::SUCCESS;
     }
 
     /**
-     * Generate ePub for a single novel
+     * Generate ePub for a single novel.
+     *
+     * $forceRegenerate is kept for callers/overrides; every run now builds in
+     * a fresh directory and atomically replaces the previous ePub, so there is
+     * nothing left to clean up beforehand.
      */
     protected function generateEpubForNovel(Novel $novel, bool $forceRegenerate = false): void
     {
@@ -117,95 +152,21 @@ class GenerateePub extends Command
         $safeFilename = basename(self::epubFilename($novel), ".epub");
         $epubPath = self::epubPath($novel);
 
-        // Clean up existing files if regenerating
-        if ($forceRegenerate) {
-            $this->cleanupExistingFiles($novel, $epubPath);
-        }
+        // Builds left behind by older versions of this command, which reused
+        // one fixed directory per novel (and so could zip stale chapters).
+        $this->removeLegacyBuildDir($novel);
 
-        // Setup directories
-        $novelDir = storage_path("app/Novel/{$id}");
-        $oebpsDir = "{$novelDir}/OEBPS";
-        $textDir = "{$oebpsDir}/Text";
-        $imagesDir = "{$oebpsDir}/Images";
-        $metaInfDir = "{$novelDir}/META-INF";
+        // A fresh, private build directory per run: nothing from an earlier or
+        // concurrent run can leak into the archive, and it is always removed.
+        $buildDir = storage_path("app/epub-build/{$id}-" . Str::random(12));
+        $this->manifestFiles = [];
 
-        foreach ([$novelDir, $oebpsDir, $textDir, $imagesDir, $metaInfDir] as $dir) {
-            if (!File::isDirectory($dir)) {
-                File::makeDirectory($dir, 0755, true);
+        try {
+            $this->buildEpub($novel, $chapters, $buildDir, $epubPath);
+        } finally {
+            if (File::isDirectory($buildDir)) {
+                File::deleteDirectory($buildDir);
             }
-        }
-
-        // Step 1: Process cover image
-        $this->processCoverImage($novel, $imagesDir);
-
-        // Step 2: Generate chapter files with progress
-        $this->info("  Generating chapters...");
-        $bar = $this->output->createProgressBar($chapterCount);
-        $bar->start();
-
-        // Stream chapter bodies one row at a time — only a single body text
-        // is ever resident, so peak memory is flat regardless of book length.
-        // Joined (not ->with) so the cursor stays a single streamed query.
-        $novel->chapters()
-            ->leftJoin("chapter_texts", "chapter_texts.novel_chapter_id", "=", "novel_chapters.id")
-            ->where("blacklist", 0)
-            ->where("status", 1)
-            // Same reading order as the metadata list above (columns
-            // qualified: chapter_texts is joined).
-            ->orderBy("novel_chapters.book")
-            ->orderBy("novel_chapters.sort_key")
-            ->orderBy("novel_chapters.chapter")
-            ->orderBy("novel_chapters.id")
-            ->select(["novel_chapters.id", "novel_chapters.label", "chapter_texts.content as raw_content"])
-            ->cursor()
-            ->each(function ($chapter) use ($id, $textDir, $bar) {
-                $chapterFilename = $this->getChapterFilename($chapter);
-                File::put("{$textDir}/{$chapterFilename}", $this->generateChapterXhtml($chapter));
-
-                // Persist the relative path for reference (metadata generation
-                // derives filenames from the id, so no reload is needed).
-                $chapter->html_file = "/Novel/{$id}/OEBPS/Text/{$chapterFilename}";
-                $chapter->save();
-
-                $bar->advance();
-            });
-
-        $bar->finish();
-        $this->line("");
-
-        // Step 3: Generate metadata files
-        $this->info("  Generating metadata...");
-
-        // Mimetype (plain text, no XML declaration)
-        File::put("{$novelDir}/mimetype", "application/epub+zip");
-
-        // container.xml
-        File::put("{$metaInfDir}/container.xml", $this->generateContainerXml());
-
-        // Cover page (if cover exists)
-        if ($this->coverInfo) {
-            File::put("{$textDir}/cover.xhtml", $this->generateCoverXhtml($novel));
-        }
-
-        // content.opf (package document)
-        File::put("{$oebpsDir}/content.opf", $this->generateContentOpf($novel));
-
-        // toc.ncx (NCX navigation for ePub 2 compatibility)
-        File::put("{$oebpsDir}/toc.ncx", $this->generateTocNcx($novel));
-
-        // nav.xhtml (ePub 3 navigation)
-        File::put("{$textDir}/nav.xhtml", $this->generateNavXhtml($novel));
-
-        // Step 4: Create ePub archive
-        $this->info("  Creating ePub archive...");
-
-        if (!$this->createEpub($novelDir, $epubPath)) {
-            throw new \RuntimeException("Failed to create ePub archive");
-        }
-
-        // Validate the ePub
-        if (!$this->validateEpub($epubPath)) {
-            $this->warn("  Warning: ePub validation found issues.");
         }
 
         // Update novel record
@@ -215,6 +176,111 @@ class GenerateePub extends Command
         // Get file size
         $fileSize = $this->formatBytes(File::size($epubPath));
         $this->info("  Created: {$safeFilename}.epub ({$fileSize})");
+    }
+
+    /**
+     * Write every ePub part into $buildDir, zip it and move the archive into
+     * place at $epubPath. The previous ePub (if any) is only replaced once the
+     * new archive has been written successfully.
+     */
+    protected function buildEpub(Novel $novel, $chapters, string $buildDir, string $epubPath): void
+    {
+        $oebpsDir = "{$buildDir}/OEBPS";
+        $textDir = "{$oebpsDir}/Text";
+        $imagesDir = "{$oebpsDir}/Images";
+        $metaInfDir = "{$buildDir}/META-INF";
+
+        foreach ([$buildDir, $oebpsDir, $textDir, $imagesDir, $metaInfDir] as $dir) {
+            File::ensureDirectoryExists($dir, 0755);
+        }
+
+        // Step 1: Process cover image
+        $this->processCoverImage($novel, $imagesDir);
+        if ($this->coverInfo) {
+            $this->manifestFiles[] = "Images/{$this->coverInfo['filename']}";
+        }
+
+        // Step 2: Generate chapter files with progress
+        $this->info("  Generating chapters...");
+        $bar = $this->output->createProgressBar($chapters->count());
+        $bar->start();
+
+        // Only chapters in the metadata list (the OPF manifest/spine) are
+        // written and zipped.
+        $wanted = $chapters->pluck("id")->flip();
+
+        // Stream chapter bodies in id-keyed batches — only one batch of body
+        // text is resident at a time, so peak memory is flat regardless of
+        // book length. File order inside the archive doesn't matter (reading
+        // order comes from the spine), so keyset pagination on the id is fine.
+        \App\NovelChapter::query()
+            ->leftJoin("chapter_texts", "chapter_texts.novel_chapter_id", "=", "novel_chapters.id")
+            ->where("novel_chapters.novel_id", $novel->id)
+            ->where("novel_chapters.blacklist", 0)
+            ->where("novel_chapters.status", 1)
+            ->select(["novel_chapters.id", "novel_chapters.label", "chapter_texts.content as raw_content"])
+            ->lazyById(100, "novel_chapters.id", "id")
+            ->each(function ($chapter) use ($textDir, $bar, $wanted) {
+                if (!$wanted->has($chapter->id)) {
+                    return;
+                }
+                $chapterFilename = $this->getChapterFilename($chapter);
+                File::put("{$textDir}/{$chapterFilename}", $this->generateChapterXhtml($chapter));
+                $bar->advance();
+            });
+
+        foreach ($chapters as $chapter) {
+            $this->manifestFiles[] = "Text/" . $this->getChapterFilename($chapter);
+        }
+
+        $bar->finish();
+        $this->line("");
+
+        // Step 3: Generate metadata files
+        $this->info("  Generating metadata...");
+
+        // Mimetype (plain text, no XML declaration)
+        File::put("{$buildDir}/mimetype", "application/epub+zip");
+
+        // container.xml
+        File::put("{$metaInfDir}/container.xml", $this->generateContainerXml());
+
+        // Cover page (if cover exists)
+        if ($this->coverInfo) {
+            File::put("{$textDir}/cover.xhtml", $this->generateCoverXhtml($novel));
+            $this->manifestFiles[] = "Text/cover.xhtml";
+        }
+
+        // content.opf (package document)
+        File::put("{$oebpsDir}/content.opf", $this->generateContentOpf($novel));
+        $this->manifestFiles[] = "content.opf";
+
+        // toc.ncx (NCX navigation for ePub 2 compatibility)
+        File::put("{$oebpsDir}/toc.ncx", $this->generateTocNcx($novel));
+        $this->manifestFiles[] = "toc.ncx";
+
+        // nav.xhtml (ePub 3 navigation)
+        File::put("{$textDir}/nav.xhtml", $this->generateNavXhtml($novel));
+        $this->manifestFiles[] = "Text/nav.xhtml";
+
+        // Step 4: Create ePub archive (inside the build dir, then moved into
+        // place so a failed run never leaves a half-written ePub behind).
+        $this->info("  Creating ePub archive...");
+
+        $tmpEpub = "{$buildDir}/book.epub";
+        if (!$this->createEpub($buildDir, $tmpEpub)) {
+            throw new \RuntimeException("Failed to create ePub archive");
+        }
+
+        // Validate the ePub
+        if (!$this->validateEpub($tmpEpub)) {
+            $this->warn("  Warning: ePub validation found issues.");
+        }
+
+        File::ensureDirectoryExists(dirname($epubPath), 0755);
+        if (!@rename($tmpEpub, $epubPath) && !(File::copy($tmpEpub, $epubPath))) {
+            throw new \RuntimeException("Failed to move the ePub into place at {$epubPath}");
+        }
     }
 
     /**
@@ -659,35 +725,16 @@ XHTML;
             $zip->addFile($containerPath, "META-INF/container.xml");
         }
 
-        // Add OEBPS contents
-        $oebpsDir = "{$novelDir}/OEBPS";
-
-        // Add content.opf
-        if (File::exists("{$oebpsDir}/content.opf")) {
-            $zip->addFile("{$oebpsDir}/content.opf", "OEBPS/content.opf");
-        }
-
-        // Add toc.ncx
-        if (File::exists("{$oebpsDir}/toc.ncx")) {
-            $zip->addFile("{$oebpsDir}/toc.ncx", "OEBPS/toc.ncx");
-        }
-
-        // Add all Images files
-        $imagesDir = "{$oebpsDir}/Images";
-        if (File::isDirectory($imagesDir)) {
-            $files = File::files($imagesDir);
-            foreach ($files as $file) {
-                $zip->addFile($file->getPathname(), "OEBPS/Images/" . $file->getFilename());
+        // Only the files listed in the OPF manifest — never a directory scan,
+        // so nothing stray (stale chapters, temp files) ends up in the book.
+        foreach ($this->manifestFiles as $relative) {
+            $source = "{$novelDir}/OEBPS/{$relative}";
+            if (!File::exists($source)) {
+                $zip->close();
+                $this->error("Manifest file missing from build: OEBPS/{$relative}");
+                return false;
             }
-        }
-
-        // Add all Text files
-        $textDir = "{$oebpsDir}/Text";
-        if (File::isDirectory($textDir)) {
-            $files = File::files($textDir);
-            foreach ($files as $file) {
-                $zip->addFile($file->getPathname(), "OEBPS/Text/" . $file->getFilename());
-            }
+            $zip->addFile($source, "OEBPS/{$relative}");
         }
 
         $result = $zip->close();
@@ -763,6 +810,28 @@ XHTML;
             }
         }
 
+        // Every XML part must be well-formed: Kindle's converter rejects the
+        // whole book over a single malformed chapter.
+        $malformed = [];
+        $previous = libxml_use_internal_errors(true);
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $name = $zip->getNameIndex($i);
+            if (!preg_match('/\.(xhtml|opf|ncx|xml)$/', $name)) {
+                continue;
+            }
+            $xml = $zip->getFromIndex($i);
+            if ($xml === false || simplexml_load_string($xml, \SimpleXMLElement::class, LIBXML_NONET) === false) {
+                $malformed[] = $name;
+            }
+            libxml_clear_errors();
+        }
+        libxml_use_internal_errors($previous);
+
+        if ($malformed) {
+            $this->warn("  Malformed XML in " . count($malformed) . " file(s): " . implode(", ", array_slice($malformed, 0, 5)));
+            $valid = false;
+        }
+
         $zip->close();
 
         return $valid;
@@ -777,70 +846,110 @@ XHTML;
     }
 
     /**
-     * Sanitize HTML content for XHTML compatibility
+     * Turn a stored chapter body (an HTML fragment whose text is already
+     * entity-escaped) into well-formed XHTML.
+     *
+     * The fragment is parsed with libxml's HTML parser and re-serialised node
+     * by node with saveXML(), so text is always escaped (&amp; &lt;) and void
+     * elements are self-closed. Entities are never decoded into raw markup.
      */
     protected function sanitizeHtmlContent(?string $content): string
     {
-        if (empty($content)) {
+        if ($content === null || trim($content) === '') {
             return '<p></p>';
         }
 
-        // Convert common HTML entities
-        $content = html_entity_decode($content, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-
-        // Remove scripts and styles
-        $content = preg_replace('/<script\b[^>]*>.*?<\/script>/is', '', $content);
-        $content = preg_replace('/<style\b[^>]*>.*?<\/style>/is', '', $content);
-
-        // Remove event handlers
-        $content = preg_replace('/\s+on\w+\s*=\s*["\'][^"\']*["\']/i', '', $content);
-
-        // Convert <br> and <br/> to <br/>
-        $content = preg_replace('/<br\s*\/?>/i', '<br/>', $content);
-
-        // Ensure paragraphs are properly closed
-        $content = preg_replace('/<p([^>]*)>/i', '<p$1>', $content);
-
-        // Fix self-closing tags for XHTML
-        $selfClosingTags = ['br', 'hr', 'img', 'input', 'meta', 'link'];
-        foreach ($selfClosingTags as $tag) {
-            $content = preg_replace("/<{$tag}([^>]*?)(?<!\/)>/i", "<{$tag}$1/>", $content);
-        }
-
-        // Remove invalid XML characters
+        // Invalid UTF-8 and C0 control characters are not allowed in XML.
+        $content = mb_scrub($content, 'UTF-8');
         $content = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $content);
 
-        // Encode special XML characters in text (not in tags)
-        $content = preg_replace_callback(
-            '/>(.*?)</s',
-            function ($matches) {
-                $text = $matches[1];
-                // Only encode if not already encoded
-                if (strpos($text, '&') !== false && !preg_match('/&(amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);/i', $text)) {
-                    $text = str_replace('&', '&amp;', $text);
-                }
-                return '>' . $text . '<';
-            },
-            $content
-        );
+        // A "<" that cannot start a tag ("I <3 you", "a < b") is text. libxml's
+        // HTML parser can swallow everything up to the next ">" after one, so
+        // escape it before parsing.
+        $content = preg_replace('/<(?![a-zA-Z\/!])/', '&lt;', $content);
 
-        return trim($content);
+        $doc = new \DOMDocument('1.0', 'UTF-8');
+        $previous = libxml_use_internal_errors(true);
+        try {
+            // The <?xml encoding> hint makes libxml read the fragment as UTF-8
+            // (its HTML parser otherwise assumes ISO-8859-1).
+            $loaded = $doc->loadHTML(
+                '<?xml encoding="UTF-8"?><html><body><div id="novarr-epub-root">' . $content . '</div></body></html>',
+                LIBXML_NONET | LIBXML_COMPACT
+            );
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
+
+        $root = $loaded ? $doc->getElementById('novarr-epub-root') : null;
+        if (!$root) {
+            // Unparseable — fall back to the plain text, fully escaped.
+            $text = htmlspecialchars(html_entity_decode(strip_tags($content), ENT_QUOTES | ENT_HTML5, 'UTF-8'), ENT_QUOTES | ENT_XML1, 'UTF-8');
+            return $text === '' ? '<p></p>' : "<p>{$text}</p>";
+        }
+
+        $this->sanitizeNode($root);
+
+        $xhtml = '';
+        foreach ($root->childNodes as $child) {
+            $xhtml .= $doc->saveXML($child);
+        }
+
+        // saveXML() writes empty non-void elements as <p/>; some reading
+        // systems treat that as an unclosed start tag, so expand them.
+        $xhtml = preg_replace('/<(?!br\b|hr\b)([a-z][a-z0-9]*)\/>/', '<$1></$1>', $xhtml);
+        $xhtml = trim($xhtml);
+
+        return $xhtml === '' ? '<p></p>' : $xhtml;
     }
 
     /**
-     * Clean up existing ePub and temporary files
+     * Recursively drop disallowed elements (with content), unwrap unknown
+     * ones (keeping their text), strip every attribute and remove comments /
+     * processing instructions.
      */
-    protected function cleanupExistingFiles(Novel $novel, string $epubPath): void
+    protected function sanitizeNode(\DOMNode $node): void
     {
-        if (File::exists($epubPath)) {
-            File::delete($epubPath);
-            $this->info("  Removed existing ePub file.");
-        }
+        foreach (iterator_to_array($node->childNodes) as $child) {
+            if ($child instanceof \DOMElement) {
+                $tag = strtolower($child->nodeName);
 
-        $novelDir = storage_path("app/Novel/{$novel->id}");
-        if (File::isDirectory($novelDir)) {
-            File::deleteDirectory($novelDir);
-            $this->info("  Cleaned up temporary files.");
+                if (in_array($tag, self::DROP_TAGS, true)) {
+                    $node->removeChild($child);
+                    continue;
+                }
+
+                $this->sanitizeNode($child);
+
+                if (!in_array($tag, self::ALLOWED_TAGS, true)) {
+                    while ($child->firstChild) {
+                        $node->insertBefore($child->firstChild, $child);
+                    }
+                    $node->removeChild($child);
+                    continue;
+                }
+
+                while ($child->attributes->length > 0) {
+                    $child->removeAttributeNode($child->attributes->item(0));
+                }
+            } elseif ($child instanceof \DOMCdataSection) {
+                $node->replaceChild($node->ownerDocument->createTextNode($child->data), $child);
+            } elseif (!$child instanceof \DOMText) {
+                $node->removeChild($child);
+            }
+        }
+    }
+
+    /**
+     * Remove the fixed per-novel build directory older versions of this
+     * command left in storage/app/Novel/{id}.
+     */
+    protected function removeLegacyBuildDir(Novel $novel): void
+    {
+        $legacyDir = storage_path("app/Novel/{$novel->id}");
+        if (File::isDirectory($legacyDir)) {
+            File::deleteDirectory($legacyDir);
         }
     }
 

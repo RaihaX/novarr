@@ -1,5 +1,7 @@
 @extends('layouts.app')
 
+@section('title', 'Add novel')
+
 @section('content')
 <div class="page-head">
     <div class="page-head-titles">
@@ -145,8 +147,8 @@
         svg.setAttribute('fill', 'currentColor');
         svg.setAttribute('aria-hidden', 'true');
         svg.setAttribute('class', 'brand-mark novel-card-cover-mark');
-        svg.innerHTML = '<path d="M6 5h5v22H6z"/><path d="M11 5h5l10 22h-5z"/>'
-            + '<path d="M21 13h5v14h-5z"/><path d="M21 5h5v8l-2.5-2.2L21 13z" opacity="0.55"/>';
+        svg.innerHTML = '<rect x="5" y="5" width="22" height="4"/><rect x="5" y="11.5" width="22" height="4"/>'
+            + '<rect x="5" y="18" width="15" height="4"/><rect x="5" y="24.5" width="8" height="4" opacity="0.55"/>';
         return svg;
     }
 
@@ -287,7 +289,7 @@
                     btn.replaceWith(link);
                 } else {
                     btn.className = 'btn btn-secondary poster-add';
-                    btn.textContent = 'Added ✓';
+                    btn.textContent = 'Added';
                 }
                 Novarr.showToast(`"${item.name}" added — metadata and cover fetched. Open it to scrape the TOC.`, 'success');
             } else if ((result.output || '').includes('already exists')) {

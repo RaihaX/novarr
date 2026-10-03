@@ -74,7 +74,8 @@
     }
 }
 
-// Brand lockup: 28px mark + 15px wordmark on a 12px gap (handoff §4).
+// Brand lockup: 28px Serial mark + 16px/600 wordmark on a 12px gap — caps
+// sit at ~0.62× the mark (brand pack, Logo suite).
 .navbar-brand {
     display: flex;
     align-items: center;
@@ -82,7 +83,7 @@
     padding: 0;
     margin: 0;
     color: $text;
-    font-size: $fs-card-title;
+    font-size: 16px;
     font-weight: 600;
     letter-spacing: $ls-brand-nav;
     text-decoration: none;

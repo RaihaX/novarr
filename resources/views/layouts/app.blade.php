@@ -7,7 +7,8 @@
     {{-- Inline page scripts bind listeners; cached snapshot restores would revive dead DOM --}}
     <meta name="turbo-cache-control" content="no-cache">
 
-    <title>{{ config('app.name', 'Novarr') }}</title>
+    {{-- Views set @section('title', 'Library') → "Library · Novarr" --}}
+    <title>@hasSection('title')@yield('title') · @endif{{ config('app.name', 'Novarr') }}</title>
     <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
 
     {{-- PWA --}}
@@ -36,7 +37,7 @@
                 <span class="brand-wordmark">NOVARR<span class="brand-dot">.</span></span>
                 <span class="visually-hidden">Novarr home</span>
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Menu">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
@@ -45,24 +46,25 @@
                         <a class="nav-link {{ request()->routeIs('home') ? 'active' : '' }}" @if(request()->routeIs('home')) aria-current="page" @endif href="{{ route('home') }}">Home</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('novels.*') ? 'active' : '' }}" @if(request()->routeIs('novels.*')) aria-current="page" @endif href="{{ route('novels.index') }}">Novels</a>
+                        <a class="nav-link {{ request()->routeIs('novels.*') ? 'active' : '' }}" @if(request()->routeIs('novels.*')) aria-current="page" @endif href="{{ route('novels.index') }}">Library</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('library') ? 'active' : '' }}" @if(request()->routeIs('library')) aria-current="page" @endif href="{{ route('library') }}">Library</a>
+                        <a class="nav-link {{ request()->routeIs('library') ? 'active' : '' }}" @if(request()->routeIs('library')) aria-current="page" @endif href="{{ route('library') }}" title="Novels saved on this device for offline reading">Downloads</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('stats.*') ? 'active' : '' }}" @if(request()->routeIs('stats.*')) aria-current="page" @endif href="{{ route('stats.index') }}">Stats</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('bookmarks.*') ? 'active' : '' }}" @if(request()->routeIs('bookmarks.*')) aria-current="page" @endif href="{{ route('bookmarks.index') }}">Bookmarks</a>
+                        <a class="nav-link {{ request()->routeIs('bookmarks.*') ? 'active' : '' }}" @if(request()->routeIs('bookmarks.*')) aria-current="page" @endif href="{{ route('bookmarks.index') }}">Highlights</a>
                     </li>
                     @php $systemActive = request()->routeIs('commands.*') || request()->routeIs('logs.*') || request()->routeIs('health.*'); @endphp
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {{ $systemActive ? 'active' : '' }}" href="#" id="systemDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" @if($systemActive) aria-current="page" @endif>System</a>
+                        <a class="nav-link dropdown-toggle {{ $systemActive ? 'active' : '' }}" href="#" id="systemDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" @if($systemActive) aria-current="true" @endif>System</a>
                         <ul class="dropdown-menu" aria-labelledby="systemDropdown">
-                            <li><a class="dropdown-item {{ request()->routeIs('commands.*') ? 'active' : '' }}" href="{{ route('commands.index') }}">Commands</a></li>
-                            <li><a class="dropdown-item {{ request()->routeIs('logs.*') ? 'active' : '' }}" href="{{ route('logs.index') }}">Logs</a></li>
-                            <li><a class="dropdown-item {{ request()->routeIs('health.*') ? 'active' : '' }}" href="{{ route('health.index') }}">Health</a></li>
+                            @foreach(['commands' => 'Commands', 'logs' => 'Logs', 'health' => 'Health'] as $sysRoute => $sysLabel)
+                                @php $sysOn = request()->routeIs($sysRoute . '.*'); @endphp
+                                <li><a class="dropdown-item {{ $sysOn ? 'active' : '' }}" @if($sysOn) aria-current="page" @endif href="{{ route($sysRoute . '.index') }}">{{ $sysLabel }}</a></li>
+                            @endforeach
                         </ul>
                     </li>
                     <li class="nav-item">
@@ -105,6 +107,12 @@
                     {{ session('error') }}
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
+            @endif
+            {{-- System pages pass a trail: @section('breadcrumb') … --}}
+            @hasSection('breadcrumb')
+                <nav class="page-breadcrumb" aria-label="Breadcrumb">
+                    <ol>@yield('breadcrumb')</ol>
+                </nav>
             @endif
             @yield('content')
         </div>

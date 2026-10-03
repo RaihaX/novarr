@@ -1,5 +1,7 @@
 @extends('layouts.app')
 
+@section('title', request('q') ? 'Search: ' . request('q') : 'Search')
+
 @section('content')
 <h1 class="page-title mb-4">Search</h1>
 
@@ -50,13 +52,7 @@
                         </span>
                         <span class="search-novel-side">
                             <span class="result-num">{{ number_format($novel->downloaded_chapters_count ?? 0) }} ch</span>
-                            @if($novel->status)
-                                <span class="badge badge-completed">Completed</span>
-                            @elseif($novel->paused_at)
-                                <span class="badge badge-paused">Paused</span>
-                            @else
-                                <span class="badge badge-active">Active</span>
-                            @endif
+                            <x-status :state="\App\Enums\NovelState::forNovel($novel)" />
                         </span>
                     </a>
                 @endforeach

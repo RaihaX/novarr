@@ -1,0 +1,28 @@
+// ---------------------------------------------------------------------------
+// Novarr — status triad helpers for App\Enums\NovelState / <x-status>
+//
+// Badges (.badge-*) live in _components.scss, solid bars (.bar-*) in
+// _dashboard.scss and Bootstrap progress modifiers (.progress-*) there too.
+// This file adds the remaining two renderings the enum hands out:
+//   .panel-{tone}  tinted surface (full-value text, 12% fill, 35% border)
+//   .tone-{tone}   text colour only (figures, inline words)
+// plus the amber "reading" badge, which the five canonical states lacked.
+// ---------------------------------------------------------------------------
+
+$status-tones: (
+    'success': $success,
+    'pending': $pending,
+    'warning': $warning,
+    'danger':  $danger,
+    'reading': $brand-amber,
+);
+
+@each $name, $c in $status-tones {
+    .panel-#{$name} { @include status($c); }
+    .tone-#{$name}  { color: $c !important; }
+}
+
+.panel-muted { @include status-muted(); }
+.tone-muted  { color: $muted-fg !important; }
+
+.badge-reading { @include status($brand-amber); }

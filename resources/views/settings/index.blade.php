@@ -29,6 +29,10 @@
                                         <input type="checkbox" name="{{ $key }}" id="{{ $key }}" class="form-check-input @error($key) is-invalid @enderror" value="1" @checked(old($key, $field['value']) === '1' || old($key, $field['value']) === 1)>
                                         <label for="{{ $key }}" class="form-check-label">{{ $field['label'] }}</label>
                                         <div class="form-text">{{ $field['help'] }}</div>
+                                        <div class="form-text setting-effective" data-setting="{{ $key }}">
+                                            In effect: <strong>{{ (string) $field['value'] === '1' ? 'On' : 'Off' }}</strong>
+                                            ({{ $field['overridden'] ? 'saved' : 'default' }}) · Default: {{ (string) $field['default'] === '1' ? 'On' : 'Off' }}
+                                        </div>
                                         @error($key)<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
                                     </div>
                                 @else
@@ -48,10 +52,19 @@
                                             <input type="{{ $field['type'] }}" name="{{ $key }}" id="{{ $key }}"
                                                    class="form-control @error($key) is-invalid @enderror"
                                                    value="{{ old($key, $field['value']) }}"
+                                                   @isset($field['min']) min="{{ $field['min'] }}" @endisset
+                                                   @isset($field['max']) max="{{ $field['max'] }}" @endisset
+                                                   @isset($field['step']) step="{{ $field['step'] }}" @endisset
                                                    @if(!empty($field['default'])) placeholder="{{ $field['default'] }}" @endif>
                                             @error($key)<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         @endif
                                         <div class="form-text">{{ $field['help'] }}</div>
+                                        @if(empty($field['secret']))
+                                            <div class="form-text setting-effective" data-setting="{{ $key }}">
+                                                In effect: <strong>{{ filled($field['value']) ? $field['value'] : '—' }}</strong>
+                                                ({{ $field['overridden'] ? 'saved' : 'default' }}) · Default: {{ filled($field['default']) ? $field['default'] : 'none' }}
+                                            </div>
+                                        @endif
                                     </div>
                                 @endif
                             @endforeach

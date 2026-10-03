@@ -34,6 +34,9 @@ class ChapterScraper extends Command
     /** Failed attempts after which a chapter is "needs review". */
     public const NEEDS_REVIEW_ATTEMPTS = \App\NovelChapter::REVIEW_ATTEMPTS;
 
+    /** Unix time after which the sweep starts no more chapters (null = unbounded). */
+    private ?float $deadlineAt = null;
+
     /** Cached Schema::hasColumn('novel_chapters', 'sort_key'). */
     private static ?bool $hasSortKey = null;
 
@@ -170,6 +173,9 @@ class ChapterScraper extends Command
         // is never cut short.
         $startedAt = microtime(true);
         $maxMinutes = $novelId != 0 ? 0 : max(0, (int) setting("max_run_minutes", 100));
+        // Also checked between chapters (see processNovel): one capped novel
+        // can take ~40 min, which alone would blow the scheduler lock.
+        $this->deadlineAt = $maxMinutes > 0 ? $startedAt + $maxMinutes * 60 : null;
 
         foreach ($ids as $id) {
             if ($maxMinutes > 0 && (microtime(true) - $startedAt) > $maxMinutes * 60) {
@@ -263,6 +269,12 @@ class ChapterScraper extends Command
 
         if ($pendingTotal > 0) {
             foreach ($novel->chapters as $item) {
+                if ($this->deadlineAt !== null && microtime(true) > $this->deadlineAt) {
+                    $this->warn("  Run time limit reached mid-novel; remaining chapters wait for the next run.");
+                    Log::info("novel:chapter stopped mid-novel at the run-time limit ({$novel->name}); remaining chapters deferred.");
+                    break;
+                }
+
                 // chapterGenerator reads $chapter->novel; share the loaded
                 // model instead of lazy-loading it once per chapter.
                 $item->setRelation("novel", $novel);

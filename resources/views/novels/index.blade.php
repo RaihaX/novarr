@@ -2,22 +2,24 @@
 
 @php $hasFilters = request('search') || request()->filled('status') || request()->filled('tag'); @endphp
 
+@section('title', 'Library')
+
 @section('content')
 @php $attentionIds = \App\Services\NovelHealth::attentionIds(); @endphp
 <div class="page-head">
     <div class="page-head-titles">
         <span class="page-head-kicker">{{ number_format($novels->total()) }} {{ Str::plural('novel', $novels->total()) }}{{ $hasFilters ? ' · filtered' : '' }}</span>
-        <h1 class="page-title mb-0">Novels</h1>
+        <h1 class="page-title mb-0">Library</h1>
     </div>
     <div class="page-head-actions">
         <div class="btn-group segmented" role="group" aria-label="View mode">
             <a href="{{ request()->fullUrlWithQuery(['view' => 'list', 'page' => null]) }}"
                class="btn btn-secondary {{ $view === 'list' ? 'active' : '' }}" aria-label="List view" title="List view">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 3.5h12v2H2zm0 3.5h12v2H2zm0 3.5h12v2H2z"/></svg>
+                <x-icon name="list" :size="14" />
             </a>
             <a href="{{ request()->fullUrlWithQuery(['view' => 'grid', 'page' => null]) }}"
                class="btn btn-secondary {{ $view === 'grid' ? 'active' : '' }}" aria-label="Grid view" title="Grid view">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 2h5v5H2zm7 0h5v5H9zM2 9h5v5H2zm7 0h5v5H9z"/></svg>
+                <x-icon name="layout-grid" :size="14" />
             </a>
         </div>
         <a href="{{ route('novels.discover') }}" class="btn btn-primary">Add novel</a>
@@ -69,7 +71,7 @@
                 $isCompleted = (bool) $novel->status;
                 $isPaused = !$isCompleted && $novel->paused_at;
                 $progState = \App\Services\NovelHealth::progressState($pct, $isCompleted, (bool) $isPaused, isset($attentionIds[$novel->id]));
-                $barClass = ['downloaded' => 'bar-success', 'queued' => 'bar-pending', 'attention' => 'bar-warning', 'paused' => 'bar-muted'][$progState];
+                $barClass = \App\Enums\NovelState::from($progState)->barClass();
             @endphp
             <a href="{{ route('novels.show', $novel->id) }}" class="poster-card" title="{{ $novel->name }}">
                 <div class="poster-cover">
@@ -78,17 +80,15 @@
                     @else
                         <div class="poster-cover-placeholder"><span>{{ $novel->name }}</span></div>
                     @endif
-                    @if($isCompleted)
-                        <span class="poster-badge badge badge-completed">Completed</span>
-                    @elseif($isPaused)
-                        <span class="poster-badge badge badge-paused">Paused</span>
+                    @if($isCompleted || $isPaused)
+                        <x-status :state="\App\Enums\NovelState::forNovel($novel)" class="poster-badge" />
                     @endif
                     <div class="poster-actions">
                         <button type="button" class="btn btn-sm btn-outline-success poster-action novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" data-paused="{{ $novel->paused_at ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
-                            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 4.5 6 12 2.5 8.5l1-1L6 10l6.5-6.5z"/></svg>
+                            <x-icon name="check" :size="13" />
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-danger poster-action novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
-                            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.5 1h3a.5.5 0 0 1 .5.5V2h4v1.5H2V2h4v-.5a.5.5 0 0 1 .5-.5zM3 4.5h10L12.2 14a1.5 1.5 0 0 1-1.5 1.4H5.3A1.5 1.5 0 0 1 3.8 14L3 4.5z"/></svg>
+                            <x-icon name="trash-2" :size="13" />
                         </button>
                     </div>
                     <div class="poster-progress" aria-hidden="true">
@@ -131,7 +131,7 @@
                 $isCompleted = (bool) $novel->status;
                 $isPaused = !$isCompleted && $novel->paused_at;
                 $progState = \App\Services\NovelHealth::progressState($pct, $isCompleted, (bool) $isPaused, isset($attentionIds[$novel->id]));
-                $barClass = ['downloaded' => 'bar-success', 'queued' => 'bar-pending', 'attention' => 'bar-warning', 'paused' => 'bar-muted'][$progState];
+                $barClass = \App\Enums\NovelState::from($progState)->barClass();
             @endphp
             <div class="novel-row">
                 <input type="checkbox" class="form-check-input novel-check flex-shrink-0" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}">
@@ -147,13 +147,7 @@
                         <div class="novel-row-counts">{{ number_format($downloaded) }} of {{ number_format($total) }} on source · {{ $pct }}%</div>
                         <div class="novel-row-progress" aria-hidden="true"><span class="{{ $barClass }}" style="width: {{ $pct }}%"></span></div>
                     </div>
-                    @if($isCompleted)
-                        <span class="badge badge-completed">Completed</span>
-                    @elseif($isPaused)
-                        <span class="badge badge-paused">Paused</span>
-                    @else
-                        <span class="badge badge-active">Active</span>
-                    @endif
+                    <x-status :state="\App\Enums\NovelState::forNovel($novel)" />
                 </a>
             </div>
         @empty
@@ -192,7 +186,7 @@
                         $isCompleted = (bool) $novel->status;
                         $isPaused = !$isCompleted && $novel->paused_at;
                         $progState = \App\Services\NovelHealth::progressState($pct, $isCompleted, (bool) $isPaused, isset($attentionIds[$novel->id]));
-                        $barClass = ['downloaded' => 'bar-success', 'queued' => 'bar-pending', 'attention' => 'bar-warning', 'paused' => 'bar-muted'][$progState];
+                        $barClass = \App\Enums\NovelState::from($progState)->barClass();
                     @endphp
                     <tr>
                         <td class="col-select"><input type="checkbox" class="form-check-input novel-check" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}"></td>
@@ -208,13 +202,7 @@
                         </td>
                         <td class="col-author">{{ $novel->author ?? '—' }}</td>
                         <td class="col-status">
-                            @if($isCompleted)
-                                <span class="badge badge-completed">Completed</span>
-                            @elseif($isPaused)
-                                <span class="badge badge-paused">Paused</span>
-                            @else
-                                <span class="badge badge-active">Active</span>
-                            @endif
+                            <x-status :state="\App\Enums\NovelState::forNovel($novel)" />
                         </td>
                         <td class="col-progress">
                             <div class="progress-inline">
@@ -228,10 +216,10 @@
                         <td class="col-actions">
                             <span class="row-actions">
                                 <button type="button" class="btn btn-outline-success novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" data-paused="{{ $novel->paused_at ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
-                                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 4.5 6 12 2.5 8.5l1-1L6 10l6.5-6.5z"/></svg>
+                                    <x-icon name="check" :size="14" />
                                 </button>
                                 <button type="button" class="btn btn-outline-danger novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
-                                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.5 1h3a.5.5 0 0 1 .5.5V2h4v1.5H2V2h4v-.5a.5.5 0 0 1 .5-.5zM3 4.5h10L12.2 14a1.5 1.5 0 0 1-1.5 1.4H5.3A1.5 1.5 0 0 1 3.8 14L3 4.5z"/></svg>
+                                    <x-icon name="trash-2" :size="14" />
                                 </button>
                             </span>
                         </td>
@@ -287,8 +275,8 @@
         refreshBulkBar();
     });
 
-    // Status badge classes follow the brand mapping: completed/active are the
-    // success triad, paused is the muted one.
+    // Same classes the x-status component renders (App\Enums\NovelState::badgeClass()):
+    // completed/active are the success triad, paused is the muted one.
     function badgeFor(completed, paused) {
         if (completed) return ['badge badge-completed', 'Completed'];
         if (paused) return ['badge badge-paused', 'Paused'];

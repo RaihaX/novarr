@@ -1,15 +1,17 @@
 @extends('layouts.app')
 
+@section('title', 'Downloads')
+
 @section('content')
 <div class="page-head">
     <div class="page-head-titles">
         <span class="page-head-kicker">On this device</span>
-        <h1 class="page-title mb-0">Offline library</h1>
+        <h1 class="page-title mb-0">Downloads</h1>
         <p class="page-head-sub mb-0">Novels cached in this browser — they open and read without a connection.</p>
     </div>
     <div class="page-head-actions">
-        <span id="offlineBadge" class="badge badge-attention d-none">Offline</span>
-        <a href="{{ route('novels.index') }}" class="btn btn-secondary">All novels</a>
+        <x-status state="attention" id="offlineBadge" class="d-none" label="Offline" />
+        <a href="{{ route('novels.index') }}" class="btn btn-secondary">Library</a>
     </div>
 </div>
 
@@ -49,14 +51,13 @@
                 <div class="novel-card-head">
                     <div class="novel-card-cover">
                         <svg class="brand-mark novel-card-cover-mark" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
-                            <path d="M6 5h5v22H6z"/><path d="M11 5h5l10 22h-5z"/><path d="M21 13h5v14h-5z"/>
-                            <path d="M21 5h5v8l-2.5-2.2L21 13z" opacity="0.55"/>
+                            <rect x="5" y="5" width="22" height="4"/><rect x="5" y="11.5" width="22" height="4"/><rect x="5" y="18" width="15" height="4"/><rect x="5" y="24.5" width="8" height="4" opacity="0.55"/>
                         </svg>
                     </div>
                     <div class="novel-card-body">
                         <span class="novel-card-title"></span>
                         <span class="novel-card-meta"></span>
-                        <span class="badge badge-downloaded">Downloaded</span>
+                        <x-status state="downloaded" />
                     </div>
                 </div>
                 <div class="novel-card-foot">

@@ -90,6 +90,57 @@ class DefaultCoverGeneratorTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+    // Footer mark ("Serial": four flat bars, last bar amber)
+    // -----------------------------------------------------------------
+
+    /**
+     * The footer mark sits at the page margin (192px) in a 96px box whose
+     * bottom edge is the bottom margin (2400 - 192), so one grid unit is 3px:
+     * grid (gx, gy) lands at (192 + 3·gx, 2112 + 3·gy).
+     */
+    private function markPixel(\GdImage $image, float $gx, float $gy): array
+    {
+        $rgb = imagecolorsforindex($image, imagecolorat($image, (int) (192 + 3 * $gx), (int) (2112 + 3 * $gy)));
+
+        return [$rgb['red'], $rgb['green'], $rgb['blue']];
+    }
+
+    /** Bar 1 is flat indigo, bar 4 is amber, and the old N's diagonal is gone. */
+    public function testTheFooterMarkIsTheSerialBars()
+    {
+        $path = $this->generator->generate($this->workDir . '/mark.png', 'Ashen God', null, 12);
+        $image = imagecreatefrompng($path);
+
+        $bar1Left = $this->markPixel($image, 7, 7);    // inside bar 1 (x 5–27, y 5–9)
+        $bar1Right = $this->markPixel($image, 25, 7);
+        $bar4 = $this->markPixel($image, 9, 26.5);     // inside bar 4 (x 5–13, y 24.5–28.5)
+        $gap = $this->markPixel($image, 18.5, 16.75);  // where the old diagonal spine ran
+        $rightOfBar4 = $this->markPixel($image, 20, 26.5);
+        imagedestroy($image);
+
+        $this->assertSame([0x64, 0x70, 0xFF], $bar1Left);
+        // Flat fill, no gradient: both ends of the bar are the same colour.
+        $this->assertSame($bar1Left, $bar1Right);
+        $this->assertSame([0xF0, 0xB4, 0x29], $bar4);
+        $this->assertSame([0x12, 0x15, 0x1B], $gap);
+        $this->assertSame([0x12, 0x15, 0x1B], $rightOfBar4);
+    }
+
+    /** On the light (e-ink) ground the amber bar drops to #C98A00 for contrast. */
+    public function testTheLightCoverUsesTheDeeperAmber()
+    {
+        $path = $this->generator->generate($this->workDir . '/mark-light.png', 'Ashen God', null, 12, 'png', true);
+        $image = imagecreatefrompng($path);
+
+        $bar4 = $this->markPixel($image, 9, 26.5);
+        $gap = $this->markPixel($image, 18.5, 16.75);
+        imagedestroy($image);
+
+        $this->assertSame([0xC9, 0x8A, 0x00], $bar4);
+        $this->assertSame([0xF7, 0xF8, 0xFA], $gap);
+    }
+
+    // -----------------------------------------------------------------
     // Title size steps
     // -----------------------------------------------------------------
 

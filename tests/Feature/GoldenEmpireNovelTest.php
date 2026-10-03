@@ -45,6 +45,7 @@ class GoldenEmpireNovelTest extends GoldenTestCase
             $fetcher->urls('plain')
         );
         $this->assertSame([], $fetcher->urls('html'), 'no FlareSolverr fallback needed');
+        $this->assertFalse(tocRunWasPartial(), 'every page fetched');
 
         // Ascending, unique, numbered.
         $numbers = array_map(fn($r) => (int) $r['chapter'], $toc);
@@ -62,8 +63,10 @@ class GoldenEmpireNovelTest extends GoldenTestCase
     }
 
     /**
-     * A failed plain fetch falls back to FlareSolverr; when both fail the
-     * walk stops instead of looping over every remaining page.
+     * A failed plain fetch falls back to FlareSolverr; a page that fails
+     * both is retried once (same path), and when the retry fails too the
+     * walk stops instead of looping over every remaining page — returning
+     * what it has, flagged partial for the TOC health.
      */
     public function testPlainClientFailureFallsBackToFlareSolverrThenStops(): void
     {
@@ -76,11 +79,13 @@ class GoldenEmpireNovelTest extends GoldenTestCase
             self::NOVEL . '?page=' => FakeFetcher::fail('http_4xx', 403),
         ]);
 
+        markTocRunPartial(false);
         $toc = empireNovelToc(self::NOVEL);
 
-        $this->assertSame([self::NOVEL . '?page=2', self::NOVEL . '?page=3'], $fetcher->urls('plain'));
-        $this->assertSame([self::NOVEL . '?page=3'], $fetcher->urls('html'));
+        $this->assertSame([self::NOVEL . '?page=2', self::NOVEL . '?page=3', self::NOVEL . '?page=3'], $fetcher->urls('plain'));
+        $this->assertSame([self::NOVEL . '?page=3', self::NOVEL . '?page=3'], $fetcher->urls('html'));
         $this->assertCount(13 + 30, $toc);
+        $this->assertTrue(tocRunWasPartial());
     }
 
     public function testChapterContent(): void

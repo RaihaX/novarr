@@ -1,8 +1,10 @@
 @extends('layouts.app')
 
+@section('title', $data->name)
+
 @section('content')
 <a href="{{ route('novels.index') }}" class="back-link">
-    <x-icon name="chevron-left" :size="14" :stroke="1.5" /> Novels
+    <x-icon name="chevron-left" :size="14" :stroke="1.5" /> Library
 </a>
 
 {{-- ===================================================================== --}}
@@ -27,11 +29,11 @@
                 <div class="detail-byline">
                     <span class="detail-author">{{ $data->author ?: 'Unknown author' }}</span>
                     @if($data->status)
-                        <span id="novelStatusBadge" class="badge badge-completed" data-completed="1">Completed</span>
+                        <x-status state="completed" id="novelStatusBadge" data-completed="1" />
                     @elseif($data->paused_at)
-                        <span id="novelStatusBadge" class="badge badge-paused" title="Paused {{ $data->paused_at->format('j M Y') }} — automatic downloads skip this novel">Paused</span>
+                        <x-status state="paused" id="novelStatusBadge" title="Paused {{ $data->paused_at->format('j M Y') }} — automatic downloads skip this novel" />
                     @else
-                        <span id="novelStatusBadge" class="badge badge-active">Active</span>
+                        <x-status state="active" id="novelStatusBadge" />
                     @endif
                 </div>
 
@@ -44,7 +46,7 @@
                     <div class="detail-meta">
                         @if($data->translator_url)
                             <a class="detail-meta-item" href="{{ $data->translator_url }}" target="_blank" rel="noopener">
-                                <span class="detail-meta-key">Source</span>{{ parse_url($data->translator_url, PHP_URL_HOST) }} &nearr;
+                                <span class="detail-meta-key">Source</span>{{ parse_url($data->translator_url, PHP_URL_HOST) }} <x-icon name="external-link" :size="11" />
                             </a>
                             @if(count($metaItems))<span class="detail-meta-sep">·</span>@endif
                         @endif
@@ -54,22 +56,38 @@
                         @endforeach
                     </div>
                 @endif
+
+                @if(!$data->status)
+                    {{-- Hourly checks: a switch, posting to the existing toggle endpoint --}}
+                    <div class="form-check form-switch detail-switch mb-0">
+                        <input class="form-check-input" type="checkbox" role="switch" id="frequentToggle" data-id="{{ $data->id }}" @checked($data->frequent_toc)>
+                        <label class="form-check-label" for="frequentToggle" title="Check this novel's source for new chapters every hour instead of once a day">Hourly checks</label>
+                    </div>
+                @endif
             </div>
 
+            {{-- Header actions: one primary, one Download menu, one overflow menu. --}}
             <div class="detail-actions">
                 @if($continue_chapter_id)
-                    <a href="{{ route('chapters.show', $continue_chapter_id) }}" class="btn btn-primary">{{ $read_count > 0 ? 'Continue reading' : 'Start reading' }}</a>
+                    <a href="{{ route('chapters.show', $continue_chapter_id) }}" class="btn btn-primary">
+                        <x-icon name="book-open" :size="14" />{{ $read_count > 0 ? 'Continue reading' : 'Start reading' }}
+                    </a>
                 @endif
-                <span id="offlineControls" data-id="{{ $data->id }}" data-total="{{ $current_chapters }}" data-unread="{{ max(0, $current_chapters - $read_count) }}" class="d-inline-flex gap-2">
+                <span id="offlineControls" data-id="{{ $data->id }}" data-total="{{ $current_chapters }}" data-unread="{{ max(0, $current_chapters - $read_count) }}" class="d-inline-flex">
                     <div class="dropdown">
-                        <button type="button" id="offlineBtn" class="btn btn-secondary dropdown-toggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">Download for offline</button>
-                        <ul class="dropdown-menu dropdown-menu-end" style="min-width: 260px;">
+                        <button type="button" id="offlineBtn" class="btn btn-secondary btn-icon-label" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                            <x-icon name="download" :size="14" />
+                            <span class="offline-btn-label">Download</span>
+                            <span class="offline-btn-count d-none"></span>
+                            <x-icon name="chevron-down" :size="14" class="icon caret" />
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end download-menu">
+                            <li><h6 class="dropdown-header label-caption">Save for offline</h6></li>
                             <li><button type="button" class="dropdown-item" data-scope="unread-next" data-limit="100">Next 100 unread</button></li>
                             <li><button type="button" class="dropdown-item" data-scope="unread">All unread (<span class="offl-unread">0</span>)</button></li>
                             <li><button type="button" class="dropdown-item" data-scope="all">All chapters (<span class="offl-total">0</span>)</button></li>
-                            <li><hr class="dropdown-divider"></li>
                             <li>
-                                <div class="px-2 pt-1 pb-1">
+                                <div style="padding: 4px 12px 8px;">
                                     <div class="label-caption mb-2">Chapter range</div>
                                     <div class="d-flex gap-1 align-items-center">
                                         <input type="number" id="offlFrom" class="form-control form-control-sm" placeholder="From" min="0" step="any" style="width: 78px;" aria-label="Range from chapter">
@@ -78,39 +96,84 @@
                                     </div>
                                 </div>
                             </li>
+                            <li><button type="button" id="offlineRemove" class="dropdown-item item-danger d-none"><x-icon name="trash-2" :size="14" />Remove offline copy</button></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><h6 class="dropdown-header label-caption">ePub</h6></li>
+                            <li><a href="{{ route('novels.download_epub', $data->id) }}" class="dropdown-item"><x-icon name="download" :size="14" />Download ePub</a></li>
+                            <li>
+                                <button type="button" class="dropdown-item cmd-btn" data-command="epub" data-novel="{{ $data->id }}" title="Build an ePub from the downloaded chapters">
+                                    <x-icon name="refresh-cw" :size="14" />
+                                    <span class="cmd-label">Generate ePub</span>
+                                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                                    <span class="cmd-done d-none">Done</span>
+                                    <span class="cmd-fail d-none">Failed</span>
+                                </button>
+                            </li>
+                            <li>
+                                <button type="button" class="dropdown-item cmd-btn" data-command="send_to_kindle" data-novel="{{ $data->id }}" title="Email this novel's ePub to your Kindle">
+                                    <x-icon name="external-link" :size="14" />
+                                    <span class="cmd-label">Send to Kindle</span>
+                                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Sending</span>
+                                    <span class="cmd-done d-none">Sent</span>
+                                    <span class="cmd-fail d-none">Failed</span>
+                                </button>
+                            </li>
                         </ul>
                     </div>
-                    <button type="button" id="offlineRemove" class="btn btn-secondary d-none">Remove offline</button>
                 </span>
-                <a href="{{ route('novels.edit', $data->id) }}" class="btn btn-secondary">Edit</a>
-                <button type="button" id="pauseToggle" class="btn {{ $data->paused_at ? 'btn-success' : 'btn-secondary' }}" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
-                    {{ $data->paused_at ? 'Resume downloads' : 'Pause downloads' }}
-                </button>
-                @if(!$data->status)
-                    <button type="button" id="frequentToggle" class="btn {{ $data->frequent_toc ? 'btn-info' : 'btn-secondary' }}" data-id="{{ $data->id }}" title="Check this novel's source for new chapters every hour instead of once a day">
-                        {{ $data->frequent_toc ? 'Hourly checks on' : 'Hourly checks off' }}
+                <div class="dropdown">
+                    <button type="button" class="btn btn-secondary btn-icon" id="novelMoreBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="More actions" title="More actions">
+                        <x-icon name="more-horizontal" :size="16" />
                     </button>
-                @endif
-                <button type="button" id="deleteNovel" class="btn btn-danger" data-id="{{ $data->id }}" data-name="{{ $data->name }}">Delete</button>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="novelMoreBtn">
+                        <li><a href="{{ route('novels.edit', $data->id) }}" class="dropdown-item"><x-icon name="pencil" :size="14" />Edit details</a></li>
+                        <li>
+                            <button type="button" id="pauseToggle" class="dropdown-item" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
+                                <x-icon name="pause" :size="14" class="icon pause-icon-pause {{ $data->paused_at ? 'd-none' : '' }}" />
+                                <x-icon name="play" :size="14" class="icon pause-icon-play {{ $data->paused_at ? '' : 'd-none' }}" />
+                                <span class="pause-label">{{ $data->paused_at ? 'Resume downloads' : 'Pause downloads' }}</span>
+                            </button>
+                        </li>
+                        <li>
+                            <button type="button" class="dropdown-item cmd-btn" id="refreshMetadataBtn" data-command="metadata" data-novel="{{ $data->id }}" title="Re-fetch title, author, cover and synopsis from the source">
+                                <x-icon name="refresh-cw" :size="14" />
+                                <span class="cmd-label">Refresh metadata</span>
+                                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                                <span class="cmd-done d-none">Done</span>
+                                <span class="cmd-fail d-none">Failed</span>
+                            </button>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><button type="button" id="deleteNovel" class="dropdown-item item-danger" data-id="{{ $data->id }}" data-name="{{ $data->name }}"><x-icon name="trash-2" :size="14" />Delete novel</button></li>
+                    </ul>
+                </div>
             </div>
         </div>
 
         {{-- Metric strip --}}
         <div class="metric-strip">
             <div class="metric">
-                <div class="metric-value text-success">{{ number_format($current_chapters) }}</div>
+                <x-status state="downloaded" as="text" class="metric-value">{{ number_format($current_chapters) }}</x-status>
                 <div class="metric-label">Downloaded</div>
             </div>
             <div class="metric">
-                <div class="metric-value {{ $current_chapters_not_downloaded > 0 ? 'value-pending' : 'value-muted' }}">{{ number_format($current_chapters_not_downloaded) }}</div>
+                @if($current_chapters_not_downloaded > 0)
+                    <x-status state="queued" as="text" class="metric-value">{{ number_format($current_chapters_not_downloaded) }}</x-status>
+                @else
+                    <div class="metric-value value-muted">0</div>
+                @endif
                 <div class="metric-label">Queued</div>
             </div>
             <div class="metric">
-                <div class="metric-value {{ count($missing_chapters) > 0 ? 'text-danger' : 'value-muted' }}">{{ number_format(count($missing_chapters)) }}</div>
+                @if(count($missing_chapters) > 0)
+                    <x-status state="failed" as="text" class="metric-value">{{ number_format(count($missing_chapters)) }}</x-status>
+                @else
+                    <div class="metric-value value-muted">0</div>
+                @endif
                 <div class="metric-label">Missing</div>
             </div>
             <div class="metric">
-                <div class="metric-value text-amber">{{ number_format($read_count) }}</div>
+                <x-status state="reading" as="text" class="metric-value">{{ number_format($read_count) }}</x-status>
                 <div class="metric-label">Read</div>
             </div>
         </div>
@@ -188,36 +251,33 @@
         @else
             <div class="detail-no-synopsis">
                 <em>No summary available.</em>
-                <button class="btn btn-secondary btn-sm cmd-btn" data-command="metadata" data-novel="{{ $data->id }}">
-                    <span class="cmd-label">Refresh metadata</span>
-                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
-                    <span class="cmd-done d-none">Done</span>
-                    <span class="cmd-fail d-none">Failed</span>
-                </button>
+                <span>Fetch one with <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-proxy-click="#refreshMetadataBtn">Refresh metadata</button>.</span>
             </div>
         @endif
     </div>
 </div>
 
 {{-- ===================================================================== --}}
-{{-- Quick actions                                                          --}}
+{{-- Maintenance — one disclosure, collapsed by default. The command        --}}
+{{-- buttons inside are unchanged (data-dry-run-first wiring below).        --}}
 {{-- ===================================================================== --}}
-<div class="card mb-4">
-    <div class="panel-head">
-        <h2 class="panel-title">Quick actions</h2>
-        <span class="panel-note">Commands run in the background</span>
-    </div>
+<details class="card maintenance-panel mb-4" id="maintenancePanel">
+    <summary class="panel-head maintenance-summary">
+        <h2 class="panel-title">Maintenance</h2>
+        <span class="panel-note">Scrape, repair and inspect — commands run in the background</span>
+        <x-icon name="chevron-down" :size="16" class="icon maintenance-caret" />
+    </summary>
     <div class="card-body">
         <div class="qa-section">
             <div class="qa-label">Acquire</div>
             <div class="qa-buttons">
-                <button class="btn btn-primary cmd-btn" data-command="toc" data-novel="{{ $data->id }}" title="Re-scrape the table of contents to discover new chapters">
+                <button class="btn btn-secondary cmd-btn" data-command="toc" data-novel="{{ $data->id }}" title="Re-scrape the table of contents to discover new chapters">
                     <span class="cmd-label">Scrape TOC</span>
                     <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
                     <span class="cmd-done d-none">Done</span>
                     <span class="cmd-fail d-none">Failed</span>
                 </button>
-                <button class="btn btn-primary cmd-btn" data-command="chapter" data-novel="{{ $data->id }}" title="Download the content of any pending chapters">
+                <button class="btn btn-secondary cmd-btn" data-command="chapter" data-novel="{{ $data->id }}" title="Download the content of any pending chapters">
                     <span class="cmd-label">Download chapters</span>
                     <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
                     <span class="cmd-done d-none">Done</span>
@@ -227,35 +287,10 @@
         </div>
 
         <div class="qa-section">
-            <div class="qa-label">Export</div>
-            <div class="qa-buttons">
-                <button class="btn btn-secondary cmd-btn" data-command="epub" data-novel="{{ $data->id }}" title="Build an ePub from the downloaded chapters">
-                    <span class="cmd-label">Generate ePub</span>
-                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
-                    <span class="cmd-done d-none">Done</span>
-                    <span class="cmd-fail d-none">Failed</span>
-                </button>
-                <a href="{{ route('novels.download_epub', $data->id) }}" class="btn btn-secondary cmd-btn">Download ePub</a>
-                <button class="btn btn-secondary cmd-btn" data-command="send_to_kindle" data-novel="{{ $data->id }}" title="Email this novel's ePub to your Kindle">
-                    <span class="cmd-label">Send to Kindle</span>
-                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Sending</span>
-                    <span class="cmd-done d-none">Sent</span>
-                    <span class="cmd-fail d-none">Failed</span>
-                </button>
-            </div>
-        </div>
-
-        <div class="qa-section">
-            <div class="qa-label">Maintenance</div>
+            <div class="qa-label">Repair</div>
             {{-- Buttons with data-dry-run-first preview the change (dry run) and
                  ask for confirmation before the real run; see script below. --}}
             <div class="qa-buttons" id="maintenanceButtons">
-                <button class="btn btn-secondary cmd-btn" data-command="metadata" data-novel="{{ $data->id }}" title="Re-fetch title, author, cover and synopsis from the source">
-                    <span class="cmd-label">Refresh metadata</span>
-                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
-                    <span class="cmd-done d-none">Done</span>
-                    <span class="cmd-fail d-none">Failed</span>
-                </button>
                 <button class="btn btn-secondary cmd-btn" data-command="normalize_labels" data-novel="{{ $data->id }}" data-dry-run-first title="Rewrite chapter labels/numbers to a consistent format">
                     <span class="cmd-label">Normalize labels</span>
                     <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
@@ -332,9 +367,12 @@
             </script>
         </div>
     </div>
-    <div id="cmdOutput" class="d-none">
-        <pre id="cmdOutputText" class="cmd-output-pane"></pre>
-    </div>
+</details>
+{{-- Output pane sits outside the disclosure so header-menu commands
+     (Generate ePub, Send to Kindle, Refresh metadata) show their output
+     even while Maintenance is collapsed. --}}
+<div id="cmdOutput" class="card mb-4 d-none">
+    <pre id="cmdOutputText" class="cmd-output-pane"></pre>
 </div>
 
 {{-- ===================================================================== --}}
@@ -363,7 +401,7 @@
                     <li><button type="button" class="dropdown-item" id="chReadFrom">Read from selected chapter to end</button></li>
                     <li><hr class="dropdown-divider"></li>
                     <li><button type="button" class="dropdown-item" id="chReadAll">Mark all chapters read</button></li>
-                    <li><button type="button" class="dropdown-item text-danger" id="chUnreadAll">Mark all chapters unread</button></li>
+                    <li><button type="button" class="dropdown-item item-danger" id="chUnreadAll">Mark all chapters unread</button></li>
                 </ul>
             </div>
             @if(count($duplicate_chapters) > 0)
@@ -404,7 +442,7 @@
                         @endif
                         <td class="ch-title">
                             @if($chapter->read_at)
-                                <span class="read-check" title="Read {{ $chapter->read_at->format('Y-m-d H:i') }}">✓</span>
+                                <span class="read-check" title="Read {{ $chapter->read_at->format('Y-m-d H:i') }}"><x-icon name="check" :size="13" :stroke="2.25" /><span class="visually-hidden">Read</span></span>
                             @endif
                             @if($chapter->status)
                                 <a href="{{ route('chapters.show', $chapter->id) }}" class="chapter-link {{ $chapter->read_at ? 'text-muted' : '' }}">{{ Str::limit($chapter->label, 90) }}</a>
@@ -412,19 +450,15 @@
                                 <span class="text-muted">{{ Str::limit($chapter->label, 90) }}</span>
                             @endif
                             @if($chapter->isNote())
-                                <span class="badge badge-muted ms-1" title="Author's note — a message from the author or translator, not a story chapter">Note</span>
+                                <x-status state="paused" class="ms-1" title="Author's note — a message from the author or translator, not a story chapter">Note</x-status>
                             @endif
                             {{-- attempts may not be selected/migrated yet; ?? keeps this safe either way --}}
                             @if((int) ($chapter->attempts ?? 0) >= \App\NovelChapter::REVIEW_ATTEMPTS)
-                                <span class="badge badge-muted ms-1" title="Download failed {{ (int) ($chapter->attempts ?? 0) }} times — still retried every 3 days, but it needs a look{{ !empty($chapter->last_failure_reason) ? ' (last: ' . $chapter->last_failure_reason . ')' : '' }}">Needs review</span>
+                                <x-status state="paused" class="ms-1" title="Download failed {{ (int) ($chapter->attempts ?? 0) }} times — still retried every 3 days, but it needs a look{{ !empty($chapter->last_failure_reason) ? ' (last: ' . $chapter->last_failure_reason . ')' : '' }}">Needs review</x-status>
                             @endif
                         </td>
                         <td class="ch-status">
-                            @if($chapter->status)
-                                <span class="badge badge-downloaded">Downloaded</span>
-                            @else
-                                <span class="badge badge-queued">Queued</span>
-                            @endif
+                            <x-status :state="\App\Enums\NovelState::forChapter($chapter)" />
                         </td>
                         <td class="ch-date">{{ $chapter->download_date ? $chapter->download_date->format('Y-m-d H:i') : '—' }}</td>
                     </tr>
@@ -442,11 +476,21 @@
         </div>
     @endif
 </div>
+<template id="checkIconTpl"><x-icon name="check" :size="13" :stroke="2.25" /></template>
 @endsection
 
 @push('scripts')
 <script>
 (() => {
+    // Lucide "check", cloned from the server-rendered icon template below.
+    const CHECK_ICON = document.getElementById('checkIconTpl')?.innerHTML.trim() || '';
+
+    // Buttons that stand in for a header-menu action (e.g. "Refresh metadata"
+    // in the no-synopsis note) click the real one, so it runs in one place.
+    document.querySelectorAll('[data-proxy-click]').forEach(el => el.addEventListener('click', () => {
+        document.querySelector(el.dataset.proxyClick)?.click();
+    }));
+
     // Synopsis read-more: only show the toggle when the text actually clamps.
     const synopsisBody = document.getElementById('synopsisBody');
     const synopsisToggle = document.getElementById('synopsisToggle');
@@ -512,13 +556,16 @@
                 });
                 const data = await response.json();
                 if (data.success) {
-                    // Update the button + status badge in place (no reload).
-                    pauseToggle.className = 'btn ' + (data.paused ? 'btn-success' : 'btn-secondary');
-                    pauseToggle.textContent = data.paused ? 'Resume downloads' : 'Pause downloads';
+                    // Update the menu item + status badge in place (no reload).
+                    pauseToggle.querySelector('.pause-label').textContent = data.paused ? 'Resume downloads' : 'Pause downloads';
+                    pauseToggle.querySelector('.pause-icon-pause')?.classList.toggle('d-none', data.paused);
+                    pauseToggle.querySelector('.pause-icon-play')?.classList.toggle('d-none', !data.paused);
 
+                    // Same classes the x-status component renders for NovelState::Paused / ::Active.
                     const badge = document.getElementById('novelStatusBadge');
                     if (badge && !badge.dataset.completed) {
                         badge.className = 'badge ' + (data.paused ? 'badge-paused' : 'badge-active');
+                        badge.dataset.state = data.paused ? 'paused' : 'active';
                         badge.textContent = data.paused ? 'Paused' : 'Active';
                     }
                     Novarr.showToast(data.paused ? 'Downloads paused.' : 'Downloads resumed.', 'success');
@@ -533,9 +580,11 @@
         });
     }
 
+    // Hourly checks switch: optimistic, reverts if the request fails.
     const frequentToggle = document.getElementById('frequentToggle');
     if (frequentToggle) {
-        frequentToggle.addEventListener('click', async () => {
+        frequentToggle.addEventListener('change', async () => {
+            const wanted = frequentToggle.checked;
             frequentToggle.disabled = true;
             try {
                 const response = await fetch(`/novels/${frequentToggle.dataset.id}/toggle-frequent`, {
@@ -547,11 +596,14 @@
                 });
                 const data = await response.json();
                 if (data.success) {
-                    frequentToggle.className = 'btn ' + (data.frequent ? 'btn-info' : 'btn-secondary');
-                    frequentToggle.textContent = data.frequent ? 'Hourly checks on' : 'Hourly checks off';
+                    frequentToggle.checked = !!data.frequent;
                     Novarr.showToast(data.frequent ? 'This novel is now checked hourly for new chapters.' : 'Back to the daily check.', 'success');
+                } else {
+                    frequentToggle.checked = !wanted;
+                    Novarr.showToast('Could not change hourly checks.', 'danger');
                 }
             } catch (err) {
+                frequentToggle.checked = !wanted;
                 Novarr.showToast('Error: ' + err.message, 'danger');
             } finally {
                 frequentToggle.disabled = false;
@@ -693,7 +745,7 @@
         refreshChBulk();
     });
 
-    // Toggle a chapter row's read indicator (amber ✓ + muted title) in place,
+    // Toggle a chapter row's read indicator (amber check + muted title) in place,
     // so the long paginated table keeps its scroll position after a bulk action.
     function setChapterRowRead(checkbox, read) {
         const cell = checkbox.closest('tr')?.querySelector('td.ch-title');
@@ -704,7 +756,7 @@
             mark = document.createElement('span');
             mark.className = 'read-check';
             mark.title = 'Read';
-            mark.textContent = '✓';
+            mark.innerHTML = CHECK_ICON + '<span class="visually-hidden">Read</span>';
             cell.insertBefore(mark, cell.firstChild);
         } else if (!read && mark) {
             mark.remove();
@@ -818,6 +870,8 @@
         const id = parseInt(wrap.dataset.id, 10);
         const btn = document.getElementById('offlineBtn');
         const removeBtn = document.getElementById('offlineRemove');
+        const label = btn.querySelector('.offline-btn-label');
+        const count = btn.querySelector('.offline-btn-count');
 
         // Fill the option counts from the page's stats.
         wrap.querySelectorAll('.offl-total').forEach(e => e.textContent = wrap.dataset.total || '0');
@@ -825,9 +879,10 @@
 
         async function reflect() {
             const rec = await Novarr.getNovel(id);
-            btn.textContent = rec ? `${rec.chapterCount} offline` : 'Download for offline';
-            btn.classList.toggle('btn-info', !!rec);
-            btn.classList.toggle('btn-secondary', !rec);
+            label.textContent = 'Download';
+            count.textContent = rec ? `${rec.chapterCount} offline` : '';
+            count.classList.toggle('d-none', !rec);
+            btn.title = rec ? `${rec.chapterCount} chapters saved on this device` : 'Save for offline or export';
             removeBtn.classList.toggle('d-none', !rec);
         }
         reflect();
@@ -842,7 +897,7 @@
             btn.classList.add('disabled');
             try {
                 const r = await Novarr.downloadNovel(id, opts, (done, total) => {
-                    btn.textContent = `Saving ${done}/${total}…`;
+                    label.textContent = `Saving ${done}/${total}…`;
                 });
                 Novarr.showToast(`Saved ${r.addedCount} chapter(s) for offline (${r.cachedCount} total).`, 'success');
             } catch (err) {

@@ -24,4 +24,11 @@ class PresentContentTest extends TestCase
     {
         $this->assertSame('<p>a</p><br/><hr/>', NovelChapter::presentContent('<p>a</p><p>&nbsp;</p><br><hr>'));
     }
+
+    /** A bare "<" is prose, not a tag: nothing after it may be lost. */
+    public function testBareLessThanDoesNotSwallowText(): void
+    {
+        $this->assertSame('<p>I &lt;3 you, she said.</p><p>Next line.</p>', NovelChapter::presentContent('<p>I <3 you, she said.</p><p>Next line.</p>'));
+        $this->assertSame('<p>a &lt; b and b > c</p>', NovelChapter::presentContent('<p>a < b and b > c</p>'));
+    }
 }

@@ -98,7 +98,8 @@ class DiscoverController extends Controller
      */
     protected function searchEmpireNovel(string $q): ?array
     {
-        $cacheKey = 'discover_en_' . md5($q);
+        // v2: results carry the synopsis / status now.
+        $cacheKey = 'discover_en_v2_' . md5($q);
 
         $fetch = function () use ($q) {
             $url = 'https://www.empirenovel.com/search-live?q=' . urlencode($q);
@@ -107,27 +108,7 @@ class DiscoverController extends Controller
                 return null;
             }
 
-            // FlareSolverr wraps the JSON body in HTML; pull the JSON array out.
-            if (!preg_match('/(\[.*\])/s', $html, $m)) {
-                return [];
-            }
-            $rows = json_decode($m[1], true);
-            if (!is_array($rows)) {
-                return [];
-            }
-
-            return collect($rows)->map(function ($r) {
-                $slug = $r['slug'] ?? null;
-                if (!$slug) {
-                    return null;
-                }
-                return [
-                    'name' => $r['name'] ?? $slug,
-                    'url' => 'https://www.empirenovel.com/novel/' . $slug,
-                    'cover' => "https://www.empirenovel.com/uploads/novel/{$slug}/cover/cover_250x350.jpg",
-                    'author' => '',
-                ];
-            })->filter()->values()->all();
+            return $this->parseEmpireNovelSearch($html);
         };
 
         try {
@@ -135,6 +116,75 @@ class DiscoverController extends Controller
         } catch (\Throwable $e) {
             return $fetch();
         }
+    }
+
+    /**
+     * Parse an Empire Novel search-live response into result items. The
+     * body is a JSON array (FlareSolverr wraps it in HTML) of rows with
+     * `slug`, `name`, a localised `summary` ({"en": "…"}, sometimes itself
+     * JSON-encoded) and, on some rows, `status`. Pure — unit tested.
+     */
+    public function parseEmpireNovelSearch(string $body): array
+    {
+        if (!preg_match('/(\[.*\])/s', $body, $m)) {
+            return [];
+        }
+        $rows = json_decode($m[1], true);
+        if (!is_array($rows)) {
+            // FlareSolverr may hand back the JSON HTML-escaped inside <pre>.
+            $rows = json_decode(html_entity_decode($m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'), true);
+        }
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($rows as $r) {
+            $slug = is_array($r) ? ($r['slug'] ?? null) : null;
+            if (!$slug) {
+                continue;
+            }
+
+            $summary = $r['summary'] ?? '';
+            if (is_string($summary) && str_starts_with(ltrim($summary), '{')) {
+                $summary = json_decode($summary, true) ?? $summary;
+            }
+            if (is_array($summary)) {
+                $summary = $summary['en'] ?? (reset($summary) ?: '');
+            }
+
+            $item = [
+                'name' => $r['name'] ?? $slug,
+                'url' => 'https://www.empirenovel.com/novel/' . $slug,
+                'cover' => "https://www.empirenovel.com/uploads/novel/{$slug}/cover/cover_250x350.jpg",
+                'author' => '',
+                'description' => $this->plainSynopsis(is_string($summary) ? $summary : ''),
+            ];
+
+            $status = $this->statusLabel($r['status'] ?? null);
+            if ($status !== null) {
+                $item['status'] = $status;
+            }
+
+            $items[] = $item;
+        }
+
+        return $items;
+    }
+
+    /** "Ongoing" / "Completed" from a source status string, else null. */
+    protected function statusLabel($status): ?string
+    {
+        if (!is_string($status) || trim($status) === '') {
+            return null;
+        }
+        $status = strtolower(trim($status));
+
+        return match (true) {
+            str_contains($status, 'complete') => 'Completed',
+            str_contains($status, 'ongoing') => 'Ongoing',
+            default => ucfirst($status),
+        };
     }
 
     /**

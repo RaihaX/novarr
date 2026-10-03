@@ -49,6 +49,9 @@ class NovelArrowSource extends AbstractSource
                 return $result;
             }
             \Log::warning("NovelArrowSource: chapter list empty for {$novel->translator_url}; falling back to page parse");
+            // The page only embeds the newest ~30 chapters: whatever the
+            // fallback finds is a partial list for TOC health purposes.
+            markTocRunPartial();
         }
 
         // Generic page parse (the novel page's embedded chapter list).
@@ -84,6 +87,17 @@ class NovelArrowSource extends AbstractSource
                 if (empty($metadata[$key]) && !empty($fallback[$key])) {
                     $metadata[$key] = $fallback[$key];
                 }
+            }
+        }
+
+        // NovelUpdates carries no status (or wasn't matched): use the
+        // source's own novel_status. Fetched separately when the fallback
+        // above didn't run, but only then — a cheap single API call.
+        if (empty($metadata['status_text'])) {
+            $fallback ??= getMetadataFromNovelArrow($novel);
+            if (!empty($fallback['status_text'])) {
+                $metadata['status_text'] = $fallback['status_text'];
+                $metadata['completed'] = (bool) ($fallback['completed'] ?? false);
             }
         }
 

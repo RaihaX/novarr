@@ -346,11 +346,21 @@ class DefaultCoverGenerator
     }
 
     /**
-     * The brand mark, drawn from the 32×32 geometry in the handoff and
-     * supersampled 4× so the diagonal spine downsamples cleanly.
+     * The brand mark ("Serial"): four flat bars on the 32×32 grid — three
+     * indigo bars stepping down in length, the last, shortest bar in amber.
+     * Radius 0, no gradient. Drawn supersampled 4× so the half-unit bar edges
+     * (y 11.5 / 24.5) downsample to clean anti-aliased lines at any size.
      */
     private function drawMark(\GdImage $canvas, int $x, int $y, int $size, array $palette): void
     {
+        // [x, y, width, height] on the 32-grid; the last bar takes the accent.
+        $bars = [
+            [5, 5, 22, 4],
+            [5, 11.5, 22, 4],
+            [5, 18, 15, 4],
+            [5, 24.5, 8, 4],
+        ];
+
         $ss = 4;
         $n = $size * $ss;
         $u = $n / 32; // one grid unit
@@ -360,50 +370,22 @@ class DefaultCoverGenerator
         imagesavealpha($mark, true);
         imagefilledrectangle($mark, 0, 0, $n, $n, imagecolorallocatealpha($mark, 0, 0, 0, 127));
 
-        // Mask of the three gradient spines.
-        $mask = imagecreatetruecolor($n, $n);
-        imagealphablending($mask, false);
-        $black = imagecolorallocate($mask, 0, 0, 0);
-        $white = imagecolorallocate($mask, 255, 255, 255);
-        imagefilledrectangle($mask, 0, 0, $n, $n, $black);
-        imagefilledrectangle($mask, (int) round(6 * $u), (int) round(5 * $u), (int) round(11 * $u) - 1, (int) round(27 * $u) - 1, $white);
-        imagefilledrectangle($mask, (int) round(21 * $u), (int) round(13 * $u), (int) round(26 * $u) - 1, (int) round(27 * $u) - 1, $white);
-        imagefilledpolygon($mask, [
-            (int) round(11 * $u), (int) round(5 * $u),
-            (int) round(16 * $u), (int) round(5 * $u),
-            (int) round(26 * $u), (int) round(27 * $u),
-            (int) round(21 * $u), (int) round(27 * $u),
-        ], $white);
+        // Indigo is the palette's primary hue (the gradient start — the mark
+        // itself is flat); amber is the bookmark/reading accent (#C98A00 on
+        // the light ground, per the brand rule).
+        $indigo = $this->colour($mark, $palette['gradient_from']);
+        $amber = $this->colour($mark, $palette['bookmark']);
 
-        // 135° gradient (CSS: toward the bottom-right corner).
-        [$r1, $g1, $b1] = $this->rgb($palette['gradient_from']);
-        [$r2, $g2, $b2] = $this->rgb($palette['gradient_to']);
-        $span = max(1, (2 * $n) - 2);
-
-        for ($py = 0; $py < $n; $py++) {
-            for ($px = 0; $px < $n; $px++) {
-                if ((imagecolorat($mask, $px, $py) & 0xFF) === 0) {
-                    continue;
-                }
-                $t = ($px + $py) / $span;
-                imagesetpixel($mark, $px, $py, imagecolorallocate(
-                    $mark,
-                    (int) round($r1 + ($r2 - $r1) * $t),
-                    (int) round($g1 + ($g2 - $g1) * $t),
-                    (int) round($b1 + ($b2 - $b1) * $t),
-                ));
-            }
+        foreach ($bars as $i => [$bx, $by, $bw, $bh]) {
+            imagefilledrectangle(
+                $mark,
+                (int) round($bx * $u),
+                (int) round($by * $u),
+                (int) round(($bx + $bw) * $u) - 1,
+                (int) round(($by + $bh) * $u) - 1,
+                $i === array_key_last($bars) ? $amber : $indigo,
+            );
         }
-        imagedestroy($mask);
-
-        // Amber bookmark on the right spine.
-        imagefilledpolygon($mark, [
-            (int) round(21 * $u), (int) round(5 * $u),
-            (int) round(26 * $u), (int) round(5 * $u),
-            (int) round(26 * $u), (int) round(13 * $u),
-            (int) round(23.5 * $u), (int) round(10.8 * $u),
-            (int) round(21 * $u), (int) round(13 * $u),
-        ], $this->colour($mark, $palette['bookmark']));
 
         imagealphablending($canvas, true);
         imagecopyresampled($canvas, $mark, $x, $y, 0, 0, $size, $size, $n, $n);

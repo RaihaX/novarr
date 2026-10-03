@@ -159,10 +159,30 @@ class NovelUpdatesMatcher
     }
 
     /**
-     * The best candidate (with its 'score') when it clears $threshold, else null.
+     * The effective match threshold: the novelupdates_match_threshold
+     * setting when set and sane (0.5-1.0), else THRESHOLD. setting()
+     * swallows DB/app errors, so this stays safe outside a booted app.
      */
-    public static function pick(array $candidates, string $name, ?string $author, float $threshold = self::THRESHOLD): ?array
+    public static function threshold(): float
     {
+        $value = function_exists('setting') ? setting('novelupdates_match_threshold') : null;
+
+        if (!is_numeric($value)) {
+            return self::THRESHOLD;
+        }
+
+        $value = (float) $value;
+
+        return ($value >= 0.5 && $value <= 1.0) ? $value : self::THRESHOLD;
+    }
+
+    /**
+     * The best candidate (with its 'score') when it clears $threshold
+     * (default: threshold()), else null.
+     */
+    public static function pick(array $candidates, string $name, ?string $author, ?float $threshold = null): ?array
+    {
+        $threshold ??= self::threshold();
         $best = self::rank($candidates, $name, $author)[0] ?? null;
 
         return $best !== null && $best['score'] >= $threshold ? $best : null;

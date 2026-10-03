@@ -1,5 +1,7 @@
 @extends('layouts.app')
 
+@section('title', 'Edit · ' . $novel->name)
+
 @section('content')
 <div class="novel-form-column">
     <a href="{{ route('novels.show', $novel->id) }}" class="back-link">
@@ -83,7 +85,7 @@
                     <div class="field field-full" id="nuMatch" data-candidates-url="{{ route('novels.metadata_candidates', $novel->id) }}" data-choose-url="{{ route('novels.metadata_choose', $novel->id) }}">
                         @php
                             $nuScore = $novel->novelupdates_match_score;
-                            $nuThreshold = \App\Scraping\NovelUpdatesMatcher::THRESHOLD;
+                            $nuThreshold = \App\Scraping\NovelUpdatesMatcher::threshold();
                         @endphp
                         <label class="form-label">NovelUpdates match <span class="field-hint">completion is only trusted at a score of {{ number_format($nuThreshold, 2) }}+</span></label>
                         <div class="d-flex flex-wrap align-items-center gap-2">
@@ -93,7 +95,7 @@
                                 <span class="text-muted">No series matched yet</span>
                             @endif
                             @if($nuScore === null)
-                                <span class="badge badge-muted">unscored</span>
+                                <x-status state="paused">unscored</x-status>
                             @elseif((float) $nuScore >= $nuThreshold)
                                 <span class="badge badge-success">score {{ number_format((float) $nuScore, 3) }}</span>
                             @else

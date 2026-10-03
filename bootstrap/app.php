@@ -19,9 +19,12 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware) {
-        // Read-state endpoints are replayed from the offline sync queue, where a
-        // session CSRF token may have rotated. Single-user app behind Tailscale
-        // with no auth, so the tokenless replay is acceptable.
+        // The ONE CSRF exception list, applied by the framework's
+        // ValidateCsrfToken in the default web group (the custom
+        // App\Http\Middleware\VerifyCsrfToken is no longer registered).
+        // Read-state endpoints are replayed from the offline sync queue, where
+        // a session CSRF token may have rotated. Single-user app behind
+        // Tailscale with no auth, so the tokenless replay is acceptable.
         $middleware->validateCsrfTokens(except: [
             'chapters/*/toggle-read',
             'chapters/*/read-through',
@@ -48,20 +51,13 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ]);
 
-        // Web middleware group
-        $middleware->web(append: [
-            \App\Http\Middleware\EncryptCookies::class,
-            \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
-            \Illuminate\Session\Middleware\StartSession::class,
-            \Illuminate\View\Middleware\ShareErrorsFromSession::class,
-            \App\Http\Middleware\VerifyCsrfToken::class,
-            \Illuminate\Routing\Middleware\SubstituteBindings::class,
-        ]);
-
-        // API middleware group
+        // The framework's default `web` group already runs EncryptCookies,
+        // AddQueuedCookiesToResponse, StartSession, ShareErrorsFromSession,
+        // ValidateCsrfToken and SubstituteBindings; appending them again ran
+        // each one twice per request, so the web group is left as-is. Same
+        // for SubstituteBindings in the `api` group.
         $middleware->api(append: [
             \Illuminate\Routing\Middleware\ThrottleRequests::class.':60,1',
-            \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ]);
 
         // Route middleware aliases

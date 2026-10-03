@@ -1,9 +1,11 @@
 @extends('layouts.app')
 
+@section('title', 'Add novel')
+
 @section('content')
 <div class="novel-form-column">
     <a href="{{ route('novels.index') }}" class="back-link">
-        <x-icon name="chevron-left" :size="14" :stroke="1.5" /> Back to novels
+        <x-icon name="chevron-left" :size="14" :stroke="1.5" /> Back to library
     </a>
 
     <div class="page-head">

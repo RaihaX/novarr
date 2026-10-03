@@ -95,8 +95,12 @@ class NovelFullSource extends AbstractSource
                 $nf[$key] = $nu[$key];
             }
         }
-        $nf['status_text'] = $nu['status_text'] ?? '';
-        $nf['completed'] = $nu['completed'] ?? false;
+        // NovelUpdates' status wins when it has one; otherwise keep the
+        // "Status:" the novel page itself reports (e.g. "Ongoing").
+        $nf['status_text'] = ($nu['status_text'] ?? '') ?: ($nf['status_text'] ?? '');
+        $nf['completed'] = ($nu['status_text'] ?? '') !== ''
+            ? (bool) ($nu['completed'] ?? false)
+            : (bool) ($nf['completed'] ?? false);
         $nf['fully_translated'] = $nu['fully_translated'] ?? null;
 
         // novelfull cover first (fetchable), NovelUpdates as fallback.

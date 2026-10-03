@@ -25,7 +25,20 @@
     // Honest minutes-left: real word count of this chapter's body, scaled by
     // how much of it is still below the viewport (see updateMinutesLeft()).
     $wordCount = str_word_count(strip_tags((string) $chapter->description));
+
+    // "Ch. 12 · Chapter 12 - Title" says the number twice; only prefix the
+    // number when the label doesn't already start with it (mirrors chLabel()
+    // in the script below).
+    $navLabel = function ($c) {
+        $label = $c->label ?: 'Chapter ' . $c->chapter;
+        $num = is_numeric($c->chapter) ? (string) (0 + $c->chapter) : (string) $c->chapter;
+        $leads = preg_match('/^\s*(?:ch(?:apter)?\.?\s*)?#?' . preg_quote($num, '/') . '(?![\d.])/i', $label);
+
+        return Str::limit($leads ? $label : 'Ch. ' . $num . ' · ' . $label, 40);
+    };
 @endphp
+
+@section('title', $chapterTitle . ' · ' . ($chapter->novel->name ?? 'Reader'))
 
 {{-- Reader is chromeless: no global navbar (layouts/app.blade.php) --}}
 @section('chromeless', '1')
@@ -44,129 +57,160 @@
             </a>
             <div class="reader-controls">
                 <button type="button" id="readerSettingsBtn" class="reader-ctl reader-ctl-aa"
-                        aria-expanded="false" aria-controls="readerSettings"
+                        aria-expanded="false" aria-controls="readerSettings" aria-haspopup="dialog"
                         title="Reading settings" aria-label="Reading settings">Aa</button>
-                <button type="button" id="tocBtn" class="reader-ctl"
+                <button type="button" id="playbackBtn" class="reader-ctl reader-ctl-icon"
+                        aria-expanded="false" aria-controls="readerPlayback"
+                        title="Playback — listen or auto-scroll" aria-label="Playback">
+                    <x-icon name="headphones" :size="14" :stroke="1.75" /><span class="reader-ctl-text">Playback</span>
+                </button>
+                <button type="button" id="tocBtn" class="reader-ctl reader-ctl-icon"
                         data-bs-toggle="offcanvas" data-bs-target="#tocPanel"
-                        title="Chapter list" aria-label="Chapter list">Contents</button>
-                <button type="button" id="focusBtn" class="reader-ctl"
+                        title="Chapter list" aria-label="Chapter list">
+                    <x-icon name="list" :size="14" :stroke="1.75" /><span class="reader-ctl-text">Contents</span>
+                </button>
+                <button type="button" id="focusBtn" class="reader-ctl reader-ctl-icon"
                         title="Focus mode (hide chrome — tap the page to peek)"
-                        aria-label="Focus mode" aria-pressed="false">Focus</button>
+                        aria-label="Focus mode" aria-pressed="false">
+                    <x-icon name="maximize-2" :size="14" :stroke="1.75" /><span class="reader-ctl-text">Focus</span>
+                </button>
             </div>
         </div>
         <div id="readProgressBar" class="reader-rail" aria-hidden="true"><div id="readProgressFill"></div></div>
 
-        {{-- "Aa" popover: every reading preference in one cluster. --}}
-        <div id="readerSettings" class="reader-pop d-none" role="dialog" aria-label="Reading settings" aria-modal="false">
-            <div class="reader-pop-row">
-                <span class="reader-pop-label">Text size</span>
-                <div class="reader-seg" role="group" aria-label="Text size">
-                    <button type="button" data-font="-" aria-label="Smaller text">A&minus;</button>
-                    <span class="reader-seg-value" id="fontSizeLabel" aria-live="polite">19px</span>
-                    <button type="button" data-font="+" aria-label="Larger text">A+</button>
-                </div>
+        {{-- "Aa": every typography preference. Desktop = popover with
+             Text / Layout / Playback tabs; phones (<768px) = bottom sheet. --}}
+        <div id="readerSettings" class="reader-pop d-none" tabindex="-1" role="dialog" aria-labelledby="readerSettingsTitle" aria-modal="false">
+            <div class="reader-sheet-grip" aria-hidden="true"></div>
+            <div class="reader-pop-head">
+                <span class="reader-pop-title" id="readerSettingsTitle">Reading settings</span>
+                <button type="button" class="reader-pop-close" data-close-pop aria-label="Close reading settings"><x-icon name="x" :size="16" /></button>
             </div>
-            <div class="reader-pop-row">
-                <span class="reader-pop-label">Measure</span>
-                <div class="reader-seg" role="group" aria-label="Line measure">
-                    <button type="button" data-measure="-" aria-label="Narrower column">&minus;</button>
-                    <span class="reader-seg-value" id="measureLabel" aria-live="polite">68ch</span>
-                    <button type="button" data-measure="+" aria-label="Wider column">+</button>
-                </div>
+            <div class="reader-tabs" role="tablist" aria-label="Settings group">
+                <button type="button" role="tab" id="rsTab-text" data-tab="text" aria-controls="rsPane-text" aria-selected="true">Text</button>
+                <button type="button" role="tab" id="rsTab-layout" data-tab="layout" aria-controls="rsPane-layout" aria-selected="false" tabindex="-1">Layout</button>
+                <button type="button" role="tab" id="rsTab-playback" data-tab="playback" aria-controls="rsPane-playback" aria-selected="false" tabindex="-1">Playback</button>
             </div>
-            <div class="reader-pop-row">
-                <span class="reader-pop-label">Theme</span>
-                <div class="reader-seg" id="themeGroup" role="group" aria-label="Reading theme">
-                    <button type="button" data-theme="dark">Dark</button>
-                    <button type="button" data-theme="sepia">Sepia</button>
-                    <button type="button" data-theme="light">Light</button>
+
+            <div class="reader-pane" id="rsPane-text" role="tabpanel" aria-labelledby="rsTab-text" data-pane="text">
+                <div class="reader-pop-block">
+                    <span class="reader-pop-label">Theme</span>
+                    <div class="reader-swatches" id="themeGroup" role="group" aria-label="Reading theme">
+                        <button type="button" data-theme="dark"><span class="reader-swatch swatch-dark" aria-hidden="true">Aa</span>Dark</button>
+                        <button type="button" data-theme="sepia"><span class="reader-swatch swatch-sepia" aria-hidden="true">Aa</span>Sepia</button>
+                        <button type="button" data-theme="light"><span class="reader-swatch swatch-light" aria-hidden="true">Aa</span>Light</button>
+                    </div>
                 </div>
-            </div>
-            <div class="reader-pop-row">
-                <span class="reader-pop-label">Typeface</span>
-                <div class="reader-seg reader-seg-wrap" id="familyGroup" role="group" aria-label="Font family">
-                    <button type="button" data-family="read">Literata</button>
-                    <button type="button" data-family="sans">Sans</button>
-                    <button type="button" data-family="serif">Georgia</button>
-                    <button type="button" data-family="legible" title="Atkinson Hyperlegible — a high-legibility font">Legible</button>
+                <div class="reader-pop-block">
+                    <span class="reader-pop-label">Text size</span>
+                    <div class="reader-seg reader-seg-fill" role="group" aria-label="Text size">
+                        <button type="button" data-font="-" aria-label="Smaller text"><span class="seg-a-small">A</span></button>
+                        <span class="reader-seg-value" id="fontSizeLabel" aria-live="polite">19px</span>
+                        <button type="button" data-font="+" aria-label="Larger text"><span class="seg-a-large">A</span></button>
+                    </div>
                 </div>
-            </div>
-            <div class="reader-pop-row">
-                <span class="reader-pop-label">Spacing</span>
-                <div class="reader-seg" id="lineHeightGroup" role="group" aria-label="Line spacing">
-                    <button type="button" data-lineheight="1.5">Compact</button>
-                    <button type="button" data-lineheight="1.75">Normal</button>
-                    <button type="button" data-lineheight="2.1">Relaxed</button>
-                </div>
-            </div>
-            <div class="reader-pop-row">
-                <span class="reader-pop-label">Gutter</span>
-                <div class="reader-seg" id="marginGroup" role="group" aria-label="Side margins">
-                    <button type="button" data-margin="s">S</button>
-                    <button type="button" data-margin="m">M</button>
-                    <button type="button" data-margin="l">L</button>
-                </div>
-            </div>
-            <div class="reader-pop-row">
-                <span class="reader-pop-label">Justify</span>
-                <div class="reader-seg" id="justifyGroup" role="group" aria-label="Justified text">
-                    <button type="button" data-justify="1">On</button>
-                    <button type="button" data-justify="0">Off</button>
+                <div class="reader-pop-block">
+                    <span class="reader-pop-label">Typeface</span>
+                    <div class="reader-faces" id="familyGroup" role="group" aria-label="Font family">
+                        <button type="button" data-family="read"><span class="face-sample face-read" aria-hidden="true">Aa</span>Literata</button>
+                        <button type="button" data-family="sans"><span class="face-sample face-sans" aria-hidden="true">Aa</span>Sans</button>
+                        <button type="button" data-family="serif"><span class="face-sample face-serif" aria-hidden="true">Aa</span>Georgia</button>
+                        <button type="button" data-family="legible" title="Atkinson Hyperlegible — a high-legibility font"><span class="face-sample face-legible" aria-hidden="true">Aa</span>Legible</button>
+                    </div>
                 </div>
             </div>
 
-            <div class="reader-pop-sep" role="separator"></div>
-
-            <div class="reader-pop-row">
-                <span class="reader-pop-label">Auto-scroll</span>
-                <div class="reader-seg" role="group" aria-label="Auto-scroll">
-                    <button type="button" id="autoScrollToggle" aria-pressed="false">Start</button>
-                    <button type="button" data-scrollspeed="-" title="Scroll slower" aria-label="Scroll slower">&minus;</button>
-                    <button type="button" data-scrollspeed="+" title="Scroll faster" aria-label="Scroll faster">+</button>
+            <div class="reader-pane" id="rsPane-layout" role="tabpanel" aria-labelledby="rsTab-layout" data-pane="layout" hidden>
+                <div class="reader-pop-row">
+                    <span class="reader-pop-label">Measure</span>
+                    <div class="reader-seg" role="group" aria-label="Line measure">
+                        <button type="button" data-measure="-" aria-label="Narrower column">&minus;</button>
+                        <span class="reader-seg-value" id="measureLabel" aria-live="polite">68ch</span>
+                        <button type="button" data-measure="+" aria-label="Wider column">+</button>
+                    </div>
+                </div>
+                <div class="reader-pop-row">
+                    <span class="reader-pop-label">Spacing</span>
+                    <div class="reader-seg" id="lineHeightGroup" role="group" aria-label="Line spacing">
+                        <button type="button" data-lineheight="1.5">Compact</button>
+                        <button type="button" data-lineheight="1.75">Normal</button>
+                        <button type="button" data-lineheight="2.1">Relaxed</button>
+                    </div>
+                </div>
+                <div class="reader-pop-row">
+                    <span class="reader-pop-label">Gutter</span>
+                    <div class="reader-seg" id="marginGroup" role="group" aria-label="Side margins">
+                        <button type="button" data-margin="s">S</button>
+                        <button type="button" data-margin="m">M</button>
+                        <button type="button" data-margin="l">L</button>
+                    </div>
+                </div>
+                <div class="reader-pop-row">
+                    <span class="reader-pop-label">Justify</span>
+                    <div class="reader-seg" id="justifyGroup" role="group" aria-label="Justified text">
+                        <button type="button" data-justify="1">On</button>
+                        <button type="button" data-justify="0">Off</button>
+                    </div>
                 </div>
             </div>
-            <div class="reader-pop-row reader-pop-note">
-                <span></span><span id="autoScrollSpeedLabel"></span>
-            </div>
-            <div class="reader-pop-row">
-                <span class="reader-pop-label">Continuous</span>
-                <div class="reader-seg" id="autoNextGroup" role="group" aria-label="Auto-load next chapter while scrolling">
-                    <button type="button" data-autonext="1" title="Load the next chapter inline when you reach the end">On</button>
-                    <button type="button" data-autonext="0">Off</button>
+
+            <div class="reader-pane" id="rsPane-playback" role="tabpanel" aria-labelledby="rsTab-playback" data-pane="playback" hidden>
+                <div class="reader-pop-row">
+                    <span class="reader-pop-label">Continuous</span>
+                    <div class="reader-seg" id="autoNextGroup" role="group" aria-label="Auto-load next chapter while scrolling">
+                        <button type="button" data-autonext="1" title="Load the next chapter inline when you reach the end">On</button>
+                        <button type="button" data-autonext="0">Off</button>
+                    </div>
                 </div>
-            </div>
-
-            <div class="reader-pop-sep" role="separator"></div>
-
-            <div class="reader-pop-row" id="ttsBar">
-                <span class="reader-pop-label">Read aloud</span>
-                <div class="reader-seg" role="group" aria-label="Text to speech">
-                    <button type="button" id="ttsPlayPause">Play</button>
-                    <button type="button" id="ttsStop">Stop</button>
+                <div class="reader-pop-row">
+                    <span class="reader-pop-label">Voice speed</span>
+                    <div class="reader-seg" id="ttsRateGroup" role="group" aria-label="Speech rate">
+                        <button type="button" data-ttsrate="0.8">0.8&times;</button>
+                        <button type="button" data-ttsrate="1">1&times;</button>
+                        <button type="button" data-ttsrate="1.25">1.25&times;</button>
+                        <button type="button" data-ttsrate="1.5">1.5&times;</button>
+                    </div>
                 </div>
-            </div>
-            <div class="reader-pop-row">
-                <span class="reader-pop-label">Speed</span>
-                <div class="reader-seg" id="ttsRateGroup" role="group" aria-label="Speech rate">
-                    <button type="button" data-ttsrate="0.8">0.8&times;</button>
-                    <button type="button" data-ttsrate="1">1&times;</button>
-                    <button type="button" data-ttsrate="1.25">1.25&times;</button>
-                    <button type="button" data-ttsrate="1.5">1.5&times;</button>
-                </div>
-            </div>
-            <div class="reader-pop-row reader-pop-note">
-                <span></span><span id="ttsStatus"></span>
+                <p class="reader-pop-hint">Listen and auto-scroll start from the <x-icon name="headphones" :size="12" /> Playback control in the bar.</p>
             </div>
 
-            <div class="reader-pop-sep" role="separator"></div>
-
-            <div class="reader-pop-row">
+            <div class="reader-pop-foot">
                 <label class="reader-pop-label" for="perNovelPrefs" title="Keep a separate typography setup for this novel">This novel only</label>
                 <div class="form-check form-switch mb-0">
                     <input class="form-check-input" type="checkbox" role="switch" id="perNovelPrefs" aria-label="Use separate reader settings for this novel">
                 </div>
             </div>
         </div>
+    </div>
+
+    {{-- Phones: dims the page behind the Aa bottom sheet; tap to close. --}}
+    <div id="readerBackdrop" class="reader-backdrop d-none" aria-hidden="true"></div>
+
+    {{-- Playback: its own control, docked to the bottom of the viewport so it
+         stays reachable while the chrome auto-hides during auto-scroll. --}}
+    <div id="readerPlayback" class="reader-playbar d-none" role="region" aria-label="Playback">
+        <div class="reader-playbar-group" id="ttsBar">
+            <span class="reader-playbar-label"><x-icon name="headphones" :size="14" />Listen</span>
+            <button type="button" id="ttsPlayPause" class="reader-playbtn" aria-label="Play read-aloud">
+                <x-icon name="play" :size="14" class="icon pb-play" /><x-icon name="pause" :size="14" class="icon pb-pause d-none" />
+                <span class="pb-text">Play</span>
+            </button>
+            <button type="button" id="ttsStop" class="reader-playbtn" aria-label="Stop read-aloud"><x-icon name="square" :size="13" /></button>
+            <span class="reader-playbar-note" id="ttsStatus"></span>
+        </div>
+        <div class="reader-playbar-group">
+            <span class="reader-playbar-label"><x-icon name="chevrons-down" :size="14" />Auto-scroll</span>
+            <button type="button" id="autoScrollToggle" class="reader-playbtn" aria-pressed="false">
+                <x-icon name="play" :size="14" class="icon pb-play" /><x-icon name="pause" :size="14" class="icon pb-pause d-none" />
+                <span class="pb-text">Start</span>
+            </button>
+            <div class="reader-seg" role="group" aria-label="Scroll speed">
+                <button type="button" data-scrollspeed="-" title="Scroll slower" aria-label="Scroll slower">&minus;</button>
+                <span class="reader-seg-value" id="autoScrollSpeedLabel"></span>
+                <button type="button" data-scrollspeed="+" title="Scroll faster" aria-label="Scroll faster">+</button>
+            </div>
+        </div>
+        <button type="button" class="reader-pop-close reader-playbar-close" data-close-playback aria-label="Close playback"><x-icon name="x" :size="16" /></button>
     </div>
 
     {{-- 680px column: kicker, chapter title, hairline rule, prose. --}}
@@ -176,7 +220,7 @@
                 <header class="reader-head">
                     <p class="reader-kicker">
                         @if($chapter->isNote())
-                            <span class="badge badge-attention" title="This chapter is a message from the author or translator">Author's note</span>
+                            <x-status state="attention" title="This chapter is a message from the author or translator">Author's note</x-status>
                         @endif
                         <span>Chapter {{ $chapterIndex }} of {{ $chapterTotal }}</span>
                         @if($chapter->book)
@@ -222,7 +266,7 @@
                 @if($prev)
                     <a href="{{ route('chapters.show', $prev->id) }}" id="navPrev" class="reader-navblock">
                         <span class="reader-navblock-dir">&larr; Previous</span>
-                        <span class="reader-navblock-label">Ch. {{ $prev->chapter }} &middot; {{ Str::limit($prev->label ?: 'Chapter ' . $prev->chapter, 34) }}</span>
+                        <span class="reader-navblock-label">{{ $navLabel($prev) }}</span>
                     </a>
                 @else
                     <span class="reader-navblock is-empty" aria-hidden="true"></span>
@@ -237,7 +281,7 @@
                 @if($next)
                     <a href="{{ route('chapters.show', $next->id) }}" id="navNext" class="reader-navblock reader-navblock-next">
                         <span class="reader-navblock-dir">Next &rarr;</span>
-                        <span class="reader-navblock-label">Ch. {{ $next->chapter }} &middot; {{ Str::limit($next->label ?: 'Chapter ' . $next->chapter, 34) }}</span>
+                        <span class="reader-navblock-label">{{ $navLabel($next) }}</span>
                     </a>
                 @else
                     <span class="reader-navblock is-empty" aria-hidden="true"></span>
@@ -250,7 +294,7 @@
 {{-- Floating save-highlight popover (shown over a text selection) --}}
 <div id="highlightPop" class="card p-2 d-none" style="position: absolute; z-index: 1055;">
     <div class="d-flex gap-2">
-        <input type="text" id="hlNote" class="form-control form-control-sm" placeholder="Note (optional)" style="width: 170px;" aria-label="Bookmark note">
+        <input type="text" id="hlNote" class="form-control form-control-sm" placeholder="Note (optional)" style="width: 170px;" aria-label="Highlight note">
         <button type="button" id="hlSave" class="btn btn-sm btn-primary text-nowrap">Save</button>
         <button type="button" id="hlDefine" class="btn btn-sm btn-outline-secondary d-none" title="Look up this word" aria-label="Define word">Define</button>
     </div>
@@ -264,14 +308,25 @@
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
     <div class="offcanvas-body p-0 d-flex flex-column">
-        <div class="p-2 border-bottom">
+        <div class="toc-tools">
             <input type="search" id="tocFilter" class="form-control form-control-sm" placeholder="Filter by number or title…" aria-label="Filter chapters">
+            <div class="toc-tools-row">
+                <button type="button" id="tocUnread" class="toc-tool" aria-pressed="false" title="Show only chapters you haven't read">
+                    <x-icon name="filter" :size="13" />Unread
+                </button>
+                <button type="button" id="tocJump" class="toc-tool" title="Scroll the list to the chapter you're reading">
+                    <x-icon name="crosshair" :size="13" />Jump to current
+                </button>
+            </div>
         </div>
-        <div id="tocList" class="list-group list-group-flush overflow-auto flex-grow-1" style="font-size: 13px;">
+        <div id="tocList" class="list-group list-group-flush overflow-auto flex-grow-1 toc-list">
             <div class="p-3 text-muted">Loading…</div>
         </div>
     </div>
 </div>
+
+{{-- Server-rendered Lucide icons the script clones (keeps one icon source). --}}
+<template id="readerIconCheck"><x-icon name="check" :size="13" :stroke="2.25" class="icon toc-check" /></template>
 
 <script type="application/json" id="readerState">@json($readerState)</script>
 @endsection
@@ -396,17 +451,32 @@
         document.getElementById('perNovelPrefs').checked = !!perNovel;
     }
 
-    // ---- "Aa" popover ----
+    // ---- "Aa" popover (desktop) / bottom sheet (phones, <768px) ----
+    // Same element either way; CSS decides the presentation. The backdrop
+    // only renders on phones, where it dims the page and closes on tap.
     const settingsBtn = document.getElementById('readerSettingsBtn');
     const settingsPop = document.getElementById('readerSettings');
+    const backdrop = document.getElementById('readerBackdrop');
     function toggleSettings(show) {
         const open = show ?? settingsPop.classList.contains('d-none');
+        if (open === !settingsPop.classList.contains('d-none')) return;
         settingsPop.classList.toggle('d-none', !open);
+        backdrop.classList.toggle('d-none', !open);
+        document.body.classList.toggle('reader-sheet-open', open);
         settingsBtn.classList.toggle('is-active', open);
         settingsBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) {
+            // The sheet lives inside the chrome; a translated (auto-hidden)
+            // chrome would become the containing block of the fixed sheet.
+            setChromeHidden(false);
+            // Move focus into the dialog (the container, so no ring flashes on a tab).
+            settingsPop.focus({ preventScroll: true });
+        }
     }
-    settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleSettings(); });
-    settingsPop.addEventListener('click', (e) => e.stopPropagation());
+    settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleSettings(); }, { signal });
+    settingsPop.addEventListener('click', (e) => e.stopPropagation(), { signal });
+    settingsPop.querySelector('[data-close-pop]').addEventListener('click', () => { toggleSettings(false); settingsBtn.focus(); }, { signal });
+    backdrop.addEventListener('click', () => toggleSettings(false), { signal });
     document.addEventListener('click', () => toggleSettings(false), { signal });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && !settingsPop.classList.contains('d-none')) {
@@ -415,8 +485,74 @@
         }
     }, { signal });
 
-    const bindPref = (attr, apply) => document.querySelectorAll(`[data-${attr}]`).forEach(btn =>
-        btn.addEventListener('click', () => { apply(btn.dataset[attr]); applyPrefs(); }));
+    // Tabs: Text / Layout / Playback. Arrow keys move between tabs (WAI-ARIA
+    // tabs pattern); the last-used tab is remembered per device.
+    const TAB_KEY = 'reader_settings_tab';
+    const tabs = [...settingsPop.querySelectorAll('[role="tab"]')];
+    function selectTab(name, focus = false) {
+        if (!tabs.some(t => t.dataset.tab === name)) name = 'text';
+        tabs.forEach(t => {
+            const on = t.dataset.tab === name;
+            t.setAttribute('aria-selected', on ? 'true' : 'false');
+            t.tabIndex = on ? 0 : -1;
+            t.classList.toggle('is-active', on);
+            if (on && focus) t.focus();
+        });
+        settingsPop.querySelectorAll('[data-pane]').forEach(p => { p.hidden = p.dataset.pane !== name; });
+        try { localStorage.setItem(TAB_KEY, name); } catch (e) { /* storage blocked */ }
+    }
+    tabs.forEach((t, i) => {
+        t.addEventListener('click', () => selectTab(t.dataset.tab), { signal });
+        t.addEventListener('keydown', (e) => {
+            const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+            if (!d) return;
+            e.preventDefault();
+            selectTab(tabs[(i + d + tabs.length) % tabs.length].dataset.tab, true);
+        }, { signal });
+    });
+    let savedTab = 'text';
+    try { savedTab = localStorage.getItem(TAB_KEY) || 'text'; } catch (e) { /* storage blocked */ }
+    selectTab(savedTab);
+
+    // ---- Playback bar (Listen + Auto-scroll), docked at the bottom ----
+    const playbackBtn = document.getElementById('playbackBtn');
+    const playbackBar = document.getElementById('readerPlayback');
+    function togglePlayback(show) {
+        const open = show ?? playbackBar.classList.contains('d-none');
+        playbackBar.classList.toggle('d-none', !open);
+        document.body.classList.toggle('reader-playbar-open', open);
+        playbackBtn.classList.toggle('is-active', open);
+        playbackBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    playbackBtn.addEventListener('click', () => { toggleSettings(false); togglePlayback(); }, { signal });
+    playbackBar.querySelector('[data-close-playback]').addEventListener('click', () => {
+        stopAutoScroll();
+        ttsStopAll();
+        togglePlayback(false);
+        playbackBtn.focus();
+    }, { signal });
+
+    // Label + play/pause glyph on a playback button (icons are server-rendered).
+    function setPlayBtn(btn, label, playing) {
+        btn.querySelector('.pb-text').textContent = label;
+        btn.querySelector('.pb-play')?.classList.toggle('d-none', playing);
+        btn.querySelector('.pb-pause')?.classList.toggle('d-none', !playing);
+        btn.classList.toggle('is-active', playing);
+    }
+
+    // "Ch. 12 · Chapter 12 – Title" repeats the number: only prefix it when
+    // the label doesn't already lead with it (mirrors $navLabel in PHP).
+    function chLabel(c, max = 40) {
+        const label = c.label || 'Chapter ' + c.chapter;
+        const num = String(isNaN(parseFloat(c.chapter)) ? c.chapter : parseFloat(c.chapter));
+        const esc = num.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const leads = new RegExp('^\\s*(?:ch(?:apter)?\\.?\\s*)?#?' + esc + '(?![\\d.])', 'i').test(label);
+        const text = leads ? label : 'Ch. ' + num + ' · ' + label;
+        return text.length > max ? text.substring(0, max - 1) + '…' : text;
+    }
+
+    const bindPref = (attr, apply) => settingsPop.querySelectorAll(`[data-${attr}]`).forEach(btn =>
+        btn.addEventListener('click', () => { apply(btn.dataset[attr]); applyPrefs(); }, { signal }));
 
     bindPref('font', v => persistPref('font', clampNum(prefs.font + (v === '+' ? 1 : -1), FONT_MIN, FONT_MAX, 19)));
     bindPref('measure', v => persistPref('measure', clampNum(prefs.measure + (v === '+' ? MEASURE_STEP : -MEASURE_STEP), MEASURE_MIN, MEASURE_MAX, 68)));
@@ -483,8 +619,7 @@
         el.classList.remove('d-none');
         el.href = target.url;
         el.querySelector('.reader-navblock-dir').textContent = dir;
-        el.querySelector('.reader-navblock-label').textContent =
-            'Ch. ' + target.chapter + ' · ' + (target.label || 'Chapter ' + target.chapter).substring(0, 34);
+        el.querySelector('.reader-navblock-label').textContent = chLabel(target);
     }
 
     // ---- Keyboard + swipe navigation, relative to the current section ----
@@ -521,7 +656,7 @@
     // it's mostly vertical (normal scrolling).
     let touchStart = null;
     document.addEventListener('touchstart', (e) => {
-        if (e.touches.length !== 1 || e.target.closest('a, button, input, select, textarea, .offcanvas, .reader-pop')) {
+        if (e.touches.length !== 1 || e.target.closest('a, button, input, select, textarea, .offcanvas, .reader-pop, .reader-playbar, .reader-backdrop')) {
             touchStart = null;
             return;
         }
@@ -797,35 +932,70 @@
         : null;
 
     // ---- In-reader chapter list (offcanvas TOC) ----
+    // Current row: surface-alt fill + 2px amber rule (not Bootstrap's solid
+    // indigo .active). "Unread" narrows the list; "Jump to current" scrolls
+    // the list back to the chapter being read.
     const tocList = document.getElementById('tocList');
     const tocFilter = document.getElementById('tocFilter');
+    const tocUnread = document.getElementById('tocUnread');
+    const tocJump = document.getElementById('tocJump');
+    const checkTpl = document.getElementById('readerIconCheck');
     let tocChapters = null;
+    let tocUnreadOnly = false;
     const TOC_WINDOW = 120;
 
     function tocItem(c, currentId) {
+        const isCurrent = c.id === currentId;
         const a = document.createElement('a');
         a.href = '/chapters/' + c.id;
-        a.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2 py-2'
-            + (c.id === currentId ? ' active' : '') + (!c.downloaded ? ' toc-pending' : '');
+        a.className = 'list-group-item list-group-item-action toc-row'
+            + (isCurrent ? ' is-current' : '') + (!c.downloaded ? ' toc-pending' : '') + (c.read ? ' is-read' : '');
+        if (isCurrent) a.setAttribute('aria-current', 'page');
+
+        const mark = document.createElement('span');
+        mark.className = 'toc-mark';
+        if (c.read) {
+            mark.appendChild(checkTpl.content.cloneNode(true));
+            mark.title = 'Read';
+        }
         const label = document.createElement('span');
-        label.className = 'text-truncate';
-        label.textContent = (c.read ? '✓ ' : '') + (c.label || 'Chapter ' + c.chapter);
+        label.className = 'toc-label';
+        label.textContent = chLabel(c, 200);
         if (c.note) {
             const note = document.createElement('span');
-            note.className = 'badge badge-muted ms-2';
+            note.className = 'badge badge-paused ms-2';   // NovelState::Paused (muted)
             note.textContent = 'note';
             note.title = "Author's note";
             label.appendChild(note);
         }
-        const meta = document.createElement('span');
-        meta.className = 'text-nowrap ' + (c.id === currentId ? '' : 'text-muted');
-        meta.style.fontSize = '11px';
-        meta.textContent = c.downloaded ? 'Ch. ' + c.chapter : 'pending';
-        a.append(label, meta);
+        a.append(mark, label);
+        if (!c.downloaded) {
+            const meta = document.createElement('span');
+            meta.className = 'toc-meta';
+            meta.textContent = 'pending';
+            a.appendChild(meta);
+        }
         a.addEventListener('click', (e) => {
             if (window.Turbo) { e.preventDefault(); Turbo.visit(a.href); }
         });
         return a;
+    }
+
+    function moreButton(text, onClick) {
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'list-group-item list-group-item-action toc-more';
+        more.textContent = text;
+        more.addEventListener('click', onClick);
+        return more;
+    }
+
+    // Scroll the drawer list (never the page behind it) to the current row.
+    function scrollToCurrent(behavior = 'auto') {
+        const row = tocList.querySelector('.is-current');
+        if (!row) return false;
+        tocList.scrollTo({ top: row.offsetTop - tocList.clientHeight / 2 + row.offsetHeight / 2, behavior });
+        return true;
     }
 
     function renderToc(filter = '') {
@@ -834,44 +1004,28 @@
         tocList.innerHTML = '';
 
         let rows = tocChapters;
+        if (tocUnreadOnly) rows = rows.filter(c => !c.read || c.id === currentId);
         if (filter) {
             const f = filter.toLowerCase();
-            rows = tocChapters.filter(c =>
+            rows = rows.filter(c =>
                 String(c.chapter).startsWith(f) || (c.label || '').toLowerCase().includes(f)
             ).slice(0, 200);
-        } else {
-            const i = Math.max(0, tocChapters.findIndex(c => c.id === currentId));
-            const from = Math.max(0, i - TOC_WINDOW);
-            const to = Math.min(tocChapters.length, i + TOC_WINDOW);
-            if (from > 0) {
-                const more = document.createElement('button');
-                more.type = 'button';
-                more.className = 'list-group-item list-group-item-action text-center text-muted';
-                more.textContent = `Show earlier chapters (${from})`;
-                more.addEventListener('click', () => renderTocRange(0, to));
-                tocList.appendChild(more);
-            }
-            rows = tocChapters.slice(from, to);
             renderRows(rows, currentId);
-            if (to < tocChapters.length) {
-                const more = document.createElement('button');
-                more.type = 'button';
-                more.className = 'list-group-item list-group-item-action text-center text-muted';
-                more.textContent = `Show later chapters (${tocChapters.length - to})`;
-                more.addEventListener('click', () => renderTocRange(from, tocChapters.length));
-                tocList.appendChild(more);
-            }
-            tocList.querySelector('.active')?.scrollIntoView({ block: 'center' });
             return;
         }
-        renderRows(rows, currentId);
+        const i = Math.max(0, rows.findIndex(c => c.id === currentId));
+        const from = Math.max(0, i - TOC_WINDOW);
+        const to = Math.min(rows.length, i + TOC_WINDOW);
+        if (from > 0) tocList.appendChild(moreButton(`Show earlier chapters (${from})`, () => renderTocRange(rows, 0, to)));
+        renderRows(rows.slice(from, to), currentId);
+        if (to < rows.length) tocList.appendChild(moreButton(`Show later chapters (${rows.length - to})`, () => renderTocRange(rows, from, rows.length)));
+        scrollToCurrent();
     }
 
-    function renderTocRange(from, to) {
-        const currentId = sections[currentIdx].id;
+    function renderTocRange(rows, from, to) {
         tocList.innerHTML = '';
-        renderRows(tocChapters.slice(from, to), currentId);
-        tocList.querySelector('.active')?.scrollIntoView({ block: 'center' });
+        renderRows(rows.slice(from, to), sections[currentIdx].id);
+        scrollToCurrent();
     }
 
     function renderRows(rows, currentId) {
@@ -879,25 +1033,43 @@
         rows.forEach(c => frag.appendChild(tocItem(c, currentId)));
         tocList.appendChild(frag);
         if (!rows.length) {
-            tocList.innerHTML = '<div class="p-3 text-muted">No chapters match.</div>';
+            tocList.innerHTML = '<div class="p-3 text-muted">' + (tocUnreadOnly ? 'No unread chapters match.' : 'No chapters match.') + '</div>';
         }
     }
 
-    document.getElementById('tocPanel').addEventListener('show.bs.offcanvas', async () => {
+    const tocPanelNode = document.getElementById('tocPanel');
+    tocPanelNode.addEventListener('show.bs.offcanvas', async () => {
         if (tocChapters) { renderToc(tocFilter.value.trim()); return; }
         try {
             const res = await fetch(`/novels/${state.novelId}/chapters-json`, { headers: { Accept: 'application/json' } });
             tocChapters = (await res.json()).chapters;
             renderToc();
         } catch (err) {
-            tocList.innerHTML = '<div class="p-3 text-danger">Could not load the chapter list.</div>';
+            tocList.innerHTML = '<div class="p-3 tone-danger">Could not load the chapter list.</div>';
         }
-    });
+    }, { signal });
+    // The drawer slides in; centre the current row once it has a layout.
+    tocPanelNode.addEventListener('shown.bs.offcanvas', () => scrollToCurrent(), { signal });
+
     let tocFilterTimer = null;
     tocFilter.addEventListener('input', () => {
         clearTimeout(tocFilterTimer);
         tocFilterTimer = setTimeout(() => renderToc(tocFilter.value.trim()), 150);
-    });
+    }, { signal });
+    tocUnread.addEventListener('click', () => {
+        tocUnreadOnly = !tocUnreadOnly;
+        tocUnread.setAttribute('aria-pressed', tocUnreadOnly ? 'true' : 'false');
+        tocUnread.classList.toggle('is-active', tocUnreadOnly);
+        renderToc(tocFilter.value.trim());
+    }, { signal });
+    tocJump.addEventListener('click', () => {
+        // The current row may be filtered out or outside the rendered window.
+        if (!scrollToCurrent('smooth')) {
+            tocFilter.value = '';
+            renderToc();
+        }
+        tocList.querySelector('.is-current')?.focus({ preventScroll: true });
+    }, { signal });
 
     // ---- Read state controls ----
     const readToggle = document.getElementById('readToggle');
@@ -1107,7 +1279,7 @@
                 body: JSON.stringify(payload),
             });
             const data = await res.json();
-            if (data.success) Novarr.showToast('Highlight saved — find it under Bookmarks.', 'success');
+            if (data.success) Novarr.showToast('Highlight saved — find it under Highlights.', 'success');
             else Novarr.showToast(data.message || 'Could not save the highlight.', 'danger');
         } catch (err) {
             Novarr.showToast('Error: ' + err.message, 'danger');
@@ -1121,8 +1293,7 @@
     let autoScrollOn = false, autoScrollRaf = null, autoScrollLastTs = null, autoScrollAcc = 0;
 
     function reflectAutoScroll() {
-        autoScrollToggle.textContent = autoScrollOn ? 'Stop' : 'Start';
-        autoScrollToggle.classList.toggle('is-active', autoScrollOn);
+        setPlayBtn(autoScrollToggle, autoScrollOn ? 'Stop' : 'Start', autoScrollOn);
         autoScrollToggle.setAttribute('aria-pressed', autoScrollOn ? 'true' : 'false');
         speedLabel.textContent = scrollSpeed + ' px/s';
     }
@@ -1160,12 +1331,12 @@
         reflectAutoScroll();
     }
 
-    autoScrollToggle.addEventListener('click', () => autoScrollOn ? stopAutoScroll() : startAutoScroll());
-    document.querySelectorAll('[data-scrollspeed]').forEach(btn => btn.addEventListener('click', () => {
+    autoScrollToggle.addEventListener('click', () => autoScrollOn ? stopAutoScroll() : startAutoScroll(), { signal });
+    playbackBar.querySelectorAll('[data-scrollspeed]').forEach(btn => btn.addEventListener('click', () => {
         scrollSpeed = Math.min(150, Math.max(10, scrollSpeed + (btn.dataset.scrollspeed === '+' ? 10 : -10)));
         localStorage.setItem('reader_scrollspeed', scrollSpeed);
         reflectAutoScroll();
-    }));
+    }, { signal }));
     // Any manual scroll intent pauses auto-scroll.
     ['wheel', 'touchmove'].forEach(ev => document.addEventListener(ev, stopAutoScroll, { passive: true, signal }));
     reflectAutoScroll();
@@ -1214,8 +1385,7 @@
         synth.cancel();
         ttsActive = true;
         ttsPausedState = false;
-        ttsPlayPause.textContent = 'Pause';
-        ttsPlayPause.classList.add('is-active');
+        setPlayBtn(ttsPlayPause, 'Pause', true);
         // Start from the first paragraph currently in view.
         const paras = ttsParas();
         const ref = window.scrollY + 90;
@@ -1231,8 +1401,7 @@
         ttsPausedState = false;
         synth?.cancel();
         ttsHighlight(null);
-        ttsPlayPause.textContent = 'Play';
-        ttsPlayPause.classList.remove('is-active');
+        setPlayBtn(ttsPlayPause, 'Play', false);
         ttsStatus.textContent = '';
     }
 
@@ -1241,14 +1410,14 @@
         if (ttsPausedState) {
             ttsPausedState = false;
             synth.resume();
-            ttsPlayPause.textContent = 'Pause';
+            setPlayBtn(ttsPlayPause, 'Pause', true);
         } else {
             ttsPausedState = true;
             synth.pause();
-            ttsPlayPause.textContent = 'Resume';
+            setPlayBtn(ttsPlayPause, 'Resume', false);
         }
-    });
-    document.getElementById('ttsStop').addEventListener('click', ttsStopAll);
+    }, { signal });
+    document.getElementById('ttsStop').addEventListener('click', ttsStopAll, { signal });
     document.querySelectorAll('[data-ttsrate]').forEach(btn => btn.addEventListener('click', () => {
         ttsRate = parseFloat(btn.dataset.ttsrate);
         localStorage.setItem('reader_ttsrate', ttsRate);

@@ -146,56 +146,134 @@ export const isDownloaded = (id) => idbGet('novels', id).then((r) => !!r);
 
 // ---- Public: read-state sync queue ----
 
+/** Queued writes older than this are dropped instead of replayed. */
+export const QUEUE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Fired on `window` whenever the queue size may have changed: detail = { size }. */
+export const QUEUE_EVENT = 'novarr:offline-queue';
+
+const idbCount = (store) => idbReq(store, 'readonly', (os) => os.count());
+
+/** Number of read-state writes waiting to be replayed. */
+export async function offlineQueueSize() {
+    try {
+        return await idbCount('queue');
+    } catch (e) {
+        return 0;
+    }
+}
+
+async function emitQueueSize() {
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+    const size = await offlineQueueSize();
+    window.dispatchEvent(new CustomEvent(QUEUE_EVENT, { detail: { size } }));
+}
+
+async function enqueue(url, method, body) {
+    await idbAdd('queue', { url, method, body, ts: Date.now() });
+    emitQueueSize();
+    return { success: true, queued: true };
+}
+
 /**
  * Fetch a read-state write, queuing it for later replay if we're offline.
  * Resolves with the server JSON, or `{ success: true, queued: true }` when it
- * was parked in the offline queue.
+ * was parked in the offline queue. Only network failures are queued — an
+ * HTTP error response means the server saw the request, so replaying it
+ * later would not help.
  */
 export async function queuedFetch(url, { method = 'POST', body = null } = {}) {
+    if (!navigator.onLine) {
+        return enqueue(url, method, body);
+    }
     const headers = { Accept: 'application/json' };
     if (body) headers['Content-Type'] = 'application/json';
+    let res;
     try {
-        const res = await fetch(url, {
+        res = await fetch(url, {
             method,
             headers,
             body: body ? JSON.stringify(body) : undefined,
         });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return await res.json();
     } catch (err) {
-        if (!navigator.onLine) {
-            await idbAdd('queue', { url, method, body, ts: Date.now() });
-            return { success: true, queued: true };
-        }
-        throw err;
+        // fetch() only rejects on a network failure (incl. "online" lie-fi).
+        return enqueue(url, method, body);
     }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
 }
 
-/** Replay queued writes in order. Stops at the first failure (likely offline again). */
-export async function flushQueue() {
+/**
+ * Should a replayed request that got this HTTP status be retried later?
+ * 5xx (server trouble), 408 (timeout) and 429 (rate limited) are transient;
+ * any other 4xx will never succeed (deleted chapter, validation error…).
+ */
+export function isRetryableStatus(status) {
+    return status >= 500 || status === 408 || status === 429;
+}
+
+async function replayQueue() {
     if (!navigator.onLine) return 0;
     const items = await idbGetAll('queue');
+    const now = Date.now();
     let flushed = 0;
     for (const item of items) {
+        if (!item.ts || now - item.ts > QUEUE_TTL_MS) {
+            console.warn('[offline] dropping expired queued request', item.method, item.url);
+            await idbDelete('queue', item.id);
+            continue;
+        }
+        let res;
         try {
             const headers = { Accept: 'application/json' };
             if (item.body) headers['Content-Type'] = 'application/json';
-            const res = await fetch(item.url, {
+            res = await fetch(item.url, {
                 method: item.method,
                 headers,
                 body: item.body ? JSON.stringify(item.body) : undefined,
             });
-            if (!res.ok) throw new Error('HTTP ' + res.status);
+        } catch (err) {
+            break; // network gone again — keep the rest for the next flush
+        }
+        if (res.ok) {
             await idbDelete('queue', item.id);
             flushed += 1;
-        } catch (err) {
-            break;
+        } else if (isRetryableStatus(res.status)) {
+            break; // server trouble — retry this (and keep order) later
+        } else {
+            console.warn(`[offline] dropping queued request rejected with HTTP ${res.status}`, item.method, item.url);
+            await idbDelete('queue', item.id);
         }
     }
-    if (flushed > 0 && window.Novarr?.showToast) {
-        window.Novarr.showToast(`Synced ${flushed} reading update${flushed > 1 ? 's' : ''}.`, 'success');
-    }
     return flushed;
+}
+
+let inFlight = null;
+
+/**
+ * Replay queued writes in order. Network failures and 5xx stop the replay
+ * (kept for later); other 4xx responses and entries older than 30 days are
+ * dropped. Concurrent calls share one in-flight replay, and when the Web
+ * Locks API exists only one tab replays at a time, so nothing is sent twice.
+ */
+export function flushQueue() {
+    if (inFlight) return inFlight;
+    const run = (typeof navigator !== 'undefined' && navigator.locks?.request)
+        ? navigator.locks.request('novarr-offline-flush', () => replayQueue())
+        : replayQueue();
+    inFlight = Promise.resolve(run)
+        .then((flushed) => {
+            if (flushed > 0 && window.Novarr?.showToast) {
+                window.Novarr.showToast(`Synced ${flushed} reading update${flushed > 1 ? 's' : ''}.`, 'success');
+            }
+            return flushed;
+        })
+        .catch(() => 0)
+        .finally(() => {
+            inFlight = null;
+            emitQueueSize();
+        });
+    return inFlight;
 }
 
 let initialised = false;
@@ -204,6 +282,10 @@ let initialised = false;
 export function initOffline() {
     if (initialised || !('indexedDB' in window)) return;
     initialised = true;
+    // Expose the pending count for page glue (e.g. the Library page); also
+    // broadcast as the `novarr:offline-queue` window event.
+    window.Novarr = window.Novarr || {};
+    window.Novarr.offlineQueueSize = offlineQueueSize;
     flushQueue();
     window.addEventListener('online', () => flushQueue());
 }

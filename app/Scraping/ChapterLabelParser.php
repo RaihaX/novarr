@@ -11,15 +11,28 @@ use Illuminate\Support\Facades\Log;
  * kind, title and an ordering key — so the chapter number no longer has to
  * double as identity, sort key and part encoding (audit A4).
  *
- * The number / part / volume rules deliberately mirror
- * generateTocChapterInfo() in Helpers.php (tests/Unit/ChapterLabelParserTest
- * runs both over the same table) — the legacy `chapter` column stays
- * populated identically via ChapterLabel::legacyChapter().
+ * This is the ONLY label parser: generateTocChapterInfo() in Helpers.php
+ * delegates here and derives its legacy [label, book, url, chapter] array
+ * from the DTO (`chapter` = ChapterLabel::legacyChapter()), so the TOC rows
+ * and the structured columns can never disagree on a label.
  */
 final class ChapterLabelParser
 {
     /** Chapter-ish token anywhere in a label (typos, "Ch.", Capítulo). */
     private const TOKEN_ANYWHERE = '/\b(?:ch{1,2}ap\w*|ch\.|cap[ií]?tulo)\s+(\d+(?:\.\d+)?)/iu';
+
+    /**
+     * A teaser *marker* ("[Teaser] …", "Teaser: …", "… Teaser", "… [Teaser]")
+     * — such TOC entries are dropped. A title that merely contains the word
+     * ("Chapter 50: The Teaser Trap") is not a teaser.
+     */
+    public static function isTeaser(string $label): bool
+    {
+        $display = self::display($label);
+
+        return preg_match('/^\s*\[?teaser\b/iu', $display) === 1
+            || preg_match('/\bteaser\]?\s*$/iu', $display) === 1;
+    }
 
     public static function parse(string $label, ?string $url = null, ?int $volumeHint = null): ChapterLabel
     {

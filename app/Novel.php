@@ -43,6 +43,9 @@ class Novel extends Model
         'frequent_toc' => 'boolean',
         'scrape_failures' => 'integer',
         'no_of_chapters' => 'integer',
+        'last_toc_at' => 'datetime',
+        'last_toc_count' => 'integer',
+        'toc_failures' => 'integer',
     ];
 
     public function chapters(): HasMany
