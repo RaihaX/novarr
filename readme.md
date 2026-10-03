@@ -1,8 +1,8 @@
 # Novarr
 
-A self-hosted web-novel **manager, downloader, and reader** — think "Sonarr for web novels." Novarr discovers series from supported sites, scrapes their tables of contents and chapters on a schedule, stores them locally, and gives you a fast dark-mode reading experience with continuous reading, cross-device position sync, bookmarks & highlights, read-aloud, reading stats, full-text search, ePub export, Send-to-Kindle, an OPDS catalog, and offline reading as an installable PWA.
+A self-hosted web-novel **manager, downloader, and reader** — think "Sonarr for web novels." Novarr discovers series from supported sites, scrapes their tables of contents and chapters on a schedule, stores them locally, and gives you a fast reading experience — light or dark, with a command palette, a now-reading home, a cover-grid library, continuous reading, cross-device position sync, highlights, read-aloud, reading stats, full-text search, ePub export, Send-to-Kindle, an OPDS catalog, and offline reading as an installable PWA.
 
-Built with **Laravel 11** (PHP 8.3+), Bootstrap 5, Hotwire Turbo, and Vite, wearing a bespoke dark-first **design system** (see [Design & branding](#design--branding)) — Geist for the UI, Literata for reading, one hairline, no shadows.
+Built with **Laravel 11** (PHP 8.3+), Bootstrap 5 (trimmed to what's used), Hotwire Turbo, and Vite, wearing a bespoke **design system** (see [Design & branding](#design--branding)) — dark canonical with a full light companion, Geist for the UI, Literata for reading, one hairline, no shadows.
 
 ---
 
@@ -63,7 +63,6 @@ Open **http://&lt;host&gt;/** and start adding novels.
 
 ### Library & discovery
 - **Cover grid** — the Library is a poster grid (seven across on desktop, three on phones) with an amber reading-progress edge on every cover and status flags only for exceptions; filter chips (Reading, New chapters, Needs attention, Offline, Finished), sort, and a table view for bulk work. Discover uses the same cards.
-
 - **Add novels from 3 sources** with a Sonarr-style discover/search flow, or paste a URL directly. Discover cards carry the cover, author, and a **synopsis** — three clamped lines with a More/Less toggle — so you can tell what a novel is about before adding it. (Synopses come from novelarrow's list API; the other two sources' search endpoints don't return one.)
 - **Automatic metadata** — title, author, description, genres, chapter count, and cover, pulled from the source and enriched/fallback-resolved via **NovelUpdates** (including alias resolution for series listed under a different title).
 - **Tags** (genre/custom) with a multi-select picker, plus tag filtering on the library.
@@ -81,7 +80,6 @@ Open **http://&lt;host&gt;/** and start adding novels.
 - **Short chapters handled sensibly** — the anti-stub word-count gate (configurable via `min_chapter_words`, default 250) is bypassed for chapters whose label marks them as special (prologue, epilogue, side story, extra, "Chapter 0", …) or as a closing/author note (afterwords, author's note, postscript, thanks, acknowledgements, …), which are accepted from 50 words — so a genuinely short prologue downloads instead of being retried forever. Numbered chapters whose body is only an author/translator message (apology, hiatus notice, thanks) are detected from the content, stored, and shown as an "Author's note" in the reader instead of being retried as stubs.
 - **Per-chapter retry backoff** — every pending chapter records its attempts, last failure reason and next attempt time. Failures back off 10 min → 20 → 40 … up to 3 days (site-wide Cloudflare/fetch failures get a flat 30 min); success resets. After 8 attempts a chapter is **needs review**: still retried every 3 days, shown with a badge in the chapter list, and no longer counted against the novel's health. The novel page's Download button ignores the schedule.
 - **NovelUpdates identity scoring** — candidate series are scored against the local title, the series' associated names and the author; a match is persisted only at ≥ 0.85 (`novels.novelupdates_match_score`), sequels are penalised, and the edit page lists the top candidates with a "Use this" button (`novel:metadata --novelupdates-url=` from the CLI). **Completion is refused while a novel's match is unscored or weak**, so existing libraries are re-scored on their next metadata refresh.
-- **Failure snapshots** — a page that fetched but could not be read is kept gzipped (5 per novel, 14 days; `NOVARR_SNAPSHOTS_*`) and listed under **Snapshots** on the novel page for diagnosis.
 - **Structured chapter numbering** — chapters carry `number` (decimals kept), `part`, `title` and a computed `sort_key`; every list, prev/next, ePub and digest orders by it, so parts, decimals, volumes and end matter sort correctly.
 - **Table-of-contents health** — every TOC run records its time and count. An empty, partial or shrinking TOC (more than 5% fewer entries) flags the novel in **Needs attention** after two bad runs; a source advertising far more chapters than it lists is called out; a shrink that holds for three runs is accepted as the new baseline. Pending chapters the source stops listing for 3 days are parked as `source_missing` (retried every 3 days) and no longer count as a stall.
 - **Tunables in Settings** — minimum chapter words, chapters per novel per run, run-time bound (must stay under the 150-minute scheduler lock), NovelUpdates match threshold, and failure-snapshot retention, each shown with its default and effective value.
@@ -100,7 +98,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
 - **Auto-scroll** (adjustable speed) and **read-aloud** text-to-speech with paragraph highlighting and speed control.
 - **Bookmarks & highlights** — select text to save an excerpt with an optional note; browse them per novel on the **Highlights** page. Single-word selections offer a **dictionary lookup**.
 - **Reading stats** — streak, chapters/words per day (30-day chart), all-time totals, most-read novels.
-- **Full-text search** across chapter content (MySQL `FULLTEXT`), paginated, scoped to one novel or the whole library, plus a navbar quick-search with autocomplete.
+- **Full-text search** across chapter content (MySQL `FULLTEXT`), paginated, scoped to one novel or the whole library, with a Novels section (title/author) above the chapter hits. The navbar field opens the command palette; `/search` is the full results page.
 
 ### Export
 - **ePub generation** per novel (cover, table of contents, clean formatting).
@@ -115,8 +113,8 @@ Open **http://&lt;host&gt;/** and start adding novels.
 - See [Offline reading](#offline-reading-pwa) for details.
 
 ### Operations
-- **Settings UI** — FlareSolverr URL, notification webhook, Kindle email, scrape delays, summary-email time, with one-click **test** buttons.
-- **System health** dashboard — scheduler heartbeat, queue status, failed-job inspection/retry/cleanup.
+- **Settings UI** — FlareSolverr URL, notification webhook, Kindle email, scrape delays, summary-email time, minimum chapter words, chapters per novel per run, run-time bound, NovelUpdates match threshold and snapshot retention — each with its default and effective value, plus one-click **test** buttons. The Tailscale **Funnel** switch is red, asks before enabling, and shows an app-wide banner while on.
+- **System health** — scheduler heartbeat, queue status, FlareSolverr reachability, failed-job inspection/retry/cleanup, and the **Needs attention** panel with Snooze (7 days) / Wake. **Activity** lists missing chapters and recent downloads; the home status strip links to both.
 - **Log viewer** — live tail, download, clear, delete; logs rotate daily with 14-day retention.
 - **Command runner** — execute whitelisted Artisan commands from the web UI with async job-status polling; a **persistent queue worker** picks jobs up instantly.
 - **Fast by design** — chapter body text lives in its own `chapter_texts` table so the hot `novel_chapters` table stays small; dashboard panels are pre-warmed by the scheduler.
@@ -133,11 +131,12 @@ Open **http://&lt;host&gt;/** and start adding novels.
         novel:chapter (10 min)                    persistent queue worker
                  │                                 (+ cron fallback drain)
                  ▼                                            │
-        ┌──────────────────┐    FlareSolverr / HTTP    ┌──────────────┐
-        │  Source adapter  │ ◄───────────────────────► │ novelarrow / │
-        │ (TOC + content)  │                           │ empirenovel /│
+        ┌──────────────────┐   Fetcher (FlareSolverr   ┌──────────────┐
+        │  Source adapter  │ ◄──── / plain HTTP) ────► │ novelarrow / │
+        │ (TOC + selectors)│                           │ empirenovel /│
         └────────┬─────────┘                           │ novelfull    │
-                 │  cleaned chapters                    └──────────────┘
+                 │  ContentExtractor + ChapterLabelParser └──────────────┘
+                 │  (cleaned chapters, structured numbers; failure snapshots)
                  ▼
           ┌─────────────┐   metadata    ┌──────────────┐
           │  MySQL DB   │ ◄──────────── │ NovelUpdates │
@@ -147,7 +146,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
    Web UI (Blade + Turbo) ── Reader · Search · ePub · Kindle · PWA offline
 ```
 
-- **Scraping is abstracted behind source adapters** (`app/Sources`). A `SourceResolver` picks the right adapter for a novel's URL; each adapter knows how to fetch that site's table of contents and metadata. Chapter *content* extraction is generic (a multi-selector scraper) and shared across sources.
+- **Scraping is abstracted behind source adapters** (`app/Sources`). A `SourceResolver` picks the right adapter for a novel's URL; each adapter knows how to fetch that site's table of contents and metadata and declares where chapter text lives. `app/Scraping` holds the shared machinery: `Fetcher` (the only place that touches the network; fakeable in tests), `ContentExtractor` (per-source selectors, then a density scorer), `ChapterLabelParser` (volume / number / part / title / sort key from a label), `NovelUpdatesMatcher` (identity scoring) and `FailureSnapshot`.
 - **Background work runs through the database queue.** Commands triggered from the web UI are dispatched as jobs and picked up by a persistent `queue:work` worker (a dedicated service in Docker, or a systemd unit on bare metal); a cron-driven `queue:work --stop-when-empty` acts as a fallback drain. The scheduler also runs the recurring TOC/chapter/verify/email tasks.
 - **Chapter body text is stored separately** (`chapter_texts`, one row per downloaded chapter with a `FULLTEXT` index). The main `novel_chapters` table holds only metadata, keeping every list/stat query and schema change fast. On the `NovelChapter` model, `description` remains a virtual attribute backed by that table.
 - **Settings are DB-backed** (`app_settings` table) with an `.env` fallback, so most operational config is editable from the Settings page without redeploying. (Runtime code reads env only via `config/` — the app is safe to run with `config:cache`/`route:cache`/`view:cache`.)
@@ -244,6 +243,10 @@ Most operational settings are editable from the **Settings** page (stored in `ap
 | `FLARESOLVERR_URL` | FlareSolverr endpoint | `http://192.168.1.41:8191/v1` |
 | `KINDLE_EMAIL` | Send-to-Kindle recipient | — |
 | `NOTIFICATION_WEBHOOK_URL` | Discord/ntfy webhook for scraping alerts | — |
+| `NOVARR_SNAPSHOTS_ENABLED` / `_KEEP` / `_DAYS` | Failure-snapshot retention defaults (overridable in Settings) | `true` / `5` / `14` |
+| `NOVARR_TLS_VERIFY` | TLS verification for every scraper/FlareSolverr request (keep on) | `true` |
+| `TRUSTED_PROXIES` | Proxies whose `X-Forwarded-*` headers are trusted (nginx / Tailscale in front) | `*` |
+| `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER` | Must exceed the 3600 s job timeout | `3700` |
 
 ### DB-backed settings (Settings UI)
 
@@ -255,7 +258,11 @@ Most operational settings are editable from the **Settings** page (stored in `ap
 | `summary_time` | When the daily summary email is sent (e.g. `08:00`) |
 | `kindle_email` | Override the Kindle recipient |
 | `auto_kindle` | Auto-send the ePub to Kindle when a novel completes |
-| `min_chapter_words` | Word count below which a scraped chapter is treated as a stub and rejected (default `250`; special chapters — prologues, side stories, extras — are accepted from 50 words regardless) |
+| `min_chapter_words` | Word count below which a scraped chapter is treated as a stub and rejected (default `250`; special chapters and author notes are accepted from 50 words regardless) |
+| `max_chapters_per_novel_per_run` | Cap per novel per 10-minute sweep (default `25`, `0` = no cap) |
+| `max_run_minutes` | The sweep starts no new work after this (default `100`; must stay under the 150-minute scheduler lock) |
+| `novelupdates_match_threshold` | Minimum identity score to persist a NovelUpdates match and allow auto-completion (default `0.85`) |
+| `snapshots_enabled` / `snapshots_keep_per_novel` / `snapshots_days` | Failure-snapshot retention |
 
 ---
 
@@ -289,7 +296,7 @@ ExecStart=/usr/bin/php artisan queue:work --queue=commands,default --sleep=1 --t
 Restart=always
 ```
 
-Run `php artisan queue:restart` after each deploy so the worker reloads new code.
+Run `php artisan queue:restart` after each deploy so the worker reloads new code. Scheduled scrapes hold `withoutOverlapping` locks of 90 min (TOC) and 150 min (chapters) — short enough that a killed run can't block the next day — and UI-triggered scrapes take a per-novel lock so the two never interleave.
 
 ---
 
@@ -300,18 +307,19 @@ Run `php artisan queue:restart` after each deploy so the worker reloads new code
 | `novel:create {name} {url}` | Create a novel and auto-fetch its metadata |
 | `novel:toc {novel=0} {--frequent-only}` | Scrape table(s) of contents (0 = all active novels) |
 | `novel:chapter {novel=0} {--chapter=}` | Download pending chapters (or one chapter by id) |
-| `novel:metadata {novel?}` | Refresh metadata (description, author, genres, cover) |
+| `novel:metadata {novel?} {--novelupdates-url=}` | Refresh metadata (description, author, genres, cover); `--novelupdates-url` forces a NovelUpdates match (score 1.0) |
 | `novel:epub {novel=0}` | Generate ePub(s) (0 = all not-yet-generated) |
-| `novel:send-to-kindle {novel} {--to=} {--generate}` | Email a novel's ePub to Kindle |
+| `novel:send-to-kindle {novel} {--to=} {--generate}` | Email a novel's ePub to Kindle (`--generate` builds it first and aborts if that fails) |
 | `novel:verify-completion {novel=0} {--dry-run} {--force} {--no-kindle}` | Verify against NovelUpdates and mark complete |
 | `novel:email-summary {--hours=24} {--to=}` | Send the new-chapters/completed-novels summary |
-| `novel:normalize_labels {novel=0} {--dry-run}` | Normalize labels and fix chapter numbers for sorting |
-| `novel:clean_chapter_content {novel} {--dry-run}` | Remove leftover CSS and ad-widget text from chapters |
-| `novel:chaptercleaner {novel}` | Reset thin chapters (≤10 paragraphs) so they re-download |
+| `novel:normalize_labels {novel} {--dry-run} {--renumber} {--dedupe}` | Tidy labels; keeps stored numbers (decimals included) unless `--renumber`; duplicate removal only with `--dedupe` |
+| `novel:fix_chapters {novel=0}` | Resolve chapters with missing numbers by elimination against the sequence |
+| `novel:clean_chapter_content {novel} {--dry-run}` | Remove leftover CSS and ad-widget text; refuses to save if more than half the words would go |
+| `novel:chaptercleaner {novel} {--dry-run}` | Re-queue downloaded chapters that fail the scraper's word gate (text kept until re-downloaded) |
 | `novel:info` | Print novel info, chapter counts, completion % |
 | `queue:health-check` | Report queue system health |
 
-Any of these can also be run from the **Commands** page in the UI with live job-status polling.
+Any of these can also be run from the **Commands** page in the UI with live job-status polling, or from the command palette ("scrape toc <novel>"). The destructive ones (normalize, fix, clean, cleaner) run as a **dry run first** from the novel page and ask before applying.
 
 ---
 
@@ -337,7 +345,7 @@ Downloads **merge** into any existing offline copy (union by chapter), so you ca
 
 **Read-state sync queue** — marking chapters read (and opening cached chapters) while offline is queued in IndexedDB and **replayed automatically when you reconnect** (on the `online` event and next app open — iOS Safari has no Background Sync). The read-state endpoints are CSRF-exempt specifically so these tokenless replays succeed.
 
-> Bump `CACHE_VERSION` in `public/sw.js` when changing caching behaviour; old caches are purged on the next activation.
+> Explicit downloads live in an unversioned `novarr-offline` cache and survive worker updates. Bump `CACHE_VERSION` in `public/sw.js` when changing the app-shell/page caching; auto-cached pages are migrated into the new page cache (bounded to 60 entries) rather than dropped, and old build bundles are pruned only once no cached page still references them.
 
 ---
 
@@ -369,7 +377,9 @@ After enabling Serve, set `APP_URL` to that HTTPS origin in the compose file.
 
 ## Deployment (Docker / Unraid)
 
-> Bare-metal deploys via `deploy.sh` now back up the database first (`storage/backups/`, five copies kept) and refuse to continue if the dump fails, enter maintenance mode around the migration, pull with `--ff-only`, and rebuild caches from a cleared config. deploy.sh takes a database backup before anything else touches the box.
+### Bare metal (`deploy.sh`)
+
+On a plain Linux box the repo's `deploy.sh` is the whole release process: it re-executes itself from a temp copy (so the pull can't change the running script), **dumps the database first** into `storage/backups/` (five copies kept) and refuses to continue if the dump fails, enters maintenance mode (printing a bypass secret), pulls with `--ff-only`, installs dependencies, builds assets, migrates from a cleared config, rebuilds the config/route/view caches without touching the application cache (so scheduler locks survive), leaves maintenance mode, restarts the queue worker and normalises storage ownership. Put immutable caching on `/build/assets/` and `no-cache` on `/sw.js` and `/build/manifest.json` in your nginx site (see `docker/nginx/nginx.conf` for the blocks).
 
 
 This is the **build-from-source** stack with Nginx and zero-downtime updates — for most people the [one-command install](#quick-install-one-command) is easier. A full container stack is included (PHP-FPM app, Nginx, MySQL, Redis, scheduler, and queue worker), driven by a `Makefile`.
@@ -407,10 +417,10 @@ For PWA installs you'll want HTTPS in front of the stack — terminate TLS at yo
 
 Novarr's look is a documented design system, not ad-hoc CSS. The full brand pack (spec, tokens, logo SVGs, visual reference canvas) lives in **`design_handoff_novarr_brand/`**; the implementation follows it exactly.
 
-- **Dark is canonical** — `#0F1216` ground with two surface steps; light is a companion theme, not a peer. One 1px hairline separates everything; there are **no shadows** anywhere.
-- **Tokens are the single source of truth** — `resources/css/_variables.scss` holds the palette, type scale, spacing, and radii, mapped onto Bootstrap 5.3's variables. Component recipes live in `_components.scss`; per-view styling in `_dashboard.scss` / `_reader.scss` / `_views.scss`.
+- **Dark is canonical, light is real** — `#0F1216` ground with two surface steps, and a full light companion (`#F7F8FA`) the whole shell renders in. Every colour token is exposed at runtime as a `--nv-*` custom property under `[data-bs-theme=dark|light]`, so a page reads correctly in both themes without per-page work; the reader's own dark / sepia / light setting overrides on its page. Contrast is ≥ 4.5:1 for every text token on every surface in both themes. One 1px hairline separates everything; there are **no shadows** anywhere.
+- **Tokens are the single source of truth** — `resources/css/_variables.scss` holds the palette, type scale, spacing, and radii, mapped onto Bootstrap 5.3's variables (Bootstrap itself is imported trimmed via `_bootstrap-trim.scss`). Component recipes live in `_components.scss`; per-area styling in `_dashboard` / `_home` / `_library` / `_reader` / `_views` / `_palette` / `_tables` / `_a11y` / `_status`.
 - **Type**: **Geist** for UI, **Geist Mono** for counts/timestamps/chapter numbers, **Literata** for reading — all self-hosted (Fontsource, OFL). Static TTF instances are bundled in `resources/fonts/` for server-side (GD) rendering of ePub covers.
-- **One status recipe everywhere** — badges, panels, and progress bars all use the same triad (full-value text, 12% fill, 35% border) across five states: downloaded (green), queued (**cyan**, deliberately not blue so it never collides with links), needs-attention (amber), failed (red), paused (muted). Amber is otherwise reserved for *reading* signals (bookmark, reading-progress bars); indigo `#6470FF` carries all primary action.
+- **One status recipe everywhere** — badges, panels, and progress bars all use the same triad (full-value text, 12% fill, 35% border) across the states in `App\Enums\NovelState`, rendered through `<x-status>`: downloaded (green), queued (**cyan**, deliberately not blue so it never collides with links), needs-attention (amber), failed (red), paused (muted). Amber is otherwise reserved for *reading* signals (bookmark, reading-progress bars); indigo `#6470FF` carries all primary action.
 - **Logo suite** — **Serial**: four flat horizontal bars on a 32×32 grid (three indigo `#6470FF`, stepping down in length, the last and shortest in amber `#F0B429`; radius 0, no gradient), beside the "NOVARR." wordmark (Geist 600, amber full stop). Below 20px a heavier three-bar cut takes over; the mono variant is `currentColor` with the last bar at 55%. Ships as `<x-brand-mark>` in Blade (`variant="mono"`/`"favicon"`, auto three-bar under 20px), `public/logo.svg` (wordmark outlined, no font dependency), `favicon.svg` + pixel-hinted 16/32/48 `favicon.ico`, PWA icons (`icon-192/512`, full-bleed `icon-maskable-512`, `apple-touch-icon`), and the GD-drawn mark on generated ePub covers.
 
 Restyling something? Start from the tokens and the recipes in `_components.scss`; if a value isn't a token, it probably shouldn't exist.
@@ -422,34 +432,43 @@ Restyling something? Start from the tokens and the recipes in `_components.scss`
 ```
 app/
 ├── Console/Commands/      # Artisan commands (novel:toc, novel:chapter, …)
+├── Enums/NovelState       # Status states → triad classes (used by <x-status>)
 ├── Http/
-│   ├── Controllers/       # Novel, NovelChapter, Discover, Search, Stats,
-│   │                      #   Bookmark, Opds, Settings, SystemHealth, Log,
-│   │                      #   Command, Home controllers
-│   ├── Helpers.php        # Scraping, metadata, FlareSolverr, Kindle helpers
-│   └── Middleware/        # incl. CSRF exemptions for offline replay
-├── Jobs/RunNovelCommand   # Queued Artisan command runner (3600s timeout)
-├── Services/              # NovelHealth ("needs attention" detection with failure
-│                          #   causes + grace periods), DefaultCoverGenerator
-│                          #   (brand fallback ePub covers), ChapterNumberResolver
-├── Sources/               # Source interface + NovelArrow/EmpireNovel/NovelFull adapters
+│   ├── Controllers/       # Novel, NovelChapter, Discover, Search (+ palette),
+│   │                      #   Home, Activity, Attention (snooze), Metadata
+│   │                      #   (NovelUpdates candidates), Snapshot, Stats,
+│   │                      #   Bookmark, Opds, Settings, SystemHealth, Health,
+│   │                      #   Log, Command, Tailscale
+│   ├── Helpers.php        # Scraping/TOC helpers, metadata, Kindle helpers
+│   └── Middleware/        # PerformanceMonitoring (CSRF exemptions live in bootstrap/app.php)
+├── Jobs/RunNovelCommand   # Queued Artisan command runner (per-novel lock, 3600s timeout)
+├── Scraping/              # Fetcher (all network I/O), ContentExtractor, ChapterLabelParser
+│                          #   (+ ChapterLabel DTO), NovelUpdatesMatcher, FailureSnapshot
+├── Services/              # NovelHealth (needs-attention: scrape, stall, TOC branches; progress),
+│                          #   DefaultCoverGenerator (brand fallback covers), ChapterNumberResolver
+├── Sources/               # Source interface, AbstractSource (content selectors),
+│                          #   NovelArrow/EmpireNovel/NovelFull adapters, SourceResolver
 └── *.php                  # Models: Novel, NovelChapter, ChapterText (body text),
                            #   Bookmark, File, Tag, Group, Language, Setting
 database/migrations/       # Schema (novels, novel_chapters, chapter_texts,
                            #   bookmarks, tags, app_settings, …)
 design_handoff_novarr_brand/  # Brand pack: spec (README), tokens, logo SVGs, canvas
 resources/
-├── css/                   # Design system: _variables (tokens) → _components →
-│   │                      #   _dashboard / _reader / _views, entry app.scss
+├── css/                   # Design system: _variables (tokens) → _bootstrap-trim →
+│   │                      #   _components → _dashboard / _home / _library / _reader /
+│   │                      #   _views / _status / _palette / _tables / _a11y, entry app.scss
 ├── fonts/                 # Static Geist/Literata TTFs for GD cover rendering (OFL)
 ├── js/
-│   ├── app.js             # Entry: Turbo, fonts, window.Novarr API, SW + install prompt
+│   ├── app.js             # Entry: Turbo, window.Novarr API, SW + install prompt
+│   ├── fonts.js           # Self-hosted faces; Atkinson loaded on the reader only
+│   ├── bootstrap.js       # The Bootstrap plugins in use (aliased as 'bootstrap')
+│   ├── theme.js · modal.js · palette.js   # Light/dark, focus traps + sheets, command palette
 │   ├── commands.js        # Async command execution + job polling
 │   ├── offline.js         # PWA: IndexedDB library, range downloads, sync queue
-│   ├── navsearch.js · tagpicker.js · toast.js · confirm.js
-│   └── bootstrap.js       # Axios + CSRF setup
-└── views/                 # Blade templates (novels, chapters, library, settings, …)
-    └── components/        # <x-icon> (inline Lucide), <x-brand-mark>
+│   └── funnel.js · navsearch.js · tagpicker.js · toast.js · confirm.js
+└── views/                 # Blade templates (home, activity, novels, chapters, library, …)
+    ├── components/        # <x-icon> (34 Lucide icons), <x-brand-mark>, <x-status>, <x-cover>
+    └── partials/          # tab bar, palette, breadcrumb, snoozed note
 public/
 ├── sw.js                  # Service worker (app shell + offline downloads)
 ├── manifest.webmanifest   # PWA manifest
@@ -457,6 +476,12 @@ public/
 routes/
 ├── web.php                # All web routes
 └── console.php            # Scheduler definitions
+tests/
+├── Feature/ · Unit/       # PHP suite (incl. Golden*Test adapters-over-fixtures)
+├── fixtures/              # Saved source pages + expected JSON per adapter
+├── js/                    # node --test suites: offline queue, service worker, palette, perf
+└── Support/FakeFetcher    # Network fake that fails any un-faked URL
+deploy.sh                  # Bare-metal release script (backup → down → pull → migrate → up)
 docker/ · Dockerfile · docker-compose.yml · Makefile   # Container stack
 ```
 
@@ -466,9 +491,13 @@ docker/ · Dockerfile · docker-compose.yml · Makefile   # Container stack
 
 ```bash
 yarn dev          # Vite dev server (HMR)
+yarn build        # production assets (Bootstrap trimmed, Latin-only font faces, vendor chunk)
 php artisan serve # local app server
-php artisan test  # run the test suite
+php artisan test  # PHP suite (golden adapter tests make no network calls)
+yarn test:js      # JS suites: offline queue, service worker, palette, bundle guards
 ```
+
+`GOLDEN_UPDATE=1 php artisan test --filter Golden` regenerates the adapter expectations (and marks those tests incomplete so the flag can never make CI green). Tests flush the cache per test; `phpunit.xml` pins the array cache/session drivers.
 
 For remote/tablet access to the Vite dev server (e.g. over Tailscale), the dev assets must be advertised at the externally-reachable HTTPS origin — set `server.origin`, `server.allowedHosts`, and `server.hmr` in `vite.config.js` from `.env`, and confirm `public/hot` shows the external URL.
 
