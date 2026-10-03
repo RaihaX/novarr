@@ -20,7 +20,7 @@ class SearchController extends Controller
             return response()->json([]);
         }
 
-        $novels = Novel::whereRaw("name LIKE ? ESCAPE '\\'", ['%' . self::escapeLike($q) . '%'])
+        $novels = Novel::whereRaw("name LIKE ? ESCAPE '!'", ['%' . self::escapeLike($q) . '%'])
             ->orderBy('name')
             ->limit(8)
             ->get(['id', 'name', 'author']);
@@ -52,8 +52,8 @@ class SearchController extends Controller
             if (!$novelId && (int) $request->query('page', 1) <= 1) {
                 $like = '%' . self::escapeLike($q) . '%';
                 $novels = Novel::where(fn($w) => $w
-                        ->whereRaw("name LIKE ? ESCAPE '\\'", [$like])
-                        ->orWhereRaw("author LIKE ? ESCAPE '\\'", [$like]))
+                        ->whereRaw("name LIKE ? ESCAPE '!'", [$like])
+                        ->orWhereRaw("author LIKE ? ESCAPE '!'", [$like]))
                     ->withCount(['chapters as downloaded_chapters_count' => fn($c) => $c->where('status', 1)->where('blacklist', 0)])
                     ->orderBy('name')
                     ->orderBy('id')
@@ -72,8 +72,8 @@ class SearchController extends Controller
                         ->whereFullText('label', $q)
                         ->orWhereHas('text', fn($t) => $t->whereFullText('content', $q))),
                     fn($query) => $query->where(fn($w) => $w
-                        ->whereRaw("label LIKE ? ESCAPE '\\'", ['%' . self::escapeLike($q) . '%'])
-                        ->orWhereHas('text', fn($t) => $t->whereRaw("content LIKE ? ESCAPE '\\'", ['%' . self::escapeLike($q) . '%'])))
+                        ->whereRaw("label LIKE ? ESCAPE '!'", ['%' . self::escapeLike($q) . '%'])
+                        ->orWhereHas('text', fn($t) => $t->whereRaw("content LIKE ? ESCAPE '!'", ['%' . self::escapeLike($q) . '%'])))
                 )
                 // Stable order so pagination never repeats or skips rows.
                 ->orderBy('novel_id')
@@ -125,9 +125,14 @@ class SearchController extends Controller
         return $excerpt;
     }
 
-    /** Literal LIKE: "100%" must match the text "100%", not everything. */
+    /**
+     * Literal LIKE: "100%" must match the text "100%", not everything.
+     * "!" is the escape character because MariaDB and SQLite disagree on how
+     * a backslash must be written inside ESCAPE '…' (a backslash broke search
+     * on production with a syntax error).
+     */
     public static function escapeLike(string $q): string
     {
-        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q);
+        return str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $q);
     }
 }
