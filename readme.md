@@ -63,7 +63,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
 
 ### Library & discovery
 - **Cover grid** — the Library is a poster grid (seven across on desktop, three on phones) with an amber reading-progress edge on every cover and status flags only for exceptions; filter chips (Reading, New chapters, Needs attention, Offline, Finished), sort, and a table view for bulk work. Discover uses the same cards.
-- **Add novels from 3 sources** with a Sonarr-style discover/search flow, or paste a URL directly. Discover cards carry the cover, author, and a **synopsis** — three clamped lines with a More/Less toggle — so you can tell what a novel is about before adding it. (Synopses come from novelarrow's list API; the other two sources' search endpoints don't return one.)
+- **Add novels from 3 sources** with a Sonarr-style discover/search flow, or paste a URL directly. Discover cards carry the cover, author, and a **synopsis** — three clamped lines with a More/Less toggle — so you can tell what a novel is about before adding it. (Synopses come from NovelPing's (formerly novelarrow) list API; the other two sources' search endpoints don't return one.) The Popular / Completed lists leave out novels already in your library (matched by slug on either host, else by name) and say how many were hidden; search results show everything, with library ones marked "In library".
 - **Automatic metadata** — title, author, description, genres, chapter count, and cover, pulled from the source and enriched/fallback-resolved via **NovelUpdates** (including alias resolution for series listed under a different title).
 - **Tags** (genre/custom) with a multi-select picker, plus tag filtering on the library.
 - **Bulk actions** — pause, mark complete, delete across many novels at once (desktop and mobile).
@@ -132,7 +132,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
                  │                                 (+ cron fallback drain)
                  ▼                                            │
         ┌──────────────────┐   Fetcher (FlareSolverr   ┌──────────────┐
-        │  Source adapter  │ ◄──── / plain HTTP) ────► │ novelarrow / │
+        │  Source adapter  │ ◄──── / plain HTTP) ────► │ novelping /  │
         │ (TOC + selectors)│                           │ empirenovel /│
         └────────┬─────────┘                           │ novelfull    │
                  │  ContentExtractor + ChapterLabelParser └──────────────┘
@@ -159,7 +159,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
 |---|---|---|
 | `EmpireNovelSource` | `empirenovel.com` | Paginated TOC via FlareSolverr + cookie reuse |
 | `NovelFullSource` | `novelfull.com` | AJAX chapter-list endpoint |
-| `NovelArrowSource` | `novelarrow.com` (and **default** fallback) | JSON api-web chapter list or page parse; browse/search results also carry a synopsis |
+| `NovelArrowSource` | NovelPing — `novelping.com` (formerly `novelarrow.com`, which now redirects there; both hosts are recognised) — and the **default** fallback | JSON api-web chapter list or page parse; browse/search results also carry a synopsis. Every outgoing URL (API, chapter pages, `images.{host}` covers) is built on `NOVARR_NOVELARROW_HOST` (config `novarr.novelarrow_host`, default `novelping.com`); migration `2026_10_04_000001` rewrote stored novelarrow URLs |
 
 Metadata for all sources is enriched from **NovelUpdates** (description, genres, cover, completion status), with the source's own page as a fallback.
 
@@ -245,6 +245,7 @@ Most operational settings are editable from the **Settings** page (stored in `ap
 | `NOTIFICATION_WEBHOOK_URL` | Discord/ntfy webhook for scraping alerts | — |
 | `NOVARR_SNAPSHOTS_ENABLED` / `_KEEP` / `_DAYS` | Failure-snapshot retention defaults (overridable in Settings) | `true` / `5` / `14` |
 | `NOVARR_TLS_VERIFY` | TLS verification for every scraper/FlareSolverr request (keep on) | `true` |
+| `NOVARR_NOVELARROW_HOST` | Canonical host for the NovelPing (ex-novelarrow) source; API, chapter and cover URLs are built on it | `novelping.com` |
 | `TRUSTED_PROXIES` | Proxies whose `X-Forwarded-*` headers are trusted (nginx / Tailscale in front) | `*` |
 | `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER` | Must exceed the 3600 s job timeout | `3700` |
 

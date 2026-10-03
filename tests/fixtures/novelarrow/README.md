@@ -3,7 +3,7 @@
 JSON API responses for Shadow Slave, saved from the live site on 2026-10-03, for
 `tests/Feature/GoldenNovelArrowTest.php`.
 
-| File | Live URL (`https://novelarrow.com/api-web/…`) | Notes |
+| File | Live URL (`https://novelping.com/api-web/…`, formerly `novelarrow.com`) | Notes |
 |---|---|---|
 | `api-chapter-1-nightmare-begins.json` | `novels/shadow-slave/chapters/chapter-1-nightmare-begins` | verbatim (re-indented) |
 | `api-chapter-1600-beast-farm.json` | `novels/shadow-slave/chapters/chapter-1600-beast-farm` | verbatim (re-indented) |

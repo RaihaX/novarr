@@ -19,6 +19,12 @@ return [
     'tls_verify' => (bool) env('NOVARR_TLS_VERIFY', true),
     'notification_webhook_url' => env('NOTIFICATION_WEBHOOK_URL'),
 
+    // Canonical host for the NovelArrowSource adapter. The site rebranded
+    // novelarrow.com → novelping.com (the old host 302-redirects); both are
+    // recognised, but every outgoing URL (API, chapter pages, covers on
+    // images.{host}) is built on this one. Bare host, no scheme.
+    'novelarrow_host' => env('NOVARR_NOVELARROW_HOST', 'novelping.com'),
+
     /*
     |--------------------------------------------------------------------------
     | Chapter watermarks
@@ -51,6 +57,7 @@ return [
             'lightnovelworld',
             'novelfull',
             'novelarrow',
+            'novelping',
             'freewebnovel',
         ],
         'phrases' => [

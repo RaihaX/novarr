@@ -1097,18 +1097,84 @@ function finalizeTocResult(array $result): array
 }
 
 /**
+ * Novel Arrow's canonical host. The site rebranded to novelping.com
+ * (novelarrow.com 302-redirects there), so every outgoing URL is built on
+ * the configured host (config novarr.novelarrow_host,
+ * NOVARR_NOVELARROW_HOST) while both brand hosts are still recognised.
+ */
+function novelArrowHost(): string
+{
+    $host = strtolower(trim((string) config("novarr.novelarrow_host", "novelping.com")));
+    // Tolerate a pasted origin ("https://www.novelping.com/").
+    $host = preg_replace('#^[a-z]+://#', "", $host);
+    $host = preg_replace('#^www\.#', "", rtrim($host, "/"));
+
+    return $host !== "" ? $host : "novelping.com";
+}
+
+/** "https://{canonical host}" — the base for every outgoing Novel Arrow URL. */
+function novelArrowBase(): string
+{
+    return "https://" . novelArrowHost();
+}
+
+/** Hosts that are the same site: both brands plus the configured one. */
+function novelArrowHosts(): array
+{
+    return array_values(array_unique(["novelarrow.com", "novelping.com", novelArrowHost()]));
+}
+
+/**
+ * Whether a URL is on Novel Arrow / NovelPing (either brand, with or
+ * without "www."). With $legacy, the pre-2026-07 novelbin hosts count too
+ * (their slugs carried over, so novelArrowSlug() still resolves them).
+ */
+function isNovelArrowUrl(?string $url, bool $legacy = false): bool
+{
+    $host = strtolower((string) parse_url(trim((string) $url), PHP_URL_HOST));
+    if ($host === "") {
+        return false;
+    }
+    $host = preg_replace('#^www\.#', "", $host);
+
+    if (in_array($host, novelArrowHosts(), true)) {
+        return true;
+    }
+
+    return $legacy && str_contains($host, "novelbin");
+}
+
+/** Cover image URL for a slug (the image host follows the brand: images.{host}). */
+function novelArrowCoverUrl(string $slug): string
+{
+    return "https://images." . novelArrowHost() . "/novel/{$slug}.jpg";
+}
+
+/**
+ * A slug as the API wants it. A trailing "_" or "-" (or whitespace) makes
+ * the API answer with an EMPTY list instead of a 404
+ * ("i-can-see-your-combat-power_"), so trim them.
+ */
+function novelArrowCleanSlug(string $slug): string
+{
+    return rtrim(trim($slug), "_- \t\n\r\0\x0B");
+}
+
+/**
  * Extract the novel slug from any Novel Arrow URL shape — a novel page
  * (…/novel/slug), a chapter page (…/chapter/slug/chapter-…) — or a legacy
  * Novel Bin shape (…/novel-book/slug, …/b/slug,
  * …/ajax/chapter-archive?novelId=slug). Slugs are identical across the
- * rebrand, so legacy URLs still resolve.
+ * rebrands (novelbin → novelarrow → novelping), so old URLs still resolve.
+ * Trailing "_"/"-"/whitespace is trimmed (see novelArrowCleanSlug()).
  */
 function novelArrowSlug(string $url): string
 {
+    $url = trim($url);
     parse_str(parse_url($url, PHP_URL_QUERY) ?: "", $query);
 
-    if (!empty($query["novelId"])) {
-        return $query["novelId"];
+    if (!empty($query["novelId"]) && is_string($query["novelId"])) {
+        return novelArrowCleanSlug($query["novelId"]);
     }
 
     $path = trim(parse_url($url, PHP_URL_PATH) ?: "", "/");
@@ -1116,19 +1182,31 @@ function novelArrowSlug(string $url): string
 
     // Chapter pages carry the slug one segment before the chapter id.
     if (count($parts) >= 2 && $parts[0] === "chapter") {
-        return $parts[1];
+        return novelArrowCleanSlug($parts[1]);
     }
 
-    return $parts === [] ? "" : end($parts);
+    return $parts === [] ? "" : novelArrowCleanSlug(end($parts));
+}
+
+/** Canonical chapter page URL for a slug + chapter id. */
+function novelArrowChapterUrl(string $slug, string $chapterId): string
+{
+    return novelArrowBase() . "/chapter/{$slug}/{$chapterId}";
+}
+
+/** Canonical novel page URL for a slug. */
+function novelArrowNovelUrl(string $slug): string
+{
+    return novelArrowBase() . "/novel/{$slug}";
 }
 
 /**
- * GET a novelarrow.com api-web endpoint and return the decoded JSON,
- * or null on any failure (logged).
+ * GET a Novel Arrow (novelping.com) api-web endpoint on the canonical host
+ * and return the decoded JSON, or null on any failure (logged).
  */
 function novelArrowApi(string $path): ?array
 {
-    $url = "https://novelarrow.com/api-web/" . ltrim($path, "/");
+    $url = novelArrowBase() . "/api-web/" . ltrim($path, "/");
 
     return app(\App\Scraping\Fetcher::class)->json($url);
 }
@@ -1153,15 +1231,17 @@ function novelArrowChapterArchive(string $novelUrl): array
         $label = trim(preg_replace('/\s+/', " ", $item["chapter_name"] ?? ""));
 
         if ($chapterId !== "" && $label !== "") {
-            $result[] = generateTocChapterInfo(
-                $label,
-                "https://novelarrow.com/chapter/{$slug}/{$chapterId}"
-            );
+            $result[] = generateTocChapterInfo($label, novelArrowChapterUrl($slug, $chapterId));
         }
     }
 
     $result = array_values(array_filter($result));
-    \Log::info("novelArrowChapterArchive: parsed " . count($result) . " chapters for {$slug}");
+    if ($result === []) {
+        // The API answers an unknown/mangled slug with an empty list, not a 404.
+        \Log::warning("novelArrowChapterArchive: API returned 0 chapters for slug '{$slug}'" . ($json === null ? " (request failed)" : ""));
+    } else {
+        \Log::info("novelArrowChapterArchive: parsed " . count($result) . " chapters for {$slug}");
+    }
 
     return $result;
 }
@@ -1174,8 +1254,7 @@ function novelArrowChapterArchive(string $novelUrl): array
  */
 function novelArrowChapterContent(string $url): array
 {
-    $host = strtolower(parse_url($url, PHP_URL_HOST) ?: "");
-    if ($host !== "novelarrow.com" && !str_ends_with($host, ".novelarrow.com")) {
+    if (!isNovelArrowUrl($url)) {
         return [];
     }
 
@@ -1185,6 +1264,7 @@ function novelArrowChapterContent(string $url): array
         return [];
     }
     [, $slug, $chapterId] = $parts;
+    $slug = novelArrowCleanSlug($slug);
 
     $json = novelArrowApi(
         "novels/" . rawurlencode($slug) . "/chapters/" . rawurlencode($chapterId)
@@ -1877,7 +1957,7 @@ function novelArrowStatus($status): ?string
 }
 
 /**
- * Fetch novel metadata from novelarrow.com (formerly novelbin) as a fallback
+ * Fetch novel metadata from novelping.com (formerly novelarrow / novelbin) as a fallback
  * source, via its JSON API. Tries the slug from translator_url first when
  * it's already a Novel Arrow URL, then a slug built from the novel name.
  */
@@ -1893,7 +1973,7 @@ function getMetadataFromNovelArrow($data)
 
     $slugs = [];
 
-    if (!empty($data->translator_url) && preg_match('/novelarrow|novelbin/i', $data->translator_url)) {
+    if (!empty($data->translator_url) && isNovelArrowUrl($data->translator_url, legacy: true)) {
         $slug = novelArrowSlug($data->translator_url);
         if ($slug !== "") {
             $slugs[] = $slug;
@@ -1905,7 +1985,7 @@ function getMetadataFromNovelArrow($data)
     }
 
     $slugs = array_values(array_unique($slugs));
-    $metadata["tried_urls"] = array_map(fn($s) => "https://novelarrow.com/novel/{$s}", $slugs);
+    $metadata["tried_urls"] = array_map(fn($s) => novelArrowNovelUrl($s), $slugs);
 
     foreach ($slugs as $slug) {
         $json = novelArrowApi("novels/" . rawurlencode($slug));
@@ -1928,7 +2008,7 @@ function getMetadataFromNovelArrow($data)
 
         // Covers live on the image host, keyed by slug (see the site's
         // og:image tags) — downloadCoverImage() validates it's a real image.
-        $metadata["image"] = "https://images.novelarrow.com/novel/{$slug}.jpg";
+        $metadata["image"] = novelArrowCoverUrl($slug);
 
         $genres = $info["novel_genres"] ?? [];
         if (empty($genres)) {

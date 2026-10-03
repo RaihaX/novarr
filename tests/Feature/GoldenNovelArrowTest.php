@@ -8,14 +8,17 @@ use App\Sources\SourceResolver;
 use Tests\Support\FakeFetcher;
 
 /**
- * Novel Arrow through the real adapter: TOC and chapter text both come from
- * the site's JSON API (responses saved 2026-10-03, Shadow Slave). See
+ * Novel Arrow (now NovelPing) through the real adapter: TOC and chapter text
+ * both come from the site's JSON API (responses saved 2026-10-03, Shadow
+ * Slave). Stored novelarrow.com URLs still resolve, but every request and
+ * every built URL is on the canonical novelping.com host. See
  * tests/fixtures/novelarrow/README.md.
  */
 class GoldenNovelArrowTest extends GoldenTestCase
 {
-    private const NOVEL = 'https://novelarrow.com/novel/shadow-slave';
-    private const API = 'https://novelarrow.com/api-web/novels/shadow-slave/chapters';
+    private const NOVEL = 'https://novelping.com/novel/shadow-slave';
+    private const LEGACY_NOVEL = 'https://novelarrow.com/novel/shadow-slave';
+    private const API = 'https://novelping.com/api-web/novels/shadow-slave/chapters';
 
     public function testTableOfContentsFromTheApi(): void
     {
@@ -25,7 +28,7 @@ class GoldenNovelArrowTest extends GoldenTestCase
         $this->assertInstanceOf(NovelArrowSource::class, SourceResolver::for($novel));
         $toc = tableOfContentGenerator($novel);
 
-        $summary = $this->assertTocGolden('novelarrow/toc-shadow-slave.expected.json', $toc, 'https://novelarrow.com');
+        $summary = $this->assertTocGolden('novelarrow/toc-shadow-slave.expected.json', $toc, 'https://novelping.com');
         $this->assertSame([self::API . '?sort=asc'], $fetcher->urls('json'));
 
         // The API really does list 2232–2234 twice; the adapter passes them
@@ -33,7 +36,7 @@ class GoldenNovelArrowTest extends GoldenTestCase
         $this->assertSame(3, $summary['duplicate_urls']);
 
         foreach ($toc as $row) {
-            $this->assertMatchesRegularExpression('#^https://novelarrow\.com/chapter/shadow-slave/chapter-[a-z0-9-]+$#', $row['url']);
+            $this->assertMatchesRegularExpression('#^https://novelping\.com/chapter/shadow-slave/chapter-[a-z0-9-]+$#', $row['url']);
             if ($row['label'] === 'Chapter Entertaining Guest') {
                 // Number-less label (really 3189): 0 or right, never wrong.
                 $this->assertContains((int) $row['chapter'], [0, 3189]);
@@ -41,6 +44,32 @@ class GoldenNovelArrowTest extends GoldenTestCase
                 $this->assertGreaterThan(0, (int) $row['chapter'], $row['label']);
             }
         }
+    }
+
+    /** A novel still stored on novelarrow.com (pre-migration) hits the novelping API and gets novelping URLs. */
+    public function testLegacyNovelArrowUrlUsesTheCanonicalHost(): void
+    {
+        $fetcher = $this->fake([self::API . '?sort=asc' => 'novelarrow/api-chapters-shadow-slave.json']);
+        $novel = $this->novel(self::LEGACY_NOVEL, 'Shadow Slave');
+
+        $this->assertInstanceOf(NovelArrowSource::class, SourceResolver::for($novel));
+        $toc = tableOfContentGenerator($novel);
+
+        $this->assertSame([self::API . '?sort=asc'], $fetcher->urls('json'));
+        $this->assertTocGolden('novelarrow/toc-shadow-slave.expected.json', $toc, 'https://novelping.com');
+    }
+
+    /** A chapter row still on novelarrow.com fetches its text from the novelping API. */
+    public function testLegacyChapterUrlFetchesFromTheCanonicalHost(): void
+    {
+        $id = 'chapter-1-nightmare-begins';
+        $fetcher = $this->fake([self::API . "/{$id}" => "novelarrow/api-{$id}.json"]);
+        $novel = $this->novel(self::LEGACY_NOVEL, 'Shadow Slave');
+
+        $paragraphs = chapterGenerator($this->chapter($novel, "https://www.novelarrow.com/chapter/shadow-slave/{$id}", 1, 'Chapter 1 Nightmare Begins'));
+
+        $this->assertSame([self::API . "/{$id}"], $fetcher->urls());
+        $this->assertContentGolden("novelarrow/api-{$id}.expected.json", $paragraphs, 'Chapter 1 Nightmare Begins');
     }
 
     /** API down → falls back to the page parse; an empty page is snapshotted. */
@@ -65,7 +94,7 @@ class GoldenNovelArrowTest extends GoldenTestCase
 
         $reason = 'unset';
         $paragraphs = chapterGenerator(
-            $this->chapter($novel, "https://novelarrow.com/chapter/shadow-slave/{$id}", $number, $label),
+            $this->chapter($novel, "https://novelping.com/chapter/shadow-slave/{$id}", $number, $label),
             $reason
         );
 
@@ -94,7 +123,7 @@ class GoldenNovelArrowTest extends GoldenTestCase
             self::API . '/chapter-1600-beast-farm' => 'novelarrow/api-chapter-1600-beast-farm.json',
             'https://novelfull.com/shadow-slave/chapter-1600-beast-farm.html' => 'novelfull/chapter-1600-beast-farm.html',
         ]);
-        $na = chapterGenerator($this->chapter($this->novel(self::NOVEL, 'Shadow Slave'), 'https://novelarrow.com/chapter/shadow-slave/chapter-1600-beast-farm', 1600, 'Chapter 1600 Beast Farm'));
+        $na = chapterGenerator($this->chapter($this->novel(self::NOVEL, 'Shadow Slave'), 'https://novelping.com/chapter/shadow-slave/chapter-1600-beast-farm', 1600, 'Chapter 1600 Beast Farm'));
         $nf = chapterGenerator($this->chapter($this->novel('https://novelfull.com/shadow-slave.html', 'Shadow Slave'), 'https://novelfull.com/shadow-slave/chapter-1600-beast-farm.html', 1600, 'Chapter 1600 Beast Farm'));
 
         $this->assertEqualsWithDelta(chapterParagraphWords($na), chapterParagraphWords($nf), 10);

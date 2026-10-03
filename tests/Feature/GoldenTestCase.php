@@ -182,7 +182,7 @@ abstract class GoldenTestCase extends TestCase
                 $this->assertStringNotContainsStringIgnoringCase($chrome, $text, "paragraph {$i} has reader chrome");
             }
             $this->assertDoesNotMatchRegularExpression('/^\.(me|com|net|org)\b/i', $text, "paragraph {$i} is a watermark tail");
-            $this->assertDoesNotMatchRegularExpression('/\b(novelfull|novelbin|novelarrow|empirenovel)\s*\.\s*(com|me|net)\b/i', $text, "paragraph {$i} has a site watermark");
+            $this->assertDoesNotMatchRegularExpression('/\b(novelfull|novelbin|novelarrow|novelping|empirenovel)\s*\.\s*(com|me|net)\b/i', $text, "paragraph {$i} has a site watermark");
             $this->assertNull(
                 isChapterWatermark($text) ? $text : null,
                 "paragraph {$i} is a watermark line"

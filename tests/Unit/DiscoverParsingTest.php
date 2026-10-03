@@ -62,7 +62,7 @@ class DiscoverParsingTest extends TestCase
 
     public function testNovelArrowMetadataMapsNovelStatus(): void
     {
-        $api = 'https://novelarrow.com/api-web/novels/shadow-slave';
+        $api = 'https://novelping.com/api-web/novels/shadow-slave';
         $body = json_encode(['item' => ['novelInfo' => [
             'novel_status' => 1, 'novel_desc' => 'Desc', 'novel_author' => 'Guiltythree', 'totalChapter' => 3206,
         ]]]);

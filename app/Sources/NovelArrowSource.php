@@ -8,7 +8,11 @@ use App\Scraping\Fetcher;
 use Symfony\Component\DomCrawler\Crawler;
 
 /**
- * Novel Arrow (formerly Novel Bin) — and the default source for anything not
+ * NovelPing (novelping.com; formerly Novel Arrow, before that Novel Bin) —
+ * the class keeps its NovelArrow name so stored settings/labels stay valid.
+ * Both brand hosts are recognised; every outgoing URL is built on the
+ * canonical host (config novarr.novelarrow_host). Also the default source
+ * for anything not
  * matched elsewhere. TOC comes from the site's JSON API (the page only embeds
  * ~30 chapters), with a generic page-parse fallback for unrecognised sites.
  * Metadata is NovelUpdates first, Novel Arrow as fallback.
@@ -43,12 +47,18 @@ class NovelArrowSource extends AbstractSource
     public function tableOfContents(Novel $novel): array
     {
         // The complete list lives behind a JSON API keyed by the slug.
-        if ($novel->group_id == 1 && preg_match('/novelarrow|novelbin/i', $novel->translator_url ?? '')) {
+        if ($novel->group_id == 1 && isNovelArrowUrl($novel->translator_url ?? '', legacy: true)) {
             $result = novelArrowChapterArchive($novel->translator_url);
             if (!empty($result)) {
                 return $result;
             }
-            \Log::warning("NovelArrowSource: chapter list empty for {$novel->translator_url}; falling back to page parse");
+            $slug = novelArrowSlug($novel->translator_url);
+            $previous = (int) $novel->last_toc_count;
+            \Log::warning(
+                "NovelArrowSource: API chapter list empty for slug '{$slug}' ({$novel->translator_url})"
+                . ($previous > 0 ? ", previously {$previous} chapters" : "")
+                . "; falling back to page parse"
+            );
             // The page only embeds the newest ~30 chapters: whatever the
             // fallback finds is a partial list for TOC health purposes.
             markTocRunPartial();
@@ -106,7 +116,7 @@ class NovelArrowSource extends AbstractSource
         // downloads even when its metadata is otherwise complete (so the
         // fallback above never runs).
         if ($slug = $this->coverSlug($novel)) {
-            $metadata['cover_candidates'][] = "https://images.novelarrow.com/novel/{$slug}.jpg";
+            $metadata['cover_candidates'][] = novelArrowCoverUrl($slug);
         }
         $metadata['cover_candidates'] = array_values(array_unique($metadata['cover_candidates']));
 
@@ -120,7 +130,7 @@ class NovelArrowSource extends AbstractSource
      */
     private function coverSlug(Novel $novel): ?string
     {
-        if (!empty($novel->translator_url) && preg_match('/novelarrow|novelbin/i', $novel->translator_url)) {
+        if (!empty($novel->translator_url) && isNovelArrowUrl($novel->translator_url, legacy: true)) {
             $slug = novelArrowSlug($novel->translator_url);
             if ($slug !== '') {
                 return $slug;
@@ -128,7 +138,7 @@ class NovelArrowSource extends AbstractSource
         }
 
         $chapterUrl = $novel->chapters()
-            ->where('url', 'like', '%novelarrow%')
+            ->where(fn($q) => $q->where('url', 'like', '%novelarrow%')->orWhere('url', 'like', '%novelping%'))
             ->value('url');
         if ($chapterUrl) {
             $slug = novelArrowSlug($chapterUrl);

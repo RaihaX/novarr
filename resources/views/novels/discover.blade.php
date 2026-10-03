@@ -16,7 +16,7 @@
 
 <div class="filter-bar mb-4">
     <select id="discoverSource" class="form-select" aria-label="Source">
-        <option value="novelarrow">novelarrow.com</option>
+        <option value="novelarrow">NovelPing (novelarrow)</option>
         <option value="empirenovel">empirenovel.com</option>
         <option value="novelfull">novelfull.com</option>
     </select>
@@ -32,6 +32,8 @@
 
 <p id="discoverStatus" class="library-status" role="status" aria-live="polite">Loading…</p>
 <ul id="discoverResults" class="disc-grid mb-4" role="list" aria-busy="true"></ul>
+{{-- Browse lists leave out novels already in the library; say how many. --}}
+<p id="discoverHidden" class="library-status text-muted small d-none"></p>
 {{-- Results arrive in one batch; reveal them 20 at a time. --}}
 <div id="discoverMoreWrap" class="discover-more d-none">
     <button type="button" id="discoverMore" class="btn btn-secondary">Load more</button>
@@ -65,6 +67,15 @@
     const tabsEl = document.getElementById('discoverTabs');
 
     const source = () => sourceEl.value;
+    // Host shown for each source key ("novelarrow" now lives on novelping.com).
+    const SOURCE_HOST = @json(['novelarrow' => novelArrowHost(), 'empirenovel' => 'empirenovel.com', 'novelfull' => 'novelfull.com']);
+    const sourceHost = () => SOURCE_HOST[source()] || `${source()}.com`;
+    const hiddenEl = document.getElementById('discoverHidden');
+
+    function showHidden(count) {
+        hiddenEl.textContent = count > 0 ? `${count} already in your library hidden` : '';
+        hiddenEl.classList.toggle('d-none', !(count > 0));
+    }
 
     // Client-side reveal: the browse endpoint returns every result at once
     // (up to 40); render them PAGE_SIZE at a time behind "Load more".
@@ -117,6 +128,7 @@
         resultsEl.setAttribute('aria-busy', 'false');
         pendingItems = [];
         moreWrap.classList.add('d-none');
+        showHidden(0);
     }
 
     // Empty / error state inside the grid (spans every column).
@@ -152,16 +164,22 @@
                 return;
             }
 
+            const hidden = Number(data.hidden) || 0;
+            showHidden(hidden);
+
             if (!data.items.length) {
                 statusEl.textContent = '';
                 showEmpty(
-                    q ? `Nothing on ${source()}.com matches “${q}”` : 'No results',
-                    'Try a shorter title or the author’s name, or search another source. You can also add a novel by its URL.'
+                    q ? `Nothing on ${sourceHost()} matches “${q}”`
+                        : (hidden > 0 ? 'Everything here is already in your library' : 'No results'),
+                    hidden > 0 && !q
+                        ? 'Search for a title instead, or browse another list. You can also add a novel by its URL.'
+                        : 'Try a shorter title or the author’s name, or search another source. You can also add a novel by its URL.'
                 );
                 return;
             }
 
-            statusEl.textContent = `${data.items.length} result${data.items.length === 1 ? '' : 's'} from ${source()}.com`;
+            statusEl.textContent = `${data.items.length} result${data.items.length === 1 ? '' : 's'} from ${sourceHost()}`;
             pendingItems = data.items.slice();
             renderNextPage();
         } catch (err) {
@@ -338,12 +356,13 @@
         const src = source();
         const searchOnly = src !== 'novelarrow';
         tabsEl.classList.toggle('d-none', searchOnly);
-        document.getElementById('discoverQuery').placeholder = `Search ${src}.com…`;
+        document.getElementById('discoverQuery').placeholder = `Search ${sourceHost()}…`;
         document.getElementById('discoverQuery').value = '';
         if (searchOnly) {
-            statusEl.textContent = `Search ${src}.com to find a novel to add.`;
+            statusEl.textContent = `Search ${sourceHost()} to find a novel to add.`;
             statusEl.classList.remove('d-none');
             resultsEl.innerHTML = '';
+            showHidden(0);
         } else {
             tabs.forEach((t, i) => t.classList.toggle('active', i === 0));
             loadList('popular');

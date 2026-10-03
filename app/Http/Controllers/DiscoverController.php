@@ -9,12 +9,13 @@ use Illuminate\Support\Facades\Log;
 use Symfony\Component\DomCrawler\Crawler;
 
 /**
- * Sonarr-style "Add Novel" discovery: search and browse novelarrow.com, then
- * add a result via the existing novel:create background command.
+ * Sonarr-style "Add Novel" discovery: search and browse novelping.com
+ * (formerly novelarrow.com — source key "novelarrow"), empirenovel and
+ * novelfull, then add a result via the existing novel:create background
+ * command.
  */
 class DiscoverController extends Controller
 {
-    protected const BASE = 'https://novelarrow.com';
 
     public function index()
     {
@@ -22,8 +23,14 @@ class DiscoverController extends Controller
     }
 
     /**
-     * Fetch a result list from novelarrow.com.
+     * Fetch a result list from a source.
      * type: search (requires q) | popular | completed
+     *
+     * Browse lists (popular/completed) leave out novels already in the
+     * library and report how many were hidden; typed searches keep every
+     * result and only mark library ones (`in_library`). The filter runs
+     * after the cache read — the cache is keyed by the source query alone,
+     * since the library changes far more often than the lists.
      */
     public function browse(Request $request)
     {
@@ -54,7 +61,7 @@ class DiscoverController extends Controller
                 'popular' => ['status' => 'all', 'sort' => 'POPULAR'],
                 'completed' => ['status' => 'completed', 'sort' => 'COMPLETE'],
             };
-            $url = self::BASE . '/api-web/novels?'
+            $url = novelArrowBase() . '/api-web/novels?'
                 . http_build_query($query + ['limit' => 40, 'page' => 1, 'genre' => 'ALL']);
 
             // Browse lists barely change — cache them. Searches are cached
@@ -68,7 +75,7 @@ class DiscoverController extends Controller
                 Log::warning('Discover: cache store unavailable (' . $e->getMessage() . ') — fetching uncached');
                 $items = $this->fetchList($url);
             }
-            $sourceLabel = 'novelarrow.com';
+            $sourceLabel = novelArrowHost();
         }
 
         if ($items === null) {
@@ -78,18 +85,84 @@ class DiscoverController extends Controller
             ], 502);
         }
 
-        // Mark results that are already in the library (by URL or name).
-        $existingUrls = Novel::pluck('translator_url')->filter()
-            ->map(fn($u) => rtrim(strtolower($u), '/'))->flip();
-        $existingNames = Novel::pluck('name')
-            ->map(fn($n) => mb_strtolower(trim($n)))->flip();
-
+        // Mark results that are already in the library (by slug/URL or name).
+        $library = $this->libraryIndex();
         foreach ($items as &$item) {
-            $item['in_library'] = isset($existingUrls[rtrim(strtolower($item['url']), '/')])
-                || isset($existingNames[mb_strtolower(trim($item['name']))]);
+            $item['in_library'] = $this->inLibrary($item, $library);
+        }
+        unset($item);
+
+        $hidden = 0;
+        if ($data['type'] !== 'search') {
+            $before = count($items);
+            $items = array_values(array_filter($items, fn($item) => !$item['in_library']));
+            $hidden = $before - count($items);
         }
 
-        return response()->json(['success' => true, 'items' => $items]);
+        return response()->json(['success' => true, 'items' => $items, 'hidden' => $hidden]);
+    }
+
+    /**
+     * Library lookup sets: Novel Arrow/NovelPing slugs (either host, legacy
+     * novelbin too), normalised URLs for other sources, normalised names.
+     *
+     * @return array{slugs: array<string, true>, urls: array<string, true>, names: array<string, true>}
+     */
+    protected function libraryIndex(): array
+    {
+        $index = ['slugs' => [], 'urls' => [], 'names' => []];
+
+        foreach (Novel::query()->get(['name', 'translator_url']) as $novel) {
+            $url = (string) $novel->translator_url;
+            if ($url !== '') {
+                $index['urls'][self::normalizeUrl($url)] = true;
+                if (isNovelArrowUrl($url, legacy: true) && ($slug = novelArrowSlug($url)) !== '') {
+                    $index['slugs'][$slug] = true;
+                }
+            }
+            $name = self::normalizeName((string) $novel->name);
+            if ($name !== '') {
+                $index['names'][$name] = true;
+            }
+        }
+
+        return $index;
+    }
+
+    protected function inLibrary(array $item, array $library): bool
+    {
+        $url = (string) ($item['url'] ?? '');
+        if ($url !== '') {
+            if (isNovelArrowUrl($url) && isset($library['slugs'][novelArrowSlug($url)])) {
+                return true;
+            }
+            if (isset($library['urls'][self::normalizeUrl($url)])) {
+                return true;
+            }
+        }
+
+        $name = self::normalizeName((string) ($item['name'] ?? ''));
+
+        return $name !== '' && isset($library['names'][$name]);
+    }
+
+    /** Scheme, "www.", case and a trailing "/" or "_" don't make a different novel. */
+    public static function normalizeUrl(string $url): string
+    {
+        $url = strtolower(trim($url));
+        $url = preg_replace('#^https?://(www\.)?#', '', $url);
+
+        return rtrim($url, '/_');
+    }
+
+    /** Lowercase, punctuation stripped, whitespace collapsed: "Re:Zero!" ≈ "re zero". */
+    public static function normalizeName(string $name): string
+    {
+        $name = mb_strtolower(html_entity_decode(trim($name), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $name = str_replace(["'", "\u{2019}"], '', $name);
+        $name = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $name) ?? '';
+
+        return trim($name);
     }
 
     /**
@@ -254,7 +327,7 @@ class DiscoverController extends Controller
     }
 
     /**
-     * Fetch a novelarrow.com api-web novel list into result items.
+     * Fetch a novelping.com api-web novel list into result items.
      * Returns null when the endpoint cannot be fetched.
      */
     protected function fetchList(string $url): ?array
@@ -262,13 +335,9 @@ class DiscoverController extends Controller
         $json = null;
 
         try {
-            $response = createHttpClient()->request('GET', $url, [
-                'headers' => ['Accept' => 'application/json'],
-            ]);
-            if ($response->getStatusCode() === 200) {
-                $json = json_decode($response->getContent(false), true);
-            }
-        } catch (\Throwable $e) {
+            // Through the Fetcher (plain HTTP) so tests can intercept it.
+            $json = app(\App\Scraping\Fetcher::class)->json($url);
+        } catch (\Exception $e) {
             Log::warning("Discover: fetch failed for {$url}: " . $e->getMessage());
         }
 
@@ -287,10 +356,10 @@ class DiscoverController extends Controller
 
             $item = [
                 'name' => $name,
-                'url' => self::BASE . '/novel/' . $slug,
+                'url' => novelArrowNovelUrl($slug),
                 // Covers live on the image host, keyed by slug (see the
                 // site's og:image tags).
-                'cover' => "https://images.novelarrow.com/novel/{$slug}.jpg",
+                'cover' => novelArrowCoverUrl($slug),
                 'cover_thumb' => '',
                 'author' => trim($row['novel_author'] ?? ''),
                 'description' => $this->plainSynopsis($row['novel_desc'] ?? ''),
