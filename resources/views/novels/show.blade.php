@@ -99,7 +99,7 @@
                             <li><button type="button" id="offlineRemove" class="dropdown-item item-danger d-none"><x-icon name="trash-2" :size="14" />Remove offline copy</button></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><h6 class="dropdown-header label-caption">ePub</h6></li>
-                            <li><a href="{{ route('novels.download_epub', $data->id) }}" class="dropdown-item"><x-icon name="download" :size="14" />Download ePub</a></li>
+                            <li><a href="{{ route('novels.download_epub', $data->id) }}" class="dropdown-item" data-turbo="false" data-turbo-prefetch="false"><x-icon name="download" :size="14" />Download ePub</a></li>
                             <li>
                                 <button type="button" class="dropdown-item cmd-btn" data-command="epub" data-novel="{{ $data->id }}" title="Build an ePub from the downloaded chapters">
                                     <x-icon name="refresh-cw" :size="14" />

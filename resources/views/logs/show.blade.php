@@ -14,7 +14,7 @@
             <input class="form-check-input" type="checkbox" id="liveTail">
             <label class="form-check-label label-caption" for="liveTail">Live tail</label>
         </div>
-        <a href="{{ route('logs.download', $filename) }}" class="btn btn-secondary btn-sm">Download</a>
+        <a href="{{ route('logs.download', $filename) }}" class="btn btn-secondary btn-sm" data-turbo="false" data-turbo-prefetch="false">Download</a>
         <button type="button" id="clearLog" class="btn btn-warning btn-sm">Clear log</button>
     </div>
 </div>
@@ -42,6 +42,7 @@
 <div class="card">
     <div class="table-responsive">
         <table class="table log-table mb-0">
+            <caption class="visually-hidden">Entries in {{ $filename }}, newest first</caption>
             <thead>
                 <tr>
                     <th style="width: 190px;">Timestamp</th>
@@ -52,8 +53,8 @@
             <tbody id="logBody">
                 @forelse($entries as $entry)
                     <tr>
-                        <td class="log-time">{{ $entry['timestamp'] }}</td>
-                        <td>
+                        <td class="log-time" data-label="Timestamp">{{ $entry['timestamp'] }}</td>
+                        <td class="log-level" data-label="Level">
                             @php
                                 // Status-triad badge classes, never Bootstrap bg-* (their
                                 // !important fills defeat the triad).
@@ -71,7 +72,7 @@
                             @endphp
                             <span class="badge badge-{{ $state }}">{{ $entry['level'] }}</span>
                         </td>
-                        <td>
+                        <td class="log-msg" data-label="Message">
                             @if(mb_strlen($entry['message']) > 400)
                                 <details class="log-entry">
                                     <summary>{{ Str::limit($entry['message'], 200) }} <span class="text-muted">(expand)</span></summary>
@@ -137,15 +138,20 @@
 
             const tsTd = document.createElement('td');
             tsTd.className = 'log-time';
+            tsTd.dataset.label = 'Timestamp';
             tsTd.textContent = entry.timestamp;
 
             const lvlTd = document.createElement('td');
+            lvlTd.className = 'log-level';
+            lvlTd.dataset.label = 'Level';
             const badge = document.createElement('span');
             badge.className = 'badge badge-' + (levelStates[entry.level] || 'muted');
             badge.textContent = entry.level;
             lvlTd.appendChild(badge);
 
             const msgTd = document.createElement('td');
+            msgTd.className = 'log-msg';
+            msgTd.dataset.label = 'Message';
             const pre = document.createElement('pre');
             pre.className = 'log-pre';
             pre.textContent = entry.message;

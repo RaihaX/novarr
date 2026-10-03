@@ -60,12 +60,13 @@
                         aria-expanded="false" aria-controls="readerSettings" aria-haspopup="dialog"
                         title="Reading settings" aria-label="Reading settings">Aa</button>
                 <button type="button" id="playbackBtn" class="reader-ctl reader-ctl-icon"
-                        aria-expanded="false" aria-controls="readerPlayback"
+                        aria-expanded="false" aria-controls="readerPlayback" aria-haspopup="dialog"
                         title="Playback — listen or auto-scroll" aria-label="Playback">
                     <x-icon name="headphones" :size="14" :stroke="1.75" /><span class="reader-ctl-text">Playback</span>
                 </button>
                 <button type="button" id="tocBtn" class="reader-ctl reader-ctl-icon"
                         data-bs-toggle="offcanvas" data-bs-target="#tocPanel"
+                        aria-controls="tocPanel" aria-haspopup="dialog"
                         title="Chapter list" aria-label="Chapter list">
                     <x-icon name="list" :size="14" :stroke="1.75" /><span class="reader-ctl-text">Contents</span>
                 </button>
@@ -80,7 +81,7 @@
 
         {{-- "Aa": every typography preference. Desktop = popover with
              Text / Layout / Playback tabs; phones (<768px) = bottom sheet. --}}
-        <div id="readerSettings" class="reader-pop d-none" tabindex="-1" role="dialog" aria-labelledby="readerSettingsTitle" aria-modal="false">
+        <div id="readerSettings" class="reader-pop d-none" tabindex="-1" role="dialog" aria-labelledby="readerSettingsTitle" aria-modal="true">
             <div class="reader-sheet-grip" aria-hidden="true"></div>
             <div class="reader-pop-head">
                 <span class="reader-pop-title" id="readerSettingsTitle">Reading settings</span>
@@ -180,6 +181,9 @@
                     <input class="form-check-input" type="checkbox" role="switch" id="perNovelPrefs" aria-label="Use separate reader settings for this novel">
                 </div>
             </div>
+            <button type="button" class="reader-keys-link" data-open-keys aria-haspopup="dialog" aria-controls="readerKeys">
+                Keyboard shortcuts <kbd>?</kbd>
+            </button>
         </div>
     </div>
 
@@ -188,7 +192,8 @@
 
     {{-- Playback: its own control, docked to the bottom of the viewport so it
          stays reachable while the chrome auto-hides during auto-scroll. --}}
-    <div id="readerPlayback" class="reader-playbar d-none" role="region" aria-label="Playback">
+    <div id="readerPlayback" class="reader-playbar d-none" role="dialog" aria-modal="false" aria-labelledby="readerPlaybackTitle" tabindex="-1">
+        <h2 class="visually-hidden" id="readerPlaybackTitle">Playback</h2>
         <div class="reader-playbar-group" id="ttsBar">
             <span class="reader-playbar-label"><x-icon name="headphones" :size="14" />Listen</span>
             <button type="button" id="ttsPlayPause" class="reader-playbtn" aria-label="Play read-aloud">
@@ -302,10 +307,10 @@
 </div>
 
 {{-- In-reader chapter list --}}
-<div class="offcanvas offcanvas-start" tabindex="-1" id="tocPanel" aria-labelledby="tocPanelLabel">
+<div class="offcanvas offcanvas-start" tabindex="-1" id="tocPanel" role="dialog" aria-modal="true" aria-labelledby="tocPanelLabel">
     <div class="offcanvas-header pb-2">
         <h5 class="offcanvas-title" id="tocPanelLabel">Chapters</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close chapter list"></button>
     </div>
     <div class="offcanvas-body p-0 d-flex flex-column">
         <div class="toc-tools">
@@ -325,11 +330,32 @@
     </div>
 </div>
 
+{{-- "?" — keyboard shortcuts. Lists only what the script below binds. --}}
+<div id="readerKeys" class="reader-keys d-none" role="dialog" aria-modal="true" aria-labelledby="readerKeysTitle" tabindex="-1">
+    <div class="reader-keys-head">
+        <h2 class="reader-keys-title" id="readerKeysTitle">Keyboard shortcuts</h2>
+        <button type="button" class="reader-pop-close" data-close-keys aria-label="Close keyboard shortcuts"><x-icon name="x" :size="16" /></button>
+    </div>
+    <dl class="reader-keys-list">
+        <div><dt><kbd>&larr;</kbd></dt><dd>Previous chapter</dd></div>
+        <div><dt><kbd>&rarr;</kbd></dt><dd>Next chapter</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Close settings, playback, chapter list or this panel</dd></div>
+        <div><dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd></dt><dd>Switch tabs inside Reading settings</dd></div>
+        <div><dt><kbd>?</kbd></dt><dd>Show this list</dd></div>
+    </dl>
+    <p class="reader-keys-note">On touch screens, swipe left or right to change chapter; in focus mode, tap the page to show the controls.</p>
+</div>
+
 {{-- Server-rendered Lucide icons the script clones (keeps one icon source). --}}
 <template id="readerIconCheck"><x-icon name="check" :size="13" :stroke="2.25" class="icon toc-check" /></template>
 
 <script type="application/json" id="readerState">@json($readerState)</script>
 @endsection
+
+@push('preload')
+@php try { $literataPreload = Vite::asset('node_modules/@fontsource-variable/literata/files/literata-latin-wght-normal.woff2'); } catch (\Throwable $e) { $literataPreload = null; } @endphp
+@if($literataPreload)<link rel="preload" as="font" type="font/woff2" crossorigin href="{{ $literataPreload }}">@endif
+@endpush
 
 @push('scripts')
 <script>
@@ -346,6 +372,58 @@
     // progress reports for a chapter we've already left).
     const pageAbort = new AbortController();
     const signal = pageAbort.signal;
+
+    // ---- Dialog plumbing: focus trap + inert background ----
+    // Prefers the shell's window.Novarr.focusTrap/releaseFocusTrap (looked up
+    // at open time: app.js is a module and may load after this script); falls
+    // back to a small Tab-cycling trap so the reader works on its own.
+    const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    function trapFocus(el) {
+        const N = window.Novarr;
+        if (typeof N?.focusTrap === 'function') {
+            N.focusTrap(el);
+            return () => { if (typeof N.releaseFocusTrap === 'function') N.releaseFocusTrap(el); };
+        }
+        const onKey = (e) => {
+            if (e.key !== 'Tab') return;
+            const items = [...el.querySelectorAll(FOCUSABLE)].filter(n => n.offsetParent !== null || n === document.activeElement);
+            if (!items.length) { e.preventDefault(); el.focus(); return; }
+            const first = items[0], last = items[items.length - 1];
+            const at = document.activeElement;
+            if (e.shiftKey && (at === first || at === el || !el.contains(at))) { e.preventDefault(); last.focus(); }
+            else if (!e.shiftKey && (at === last || !el.contains(at))) { e.preventDefault(); first.focus(); }
+        };
+        document.addEventListener('keydown', onKey, true);
+        return () => document.removeEventListener('keydown', onKey, true);
+    }
+
+    // Everything a modal sheet must hide from AT / pointer / Tab while open.
+    // Regions that contain the dialog itself are skipped automatically.
+    const READER_REGIONS = ['#readerToolbar', '.reader-col', '#readerPlayback', '#highlightPop'];
+    const holds = new Set();
+    function holdDialog(el, trigger, regions = READER_REGIONS) {
+        const inerted = regions.map(sel => document.querySelector(sel))
+            .filter(n => n && !n.contains(el) && !n.inert);
+        inerted.forEach(n => { n.inert = true; });
+        const hold = { el, trigger, inerted, release: trapFocus(el) };
+        holds.add(hold);
+        return hold;
+    }
+    // Returns null so callers can write `x = releaseDialog(x)`.
+    function releaseDialog(hold, restoreFocus = true) {
+        if (!hold || !holds.has(hold)) return null;
+        holds.delete(hold);
+        hold.inerted.forEach(n => { n.inert = false; });
+        hold.release();
+        // Back to the control that opened it — unless the user has already
+        // moved focus somewhere deliberate outside the dialog.
+        const at = document.activeElement;
+        if (restoreFocus && hold.trigger?.isConnected && (!at || at === document.body || hold.el.contains(at))) {
+            hold.trigger.focus({ preventScroll: true });
+        }
+        return null;
+    }
+    const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // ---- Reader preferences (persisted in localStorage) ----
     // Typography keys can be overridden per novel ("This novel only"): the
@@ -457,9 +535,11 @@
     const settingsBtn = document.getElementById('readerSettingsBtn');
     const settingsPop = document.getElementById('readerSettings');
     const backdrop = document.getElementById('readerBackdrop');
+    let settingsHold = null;
     function toggleSettings(show) {
         const open = show ?? settingsPop.classList.contains('d-none');
         if (open === !settingsPop.classList.contains('d-none')) return;
+        if (!open) settingsHold = releaseDialog(settingsHold);
         settingsPop.classList.toggle('d-none', !open);
         backdrop.classList.toggle('d-none', !open);
         document.body.classList.toggle('reader-sheet-open', open);
@@ -469,6 +549,7 @@
             // The sheet lives inside the chrome; a translated (auto-hidden)
             // chrome would become the containing block of the fixed sheet.
             setChromeHidden(false);
+            settingsHold = holdDialog(settingsPop, settingsBtn);
             // Move focus into the dialog (the container, so no ring flashes on a tab).
             settingsPop.focus({ preventScroll: true });
         }
@@ -480,6 +561,7 @@
     document.addEventListener('click', () => toggleSettings(false), { signal });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && !settingsPop.classList.contains('d-none')) {
+            e.preventDefault();
             toggleSettings(false);
             settingsBtn.focus();
         }
@@ -517,19 +599,68 @@
     // ---- Playback bar (Listen + Auto-scroll), docked at the bottom ----
     const playbackBtn = document.getElementById('playbackBtn');
     const playbackBar = document.getElementById('readerPlayback');
+    // Deliberately non-modal (aria-modal="false", no trap, no inert): it is
+    // meant to stay docked while you read, scroll, select text and follow the
+    // Next link during auto-scroll / read-aloud. Focus still moves into it on
+    // open and Esc / Close return focus to the Playback button.
     function togglePlayback(show) {
         const open = show ?? playbackBar.classList.contains('d-none');
         playbackBar.classList.toggle('d-none', !open);
         document.body.classList.toggle('reader-playbar-open', open);
         playbackBtn.classList.toggle('is-active', open);
         playbackBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) playbackBar.querySelector('button')?.focus({ preventScroll: true });
     }
-    playbackBtn.addEventListener('click', () => { toggleSettings(false); togglePlayback(); }, { signal });
-    playbackBar.querySelector('[data-close-playback]').addEventListener('click', () => {
+    function closePlayback() {
         stopAutoScroll();
         ttsStopAll();
+        const hadFocus = playbackBar.contains(document.activeElement);
         togglePlayback(false);
-        playbackBtn.focus();
+        if (hadFocus || document.activeElement === document.body) playbackBtn.focus({ preventScroll: true });
+    }
+    playbackBtn.addEventListener('click', () => { toggleSettings(false); togglePlayback(); }, { signal });
+    playbackBar.querySelector('[data-close-playback]').addEventListener('click', closePlayback, { signal });
+    // Esc closes it from anywhere — unless a modal (sheet, drawer, "?") is on
+    // top, in which case that modal takes the Esc.
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || e.defaultPrevented || holds.size) return;
+        if (playbackBar.classList.contains('d-none') || document.querySelector('.offcanvas.show, .modal.show')) return;
+        closePlayback();
+    }, { signal });
+
+    // ---- "?" keyboard-shortcuts overlay (modal) ----
+    const keysPanel = document.getElementById('readerKeys');
+    let keysHold = null;
+    function toggleKeys(show, trigger = document.activeElement) {
+        const open = show ?? keysPanel.classList.contains('d-none');
+        if (open === !keysPanel.classList.contains('d-none')) return;
+        if (open) {
+            toggleSettings(false);
+            keysPanel.classList.remove('d-none');
+            document.body.classList.add('reader-keys-open');
+            // Back to the opener if it's a real control, else the Aa button.
+            const back = trigger && trigger !== document.body && !keysPanel.contains(trigger) && !settingsPop.contains(trigger) ? trigger : settingsBtn;
+            keysHold = holdDialog(keysPanel, back, ['#reader']);
+            keysPanel.focus({ preventScroll: true });
+        } else {
+            keysHold = releaseDialog(keysHold);
+            keysPanel.classList.add('d-none');
+            document.body.classList.remove('reader-keys-open');
+        }
+    }
+    settingsPop.querySelector('[data-open-keys]').addEventListener('click', () => toggleKeys(true, settingsBtn), { signal });
+    keysPanel.querySelector('[data-close-keys]').addEventListener('click', () => toggleKeys(false), { signal });
+    // A click outside the panel (it lands on the inert page → body) dismisses.
+    document.addEventListener('click', (e) => {
+        if (!keysPanel.classList.contains('d-none') && !keysPanel.contains(e.target)) toggleKeys(false);
+    }, { signal });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !keysPanel.classList.contains('d-none')) { e.preventDefault(); toggleKeys(false); return; }
+        if (e.key !== '?' || e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.target.matches('input, textarea, select, [contenteditable]')) return;
+        if (document.querySelector('.offcanvas.show, .modal.show')) return;
+        e.preventDefault();
+        toggleKeys();
     }, { signal });
 
     // Label + play/pause glyph on a playback button (icons are server-rendered).
@@ -631,7 +762,7 @@
     function goPrev() {
         const cur = sections[currentIdx];
         if (currentIdx > 0) {
-            window.scrollTo({ top: sectionTop(sections[currentIdx - 1]), behavior: 'smooth' });
+            window.scrollTo({ top: sectionTop(sections[currentIdx - 1]), behavior: reducedMotion() ? 'auto' : 'smooth' });
         } else {
             visit(cur.prev?.url);
         }
@@ -639,7 +770,7 @@
     function goNext() {
         const cur = sections[currentIdx];
         if (currentIdx < sections.length - 1) {
-            window.scrollTo({ top: sectionTop(sections[currentIdx + 1]), behavior: 'smooth' });
+            window.scrollTo({ top: sectionTop(sections[currentIdx + 1]), behavior: reducedMotion() ? 'auto' : 'smooth' });
         } else {
             visit(cur.next?.url);
         }
@@ -647,6 +778,7 @@
 
     document.addEventListener('keydown', (e) => {
         if (e.target.matches('input, textarea, select')) return;
+        if (holds.size || document.querySelector('.offcanvas.show, .modal.show')) return;   // a modal is open
         if (e.key === 'ArrowLeft') goPrev();
         if (e.key === 'ArrowRight') goNext();
     }, { signal });
@@ -1048,6 +1180,18 @@
             tocList.innerHTML = '<div class="p-3 tone-danger">Could not load the chapter list.</div>';
         }
     }, { signal });
+    // Bootstrap's offcanvas already traps focus, closes on Esc, locks body
+    // scroll and returns focus to #tocBtn; add inert on the page behind it.
+    let tocHold = null;
+    tocPanelNode.addEventListener('show.bs.offcanvas', () => {
+        toggleSettings(false);
+        tocHold = releaseDialog(tocHold, false);
+        const inerted = [readerEl].filter(n => !n.inert);
+        inerted.forEach(n => { n.inert = true; });
+        tocHold = { el: tocPanelNode, trigger: null, inerted, release: () => {} };
+        holds.add(tocHold);
+    }, { signal });
+    tocPanelNode.addEventListener('hidden.bs.offcanvas', () => { tocHold = releaseDialog(tocHold, false); }, { signal });
     // The drawer slides in; centre the current row once it has a layout.
     tocPanelNode.addEventListener('shown.bs.offcanvas', () => scrollToCurrent(), { signal });
 
@@ -1470,6 +1614,14 @@
         ttsStopAll();
         sentinelObserver?.disconnect();
         sectionObserver?.disconnect();
+        // Release every dialog hold (focus traps, inert) and body scroll locks,
+        // so nothing leaks into the next page if we leave with a sheet open.
+        [...holds].forEach(h => releaseDialog(h, false));
+        document.body.classList.remove('reader-sheet-open', 'reader-playbar-open', 'reader-keys-open');
+        try { window.bootstrap?.Offcanvas.getInstance(tocPanelNode)?.dispose(); } catch (e) { /* best effort */ }
+        document.querySelectorAll('.offcanvas-backdrop').forEach(n => n.remove());
+        document.body.style.removeProperty('overflow');
+        document.body.style.removeProperty('padding-right');
         pageAbort.abort();   // removes every { signal } listener above, incl. these two
     }
     document.addEventListener('turbo:before-cache', teardown, { signal });

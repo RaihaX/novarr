@@ -60,7 +60,7 @@ class DiscoverController extends Controller
             // Browse lists barely change — cache them. Searches are cached
             // briefly. A broken cache store must not take the feature down.
             $ttl = $data['type'] === 'search' ? 600 : 3600;
-            $cacheKey = 'discover_v4_' . md5($url);
+            $cacheKey = 'discover_v5_' . md5($url);
 
             try {
                 $items = Cache::remember($cacheKey, $ttl, fn() => $this->fetchList($url));
@@ -285,7 +285,7 @@ class DiscoverController extends Controller
                 continue;
             }
 
-            $items[] = [
+            $item = [
                 'name' => $name,
                 'url' => self::BASE . '/novel/' . $slug,
                 // Covers live on the image host, keyed by slug (see the
@@ -295,6 +295,15 @@ class DiscoverController extends Controller
                 'author' => trim($row['novel_author'] ?? ''),
                 'description' => $this->plainSynopsis($row['novel_desc'] ?? ''),
             ];
+            // Status pill + chapter count for the cover card, when reported.
+            $status = novelArrowStatus($row['novel_status'] ?? null);
+            if ($status !== null) {
+                $item['status'] = $status;
+            }
+            if (is_numeric($row['totalChapter'] ?? null) && (int) $row['totalChapter'] > 0) {
+                $item['chapters'] = (int) $row['totalChapter'];
+            }
+            $items[] = $item;
         }
 
         if (empty($items)) {

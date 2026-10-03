@@ -20,6 +20,7 @@ use App\Http\Controllers\LogController;
 // Dashboard
 Route::get('/', [HomeController::class, 'index'])->name('home');
 Route::get('/continue', [HomeController::class, 'continue'])->name('continue');
+Route::get('/activity', [\App\Http\Controllers\ActivityController::class, 'index'])->name('activity.index');
 Route::view('/offline', 'offline')->name('offline');
 Route::view('/library', 'library')->name('library');
 
@@ -65,7 +66,7 @@ Route::get('/commands/{command}', [CommandController::class, 'showForm'])->name(
 
 // Search
 Route::get('/search', [SearchController::class, 'index'])->name('search.index');
-Route::get('/search/suggest', [SearchController::class, 'suggest'])->name('search.suggest');
+Route::get('/palette', [SearchController::class, 'palette'])->name('palette');
 
 // Reading stats + bookmarks
 Route::get('/stats', [\App\Http\Controllers\StatsController::class, 'index'])->name('stats.index');

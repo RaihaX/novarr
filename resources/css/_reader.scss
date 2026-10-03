@@ -1019,3 +1019,109 @@ body.reader-focus:not(.chrome-peek) {
 // Bootstrap focuses the drawer container on open; that's not a user focus.
 #tocPanel:focus,
 #tocPanel:focus-visible { outline: none; }
+
+// --- Dialog a11y: scroll lock, "?" shortcuts overlay ----------------------
+// Phones: the Aa bottom sheet is modal, so the page behind it must not
+// scroll. The class is removed on close and in the script's Turbo teardown.
+@include media-breakpoint-down(md) {
+    body.reader-sheet-open { overflow: hidden; }
+}
+
+body.reader-keys-open { overflow: hidden; }
+
+.reader-keys-link {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    width: 100%;
+    margin-top: $s-3;
+    padding: 6px 0;
+    background: none;
+    border: 0;
+    font-family: $font-ui;
+    font-size: 12px;
+    color: var(--rd-muted);
+    text-align: left;
+    transition: color $transition;
+
+    &:hover { color: var(--rd-title); }
+}
+
+// Shortcuts are keyboard-only; touch-only devices don't need the entry point.
+@media (hover: none) and (pointer: coarse) {
+    .reader-keys-link { display: none; }
+}
+
+.reader-keys kbd,
+.reader-keys-link kbd {
+    display: inline-block;
+    min-width: 22px;
+    padding: 1px 6px;
+    font-family: $font-mono;
+    font-size: 11px;
+    line-height: 18px;
+    text-align: center;
+    color: var(--rd-title);
+    background: var(--rd-line);
+    border: $hairline solid var(--rd-border);
+    border-radius: 3px;
+    box-shadow: none;
+}
+
+.reader-keys {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 1060;
+    transform: translate(-50%, -50%);
+    width: min(420px, calc(100vw - #{$s-7}));
+    max-height: calc(100vh - #{$s-7});
+    overflow-y: auto;
+    padding: $s-4 $s-5 $s-5;
+    font-family: $font-ui;
+    color: var(--rd-title);
+    background: var(--rd-raise);
+    border: $hairline solid var(--rd-border);
+    border-radius: $radius;
+    // Scrim without an extra element. box-shadow isn't hit-tested, so a
+    // click "on the scrim" lands on the (inert) page; Esc / Close dismiss.
+    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.5);
+
+    &:focus { outline: none; }
+}
+
+.reader-keys-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: $s-3;
+}
+
+.reader-keys-title {
+    margin: 0;
+    font-size: $fs-card-title;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+
+.reader-keys-list {
+    margin: 0;
+
+    > div {
+        display: grid;
+        grid-template-columns: 72px minmax(0, 1fr);
+        gap: $s-4;
+        align-items: baseline;
+        padding: 7px 0;
+        border-top: $hairline solid var(--rd-border);
+    }
+
+    dt { font-weight: 400; white-space: nowrap; }
+    dd { margin: 0; font-size: 13px; color: var(--rd-text); }
+}
+
+.reader-keys-note {
+    margin: $s-3 0 0;
+    font-size: 12px;
+    color: var(--rd-muted);
+}

@@ -55,6 +55,10 @@ class CacheHelper
     public static function clearNovelCache(int $novelId)
     {
         Cache::forget("novel_stats_{$novelId}");
+        // Library-wide aggregates (grid sublines, chip counts) and the home
+        // Continue row depend on this novel's read/download state.
+        Cache::forget('library_reading_v1');
+        Cache::forget('dashboard_continue');
     }
 
     /**

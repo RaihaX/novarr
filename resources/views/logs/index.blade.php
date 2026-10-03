@@ -10,7 +10,8 @@
 
 <div class="card">
     <div class="table-responsive">
-        <table class="table table-hover align-middle">
+        <table class="table table-hover align-middle table-responsive-cards">
+            <caption class="visually-hidden">Log files</caption>
             <thead>
                 <tr>
                     <th>File name</th>
@@ -22,15 +23,15 @@
             <tbody>
                 @forelse($logFiles as $file)
                     <tr>
-                        <td><span class="log-name">{{ $file['name'] }}</span></td>
-                        <td class="mono-muted">{{ $file['size'] }}</td>
-                        <td class="mono-muted">{{ $file['modified'] }}</td>
-                        <td>
+                        <td class="cell-primary"><span class="log-name">{{ $file['name'] }}</span></td>
+                        <td class="mono-muted" data-label="Size">{{ $file['size'] }}</td>
+                        <td class="mono-muted" data-label="Modified">{{ $file['modified'] }}</td>
+                        <td class="cell-actions">
                             <div class="job-actions justify-content-start">
                                 <a href="{{ route('logs.show', $file['name']) }}" class="btn btn-secondary">View</a>
-                                <a href="{{ route('logs.download', $file['name']) }}" class="btn btn-secondary">Download</a>
-                                <button class="btn btn-warning log-clear-btn" data-filename="{{ $file['name'] }}">Clear</button>
-                                <button class="btn btn-danger log-delete-btn" data-filename="{{ $file['name'] }}">Delete</button>
+                                <a href="{{ route('logs.download', $file['name']) }}" class="btn btn-secondary" data-turbo="false" data-turbo-prefetch="false">Download</a>
+                                <button type="button" class="btn btn-warning log-clear-btn" data-filename="{{ $file['name'] }}" aria-label="Clear {{ $file['name'] }}">Clear</button>
+                                <button type="button" class="btn btn-danger log-delete-btn" data-filename="{{ $file['name'] }}" aria-label="Delete {{ $file['name'] }}">Delete</button>
                             </div>
                         </td>
                     </tr>

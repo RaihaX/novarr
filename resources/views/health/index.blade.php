@@ -105,22 +105,23 @@
     </div>
     @if($failed_jobs->count())
         <div class="table-responsive">
-            <table class="table table-hover align-middle">
+            <table class="table table-hover align-middle table-responsive-cards">
+                <caption class="visually-hidden">Failed queue jobs</caption>
                 <thead>
                     <tr>
                         <th style="width: 130px;">Queue</th>
                         <th style="width: 150px;">Failed</th>
                         <th>Error</th>
-                        <th style="width: 230px;"></th>
+                        <th style="width: 230px;"><span class="visually-hidden">Actions</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach($failed_jobs as $job)
                         <tr data-uuid="{{ $job->uuid }}">
-                            <td class="mono-figure">{{ $job->queue }}</td>
-                            <td class="mono-muted text-nowrap">{{ \Carbon\Carbon::parse($job->failed_at)->diffForHumans() }}</td>
-                            <td><span class="job-error">{{ Str::limit($job->exception, 120) }}</span></td>
-                            <td>
+                            <td class="mono-figure" data-label="Queue">{{ $job->queue }}</td>
+                            <td class="mono-muted text-nowrap" data-label="Failed">{{ \Carbon\Carbon::parse($job->failed_at)->diffForHumans() }}</td>
+                            <td class="cell-block" data-label="Error"><span class="job-error">{{ Str::limit($job->exception, 120) }}</span></td>
+                            <td class="cell-actions">
                                 <div class="job-actions">
                                     <button type="button" class="btn btn-secondary job-details" data-uuid="{{ $job->uuid }}">Details</button>
                                     <button type="button" class="btn btn-secondary job-retry" data-uuid="{{ $job->uuid }}">Retry</button>
@@ -140,11 +141,11 @@
 </div>
 
 {{-- Failed job detail modal --}}
-<div class="modal fade" id="jobModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="jobModal" tabindex="-1" aria-hidden="true" aria-labelledby="jobModalTitle">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Failed job</h5>
+                <h5 class="modal-title" id="jobModalTitle">Failed job</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">

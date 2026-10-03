@@ -1,0 +1,558 @@
+// ---------------------------------------------------------------------------
+// Round 4: cover-forward Library / Discover grids (owned by the Library stream)
+//
+//   · <x-cover>            — the cover box (image or typographic), shared by
+//                            Library, Discover, Downloads and Home
+//   · Library (/novels)    — chips, tools, cover grid, Select mode
+//   · Discover             — cover cards with the hover/focus "+"
+//   · Downloads (/library) — cached-novel tiles with Remove
+//
+// House rules: 0 radius on covers/badges/bars, 4px on controls; one hairline;
+// no shadows; hover is a fill/colour change only. Tokens only — they resolve
+// to the runtime theme properties (see _components.scss), so rgba() is the
+// only colour function used here.
+// ---------------------------------------------------------------------------
+
+// ===========================================================================
+// <x-cover> — 2:3 box
+// ===========================================================================
+.cover {
+    position: relative;
+    display: block;
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    overflow: hidden;
+    background-color: $surface-alt;
+    border: $hairline solid $border;
+    border-radius: $radius-flat;
+    // Type inside scales with the cover's own width (cqi), so one recipe
+    // serves a 72px thumb and a 240px hero alike.
+    container-type: inline-size;
+    transition: border-color $transition;
+
+    > img {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+}
+
+// Typographic cover — DefaultCoverGenerator's recipe at tile scale.
+.cover-type {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 4cqi;
+    padding: 9cqi 9cqi 10cqi 12cqi;
+}
+
+// The vertical indigo→violet rule bleeding off the top edge, inset by the
+// page margin (36/300 of the width on the ePub cover).
+.cover-rule {
+    position: absolute;
+    top: 0;
+    left: 12cqi;
+    width: max(2px, 1.2cqi);
+    height: 24%;
+    background: linear-gradient(180deg, $brand-indigo, $brand-violet);
+}
+
+.cover-foot {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4cqi;
+    min-width: 0;
+}
+
+.cover-count {
+    flex: none;
+    font-family: $font-mono;
+    font-size: max(8px, 5cqi);
+    line-height: 1;
+    color: $muted;
+    letter-spacing: 0.02em;
+}
+
+.cover-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 6;
+    overflow: hidden;
+    font-family: $font-read;
+    font-weight: 600;
+    line-height: 1.18;
+    letter-spacing: -0.01em;
+    color: $text;
+    overflow-wrap: anywhere;
+    hyphens: auto;
+
+    // Steps by title length, as the ePub cover (≤18 / ≤44 / longer).
+    &.cover-title-l { font-size: 13cqi; -webkit-line-clamp: 4; }
+    &.cover-title-m { font-size: 10cqi; }
+    &.cover-title-s { font-size: 8.4cqi; -webkit-line-clamp: 7; }
+}
+
+.cover-author {
+    min-width: 0;
+    font-size: max(8px, 5cqi);
+    font-weight: $fw-micro;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: $text-muted;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+// sm (72px) thumbs: title only, tighter margins.
+.cover-sm {
+    .cover-type { padding: 8cqi 8cqi 10cqi 14cqi; }
+    .cover-title { -webkit-line-clamp: 4; }
+}
+
+// Exception flag, top-left. The triad's 12% fill is laid over an opaque $bg
+// so the label stays legible on top of cover art.
+.cover-flag.badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    z-index: 2;
+    max-width: calc(100% - 12px);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 3px 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@each $state, $c in (attention: $warning, failed: $danger, paused: $muted-fg) {
+    .cover-flag.badge-#{$state} {
+        background: linear-gradient(rgba($c, 0.14), rgba($c, 0.14)), $bg;
+    }
+}
+
+// Reading progress: a 3px amber edge along the bottom (amber = reading).
+.cover-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
+    height: 3px;
+    background-color: $border;
+
+    > span {
+        display: block;
+        height: 100%;
+        background-color: $brand-amber;
+        transition: width $transition-bar;
+    }
+}
+
+// ===========================================================================
+// Library (/novels)
+// ===========================================================================
+.lib-summary {
+    font-size: $fs-body;
+    color: $text-muted;
+
+    .mono-num {
+        font-family: $font-mono;
+        color: $text;
+    }
+}
+
+.lib-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: $s-4 $s-5;
+}
+
+.lib-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-2;
+    min-width: 0;
+}
+
+.lib-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding: 0 $s-4;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    color: $text-muted;
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    transition: color $transition, background-color $transition, border-color $transition;
+
+    &:hover {
+        color: $text;
+        background-color: $surface-alt;
+    }
+
+    &.is-on {
+        color: $text;
+        border-color: $accent;
+    }
+}
+
+.lib-chip-count {
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    color: $text-muted;
+}
+
+// Search / tag / sort / view toggle — the filter-bar's 34px control rhythm.
+.lib-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2;
+    margin: 0;
+
+    .form-select,
+    .form-control {
+        width: auto;
+        height: 34px;
+        padding: 6px $s-4;
+        font-size: 13px;
+        background-color: $surface-alt;
+        border-color: $border;
+        color: $text;
+
+        &:focus { background-color: $surface-alt; border-color: $accent; }
+    }
+
+    .form-select { padding-right: $s-8; }
+    .lib-search { width: 180px; }
+    .lib-sort { margin: 0; }
+
+    .segmented .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 34px;
+    }
+}
+
+// The cover grid: 3 → 4 → 5 → 7 across.
+.lib-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: $s-6 $s-5;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    @media (min-width: 768px) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    @media (min-width: 992px) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    @media (min-width: 1200px) { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+}
+
+.lib-tile {
+    position: relative;
+    min-width: 0;
+}
+
+// The whole tile is one link (cover + title + subline): a big target.
+.lib-tile-link {
+    display: flex;
+    flex-direction: column;
+    gap: $s-2;
+    min-height: 44px;
+    color: $text;
+
+    &:hover {
+        color: $text;
+
+        .cover { border-color: $btn-secondary-border; }
+        .lib-tile-title { color: $link-hover; }
+    }
+}
+
+.lib-tile-title {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color $transition;
+}
+
+.lib-tile-sub {
+    margin-top: -4px;
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    line-height: 1.3;
+    color: $text-muted;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+// Select mode: a checkbox per tile, clicking a tile toggles it.
+.lib-tile-check {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 3;
+    width: 22px;
+    height: 22px;
+    margin: 0;
+    display: none;
+}
+
+.lib-grid.is-selecting {
+    .lib-tile-check { display: block; }
+    .lib-tile-link { cursor: pointer; }
+}
+
+.lib-tile.is-selected .cover {
+    outline: 2px solid $accent;
+    outline-offset: -2px;
+}
+
+// Phone: 16px page gutters (container 12 + 4), chips scroll inside their
+// own row instead of stacking three deep, 44px touch targets.
+@media (max-width: 575.98px) {
+    .lib-page { padding-inline: 4px; }
+
+    .lib-toolbar { gap: $s-3; }
+
+    .lib-chips {
+        flex-wrap: nowrap;
+        width: 100%;
+        overflow-x: auto;
+        scrollbar-width: none;
+        &::-webkit-scrollbar { display: none; }
+    }
+
+    .lib-tools {
+        width: 100%;
+
+        .lib-search { flex: 1 1 140px; width: auto; min-width: 0; }
+    }
+
+    .lib-grid { gap: $s-5 $s-5; }
+}
+
+@media (pointer: coarse) {
+    .lib-chip,
+    .lib-tools .form-select,
+    .lib-tools .form-control,
+    .lib-tools .segmented .btn { height: 44px; }
+}
+
+// ===========================================================================
+// Discover — the same cover cards, plus "+ Add to library"
+// ===========================================================================
+.disc-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: $s-7 $s-5;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    @media (min-width: 576px) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    @media (min-width: 768px) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    @media (min-width: 992px) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    @media (min-width: 1200px) { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+
+.disc-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.disc-cover-wrap {
+    position: relative;
+    margin-bottom: 2px;
+}
+
+.disc-title {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: $text;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+
+    &:hover { color: $link-hover; }
+}
+
+.disc-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: $fs-caption;
+    color: $text-muted;
+    min-width: 0;
+
+    .disc-author {
+        min-width: 0;
+        max-width: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+}
+
+.disc-synopsis {
+    margin: 0;
+    font-size: $fs-caption;
+    line-height: 1.5;
+    color: $text-muted;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+
+    &.is-expanded {
+        display: block;
+        -webkit-line-clamp: unset;
+    }
+}
+
+.disc-more {
+    align-self: flex-start;
+    padding: 0;
+    min-height: 24px;
+    font-size: $fs-caption;
+    font-weight: 500;
+    color: $link;
+    background: none;
+    border: 0;
+
+    &:hover { color: $link-hover; }
+}
+
+// "+": an accent square on the cover's bottom-right. Shown on hover/focus
+// where there is hover; always on touch.
+.disc-add {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0 $s-3;
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    background-color: $accent;
+    border: $hairline solid $accent;
+    border-radius: $radius;
+    opacity: 0;
+    transition: opacity 120ms ease-out, background-color $transition;
+
+    .disc-add-plus { font-size: 20px; line-height: 1; font-weight: 400; }
+    .disc-add-label { display: none; }
+
+    &:hover { background-color: $accent-hover; }
+    &:active { background-color: $accent-press; }
+
+    &:disabled,
+    &.is-added {
+        opacity: 1;
+        color: $text;
+        background-color: $surface;
+        border-color: $border;
+        cursor: default;
+    }
+}
+
+.disc-card:hover .disc-add,
+.disc-card:focus-within .disc-add,
+.disc-add:focus-visible { opacity: 1; }
+
+.disc-card:hover .disc-add .disc-add-label,
+.disc-add:focus-visible .disc-add-label,
+.disc-add.is-added .disc-add-label,
+.disc-add:disabled .disc-add-label { display: inline; }
+
+@media (hover: none) {
+    .disc-add { opacity: 1; }
+}
+
+// Loading skeleton: cover silhouettes while the source answers.
+.disc-skeleton {
+    pointer-events: none;
+
+    .skeleton-cover,
+    .skeleton-line {
+        background: linear-gradient(90deg, $surface 25%, $surface-alt 37%, $surface 63%);
+        background-size: 400% 100%;
+        animation: skeleton-shimmer 1.4s ease infinite;
+    }
+
+    .skeleton-cover { aspect-ratio: 2 / 3; border: $hairline solid $border; }
+    .skeleton-line { height: 10px; margin-top: $s-2; border-radius: $radius; }
+    .skeleton-line.short { width: 55%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .disc-skeleton .skeleton-cover,
+    .disc-skeleton .skeleton-line { animation: none; }
+}
+
+// ===========================================================================
+// Downloads (/library) — cached novels on this device
+// ===========================================================================
+.dl-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: $fs-caption;
+    color: $text-muted;
+
+    .mono-num { font-family: $font-mono; color: $pending; }
+}
+
+.dl-tile .lib-tile-sub {
+    color: $text-muted;
+    // "1,204 CHAPTERS OFFLINE" is wider than a phone tile: wrap, don't cut.
+    white-space: normal;
+}
+
+.dl-remove {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 $s-3;
+    margin: 2px 0 0 (-$s-3);   // icon flush with the tile text above
+    font-size: $fs-caption;
+}
+
+@media (pointer: coarse) {
+    .dl-remove { min-height: 44px; }
+}

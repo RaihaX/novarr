@@ -1,3 +1,8 @@
+@use "sass:color";
+@use "sass:list";
+@use "sass:meta";
+@use "sass:string";
+
 // ---------------------------------------------------------------------------
 // Novarr — brand component sheet
 //
@@ -11,6 +16,165 @@
 //   · hover is a fill/colour change, never a size or shadow change
 //   · 120ms ease-out on colour properties only; 240ms on progress width
 // ---------------------------------------------------------------------------
+
+// ===========================================================================
+// Runtime theme (dark canonical, light companion)
+//
+// resources/js/theme.js + the inline <head> script in layouts/app.blade.php
+// put data-bs-theme="dark|light" on <html> before first paint (system
+// preference by default, an explicit choice from localStorage otherwise).
+// The reader sets its own data-bs-theme on <body>; because every colour below
+// is a custom property, the nearest attribute wins and the reader's choice
+// overrides the shell's inside the page.
+// ===========================================================================
+:root,
+[data-bs-theme="dark"] {
+    color-scheme: dark;
+    --nv-bg: #{$bg};
+    --nv-surface: #{$surface};
+    --nv-surface-alt: #{$surface-alt};
+    --nv-border: #{$border};
+    --nv-text: #{$text};
+    --nv-text-soft: #{$text-soft};
+    --nv-text-muted: #{$text-muted};
+    --nv-link: #{$link};
+    --nv-link-hover: #{$link-hover};
+    --nv-code-bg: #{$code-bg};
+    --nv-code-fg: #{$code-fg};
+    --nv-btn-secondary-border: #{$btn-secondary-border};
+    --nv-btn-disabled-fg: #{$btn-disabled-fg};
+    --nv-muted: #{$muted};
+    --nv-muted-fg: #{$muted-fg};
+    --nv-success: #{$success};
+    --nv-pending: #{$pending};
+    --nv-warning: #{$warning};
+    --nv-danger: #{$danger};
+    --nv-accent: #{$accent-fill};             // primary fill (white label)
+    --nv-accent-hover: #{$accent-fill-hover};
+    --nv-accent-press: #{$accent-fill-press};
+    --nv-accent-ink: #{$accent-ink};          // accent-coloured text (triad)
+    --nv-amber: #{$brand-amber};        // marks + fills (bars, the brand dot)
+    --nv-amber-ink: #{$brand-amber};    // amber *text*
+    --nv-scrim: rgba(5, 7, 10, 0.6);
+}
+
+[data-bs-theme="light"] {
+    color-scheme: light;
+    --nv-bg: #{$bg-light};
+    --nv-surface: #{$surface-light};
+    --nv-surface-alt: #{$surface-alt-light};
+    --nv-border: #{$border-light};
+    --nv-text: #{$text-light};
+    --nv-text-soft: #{$text-soft-light};
+    --nv-text-muted: #{$text-muted-light};
+    --nv-link: #{$link-light};
+    --nv-link-hover: #{$link-hover-light};
+    --nv-code-bg: #{$code-bg-light};
+    --nv-code-fg: #{$code-fg-light};
+    --nv-btn-secondary-border: #{$btn-secondary-border-light};
+    --nv-btn-disabled-fg: #{$btn-disabled-fg-light};
+    --nv-muted: #{$muted-light};
+    --nv-muted-fg: #{$muted-ink-light};
+    --nv-success: #{$success-ink-light};
+    --nv-pending: #{$pending-ink-light};
+    --nv-warning: #{$warning-ink-light};
+    --nv-danger: #{$danger-ink-light};
+    --nv-accent: #{$accent-fill-light};
+    --nv-accent-hover: #{$accent-fill-hover-light};
+    --nv-accent-press: #{$accent-fill-press-light};
+    --nv-accent-ink: #{$accent-ink-light};
+    --nv-amber: #{$amber-light};
+    --nv-amber-ink: #{$amber-ink-light};
+    --nv-scrim: rgba(26, 31, 39, 0.4);
+}
+
+// ---------------------------------------------------------------------------
+// Rebind the theme-varying Sass tokens to the runtime properties.
+// Bootstrap is already compiled (it needed literal colours for its colour
+// maths), so from here on — this sheet and every view partial imported after
+// it — `$surface`, `$text`, `$success` … emit var(--nv-*) and follow the
+// theme with no per-view work. `$accent` / `$accent-*` stay literal: the
+// brand indigo is the same on both grounds (only the primary button fill
+// steps down on light, handled below).
+// ---------------------------------------------------------------------------
+$bg:                   var(--nv-bg);
+$surface:              var(--nv-surface);
+$surface-alt:          var(--nv-surface-alt);
+$border:               var(--nv-border);
+$text:                 var(--nv-text);
+$text-soft:            var(--nv-text-soft);
+$text-muted:           var(--nv-text-muted);
+$link:                 var(--nv-link);
+$link-hover:           var(--nv-link-hover);
+$code-bg:              var(--nv-code-bg);
+$code-fg:              var(--nv-code-fg);
+$btn-secondary-border: var(--nv-btn-secondary-border);
+$btn-disabled-fg:      var(--nv-btn-disabled-fg);
+$muted:                var(--nv-muted);
+$muted-fg:             var(--nv-muted-fg);
+$success:              var(--nv-success);
+$pending:              var(--nv-pending);
+$warning:              var(--nv-warning);
+$danger:               var(--nv-danger);
+$brand-amber:          var(--nv-amber);
+
+// rgba($token, a) on a runtime token can't be computed by Sass; emit the CSS
+// equivalent instead (color-mix, so the alpha follows the theme too). Literal
+// colours and Bootstrap's rgba(var(--bs-*-rgb), a) pass through unchanged.
+// NOTE for view partials: only rgba() is shimmed — mix(), lighten(),
+// shade-color() etc. need a literal colour (use $success-light, $bg-light …).
+@function rgba($args...) {
+    $n: list.length($args);
+    @if $n == 2 {
+        $c: list.nth($args, 1);
+        $a: list.nth($args, 2);
+        @if meta.type-of($c) == color { @return color.change($c, $alpha: $a); }
+        @if meta.type-of($c) == string and string.index($c, "var(--nv-") == 1 {
+            @return string.unquote("color-mix(in srgb, #{$c} #{$a * 100%}, transparent)");
+        }
+        @return string.unquote("rgba(#{$c}, #{$a})");
+    }
+    @if $n == 4 and meta.type-of(list.nth($args, 1)) == number {
+        @return color.change(rgb(list.nth($args, 1), list.nth($args, 2), list.nth($args, 3)), $alpha: list.nth($args, 4));
+    }
+    @return string.unquote("rgba(#{$args})");
+}
+
+// ---------------------------------------------------------------------------
+// Base re-statements: app.scss's element defaults were compiled with the
+// literal (dark) tokens before this sheet; restate the theme-varying ones.
+// ---------------------------------------------------------------------------
+html { color-scheme: inherit; background-color: $bg; }
+:root[data-bs-theme="light"] { color-scheme: light; }
+:root[data-bs-theme="dark"] { color-scheme: dark; }
+
+body {
+    background-color: $bg;
+    color: $text;
+}
+
+a {
+    color: $link;
+    &:hover { color: $link-hover; }
+}
+
+.text-muted,
+.text-secondary { color: $text-muted !important; }
+
+code {
+    color: $code-fg;
+    background-color: $code-bg;
+}
+
+hr { border-top-color: $border; }
+
+::selection { color: $text; }
+
+* { scrollbar-color: $border transparent; }
+::-webkit-scrollbar-thumb {
+    background: $border;
+    &:hover { background: $btn-secondary-border; }
+}
 
 // ===========================================================================
 // Navbar
@@ -107,7 +271,9 @@
 .brand-dot { color: $brand-amber; }
 
 // ---------------------------------------------------------------------------
-// Navbar search (240px, $bg fill, inline Lucide search icon)
+// Navbar search (240px, $bg fill, inline Lucide search icon). With JS it is
+// the command-palette trigger (resources/js/navsearch.js): clicking it or
+// typing into it opens the palette; without JS it still submits to /search.
 // ---------------------------------------------------------------------------
 .nav-search {
     position: relative;
@@ -127,15 +293,18 @@
 
     .form-control {
         height: 34px;
-        padding: 7px $s-4 7px calc(#{$s-4} + 14px + #{$s-2});
+        padding: 7px calc(#{$s-4} + 30px) 7px calc(#{$s-4} + 14px + #{$s-2});
         font-size: 13px;
         color: $text;
         background-color: $bg;
         border: $hairline solid $border;
         border-radius: $radius;
         transition: $transition-base;
+        cursor: text;
 
         &::placeholder { color: $text-muted; }
+
+        &:hover { border-color: $btn-secondary-border; }
 
         &:focus {
             background-color: $bg;
@@ -148,31 +317,73 @@
         &::-webkit-search-cancel-button { -webkit-appearance: none; }
     }
 
-    // Autocomplete menu (see resources/js/navsearch.js, #navSearchResults).
-    .dropdown-menu {
-        margin-top: $s-1;
-        background-color: $surface;
-        border: $hairline solid $border;
-        border-radius: $radius;
-        overflow: hidden;
-
-        .dropdown-item {
-            padding: $s-2 $s-4;
-            font-size: 13px;
-            color: $text;
-
-            &:hover,
-            &:focus,
-            &.active {
-                color: $text;
-                background-color: $surface-alt;
-            }
-        }
+    // "⌘K" hint, right-aligned inside the field.
+    .nav-search-kbd {
+        position: absolute;
+        top: 50%;
+        right: $s-2;
+        transform: translateY(-50%);
+        pointer-events: none;
     }
+}
+
+// Keyboard hint chip (palette footer, navbar field).
+.kbd-hint {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    line-height: 1;
+    color: $text-muted;
+    background: $surface-alt;
+    border: $hairline solid $border;
+    border-radius: 3px;
 }
 
 @include media-breakpoint-down(lg) {
     .nav-search { width: 100%; }
+}
+
+// ---------------------------------------------------------------------------
+// Theme toggle (navbar + the phone "More" sheet): cycles system → light →
+// dark. theme.js swaps the visible icon via [data-theme-pref] on <html>.
+// ---------------------------------------------------------------------------
+.theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: $s-2;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 $s-2;
+    color: $text-muted;
+    background: transparent;
+    border: $hairline solid transparent;
+    border-radius: $radius;
+    transition: $transition-base;
+
+    &:hover,
+    &:focus-visible {
+        color: $text;
+        background: $surface-alt;
+    }
+
+    .theme-icon { display: none; }
+}
+
+:root:not([data-theme-pref]) .theme-toggle .theme-icon-system,
+:root[data-theme-pref="system"] .theme-toggle .theme-icon-system,
+:root[data-theme-pref="light"] .theme-toggle .theme-icon-light,
+:root[data-theme-pref="dark"] .theme-toggle .theme-icon-dark { display: block; }
+
+.navbar-tools {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
 }
 
 // ===========================================================================
@@ -199,14 +410,15 @@
 .btn-close { justify-content: center; }
 
 .btn-primary {
-    --#{$prefix}btn-bg: #{$accent};
-    --#{$prefix}btn-border-color: #{$accent};
+    // Runtime fill tokens: #4F5CE6 dark / #4A58E8 light (white label ≥ 4.5:1).
+    --#{$prefix}btn-bg: var(--nv-accent);
+    --#{$prefix}btn-border-color: var(--nv-accent);
     --#{$prefix}btn-color: #fff;
-    --#{$prefix}btn-hover-bg: #{$accent-hover};
-    --#{$prefix}btn-hover-border-color: #{$accent-hover};
+    --#{$prefix}btn-hover-bg: var(--nv-accent-hover);
+    --#{$prefix}btn-hover-border-color: var(--nv-accent-hover);
     --#{$prefix}btn-hover-color: #fff;
-    --#{$prefix}btn-active-bg: #{$accent-press};
-    --#{$prefix}btn-active-border-color: #{$accent-press};
+    --#{$prefix}btn-active-bg: var(--nv-accent-press);
+    --#{$prefix}btn-active-border-color: var(--nv-accent-press);
     --#{$prefix}btn-active-color: #fff;
     --#{$prefix}btn-disabled-bg: #{$surface-alt};
     --#{$prefix}btn-disabled-border-color: #{$border};
@@ -510,7 +722,7 @@ img.novel-card-cover { display: block; padding: 0; }
     font-size: $fs-micro;
     color: $text-muted;
 
-    .novel-card-percent { color: $brand-amber; }
+    .novel-card-percent { color: var(--nv-amber-ink); }
 }
 
 // ---------------------------------------------------------------------------
@@ -982,8 +1194,8 @@ div > .attention-snoozed { border-top: 0; padding: 0; }
 }
 
 .page-item.active .page-link {
-    background-color: $accent;
-    border-color: $accent;
+    background-color: var(--nv-accent);
+    border-color: var(--nv-accent);
     color: #fff;
 }
 
@@ -1066,7 +1278,7 @@ div > .attention-snoozed { border-top: 0; padding: 0; }
     top: -48px;
     z-index: 1100;
     padding: $s-2 $s-5;
-    background: $accent;
+    background: var(--nv-accent);
     color: #fff;
     border-radius: 0 0 $radius 0;
     transition: top 0.15s ease;
@@ -1368,48 +1580,7 @@ div > .attention-snoozed { border-top: 0; padding: 0; }
 .poster-card .poster-meta { margin-bottom: $s-2; }
 
 // --- Continue-reading row (dashboard) ------------------------------------
-.continue-row {
-    display: flex;
-    gap: $s-5;
-    overflow-x: auto;
-    padding-bottom: $s-2;
-}
 
-.continue-card {
-    flex: 0 0 110px;
-    width: 110px;
-    text-decoration: none;
-    color: $text;
-
-    .poster-cover {
-        position: relative;
-        aspect-ratio: 2 / 3;
-        border-radius: $radius;
-        overflow: hidden;
-
-        img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    }
-
-    &:hover {
-        color: $text;
-        .poster-cover { border-color: $btn-secondary-border; }
-        .continue-title { color: $link-hover; }
-    }
-
-    .continue-title {
-        margin-top: 6px;
-        font-size: $fs-caption;
-        font-weight: 600;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .continue-meta {
-        font-size: $fs-micro;
-        color: $text-muted;
-    }
-}
 
 // --- Dashboard stat cards -------------------------------------------------
 .dash-stat {
@@ -1643,3 +1814,237 @@ details.log-entry summary {
 
     &.funnel-switch .funnel-switch-help { color: $danger; }
 }
+
+// ===========================================================================
+// Light-theme touch-ups for the few shell pieces that carry literal colours
+// ===========================================================================
+// toast.js uses .btn-close-white; on a light ground it must stay dark.
+[data-bs-theme="light"] .btn-close-white { filter: none; }
+
+// Toasts sit over arbitrary content: the triad tint goes over an opaque
+// surface so page text never shows through. Bootstrap's .text-bg-* helpers
+// are !important, hence the !important here.
+@each $type, $c in (success: $success, info: $pending, warning: $warning, danger: $danger) {
+    .toast.text-bg-#{$type} {
+        color: $c !important;
+        background-color: $surface !important;
+        background-image: linear-gradient(#{rgba($c, 0.12)}, #{rgba($c, 0.12)}) !important;
+        border: $hairline solid rgba($c, 0.35) !important;
+    }
+}
+.toast[class*="text-bg-"] .btn-close { filter: none; }
+[data-bs-theme="dark"] .toast[class*="text-bg-"] .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
+
+// ===========================================================================
+// Phone tab bar (<768px) — partials/tabbar.blade.php
+// Home · Library · Discover · Search · More, fixed to the bottom above the
+// home indicator. Never rendered on the chromeless reader.
+// ===========================================================================
+$tabbar-height: 56px;
+
+.tabbar { display: none; }
+
+@include media-breakpoint-down(md) {
+    .tabbar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1035;
+        display: flex;
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+        background: $surface;
+        border-top: $hairline solid $border;
+    }
+
+    .tabbar-item {
+        position: relative;
+        flex: 1 1 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        min-height: $tabbar-height;
+        min-width: 44px;
+        padding: 6px 2px 5px;
+        font-size: $fs-micro;
+        font-weight: 500;
+        line-height: 1.2;
+        color: $text-muted;
+        background: transparent;
+        border: 0;
+        text-decoration: none;
+        transition: $transition-base;
+        -webkit-tap-highlight-color: transparent;
+
+        .icon { width: 22px; height: 22px; }
+
+        &:hover,
+        &:focus-visible { color: $text; }
+
+        &:focus-visible { outline-offset: -4px; }
+
+        // Active: text colour + a 2px indigo rule along the top edge (the
+        // navbar's inset underline, turned to face the content).
+        &.is-active {
+            color: $text;
+            &::before {
+                content: "";
+                position: absolute;
+                top: -1px;
+                left: 22%;
+                right: 22%;
+                height: $rule-strong;
+                background: $accent;
+            }
+        }
+    }
+
+    // Content clears the bar.
+    body.has-tabbar {
+        padding-bottom: calc(#{$tabbar-height} + env(safe-area-inset-bottom));
+    }
+
+    // Floating chrome rides above it.
+    body.has-tabbar .pwa-install-bar {
+        bottom: calc(#{$tabbar-height} + #{$s-4} + env(safe-area-inset-bottom));
+    }
+    body.has-tabbar .toast-container {
+        bottom: calc(#{$tabbar-height} + env(safe-area-inset-bottom)) !important;
+    }
+
+    // Phones navigate from the tab bar: no hamburger, no collapsed menu.
+    body.has-tabbar .navbar .navbar-toggler,
+    body.has-tabbar .navbar .navbar-collapse { display: none !important; }
+    body.has-tabbar .navbar > .container { justify-content: space-between; }
+}
+
+// ===========================================================================
+// Bottom sheet (window.Novarr.openSheet / closeSheet in resources/js/app.js)
+// Generic: any `.nv-sheet` with a `.nv-sheet-panel` child. Other streams'
+// sheets can reuse the markup + API.
+// ===========================================================================
+.nv-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 1060;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+
+    &[hidden] { display: none; }
+}
+
+.nv-sheet-backdrop {
+    position: absolute;
+    inset: 0;
+    background: var(--nv-scrim);
+    border: 0;
+    padding: 0;
+    width: 100%;
+    cursor: default;
+}
+
+.nv-sheet-panel {
+    position: relative;
+    max-height: 85vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: $s-2 0 calc(#{$s-4} + env(safe-area-inset-bottom));
+    background: $surface;
+    border-top: $hairline solid $border;
+    border-radius: $radius $radius 0 0;
+    transform: translateY(16px);
+    opacity: 0;
+    transition: transform 160ms ease-out, opacity 160ms ease-out;
+
+    .nv-sheet.is-open & {
+        transform: none;
+        opacity: 1;
+    }
+}
+
+.nv-sheet-handle {
+    width: 36px;
+    height: 4px;
+    margin: $s-1 auto $s-2;
+    background: $border;
+}
+
+.nv-sheet-title {
+    margin: 0;
+    padding: $s-2 $s-6 $s-2;
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: $ls-micro;
+    text-transform: uppercase;
+    color: $text-muted;
+}
+
+.nv-sheet-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 $s-2;
+}
+
+.nv-sheet-item {
+    display: flex;
+    align-items: center;
+    gap: $s-4;
+    width: 100%;
+    min-height: 48px;
+    padding: $s-2 $s-4;
+    font-size: 15px;
+    color: $text;
+    background: transparent;
+    border: 0;
+    border-radius: $radius;
+    text-align: left;
+    text-decoration: none;
+    transition: $transition-base;
+
+    .icon { width: 20px; height: 20px; color: $text-muted; flex: none; }
+
+    &:hover,
+    &:focus-visible { color: $text; background: $surface-alt; }
+
+    &.is-active {
+        background: $surface-alt;
+        box-shadow: inset 2px 0 0 $accent;
+    }
+
+    .nv-sheet-item-meta {
+        margin-left: auto;
+        font-size: $fs-caption;
+        color: $text-muted;
+    }
+}
+
+.nv-sheet-sep {
+    height: 1px;
+    margin: $s-2 $s-4;
+    background: $border;
+}
+
+// Sheet-hosted theme toggle reads as a row, not an icon button.
+.nv-sheet .theme-toggle {
+    justify-content: flex-start;
+    height: auto;
+    min-height: 48px;
+    padding: $s-2 $s-4;
+    color: $text;
+    font-size: 15px;
+    gap: $s-4;
+
+    .theme-icon { width: 20px; height: 20px; color: $text-muted; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nv-sheet-panel { transition: none; transform: none; }
+}
+
+// Modal open: the page behind doesn't scroll.
+body.nv-modal-open { overflow: hidden; }

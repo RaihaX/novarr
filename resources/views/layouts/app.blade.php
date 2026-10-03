@@ -1,5 +1,11 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-bs-theme="dark">
+@php
+    // The reader (chromeless) owns its theme; everything else is "the shell".
+    $isChromeless = View::hasSection('chromeless');
+@endphp
+{{-- Dark is the server default (and the no-JS theme); the inline script below
+     swaps in the visitor's theme before first paint. --}}
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-bs-theme="dark" data-theme="dark">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -14,6 +20,28 @@
     {{-- PWA --}}
     <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
     <meta name="theme-color" content="#0F1216">
+    {{-- Theme before first paint — no flash. Shell: the saved choice
+         (localStorage novarr_theme: light | dark; absent = follow the OS).
+         Reader: yield to its own reading theme. resources/js/theme.js keeps
+         it in step afterwards (Turbo visits, OS changes, the toggle). --}}
+    <script>
+        (function () {
+            var d = document.documentElement, p = 'system', m, r = null;
+            try { p = localStorage.getItem('novarr_theme') || 'system'; } catch (e) {}
+            if (p !== 'light' && p !== 'dark') p = 'system';
+            @if($isChromeless)
+            try { r = localStorage.getItem('reader_theme'); } catch (e) {}
+            m = r && r !== 'dark' ? 'light' : 'dark';
+            @else
+            m = p !== 'system' ? p : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+            @endif
+            d.setAttribute('data-bs-theme', m);
+            d.setAttribute('data-theme', m);
+            d.setAttribute('data-theme-pref', p);
+            var t = document.querySelector('meta[name="theme-color"]');
+            if (t) t.content = m === 'light' ? '#F7F8FA' : '#0F1216';
+        })();
+    </script>
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -21,14 +49,19 @@
     <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
 
     {{-- Theme lives in resources/css/app.scss on top of Bootstrap's native dark mode --}}
+    {{-- The UI face is on every page; the reading face is pushed by pages that
+         set it above the fold. Hashed names resolve through the Vite manifest. --}}
+    @php try { $geistPreload = Vite::asset('node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2'); } catch (\Throwable $e) { $geistPreload = null; } @endphp
+    @if($geistPreload)<link rel="preload" as="font" type="font/woff2" crossorigin href="{{ $geistPreload }}">@endif
+    @stack('preload')
     @vite(['resources/css/app.scss', 'resources/js/app.js'])
     @stack('styles')
 </head>
 {{-- Views that @section('chromeless') (the reader) render without the global
      navbar: the reader's own bar carries the way back. --}}
-<body @hasSection('chromeless') class="is-chromeless" @endif>
+<body class="{{ $isChromeless ? 'is-chromeless' : 'has-tabbar' }}">
     <a href="#main-content" class="skip-link">Skip to content</a>
-    @unless(View::hasSection('chromeless'))
+    @unless($isChromeless)
     <nav class="navbar navbar-expand-lg">
         <div class="container d-flex align-items-center">
             {{-- Brand lockup: 28px mark + 15px wordmark (handoff §4) --}}
@@ -57,11 +90,11 @@
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('bookmarks.*') ? 'active' : '' }}" @if(request()->routeIs('bookmarks.*')) aria-current="page" @endif href="{{ route('bookmarks.index') }}">Highlights</a>
                     </li>
-                    @php $systemActive = request()->routeIs('commands.*') || request()->routeIs('logs.*') || request()->routeIs('health.*'); @endphp
+                    @php $systemActive = request()->routeIs('commands.*') || request()->routeIs('logs.*') || request()->routeIs('health.*') || request()->routeIs('activity.*'); @endphp
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle {{ $systemActive ? 'active' : '' }}" href="#" id="systemDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" @if($systemActive) aria-current="true" @endif>System</a>
                         <ul class="dropdown-menu" aria-labelledby="systemDropdown">
-                            @foreach(['commands' => 'Commands', 'logs' => 'Logs', 'health' => 'Health'] as $sysRoute => $sysLabel)
+                            @foreach(['activity' => 'Activity', 'commands' => 'Commands', 'logs' => 'Logs', 'health' => 'Health'] as $sysRoute => $sysLabel)
                                 @php $sysOn = request()->routeIs($sysRoute . '.*'); @endphp
                                 <li><a class="dropdown-item {{ $sysOn ? 'active' : '' }}" @if($sysOn) aria-current="page" @endif href="{{ route($sysRoute . '.index') }}">{{ $sysLabel }}</a></li>
                             @endforeach
@@ -72,12 +105,22 @@
                     </li>
                 </ul>
 
-                {{-- 240px search field; JS hooks in resources/js/navsearch.js --}}
-                <form class="nav-search" role="search" action="{{ route('search.index') }}" method="GET" id="navSearchForm">
-                    <x-icon name="search" :size="14" class="nav-search-icon" />
-                    <input type="search" name="q" id="navSearch" class="form-control" placeholder="Search library" autocomplete="off" aria-label="Search novels">
-                    <div id="navSearchResults" class="dropdown-menu dropdown-menu-end p-0 w-100 d-none" style="position: absolute; top: 100%;"></div>
-                </form>
+                <div class="navbar-tools">
+                    {{-- 240px search field. With JS it opens the command palette
+                         (resources/js/navsearch.js → palette.js); without JS it
+                         submits to the full /search results page. --}}
+                    <form class="nav-search" role="search" action="{{ route('search.index') }}" method="GET" id="navSearchForm">
+                        <x-icon name="search" :size="14" class="nav-search-icon" />
+                        <input type="search" name="q" id="navSearch" class="form-control" placeholder="Search or jump to…" autocomplete="off" aria-label="Search novels, chapters and commands" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /">
+                        <kbd class="kbd-hint nav-search-kbd" aria-hidden="true">/</kbd>
+                    </form>
+                    {{-- Cycles system → light → dark (resources/js/theme.js). --}}
+                    <button type="button" class="theme-toggle" data-theme-toggle aria-label="Theme: System. Switch to Light" title="Theme">
+                        <x-icon name="sun-moon" :size="16" class="theme-icon theme-icon-system" />
+                        <x-icon name="sun" :size="16" class="theme-icon theme-icon-light" />
+                        <x-icon name="moon" :size="16" class="theme-icon theme-icon-dark" />
+                    </button>
+                </div>
             </div>
         </div>
     </nav>
@@ -117,6 +160,11 @@
             @yield('content')
         </div>
     </main>
+
+    @unless($isChromeless)
+        @include('partials.tabbar')
+    @endunless
+    @include('partials.palette')
 
     <!-- Scripts -->
     @stack('scripts')

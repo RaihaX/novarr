@@ -30,12 +30,28 @@
     </form>
 </div>
 
-<p id="discoverStatus" class="library-status">Loading…</p>
-<div id="discoverResults" class="novel-card-grid mb-4"></div>
+<p id="discoverStatus" class="library-status" role="status" aria-live="polite">Loading…</p>
+<ul id="discoverResults" class="disc-grid mb-4" role="list" aria-busy="true"></ul>
 {{-- Results arrive in one batch; reveal them 20 at a time. --}}
 <div id="discoverMoreWrap" class="discover-more d-none">
     <button type="button" id="discoverMore" class="btn btn-secondary">Load more</button>
 </div>
+
+{{-- One result card. The cover is the shared cover component (typographic until an
+     image is set); the page script clones this and fills it per result. --}}
+<template id="discCardTpl">
+    <li class="disc-card">
+        <div class="disc-cover-wrap">
+            <x-cover :novel="['name' => 'Title', 'author' => 'Author']" :chapters="1" decorative />
+            <button type="button" class="disc-add">
+                <span class="disc-add-plus" aria-hidden="true">+</span><span class="disc-add-label">Add</span>
+            </button>
+        </div>
+        <a class="disc-title" target="_blank" rel="noopener"></a>
+        <div class="disc-meta"><span class="disc-author"></span></div>
+        <p class="disc-synopsis"></p>
+    </li>
+</template>
 @endsection
 
 @push('scripts')
@@ -70,26 +86,22 @@
     });
 
     let slowTimer = null;
+    let lastQuery = '';
 
-    // Skeleton cards + a spinner while the (sometimes slow, Cloudflare-gated)
-    // source is fetched, instead of a bare "Loading…" string.
+    // Cover-shaped skeletons while the (sometimes slow, Cloudflare-gated)
+    // source is fetched.
     function showLoading() {
         clearTimeout(slowTimer);
         statusEl.classList.remove('d-none');
-        statusEl.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>Loading…';
+        statusEl.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>Searching…';
+        resultsEl.setAttribute('aria-busy', 'true');
 
         resultsEl.innerHTML = '';
-        for (let i = 0; i < 8; i++) {
-            const sk = document.createElement('div');
-            sk.className = 'novel-card novel-card-skeleton';
+        for (let i = 0; i < 12; i++) {
+            const sk = document.createElement('li');
+            sk.className = 'disc-skeleton';
             sk.setAttribute('aria-hidden', 'true');
-            sk.innerHTML = '<div class="novel-card-head">'
-                + '<div class="skeleton-box"></div>'
-                + '<div class="novel-card-body w-100"><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>'
-                + '</div>'
-                + '<div class="novel-card-synopsis-skeleton">'
-                + '<div class="skeleton-line"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div>'
-                + '</div>';
+            sk.innerHTML = '<div class="skeleton-cover"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div>';
             resultsEl.appendChild(sk);
         }
 
@@ -102,11 +114,24 @@
     function endLoading() {
         clearTimeout(slowTimer);
         resultsEl.innerHTML = '';
+        resultsEl.setAttribute('aria-busy', 'false');
         pendingItems = [];
         moreWrap.classList.add('d-none');
     }
 
+    // Empty / error state inside the grid (spans every column).
+    function showEmpty(title, body) {
+        const li = document.createElement('li');
+        li.className = 'novels-empty';
+        li.innerHTML = '<span class="novels-empty-title"></span><p class="novels-empty-body"></p>'
+            + '<div class="novels-empty-actions"><a class="btn btn-secondary" href="{{ route('novels.create') }}">Add manually</a></div>';
+        li.querySelector('.novels-empty-title').textContent = title;
+        li.querySelector('.novels-empty-body').textContent = body;
+        resultsEl.appendChild(li);
+    }
+
     async function loadList(type, q = '') {
+        lastQuery = q;
         showLoading();
         pendingItems = [];
         moreWrap.classList.add('d-none');
@@ -122,12 +147,17 @@
             endLoading();
 
             if (!data.success) {
-                statusEl.textContent = data.message || 'Failed to load results.';
+                statusEl.textContent = '';
+                showEmpty('Couldn’t reach the source', data.message || 'Failed to load results — try again shortly.');
                 return;
             }
 
             if (!data.items.length) {
-                statusEl.textContent = 'No results found.';
+                statusEl.textContent = '';
+                showEmpty(
+                    q ? `Nothing on ${source()}.com matches “${q}”` : 'No results',
+                    'Try a shorter title or the author’s name, or search another source. You can also add a novel by its URL.'
+                );
                 return;
             }
 
@@ -136,125 +166,93 @@
             renderNextPage();
         } catch (err) {
             endLoading();
-            statusEl.textContent = 'Error: ' + err.message;
+            statusEl.textContent = '';
+            showEmpty('Something went wrong', err.message);
         }
     }
 
-    // Gradient placeholder carrying the mono mark (handoff §4 cover recipe).
-    function makePlaceholderMark() {
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('viewBox', '0 0 32 32');
-        svg.setAttribute('fill', 'currentColor');
-        svg.setAttribute('aria-hidden', 'true');
-        svg.setAttribute('class', 'brand-mark novel-card-cover-mark');
-        svg.innerHTML = '<rect x="5" y="5" width="22" height="4"/><rect x="5" y="11.5" width="22" height="4"/>'
-            + '<rect x="5" y="18" width="15" height="4"/><rect x="5" y="24.5" width="8" height="4" opacity="0.55"/>';
-        return svg;
-    }
+    const tpl = document.getElementById('discCardTpl');
+
+    // Title steps by length, as the cover component / the ePub cover (≤18 / ≤44 / longer).
+    const titleStep = (name) => name.length <= 18 ? 'l' : (name.length <= 44 ? 'm' : 's');
+
+    const STATUS_CLASS = { Completed: 'badge-completed', Ongoing: 'badge-active' };
 
     function renderCard(item) {
-        const card = document.createElement('div');
-        card.className = 'novel-card';
+        const card = tpl.content.firstElementChild.cloneNode(true);
+        const cover = card.querySelector('.cover');
 
-        const head = document.createElement('div');
-        head.className = 'novel-card-head';
-
-        const cover = document.createElement('div');
-        cover.className = 'novel-card-cover';
+        // Typographic cover — the fallback under (and instead of) the image.
+        const t = card.querySelector('.cover-title');
+        t.textContent = item.name.length > 90 ? item.name.slice(0, 88) + '…' : item.name;
+        t.className = `cover-title cover-title-${titleStep(item.name)}`;
+        card.querySelector('.cover-author').textContent = item.author || '';
+        const count = card.querySelector('.cover-count');
+        if (item.chapters) count.textContent = `${Number(item.chapters).toLocaleString()} CH`;
+        else count.remove();
 
         if (item.cover) {
-            cover.classList.add('has-image');
             const img = document.createElement('img');
-            img.src = item.cover;
-            img.alt = 'Cover of ' + item.name;
+            img.alt = '';
+            img.width = 180;
+            img.height = 270;
             img.loading = 'lazy';
+            img.decoding = 'async';
             img.addEventListener('error', () => {
-                // Full-size cover missing? Retry the list thumbnail once,
-                // then give up and show the placeholder ground.
+                // Full-size cover missing? Retry the list thumbnail once, then
+                // fall back to the typographic cover.
                 if (item.cover_thumb && img.src !== item.cover_thumb) {
                     img.src = item.cover_thumb;
                     return;
                 }
                 img.remove();
                 cover.classList.remove('has-image');
-                cover.appendChild(makePlaceholderMark());
             });
-            cover.appendChild(img);
-        } else {
-            cover.appendChild(makePlaceholderMark());
+            img.src = item.cover;
+            cover.classList.add('has-image');
+            cover.insertBefore(img, cover.querySelector('.cover-type').nextSibling);
         }
 
-        const body = document.createElement('div');
-        body.className = 'novel-card-body';
-
-        const title = item.url ? document.createElement('a') : document.createElement('span');
-        title.className = 'novel-card-title';
-        title.title = item.name;
+        const title = card.querySelector('.disc-title');
         title.textContent = item.name;
-        if (item.url) {
-            title.href = item.url;
-            title.target = '_blank';
-            title.rel = 'noopener';
+        title.title = item.name;
+        if (item.url) title.href = item.url;
+        else title.removeAttribute('href');
+
+        const meta = card.querySelector('.disc-meta');
+        card.querySelector('.disc-author').textContent = item.author || 'Unknown author';
+        if (item.status) {
+            const pill = document.createElement('span');
+            pill.className = 'badge ' + (STATUS_CLASS[item.status] || 'badge-paused');
+            pill.textContent = item.status;
+            meta.appendChild(pill);
         }
-
-        const meta = document.createElement('span');
-        meta.className = 'novel-card-meta';
-        meta.textContent = item.author || 'Unknown author';
-
-        body.append(title, meta);
-
-        if (item.in_library) {
-            const badge = document.createElement('span');
-            badge.className = 'badge badge-downloaded';
-            badge.textContent = 'In library';
-            body.appendChild(badge);
-        }
-
-        head.append(cover, body);
 
         // Synopsis: clamped to three lines, expandable when there's more.
-        // Only novelarrow's list API carries one; the search-only sources
-        // return an empty string, so the block is simply skipped.
-        let synopsis = null;
-        if (item.description) {
-            synopsis = document.createElement('p');
-            synopsis.className = 'novel-card-synopsis';
-            synopsis.textContent = item.description;
+        // The search-only sources may return none — the block is dropped.
+        const synopsis = card.querySelector('.disc-synopsis');
+        if (item.description) synopsis.textContent = item.description;
+        else synopsis.remove();
+
+        const btn = card.querySelector('.disc-add');
+        if (item.in_library) {
+            markAdded(btn, 'In library');
+        } else {
+            btn.setAttribute('aria-label', `Add ${item.name} to library`);
+            btn.title = 'Add to library';
+            btn.addEventListener('click', () => addNovel(btn, item));
         }
 
-        const foot = document.createElement('div');
-        foot.className = 'novel-card-foot';
-
-        const actions = document.createElement('div');
-        actions.className = 'novel-card-actions';
-
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        // Secondary, not primary: a grid of identical primary buttons drowns
-        // the page's real primary action (indigo is reserved for that).
-        btn.className = 'btn btn-secondary poster-add discover-add';
-        btn.textContent = item.in_library ? 'Already added' : 'Add to library';
-        btn.disabled = item.in_library;
-        btn.addEventListener('click', () => addNovel(btn, item));
-
-        actions.appendChild(btn);
-        foot.appendChild(actions);
-
-        card.append(head);
-        if (synopsis) card.append(synopsis);
-        card.append(foot);
         resultsEl.appendChild(card);
 
         // A synopsis that already fits needs no toggle. Measured in a frame
         // callback so the whole batch lays out once rather than per card.
-        if (synopsis) {
+        if (item.description) {
             requestAnimationFrame(() => {
-                if (synopsis.scrollHeight <= synopsis.clientHeight + 1) {
-                    return;
-                }
+                if (synopsis.scrollHeight <= synopsis.clientHeight + 1) return;
                 const toggle = document.createElement('button');
                 toggle.type = 'button';
-                toggle.className = 'novel-card-synopsis-toggle';
+                toggle.className = 'disc-more';
                 toggle.textContent = 'More';
                 toggle.setAttribute('aria-expanded', 'false');
                 toggle.addEventListener('click', () => {
@@ -262,14 +260,35 @@
                     toggle.textContent = expanded ? 'Less' : 'More';
                     toggle.setAttribute('aria-expanded', String(expanded));
                 });
-                card.insertBefore(toggle, foot);
+                card.appendChild(toggle);
             });
         }
     }
 
+    function markAdded(btn, label, href = null) {
+        const el = href ? document.createElement('a') : btn;
+        if (href) {
+            el.href = href;
+            el.className = btn.className;
+            btn.replaceWith(el);
+        } else {
+            el.disabled = true;
+        }
+        el.classList.add('is-added');
+        el.removeAttribute('aria-label');
+        el.removeAttribute('title');
+        el.innerHTML = '<span class="disc-add-label"></span>';
+        el.querySelector('.disc-add-label').textContent = label;
+    }
+
     async function addNovel(btn, item) {
         btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Adding…';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span class="disc-add-label">Adding…</span>';
+
+        const reset = () => {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="disc-add-plus" aria-hidden="true">+</span><span class="disc-add-label">Add</span>';
+        };
 
         try {
             const result = await Novarr.executeCommand({
@@ -281,31 +300,17 @@
             if (result.success && !(result.output || '').includes('cancelled')) {
                 // Command prints "New Novel ID: 70" — link straight to it.
                 const idMatch = (result.output || '').match(/New Novel ID:\s*(\d+)/);
-                if (idMatch) {
-                    const link = document.createElement('a');
-                    link.href = `/novels/${idMatch[1]}`;
-                    link.className = 'btn btn-secondary poster-add';
-                    link.textContent = 'Open novel →';
-                    btn.replaceWith(link);
-                } else {
-                    btn.className = 'btn btn-secondary poster-add';
-                    btn.textContent = 'Added';
-                }
+                markAdded(btn, idMatch ? 'Open novel →' : 'Added', idMatch ? `/novels/${idMatch[1]}` : null);
                 Novarr.showToast(`"${item.name}" added — metadata and cover fetched. Open it to scrape the TOC.`, 'success');
             } else if ((result.output || '').includes('already exists')) {
-                btn.className = 'btn btn-secondary poster-add';
-                btn.textContent = 'Already added';
+                markAdded(btn, 'In library');
                 Novarr.showToast(`"${item.name}" is already in your library.`, 'warning');
             } else {
-                btn.disabled = false;
-                btn.className = 'btn btn-secondary poster-add discover-add';
-                btn.textContent = 'Add to library';
+                reset();
                 Novarr.showToast(result.error || result.message || 'Failed to add novel.', 'danger');
             }
         } catch (err) {
-            btn.disabled = false;
-            btn.className = 'btn btn-secondary poster-add discover-add';
-            btn.textContent = 'Add to library';
+            reset();
             Novarr.showToast('Error: ' + err.message, 'danger');
         }
     }

@@ -1,28 +1,18 @@
 import './bootstrap';
-// Self-hosted brand faces (variable) — no render-blocking Google Fonts
-// request, and typography keeps working offline in the PWA.
-// Geist: the UI face. Geist Mono: counts, timestamps, chapter numbers,
-// hostnames. Literata: the reading face (italic included for prose).
-import '@fontsource-variable/geist';
-import '@fontsource-variable/geist-mono';
-import '@fontsource-variable/literata';
-import '@fontsource-variable/literata/wght-italic.css';
-// Inter stays in the stack as a fallback for the UI face.
-import '@fontsource-variable/inter';
-// Atkinson Hyperlegible: the reader's high-legibility font option.
-import '@fontsource/atkinson-hyperlegible/400.css';
-import '@fontsource/atkinson-hyperlegible/700.css';
+// Self-hosted font faces live in ./fonts (Geist, Geist Mono, Literata;
+// Atkinson Hyperlegible is loaded on the reader only). ./bootstrap exports
+// the Bootstrap plugins in use and sets window.bootstrap for inline scripts.
+import './fonts';
 import '@hotwired/turbo';
-import * as bootstrap from 'bootstrap';
-
-// Expose Bootstrap so inline page scripts can drive modals/toasts.
-window.bootstrap = bootstrap;
 
 import { executeCommand, pollJobStatus } from './commands';
 import { showToast } from './toast';
 import { confirmDialog } from './confirm';
 import { initTagPickers } from './tagpicker';
 import { initNavSearch } from './navsearch';
+import { initTheme, setTheme, getTheme, cycleTheme } from './theme';
+import { focusTrap, releaseFocusTrap, openSheet, closeSheet, closeAll, initSheets } from './modal';
+import { initPalette, openPalette, closePalette } from './palette';
 import { initFunnelBanner, setFunnelState } from './funnel';
 import {
     initOffline, downloadNovel, removeNovel, getLibrary,
@@ -53,7 +43,16 @@ window.Novarr = {
     executeCommand, pollJobStatus, showToast, confirmDialog, initTagPickers,
     downloadNovel, removeNovel, getLibrary, getNovel, isDownloaded,
     queuedFetch, flushQueue, softRefresh, setFunnelState,
+    // Shell (theme, sheets, palette) — see theme.js / modal.js / palette.js
+    setTheme, getTheme, cycleTheme,
+    focusTrap, releaseFocusTrap, openSheet, closeSheet, closeAll,
+    openPalette, closePalette,
 };
+
+// Document-level listeners: bound once, survive Turbo body swaps.
+initTheme();
+initSheets();
+initPalette();
 
 // Flush any queued offline read-marks and watch for reconnects.
 initOffline();

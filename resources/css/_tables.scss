@@ -1,0 +1,146 @@
+// ---------------------------------------------------------------------------
+// Responsive tables
+//
+// .table-responsive-cards — below 768px each row becomes a stacked card:
+// the header row is hidden and every cell renders its column name from its
+// own `data-label` attribute (set in the Blade), label left / value right.
+//
+//   <td data-label="Chapters">12</td>   → "CHAPTERS ............ 12"
+//   <td class="cell-primary">…</td>     → full-width card title, no label
+//   <td class="cell-actions">…</td>     → full-width action row, no label
+//
+// The wrapping .table-responsive stops scrolling sideways (cards never
+// overflow), so nothing in these tables scrolls horizontally on a phone.
+//
+// .log-table — the log viewer: on phones each entry is a two-line header
+// (level badge, then timestamp) above a wrapping message body.
+// ---------------------------------------------------------------------------
+
+@include media-breakpoint-down(md) {
+    .table-responsive:has(> .table-responsive-cards),
+    .table-responsive:has(> .log-table) {
+        overflow-x: visible;
+    }
+
+    .table.table-responsive-cards {
+        // The column names move into each cell; keep the header for AT only.
+        > thead {
+            @include visually-hidden();
+        }
+
+        > tbody > tr {
+            display: block;
+            padding: $s-3 $s-5;
+            border-bottom: $hairline solid $border;
+
+            &:last-child { border-bottom: 0; }
+        }
+
+        > tbody > tr > td {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: $s-4;
+            width: auto !important;
+            max-width: none !important;
+            padding: 3px 0;
+            border: 0;
+            text-align: right;
+            background: transparent;
+            min-width: 0;
+            overflow-wrap: anywhere;
+
+            &[data-label]::before {
+                content: attr(data-label);
+                flex: 0 0 auto;
+                text-align: left;
+                font-family: $font-ui;
+                font-size: $fs-micro;
+                font-weight: $fw-micro;
+                letter-spacing: $ls-micro;
+                text-transform: uppercase;
+                color: $text-muted;
+            }
+
+            // Full-width cells: the card title and the action row.
+            &.cell-primary,
+            &.cell-actions,
+            &[colspan] {
+                display: block;
+                text-align: left;
+            }
+
+            &.cell-primary {
+                padding-bottom: $s-1;
+                font-weight: 600;
+                white-space: normal;
+            }
+
+            &.cell-actions {
+                padding-top: $s-2;
+
+                .job-actions { justify-content: flex-start; flex-wrap: wrap; }
+            }
+
+            // Error text reads as a paragraph, not a right-aligned value.
+            &.cell-block {
+                display: block;
+                text-align: left;
+
+                &[data-label]::before { display: block; margin-bottom: 2px; }
+            }
+
+            // text-truncate / text-nowrap on desktop must not force width here.
+            &.text-truncate,
+            &.text-nowrap { white-space: normal; }
+        }
+
+        // Row hover fill reads oddly on a card; keep it on the whole row.
+        &.table-hover > tbody > tr:hover > * { --bs-table-bg-state: transparent; }
+    }
+
+    // --- Log viewer: two-line header, wrapping body --------------------------
+    .table.log-table {
+        > thead {
+            @include visually-hidden();
+        }
+
+        > tbody > tr {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            grid-template-areas:
+                "level"
+                "time"
+                "msg";
+            row-gap: 2px;
+            padding: $s-3 $s-5;
+            border-bottom: $hairline solid $border;
+
+            &:last-child { border-bottom: 0; }
+        }
+
+        > tbody > tr > td {
+            display: block;
+            padding: 0;
+            border: 0;
+            min-width: 0;
+            background: transparent;
+
+            &.log-level { grid-area: level; }
+            &.log-time { grid-area: time; white-space: normal; font-size: $fs-micro; }
+            &.log-msg { grid-area: msg; padding-top: $s-1; }
+            &[colspan] { grid-column: 1 / -1; }
+        }
+    }
+}
+
+// Every width: log messages wrap rather than push the table sideways
+// (stack traces and long URLs carry no break opportunities of their own).
+.log-table {
+    .log-pre,
+    details.log-entry summary {
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+}

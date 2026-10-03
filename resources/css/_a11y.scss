@@ -1,0 +1,86 @@
+// ---------------------------------------------------------------------------
+// Accessibility pass — focus rings, reduced motion.
+//
+// Imported last (app.scss), so these win ties. Colour tokens are not touched
+// here: _variables.scss belongs to the Shell stream.
+// ---------------------------------------------------------------------------
+
+// --- Focus: one visible ring on every interactive element -----------------
+// 2px indigo outline, 2px offset. :where() keeps specificity at zero so the
+// reader's themed ring (.reader :focus-visible → --rd-accent) still wins.
+:where(
+    a[href], button, input, select, textarea, summary, label[for],
+    [role="button"], [role="tab"], [role="switch"], [role="menuitem"], [role="option"],
+    [tabindex]:not([tabindex="-1"]),
+    .btn, .page-link, .nav-link, .dropdown-item, .list-group-item-action, .btn-close
+):focus-visible {
+    outline: 2px solid $accent;
+    outline-offset: 2px;
+}
+
+[data-bs-theme="light"] :where(
+    a[href], button, input, select, textarea, summary,
+    [role="button"], [role="tab"], [role="switch"],
+    [tabindex]:not([tabindex="-1"]), .btn, .page-link, .list-group-item-action
+):focus-visible {
+    outline-color: $accent-light;
+}
+
+// Form controls already draw a border; the ring sits on it rather than 2px out,
+// and Bootstrap's toggle-button inputs (.btn-check) ring the visible label.
+.form-control:focus-visible,
+.form-select:focus-visible { outline-offset: 0; }
+.form-check-input:focus-visible { outline-offset: 2px; }
+.btn-check:focus-visible + .btn {
+    outline: 2px solid $accent;
+    outline-offset: 2px;
+}
+
+// Rows that live inside scroll / clip containers would have an outset ring
+// clipped away — draw those rings inset instead.
+.toc-list .toc-row:focus-visible,
+.stack-card .stack-row:focus-visible,
+.list-group-flush > .list-group-item-action:focus-visible,
+.table-responsive a:not(.btn):focus-visible,
+.chapter-row a:focus-visible {
+    outline: 2px solid $accent;
+    outline-offset: -2px;
+}
+
+// The reader keeps its own ring colour (it recolours per reading theme), but
+// rows in the drawer (outside .reader) need it too when a light theme is on.
+body.reader-theme-sepia,
+body.reader-theme-light {
+    .toc-list .toc-row:focus-visible { outline-color: var(--rd-accent); }
+}
+
+// Dialog containers take programmatic focus on open; that isn't a user focus.
+.reader-keys:focus,
+#readerPlayback:focus { outline: none; }
+
+// --- Reduced motion --------------------------------------------------------
+// app.scss already zeroes transitions/animations globally; these cover the
+// motion that isn't a CSS transition/animation on the element itself.
+@media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto !important; }
+
+    // Reader bar slide (auto-hide) and the sheet slide-up / fade.
+    .reader-chrome,
+    .reader-chrome.is-autohidden .reader-bar { transition: none !important; }
+    .reader-pop,
+    .reader-playbar,
+    .reader-backdrop,
+    .reader-keys { animation: none !important; }
+
+    // Toasts, drawers and modals appear in place instead of sliding/fading.
+    .toast,
+    .toast.showing,
+    .toast-container,
+    .offcanvas,
+    .offcanvas-backdrop,
+    .modal.fade .modal-dialog,
+    .fade {
+        transition: none !important;
+        animation: none !important;
+    }
+}

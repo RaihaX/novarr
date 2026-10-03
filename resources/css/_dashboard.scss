@@ -111,81 +111,6 @@ $bp-table-collapse: 900px;
 }
 
 // ===========================================================================
-// Stat tiles (dashboard)
-// ===========================================================================
-.stat-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: $s-4;
-    margin-bottom: $s-8;
-
-    @include media-breakpoint-down(md) {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-
-.stat-tile {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: $s-5 $s-6;
-    background-color: $surface;
-    border: $hairline solid $border;
-    border-radius: $radius;
-    color: $text;
-    text-decoration: none;
-    transition: $transition-base;
-}
-
-a.stat-tile:hover,
-a.stat-tile:focus {
-    background-color: $surface-alt;
-    border-color: $btn-secondary-border;
-    color: $text;
-}
-
-.stat-tile-value {
-    font-family: $font-mono;
-    font-size: 28px;
-    font-weight: 600;
-    line-height: 1.1;
-    font-variant-numeric: tabular-nums;
-    color: $text;
-}
-
-.stat-tile-label {
-    display: flex;
-    align-items: center;
-    gap: $s-2;
-    font-size: $fs-micro;
-    font-weight: $fw-micro;
-    letter-spacing: $ls-micro;
-    text-transform: uppercase;
-    color: $text-muted;
-
-    // 6px status square: the tile's colour cue, so the figure itself can stay
-    // in $text and the row of tiles reads as one calm block.
-    &::before {
-        content: '';
-        width: 6px;
-        height: 6px;
-        flex: none;
-        background-color: currentColor;
-    }
-}
-
-.stat-tile-foot {
-    font-family: $font-mono;
-    font-size: $fs-micro;
-    color: $muted;
-}
-
-.stat-tile-success .stat-tile-label { color: $success; }
-.stat-tile-pending .stat-tile-label { color: $pending; }
-.stat-tile-warning .stat-tile-label { color: $warning; }
-.stat-tile-muted   .stat-tile-label { color: $muted-fg; }
-
-// ===========================================================================
 // Panels — a card with a hairline header/footer, used for the dashboard's
 // list sections and the novels table frame.
 // ===========================================================================
@@ -286,10 +211,10 @@ a.stat-tile:focus {
     }
 }
 
-// Anchor targets from the stat tiles sit under the sticky navbar.
+// Anchor targets (the home status strip links to /activity#recent-section)
+// sit under the sticky navbar.
 #missing-section,
-#recent-section,
-#continue-section { scroll-margin-top: 72px; }
+#recent-section { scroll-margin-top: 72px; }
 
 // Compact data table used inside dashboard panels: same recipe as the main
 // table, one step tighter.
@@ -335,41 +260,6 @@ a.stat-tile:focus {
     text-align: center;
     font-size: 13px;
     color: $text-muted;
-}
-
-// --- Continue reading -----------------------------------------------------
-// The shelf keeps the component sheet's .continue-row / .continue-card and
-// adds the amber reading rail from the card recipe.
-.continue-card {
-    .poster-cover {
-        border: $hairline solid $border;
-        background: linear-gradient(160deg, $surface-alt, $bg);
-    }
-
-    .continue-rail {
-        position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        height: $progress-track;
-        background: $surface-alt;
-
-        span {
-            display: block;
-            height: 100%;
-            background: $brand-amber;   // reading progress is always amber
-            transition: width $transition-bar;
-        }
-    }
-
-    .continue-meta {
-        font-family: $font-mono;
-        font-size: $fs-micro;
-        color: $muted;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
 }
 
 // --- Needs Attention ------------------------------------------------------

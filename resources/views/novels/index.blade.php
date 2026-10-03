@@ -1,111 +1,97 @@
 @extends('layouts.app')
 
-@php $hasFilters = request('search') || request()->filled('status') || request()->filled('tag'); @endphp
+@php
+    $hasFilters = request('search') || request()->filled('status') || request()->filled('tag') || $filter !== 'all';
+    // Chip / toggle links keep every other query parameter, drop the page.
+    $chipUrl = fn(string $f) => request()->fullUrlWithQuery(['filter' => $f === 'all' ? null : $f, 'ids' => null, 'page' => null]);
+    $chips = [
+        'all' => ['All', null, null],
+        'reading' => ['Reading', null, null],
+        'new' => ['New chapters', $chipCounts['new'], 'tone-pending'],
+        'attention' => ['Needs attention', $chipCounts['attention'], 'tone-warning'],
+        'offline' => ['Offline', null, null],
+        'finished' => ['Finished', null, null],
+    ];
+    $sorts = ['read' => 'Last read', 'name' => 'Name', 'updated' => 'Updated', 'progress' => 'Progress'];
+@endphp
 
 @section('title', 'Library')
 
 @section('content')
-@php $attentionIds = \App\Services\NovelHealth::attentionIds(); @endphp
-<div class="page-head">
+<div class="lib-page" data-view="{{ $view }}" data-filter="{{ $filter }}" @if($offlinePending) data-offline-pending @endif>
+<div class="page-head lib-head">
     <div class="page-head-titles">
-        <span class="page-head-kicker">{{ number_format($novels->total()) }} {{ Str::plural('novel', $novels->total()) }}{{ $hasFilters ? ' · filtered' : '' }}</span>
         <h1 class="page-title mb-0">Library</h1>
+        <p class="lib-summary mb-0">
+            <span class="mono-num">{{ number_format($chipCounts['all']) }}</span> {{ Str::plural('novel', $chipCounts['all']) }}
+            · <span class="mono-num">{{ number_format($totals['downloaded']) }}</span> chapters downloaded
+            @if($totals['queued'] > 0)
+                · <span class="mono-num">{{ number_format($totals['queued']) }}</span> queued
+            @endif
+            @if($hasFilters)
+                · showing <span class="mono-num">{{ number_format($novels->total()) }}</span>
+            @endif
+        </p>
     </div>
     <div class="page-head-actions">
-        <div class="btn-group segmented" role="group" aria-label="View mode">
-            <a href="{{ request()->fullUrlWithQuery(['view' => 'list', 'page' => null]) }}"
-               class="btn btn-secondary {{ $view === 'list' ? 'active' : '' }}" aria-label="List view" title="List view">
-                <x-icon name="list" :size="14" />
-            </a>
-            <a href="{{ request()->fullUrlWithQuery(['view' => 'grid', 'page' => null]) }}"
-               class="btn btn-secondary {{ $view === 'grid' ? 'active' : '' }}" aria-label="Grid view" title="Grid view">
-                <x-icon name="layout-grid" :size="14" />
-            </a>
-        </div>
-        <a href="{{ route('novels.discover') }}" class="btn btn-primary">Add novel</a>
+        <a href="{{ route('novels.discover') }}" class="btn btn-primary">+ Add novel</a>
+        @if($view === 'grid')
+            <button type="button" class="btn btn-secondary" id="libSelect" aria-pressed="false">Select</button>
+        @endif
     </div>
 </div>
 
-<form method="GET" action="{{ route('novels.index') }}" class="filter-bar mb-4">
-    <select name="sort" aria-label="Sort" class="form-select" onchange="this.form.requestSubmit()">
-        <option value="name" @selected($sort === 'name')>A–Z</option>
-        <option value="progress" @selected($sort === 'progress')>Progress</option>
-        <option value="updated" @selected($sort === 'updated')>Recently updated</option>
-        <option value="chapters" @selected($sort === 'chapters')>Chapter count</option>
-    </select>
-    <select name="status" aria-label="Filter by status" class="form-select" onchange="this.form.requestSubmit()">
-        <option value="">All status</option>
-        <option value="0" @selected(request('status') === '0')>Active</option>
-        <option value="1" @selected(request('status') === '1')>Completed</option>
-    </select>
-    @if($tags->isNotEmpty())
-        <select name="tag" aria-label="Filter by tag" class="form-select" onchange="this.form.requestSubmit()">
-            <option value="">All tags</option>
-            @foreach($tags as $tag)
-                <option value="{{ $tag->id }}" @selected((string) $activeTag === (string) $tag->id)>{{ $tag->name }}</option>
-            @endforeach
-        </select>
-    @endif
-    <input type="search" name="search" aria-label="Search novels" class="form-control" placeholder="Search novels…" value="{{ request('search') }}">
-    <button type="submit" class="btn btn-secondary">Search</button>
-    @if($hasFilters)
-        <a href="{{ route('novels.index') }}" class="btn btn-ghost">Clear</a>
-    @endif
-</form>
-
-@if($view === 'grid')
-    {{-- Poster wall: covers first, one download rail per tile --}}
-    <div class="poster-grid mb-4">
-        @forelse($novels as $novel)
-            @php
-                // One progress definition, shared with the novel page:
-                // downloaded ÷ chapters known to the source (NovelHealth).
-                $prog = \App\Services\NovelHealth::downloadProgress(
-                    (int) ($novel->downloaded_chapters_count ?? 0),
-                    (int) ($novel->source_chapters_count ?? $novel->chapters_count ?? 0),
-                    (int) ($novel->no_of_chapters ?? 0)
-                );
-                $total = $prog['total'];
-                $downloaded = $prog['downloaded'];
-                $pct = $prog['percent'];
-                $isCompleted = (bool) $novel->status;
-                $isPaused = !$isCompleted && $novel->paused_at;
-                $progState = \App\Services\NovelHealth::progressState($pct, $isCompleted, (bool) $isPaused, isset($attentionIds[$novel->id]));
-                $barClass = \App\Enums\NovelState::from($progState)->barClass();
-            @endphp
-            <a href="{{ route('novels.show', $novel->id) }}" class="poster-card" title="{{ $novel->name }}">
-                <div class="poster-cover">
-                    @if($novel->file)
-                        <img src="{{ Storage::url($novel->file->file_path) }}" alt="Cover of {{ $novel->name }}" loading="lazy">
-                    @else
-                        <div class="poster-cover-placeholder"><span>{{ $novel->name }}</span></div>
-                    @endif
-                    @if($isCompleted || $isPaused)
-                        <x-status :state="\App\Enums\NovelState::forNovel($novel)" class="poster-badge" />
-                    @endif
-                    <div class="poster-actions">
-                        <button type="button" class="btn btn-sm btn-outline-success poster-action novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" data-paused="{{ $novel->paused_at ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
-                            <x-icon name="check" :size="13" />
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-danger poster-action novel-delete-btn" data-id="{{ $novel->id }}" data-name="{{ $novel->name }}" title="Delete novel" aria-label="Delete {{ $novel->name }}">
-                            <x-icon name="trash-2" :size="13" />
-                        </button>
-                    </div>
-                    <div class="poster-progress" aria-hidden="true">
-                        <div class="poster-progress-bar {{ $barClass }}" style="width: {{ $pct }}%"></div>
-                    </div>
-                </div>
-                <div class="poster-title">{{ $novel->name }}</div>
-                <div class="poster-meta">{{ number_format($downloaded) }} of {{ number_format($total) }} · {{ $pct }}%</div>
+<div class="lib-toolbar mb-4">
+    <nav class="lib-chips" aria-label="Filter library">
+        @foreach($chips as $key => [$label, $count, $tone])
+            <a href="{{ $chipUrl($key) }}" class="lib-chip {{ $filter === $key ? 'is-on' : '' }}" data-chip="{{ $key }}"
+               @if($filter === $key) aria-current="page" @endif>
+                {{ $label }}
+                @if($count)
+                    <span class="lib-chip-count {{ $tone }}">{{ number_format($count) }}</span>
+                @elseif($key === 'offline')
+                    <span class="lib-chip-count" data-offline-count hidden></span>
+                @endif
             </a>
-        @empty
-            @include('novels._empty', ['hasFilters' => $hasFilters])
-        @endforelse
-    </div>
-    @if($novels->hasPages())
-        {{ $novels->appends(request()->query())->links() }}
-    @endif
-@else
+        @endforeach
+    </nav>
+
+    <form method="GET" action="{{ route('novels.index') }}" class="lib-tools" role="search">
+        @foreach(['filter' => $filter === 'all' ? null : $filter, 'ids' => request('ids'), 'view' => $view, 'status' => request('status')] as $k => $v)
+            @if($v !== null && $v !== '')
+                <input type="hidden" name="{{ $k }}" value="{{ $v }}">
+            @endif
+        @endforeach
+        <input type="search" name="search" aria-label="Search library" class="form-control lib-search" placeholder="Search library…" value="{{ request('search') }}">
+        @if($tags->isNotEmpty())
+            <select name="tag" aria-label="Filter by tag" class="form-select" onchange="this.form.requestSubmit()">
+                <option value="">All tags</option>
+                @foreach($tags as $tag)
+                    <option value="{{ $tag->id }}" @selected((string) $activeTag === (string) $tag->id)>{{ $tag->name }}</option>
+                @endforeach
+            </select>
+        @endif
+        <label class="lib-sort">
+            <span class="visually-hidden">Sort by</span>
+            <select name="sort" class="form-select" onchange="this.form.requestSubmit()">
+                @foreach($sorts as $key => $label)
+                    <option value="{{ $key }}" @selected($sort === $key)>Sort: {{ Str::lower($label) }}</option>
+                @endforeach
+            </select>
+        </label>
+        <div class="btn-group segmented lib-viewtoggle" role="group" aria-label="View">
+            <a href="{{ request()->fullUrlWithQuery(['view' => 'grid', 'page' => null]) }}" data-view-choice="grid"
+               class="btn btn-secondary {{ $view === 'grid' ? 'active' : '' }}" @if($view === 'grid') aria-current="true" @endif>
+                <x-icon name="layout-grid" :size="14" /> Grid
+            </a>
+            <a href="{{ request()->fullUrlWithQuery(['view' => 'table', 'page' => null]) }}" data-view-choice="table"
+               class="btn btn-secondary {{ $view === 'table' ? 'active' : '' }}" @if($view === 'table') aria-current="true" @endif>
+                <x-icon name="list" :size="14" /> Table
+            </a>
+        </div>
+    </form>
+</div>
+
 <div id="bulkBar" class="novels-bulk-bar">
     <span id="bulkCount" class="bulk-count"></span>
     <button type="button" id="bulkComplete" class="btn btn-secondary">Mark complete</button>
@@ -113,6 +99,57 @@
     <button type="button" id="bulkClear" class="btn btn-ghost ms-auto">Clear selection</button>
 </div>
 
+@if($offlinePending)
+    <p class="library-status" id="libOfflineStatus">
+        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>Checking what is downloaded on this device…
+    </p>
+@elseif($view === 'grid')
+    {{-- Cover-forward grid: whole-tile links, reading progress on the cover's
+         bottom edge, a corner flag only for exceptions. --}}
+    @if($novels->isEmpty())
+        @include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter])
+    @else
+        <ul class="lib-grid mb-4" id="libGrid" role="list">
+            @foreach($novels as $novel)
+                @php
+                    $r = $reading[$novel->id] ?? ['read' => 0, 'new' => 0, 'total' => 0, 'percent' => 0, 'finished' => false];
+                    // Download figure for the tooltip — same definition as the
+                    // table and the novel page (NovelHealth::downloadProgress).
+                    $prog = \App\Services\NovelHealth::downloadProgress(
+                        (int) ($novel->downloaded_chapters_count ?? 0),
+                        (int) ($novel->source_chapters_count ?? $novel->chapters_count ?? 0),
+                        (int) ($novel->no_of_chapters ?? 0)
+                    );
+                    $attention = isset($attentionIds[$novel->id]);
+                    $flag = match (true) {
+                        $attention && ((int) $novel->scrape_failures >= 3 || (int) $novel->toc_failures >= 2) => \App\Enums\NovelState::Failed,
+                        $attention => \App\Enums\NovelState::Attention,
+                        !$novel->status && (bool) $novel->paused_at => \App\Enums\NovelState::Paused,
+                        default => null,
+                    };
+                    [$sub, $subTone] = match (true) {
+                        $r['new'] > 0 => [number_format($r['new']) . ' NEW', 'tone-pending'],
+                        $r['finished'] => ['FINISHED', 'tone-success'],
+                        $r['read'] === 0 => ['NOT STARTED', 'tone-muted'],
+                        default => [number_format($r['read']) . ' / ' . number_format($r['total']), ''],
+                    };
+                @endphp
+                <li class="lib-tile" data-id="{{ $novel->id }}">
+                    <a href="{{ route('novels.show', $novel->id) }}" class="lib-tile-link"
+                       title="{{ $novel->name }} — {{ number_format($prog['downloaded']) }} of {{ number_format($prog['total']) }} · {{ $prog['percent'] }}% downloaded">
+                        <x-cover :novel="$novel" :progress="$r['percent']" :flag="$flag" :chapters="$prog['total']" decorative />
+                        <span class="lib-tile-title">{{ $novel->name }}</span>
+                        <span class="lib-tile-sub {{ $subTone }}" data-reading="{{ $r['read'] }}/{{ $r['total'] }}">{{ $sub }}</span>
+                    </a>
+                    <input type="checkbox" class="form-check-input novel-check lib-tile-check" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}" tabindex="-1">
+                </li>
+            @endforeach
+        </ul>
+    @endif
+    @if($novels->hasPages())
+        {{ $novels->appends(request()->query())->links() }}
+    @endif
+@else
 <div class="dash-panel">
     {{-- Below 900px the table collapses to the novel-row list (handoff) --}}
     <div class="novels-list">
@@ -151,7 +188,7 @@
                 </a>
             </div>
         @empty
-            @include('novels._empty', ['hasFilters' => $hasFilters])
+            @include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter])
         @endforelse
     </div>
 
@@ -226,7 +263,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8">@include('novels._empty', ['hasFilters' => $hasFilters])</td>
+                        <td colspan="8">@include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter])</td>
                     </tr>
                 @endforelse
             </tbody>
@@ -238,16 +275,64 @@
         </div>
     @endif
 </div>
+
 @endif
+</div>
 @endsection
 
 @push('scripts')
 <script>
 (function(){
+    const page = document.querySelector('.lib-page');
+    if (!page) return;
 
-    // --- Bulk selection ---
+    // --- Remember Grid/Table: ?view= is the source of truth, localStorage
+    // the per-browser memory (the session remembers it server-side too). ---
+    const VIEW_KEY = 'novarr.libraryView';
+    const store = {
+        get() { try { return localStorage.getItem(VIEW_KEY); } catch (e) { return null; } },
+        set(v) { try { localStorage.setItem(VIEW_KEY, v); } catch (e) { /* private window */ } },
+    };
+    document.querySelectorAll('[data-view-choice]').forEach(a =>
+        a.addEventListener('click', () => store.set(a.dataset.viewChoice)));
+
+    const params = new URLSearchParams(location.search);
+    const remembered = store.get();
+    if (!params.has('view') && (remembered === 'grid' || remembered === 'table') && remembered !== page.dataset.view) {
+        params.set('view', remembered);
+        const url = `${location.pathname}?${params}`;
+        window.Turbo ? Turbo.visit(url, { action: 'replace' }) : location.replace(url);
+        return;
+    }
+    if (params.has('view')) store.set(page.dataset.view);
+
+    // --- Offline chip: what's downloaded lives in this browser's IndexedDB. ---
+    const withLibrary = (fn) => {
+        if (window.Novarr?.getLibrary) fn();
+        else window.addEventListener('load', fn, { once: true });
+    };
+    withLibrary(() => {
+        window.Novarr?.getLibrary?.().then((novels) => {
+            const ids = novels.map(n => n.id).filter(Boolean);
+            const count = document.querySelector('[data-offline-count]');
+            if (count && ids.length) {
+                count.textContent = ids.length;
+                count.hidden = false;
+            }
+            if (page.hasAttribute('data-offline-pending')) {
+                const p = new URLSearchParams(location.search);
+                p.set('ids', ids.join(','));
+                const url = `${location.pathname}?${p}`;
+                window.Turbo ? Turbo.visit(url, { action: 'replace' }) : location.replace(url);
+            }
+        }).catch(() => {});
+    });
+
+    // --- Bulk selection (table checkboxes, or the grid's Select mode) ---
     const bulkBar = document.getElementById('bulkBar');
     const selectAll = document.getElementById('selectAll');
+    const grid = document.getElementById('libGrid');
+    const selectBtn = document.getElementById('libSelect');
     const checks = () => [...document.querySelectorAll('.novel-check')];
     // The mobile card list and desktop table both render a checkbox per novel,
     // so dedupe by value.
@@ -263,7 +348,31 @@
             selectAll.checked = n > 0 && n === checks().length;
             selectAll.indeterminate = n > 0 && n < checks().length;
         }
+        grid?.querySelectorAll('.lib-tile').forEach(t =>
+            t.classList.toggle('is-selected', !!t.querySelector('.novel-check')?.checked));
     }
+
+    function setSelecting(on) {
+        if (!grid) return;
+        grid.classList.toggle('is-selecting', on);
+        selectBtn?.setAttribute('aria-pressed', String(on));
+        if (selectBtn) selectBtn.textContent = on ? 'Done' : 'Select';
+        grid.querySelectorAll('.lib-tile-check').forEach(c => c.tabIndex = on ? 0 : -1);
+        if (!on) checks().forEach(c => c.checked = false);
+        refreshBulkBar();
+    }
+    selectBtn?.addEventListener('click', () => setSelecting(!grid.classList.contains('is-selecting')));
+
+    // In Select mode a tile click toggles its checkbox instead of navigating.
+    grid?.addEventListener('click', (e) => {
+        if (!grid.classList.contains('is-selecting')) return;
+        const tile = e.target.closest('.lib-tile');
+        if (!tile || e.target.classList.contains('novel-check')) return;
+        e.preventDefault();
+        const box = tile.querySelector('.novel-check');
+        box.checked = !box.checked;
+        refreshBulkBar();
+    });
 
     checks().forEach(c => c.addEventListener('change', refreshBulkBar));
     selectAll?.addEventListener('change', () => {
@@ -283,47 +392,27 @@
         return ['badge badge-active', 'Active'];
     }
 
-    // Update a novel's status badge + complete button in place (grid poster or
-    // table row), so list actions don't trigger a full-page reload.
+    // Update a table row's status badge + complete button in place, so list
+    // actions don't trigger a full-page reload.
     function setNovelComplete(btn, completed) {
         const paused = btn.dataset.paused === '1';
         btn.dataset.completed = completed ? '1' : '0';
         btn.title = completed ? 'Mark active' : 'Mark complete';
 
-        const row = btn.closest('tr');
-        const card = btn.closest('.poster-card');
-
-        if (row) {
-            const cell = row.querySelector('td.col-status');
-            let badge = cell?.querySelector('.badge');
-            if (!badge && cell) {
-                badge = document.createElement('span');
-                cell.appendChild(badge);
-            }
-            if (badge) {
-                const [cls, label] = badgeFor(completed, paused);
-                badge.className = cls;
-                badge.textContent = label;
-            }
-        } else if (card) {
-            const cover = card.querySelector('.poster-cover');
-            let badge = cover?.querySelector('.poster-badge');
-            if (completed || paused) {
-                if (!badge && cover) {
-                    badge = document.createElement('span');
-                    cover.appendChild(badge);
-                }
-                badge.className = 'poster-badge badge ' + (completed ? 'badge-completed' : 'badge-paused');
-                badge.textContent = completed ? 'Completed' : 'Paused';
-            } else {
-                badge?.remove();
-            }
+        const cell = btn.closest('tr')?.querySelector('td.col-status');
+        if (!cell) return;
+        let badge = cell.querySelector('.badge');
+        if (!badge) {
+            badge = document.createElement('span');
+            cell.appendChild(badge);
         }
+        const [cls, label] = badgeFor(completed, paused);
+        badge.className = cls;
+        badge.textContent = label;
     }
 
     async function bulkAction(action) {
-        const boxes = checks().filter(c => c.checked);
-        const ids = boxes.map(c => c.value);
+        const ids = selected();
         if (!ids.length) return;
 
         if (action === 'delete' && !await Novarr.confirmDialog(
@@ -348,8 +437,9 @@
             const data = await response.json();
 
             if (data.success) {
+                const boxes = checks().filter(c => c.checked);
                 if (action === 'delete') {
-                    boxes.forEach(c => (c.closest('tr') ?? c.closest('.novel-row'))?.remove());
+                    boxes.forEach(c => (c.closest('tr') ?? c.closest('.novel-row') ?? c.closest('.lib-tile'))?.remove());
                     Novarr.showToast(`Deleted ${ids.length} novel(s).`, 'success');
                 } else {
                     boxes.forEach(c => {
@@ -371,11 +461,10 @@
     document.getElementById('bulkDelete')?.addEventListener('click', () => bulkAction('delete'));
     document.getElementById('bulkComplete')?.addEventListener('click', () => bulkAction('complete'));
 
-    // --- Toggle complete (grid + list) ---
+    // --- Toggle complete (table rows) ---
     document.querySelectorAll('.novel-complete-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.preventDefault();
-            e.stopPropagation();
             btn.disabled = true;
             try {
                 const response = await fetch(`/novels/${btn.dataset.id}/toggle-complete`, {
@@ -400,13 +489,10 @@
         });
     });
 
-    // --- Single delete ---
+    // --- Single delete (table rows) ---
     document.querySelectorAll('.novel-delete-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
-            // Grid buttons live inside the poster link — don't navigate.
             e.preventDefault();
-            e.stopPropagation();
-
             const name = btn.dataset.name;
 
             const ok = await Novarr.confirmDialog(
@@ -428,7 +514,7 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    (btn.closest('tr') ?? btn.closest('.poster-card'))?.remove();
+                    btn.closest('tr')?.remove();
                     Novarr.showToast(`Deleted "${name}".`, 'success');
                 } else {
                     btn.disabled = false;

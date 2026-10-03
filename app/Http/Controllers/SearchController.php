@@ -9,28 +9,100 @@ use Illuminate\Support\Str;
 
 class SearchController extends Controller
 {
-    /**
-     * Navbar autocomplete: novels whose name matches, as lightweight JSON.
-     */
-    public function suggest(Request $request)
-    {
-        $q = trim($request->query('q', ''));
 
-        if (mb_strlen($q) < 2) {
-            return response()->json([]);
+    /**
+     * Command palette data (resources/js/palette.js): novels whose name or
+     * author match every word of the query, plus — when the query reads as
+     * "<novel words> <number>" (e.g. "ascending 142") — that chapter of each
+     * matching novel. Commands and navigation are matched client-side.
+     *
+     * Shape: { novels: [{id, name, author, url, progress}], chapters: [{id,
+     * novel_id, novel, number, label, url, downloaded, read}] }, ≤ 8 each.
+     */
+    public function palette(Request $request)
+    {
+        $q = trim((string) $request->query('q', ''));
+        $empty = ['novels' => [], 'chapters' => []];
+
+        if ($q === '' || mb_strlen($q) > 200) {
+            return response()->json($empty);
         }
 
-        $novels = Novel::whereRaw("name LIKE ? ESCAPE '!'", ['%' . self::escapeLike($q) . '%'])
-            ->orderBy('name')
-            ->limit(8)
-            ->get(['id', 'name', 'author']);
+        $novels = $this->paletteNovels($q, 8);
 
-        return response()->json($novels->map(fn($n) => [
-            'id' => $n->id,
-            'name' => $n->name,
-            'author' => $n->author,
-            'url' => route('novels.show', $n->id),
-        ]));
+        // "<novel words> <number>": the trailing number is a chapter number,
+        // the words before it pick the novel(s).
+        $chapters = collect();
+        if (preg_match('/^(.+?)\s+(?:ch(?:apter)?\.?\s*)?#?(\d+(?:\.\d+)?)$/iu', $q, $m)) {
+            $chapterNovels = $this->paletteNovels(trim($m[1]), 8);
+            if ($chapterNovels->isNotEmpty()) {
+                $names = $chapterNovels->pluck('name', 'id');
+                $chapters = NovelChapter::whereIn('novel_id', $names->keys())
+                    ->where('blacklist', 0)
+                    ->where('chapter', $m[2])
+                    ->orderBy('novel_id')
+                    ->orderBy('book')
+                    ->orderBy('id')
+                    ->limit(8)
+                    ->get(['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'read_at'])
+                    ->map(fn($c) => [
+                        'id' => $c->id,
+                        'novel_id' => $c->novel_id,
+                        'novel' => $names[$c->novel_id] ?? '',
+                        'number' => $c->chapter + 0,
+                        'label' => $c->label,
+                        'url' => route('chapters.show', $c->id),
+                        'downloaded' => (int) $c->status === 1,
+                        'read' => $c->read_at !== null,
+                    ])
+                    ->values();
+            }
+        }
+
+        return response()->json([
+            'novels' => $novels->map(fn($n) => [
+                'id' => $n->id,
+                'name' => $n->name,
+                'author' => $n->author,
+                'url' => route('novels.show', $n->id),
+                // Reading progress, 0–100 (read / non-blacklisted chapters).
+                'progress' => $n->total_chapters_count > 0
+                    ? (int) floor($n->read_chapters_count * 100 / $n->total_chapters_count)
+                    : 0,
+            ])->values(),
+            'chapters' => $chapters,
+        ]);
+    }
+
+    /**
+     * Novels where every word (≤ 5) appears in the name or the author, with
+     * names that start with the query ranked first.
+     */
+    private function paletteNovels(string $q, int $limit)
+    {
+        $words = array_slice(preg_split('/\s+/u', $q, -1, PREG_SPLIT_NO_EMPTY), 0, 5);
+        if (!$words) {
+            return collect();
+        }
+
+        $query = Novel::query();
+        foreach ($words as $word) {
+            $like = '%' . self::escapeLike($word) . '%';
+            $query->where(fn($w) => $w
+                ->whereRaw("name LIKE ? ESCAPE '!'", [$like])
+                ->orWhereRaw("author LIKE ? ESCAPE '!'", [$like]));
+        }
+
+        return $query
+            ->withCount([
+                'chapters as total_chapters_count' => fn($c) => $c->where('blacklist', 0),
+                'chapters as read_chapters_count' => fn($c) => $c->where('blacklist', 0)->whereNotNull('read_at'),
+            ])
+            ->orderByRaw("CASE WHEN name LIKE ? ESCAPE '!' THEN 0 ELSE 1 END", [self::escapeLike($q) . '%'])
+            ->orderBy('name')
+            ->orderBy('id')
+            ->limit($limit)
+            ->get(['id', 'name', 'author']);
     }
 
     /**

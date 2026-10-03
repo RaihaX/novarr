@@ -1,0 +1,90 @@
+// ---------------------------------------------------------------------------
+// Bootstrap 5.3, trimmed to the modules Novarr actually uses.
+//
+// Mirrors node_modules/bootstrap/scss/bootstrap.scss in the same order, with
+// unused components commented out. Audit (views, resources/js, app/ PHP):
+//   used    : tables, forms, buttons, transitions (fade/collapse), dropdown,
+//             button-group, nav, navbar, card, pagination (Laravel paginator),
+//             badge, alert, progress, list-group, close, toasts, modal,
+//             spinners, offcanvas (reader TOC), helpers, utilities API
+//   unused  : images (.img-fluid/.img-thumbnail/.figure), accordion,
+//             breadcrumb (the app has its own .page-breadcrumb), tooltip,
+//             popover (the reader's "Aa" popover is custom), carousel,
+//             placeholders (skeletons are custom)
+// Unused utility groups are dropped further down (see "Utilities API trim").
+// To start using one of the unused components, just uncomment its line —
+// its variables are still defined, so nothing else needs to change.
+// ---------------------------------------------------------------------------
+
+@use 'sass:map';
+
+// Configuration
+@import 'bootstrap/scss/functions';
+@import 'bootstrap/scss/variables';
+@import 'bootstrap/scss/variables-dark';
+@import 'bootstrap/scss/maps';
+@import 'bootstrap/scss/mixins';
+@import 'bootstrap/scss/utilities';
+
+// Utilities API trim. Every group below had zero uses in views, resources/js
+// and app/ PHP (several also run against the brand rules, e.g. "links carry
+// colour, never decoration"). Remove a key from these lists to bring the
+// classes back; no other change needed.
+$utilities: map.remove(
+    $utilities,
+    'focus-ring', 'gradient', 'translate-middle',
+    'link-opacity', 'link-offset', 'link-underline', 'link-underline-opacity',
+    'subtle-border-color', 'subtle-background-color',
+    'text-opacity', 'bg-opacity', 'border-opacity',
+    'rounded-top', 'rounded-end', 'rounded-bottom', 'rounded-start',
+    'viewport-width', 'min-viewport-width', 'viewport-height', 'min-viewport-height'
+);
+// Keep these groups, but without the 5 breakpoint copies (-sm … -xxl):
+// nothing uses them, and the responsive copies are most of their weight.
+// The heavily used groups (display, flex, spacing, gap, text-align) keep
+// their responsive variants so new views can still use e.g. .mb-md-0.
+@each $key in ('float', 'order', 'align-self', 'align-content', 'column-gap') {
+    $utilities: map.merge(
+        $utilities,
+        ($key: map.merge(map.get($utilities, $key), (responsive: false)))
+    );
+}
+
+// Layout & components
+@import 'bootstrap/scss/root';
+@import 'bootstrap/scss/reboot';
+@import 'bootstrap/scss/type';
+// @import 'bootstrap/scss/images';
+@import 'bootstrap/scss/containers';
+@import 'bootstrap/scss/grid';
+@import 'bootstrap/scss/tables';
+@import 'bootstrap/scss/forms';
+@import 'bootstrap/scss/buttons';
+@import 'bootstrap/scss/transitions';
+@import 'bootstrap/scss/dropdown';
+@import 'bootstrap/scss/button-group';
+@import 'bootstrap/scss/nav';
+@import 'bootstrap/scss/navbar';
+@import 'bootstrap/scss/card';
+// @import 'bootstrap/scss/accordion';
+// @import 'bootstrap/scss/breadcrumb';
+@import 'bootstrap/scss/pagination';
+@import 'bootstrap/scss/badge';
+@import 'bootstrap/scss/alert';
+@import 'bootstrap/scss/progress';
+@import 'bootstrap/scss/list-group';
+@import 'bootstrap/scss/close';
+@import 'bootstrap/scss/toasts';
+@import 'bootstrap/scss/modal';
+// @import 'bootstrap/scss/tooltip';
+// @import 'bootstrap/scss/popover';
+// @import 'bootstrap/scss/carousel';
+@import 'bootstrap/scss/spinners';
+@import 'bootstrap/scss/offcanvas';
+// @import 'bootstrap/scss/placeholders';
+
+// Helpers
+@import 'bootstrap/scss/helpers';
+
+// Utilities
+@import 'bootstrap/scss/utilities/api';

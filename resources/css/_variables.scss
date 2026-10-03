@@ -1,3 +1,6 @@
+@use "sass:meta";
+@use "sass:string";
+
 // ---------------------------------------------------------------------------
 // Novarr — design tokens
 // Dark is canonical. Light is a companion theme, not a peer.
@@ -37,8 +40,8 @@ $btn-disabled-fg:     #5B6472;
 $success:             #3FB950;   // downloaded / active / completed
 $pending:             #4CC4D1;   // queued  (cyan, not blue — blue collides with $link)
 $warning:             #F0B429;   // needs attention
-$danger:              #F0533F;   // failed
-$muted:               #6B7684;   // paused
+$danger:              #F05845;   // ≥ 4.5:1 as triad text on its 12% fill   // failed
+$muted:               #818B96;   // paused (≥ 4.5:1 on every dark surface)
 $muted-fg:            #9AA4B2;   // paused badge label
 
 // --- Light theme (companion) ---------------------------------------------
@@ -52,29 +55,97 @@ $link-light:          #3D4EE0;
 $link-hover-light:    #2536C4;
 $accent-light:        #4A58E8;
 $accent-press-light:  #3543C9;
-$amber-light:         #C98A00;   // amber needs darkening on a light ground
+$amber-light:         #916300;   // amber needs darkening on a light ground
 $code-bg-light:       #EEF0F5;
 $code-fg-light:       #8A5A00;
 
-$success-light:       #1A7F37;
-$pending-light:       #0E7C8A;
-$warning-light:       #A86A00;
+$success-light:       #197C36;
+$pending-light:       #0D7683;
+$warning-light:       #975F00;
 $danger-light:        #C0392B;
-$muted-light:         #6B7684;
+$muted-light:         #646E7B;
+
+// Light companion — shell extensions (not in the v1 pack). The pack's light
+// set covers bg/surface/text/link/status; the shell also needs the secondary
+// button hairline, the disabled label and the soft reading text.
+$text-soft-light:            #262C36;
+$btn-secondary-border-light: #B9C0CB;
+$btn-disabled-fg-light:      #8A93A1;
+
+// Status *ink* on light grounds. The pack's light status values clear 4.5:1
+// on white but not on their own 12% triad fill, which is where badges and
+// alerts put them (11px/600). These are the same hues a step darker so the
+// triad text stays ≥ 4.5:1 on #F7F8FA and ≥ 4.3:1 on the $surface-alt hover.
+// Amber stays #C98A00 for marks and fills (bars, the wordmark dot); amber
+// *text* uses $amber-ink-light.
+$success-ink-light:   #156C2C;
+$pending-ink-light:   #0B6570;
+$warning-ink-light:   #8A5A00;
+$danger-ink-light:    #A93222;
+$muted-ink-light:     #545E6C;
+$accent-ink-light:    #3D4EE0;   // = $link-light; accent-coloured text
+$accent-ink:          $link;     // accent-coloured text on dark ($accent is for fills; #727DFF is 4.3:1 on its own triad fill)
+
+// Primary button fill: white labels need ≥ 4.5:1, which #6470FF (3.96:1)
+// misses — the fill steps down a shade per theme; #6470FF stays the brand
+// indigo for rules, focus rings and the logo.
+$accent-fill:         #4F5CE6;   // 5.24:1 with #fff
+$accent-fill-hover:   #5A66F0;
+$accent-fill-press:   #4350D6;
+$accent-fill-light:       #4A58E8;
+$accent-fill-hover-light: #4F5CE6;
+$accent-fill-press-light: #3543C9;
+$amber-ink-light:     #8A5A00;   // a step under $amber-light for small text
 
 // --- Status triad --------------------------------------------------------
 // Every badge, panel and progress element uses the same recipe:
 // full-value text, 12% fill, 35% border.
+//
+// The shell is themed at runtime (data-bs-theme on <html>, or on <body> in
+// the reader), so the triad resolves through the --nv-* custom properties
+// defined in _components.scss: the dark values below on dark grounds, the
+// darker light-theme inks on light grounds. A colour outside the status set
+// falls back to the literal recipe.
+$status-token-map: (
+  "success": $success,
+  "pending": $pending,
+  "warning": $warning,
+  "danger":  $danger,
+  "accent-ink": $accent,
+  "muted-fg": $muted-fg,
+);
+
+@function status-token($c) {
+  @if meta.type-of($c) == string {
+    // Already a theme token (after _components.scss rebinds the names).
+    @if string.index($c, "var(--nv-") == 1 { @return $c; }
+    @return null;
+  }
+  @each $name, $hex in $status-token-map {
+    @if $c == $hex { @return var(--nv-#{$name}); }
+  }
+  @return null;
+}
+
+@mixin status-recipe($c, $fill, $line) {
+  $t: status-token($c);
+  @if $t {
+    color: $t;
+    background: color-mix(in srgb, #{$t} #{$fill * 100%}, transparent);
+    border: 1px solid color-mix(in srgb, #{$t} #{$line * 100%}, transparent);
+  } @else {
+    color: $c;
+    background: rgba($c, $fill);
+    border: 1px solid rgba($c, $line);
+  }
+}
+
 @mixin status($c) {
-  color: $c;
-  background: rgba($c, 0.12);
-  border: 1px solid rgba($c, 0.35);
+  @include status-recipe($c, 0.12, 0.35);
 }
 // Paused is quieter: 10% / 30%.
 @mixin status-muted($c: $muted-fg) {
-  color: $c;
-  background: rgba($c, 0.10);
-  border: 1px solid rgba($c, 0.30);
+  @include status-recipe($c, 0.10, 0.30);
 }
 
 // --- Typography ----------------------------------------------------------
@@ -126,10 +197,33 @@ $transition-bar: 240ms ease-out;   // progress width
 }
 
 // ---------------------------------------------------------------------------
+// Runtime theme tokens
+// The shell follows data-bs-theme (on <html>; the reader sets it on <body>),
+// so component colours resolve through custom properties whose values are
+// declared per theme at the top of _components.scss. These are the Sass
+// handles for them — use them anywhere a colour must follow the theme.
+// (After Bootstrap is compiled, _components.scss also rebinds $bg, $surface,
+// $text, the status colours … to these, so view partials follow the theme
+// without changes.)
+// ---------------------------------------------------------------------------
+$t-bg:                  var(--nv-bg);
+$t-surface:             var(--nv-surface);
+$t-surface-alt:         var(--nv-surface-alt);
+$t-border:              var(--nv-border);
+$t-text:                var(--nv-text);
+$t-text-muted:          var(--nv-text-muted);
+$t-link:                var(--nv-link);
+$t-btn-secondary-border:var(--nv-btn-secondary-border);
+
+// ---------------------------------------------------------------------------
 // Bootstrap 5.3 mapping
-// The app renders with data-bs-theme="dark" on <html>, so the *-dark variants
-// are the ones Bootstrap actually emits; the non-suffixed ones still feed
-// component defaults that are not theme-aware.
+// Bootstrap emits its --bs-* custom properties twice: the light values on
+// `:root, [data-bs-theme=light]` (from the non-suffixed variables) and the
+// dark values on `[data-bs-theme=dark]` (from the *-dark variables). Both are
+// mapped to the brand tokens so either theme is first-class at the --bs-*
+// level; component variables below point at the runtime --nv-* tokens.
+// Anything Bootstrap runs through a colour function (theme colours, rgb
+// triplets) must stay a literal hex.
 // ---------------------------------------------------------------------------
 
 // --- Typography ----------------------------------------------------------
@@ -147,7 +241,6 @@ $border-radius-lg:        $radius;
 $border-radius-xl:        $radius;
 $border-radius-xxl:       $radius;
 $border-radius-pill:      $radius;
-$border-color:            $border;
 
 // --- No elevation anywhere ----------------------------------------------
 $enable-shadows:          false;
@@ -165,6 +258,20 @@ $info:                    $pending;          // queued is cyan, never blue
 $light:                   $surface-alt;
 $dark:                    $bg;
 $min-contrast-ratio:      2.2;               // keep white labels on $accent
+
+// --- Light theme surfaces (companion) -----------------------------------
+$body-bg:                       $bg-light;
+$body-color:                    $text-light;
+$body-secondary-color:          $text-muted-light;
+$body-secondary-bg:             $surface-alt-light;
+$body-tertiary-color:           $muted-light;
+$body-tertiary-bg:              $surface-alt-light;
+$body-emphasis-color:           $text-light;
+$border-color:                  $border-light;
+$border-color-translucent:      $border-light;
+$link-color:                    $link-light;
+$link-hover-color:              $link-hover-light;
+$mark-bg:                       rgba($amber-light, 0.22);
 
 // --- Dark theme surfaces -------------------------------------------------
 $body-bg-dark:                  $bg;
@@ -221,10 +328,10 @@ $btn-transition:          $transition-base;
 $btn-disabled-opacity:    1;   // the disabled recipe is a fill, not a fade
 
 // --- Forms ---------------------------------------------------------------
-$input-bg:                $bg;
-$input-color:             $text;
-$input-border-color:      $border;
-$input-placeholder-color: $text-muted;
+$input-bg:                $t-bg;
+$input-color:             $t-text;
+$input-border-color:      $t-border;
+$input-placeholder-color: $t-text-muted;
 $input-focus-border-color: $accent;
 $input-padding-y:         0.4375rem;   // 7px
 $input-padding-x:         0.75rem;     // 12px
@@ -233,61 +340,61 @@ $input-border-radius:     $radius;
 $input-border-radius-sm:  $radius;
 $input-border-radius-lg:  $radius;
 $input-transition:        $transition-base;
-$form-select-bg:          $bg;
-$form-check-input-bg:     $surface-alt;
-$form-check-input-border: 1px solid $btn-secondary-border;
+$form-select-bg:          $t-bg;
+$form-check-input-bg:     $t-surface-alt;
+$form-check-input-border: 1px solid $t-btn-secondary-border;
 $form-check-input-checked-bg-color: $accent;
 
 // --- Surfaces ------------------------------------------------------------
-$card-bg:                 $surface;
-$card-cap-bg:             $surface;
-$card-border-color:       $border;
+$card-bg:                 $t-surface;
+$card-cap-bg:             $t-surface;
+$card-border-color:       $t-border;
 $card-border-radius:      $radius;
 $card-cap-padding-y:      $s-4;
 $card-cap-padding-x:      $s-5;
 $card-spacer-y:           $s-5;
 $card-spacer-x:           $s-5;
 
-$dropdown-bg:             $surface;
-$dropdown-border-color:   $border;
+$dropdown-bg:             $t-surface;
+$dropdown-border-color:   $t-border;
 $dropdown-border-radius:  $radius;
-$dropdown-link-color:     $text-muted;
-$dropdown-link-hover-color: $text;
-$dropdown-link-hover-bg:  $surface-alt;
-$dropdown-link-active-color: $text;
-$dropdown-link-active-bg: $surface-alt;
+$dropdown-link-color:     $t-text-muted;
+$dropdown-link-hover-color: $t-text;
+$dropdown-link-hover-bg:  $t-surface-alt;
+$dropdown-link-active-color: $t-text;
+$dropdown-link-active-bg: $t-surface-alt;
 $dropdown-font-size:      13px;
 $dropdown-padding-y:      $s-1;
 $dropdown-item-padding-y: 7px;
 $dropdown-item-padding-x: $s-4;
 
-$modal-content-bg:        $surface;
-$modal-content-border-color: $border;
-$modal-header-border-color:  $border;
-$modal-footer-border-color:  $border;
-$popover-bg:              $surface;
-$popover-border-color:    $border;
-$offcanvas-bg-color:      $surface;
-$offcanvas-border-color:  $border;
-$list-group-bg:           $surface;
-$list-group-border-color: $border;
-$list-group-hover-bg:     $surface-alt;
-$list-group-action-color: $text;
-$toast-background-color:  $surface;
-$toast-border-color:      $border;
-$toast-header-background-color: $surface-alt;
-$toast-header-color:      $text;
-$tooltip-bg:              $surface-alt;
-$tooltip-color:           $text;
+$modal-content-bg:        $t-surface;
+$modal-content-border-color: $t-border;
+$modal-header-border-color:  $t-border;
+$modal-footer-border-color:  $t-border;
+$popover-bg:              $t-surface;
+$popover-border-color:    $t-border;
+$offcanvas-bg-color:      $t-surface;
+$offcanvas-border-color:  $t-border;
+$list-group-bg:           $t-surface;
+$list-group-border-color: $t-border;
+$list-group-hover-bg:     $t-surface-alt;
+$list-group-action-color: $t-text;
+$toast-background-color:  $t-surface;
+$toast-border-color:      $t-border;
+$toast-header-background-color: $t-surface-alt;
+$toast-header-color:      $t-text;
+$tooltip-bg:              $t-surface-alt;
+$tooltip-color:           $t-text;
 $tooltip-opacity:         1;
 
 // --- Table ---------------------------------------------------------------
-$table-bg:                $surface;
-$table-color:             $text;
-$table-border-color:      $border;
-$table-hover-bg:          $surface-alt;
-$table-hover-color:       $text;
-$table-active-bg:         $surface-alt;
+$table-bg:                $t-surface;
+$table-color:             $t-text;
+$table-border-color:      $t-border;
+$table-hover-bg:          $t-surface-alt;
+$table-hover-color:       $t-text;
+$table-active-bg:         $t-surface-alt;
 $table-striped-bg:        transparent;
 $table-cell-padding-y:    14px;
 $table-cell-padding-x:    $s-6;
@@ -302,8 +409,8 @@ $navbar-nav-link-padding-x: 0.75rem; // 12px
 $nav-link-padding-y:      0.4375rem;   // 7px
 $nav-link-padding-x:      0.75rem;     // 12px
 $nav-link-font-size:      0.875rem;    // 14px
-$nav-link-color:          $text-muted;
-$nav-link-hover-color:    $text;
+$nav-link-color:          $t-text-muted;
+$nav-link-hover-color:    $t-text;
 $nav-link-transition:     $transition-base;
 $navbar-toggler-border-radius: $radius;
 $navbar-toggler-focus-width: 0;
@@ -317,7 +424,7 @@ $badge-border-radius:     $radius-flat;
 
 // --- Progress: 4px track, animate width only ----------------------------
 $progress-height:         $progress-track;
-$progress-bg:             $surface-alt;
+$progress-bg:             $t-surface-alt;
 $progress-border-radius:  $radius-flat;
 $progress-bar-bg:         $accent;
 $progress-bar-transition: width $transition-bar;
@@ -328,14 +435,14 @@ $alert-padding-y:         $s-4;
 $alert-padding-x:         $s-5;
 $alert-border-radius:     $radius;
 $alert-border-width:      1px;
-$hr-color:                $border;
+$hr-color:                $t-border;
 $hr-opacity:              1;
-$code-color:              $code-fg;
-$pagination-bg:           $surface;
-$pagination-border-color: $border;
-$pagination-color:        $text-muted;
-$pagination-hover-bg:     $surface-alt;
-$pagination-hover-color:  $text;
+$code-color:              $code-fg-light;
+$pagination-bg:           $t-surface;
+$pagination-border-color: $t-border;
+$pagination-color:        $t-text-muted;
+$pagination-hover-bg:     $t-surface-alt;
+$pagination-hover-color:  $t-text;
 $pagination-active-bg:    $accent;
 $pagination-active-border-color: $accent;
 $pagination-focus-box-shadow: none;

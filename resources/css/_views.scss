@@ -1476,38 +1476,6 @@ a.stack-row:hover .result-title { color: $link-hover; }
 
 // Dashboard: one-line Needs-attention summary linking to Health (the full
 // panel lives on health/index). Same warning rule as the panel it stands for.
-.attention-summary {
-    display: flex;
-    align-items: center;
-    gap: $s-3;
-    padding: $s-4 $s-6;
-    background: rgba($warning, 0.06);
-    border: $hairline solid $border;
-    border-left: $rule-strong solid $warning;
-    border-radius: 0 $radius $radius 0;
-    color: $text-soft;
-    font-size: $fs-body;
-    text-decoration: none;
-    transition: background-color $transition;
-
-    .attention-icon { color: $warning; flex-shrink: 0; }
-    strong { color: $text; font-weight: 600; }
-
-    .attention-summary-link {
-        margin-left: auto;
-        display: inline-flex;
-        align-items: center;
-        gap: 2px;
-        color: $link;
-        white-space: nowrap;
-    }
-
-    &:hover {
-        background: rgba($warning, 0.12);
-        color: $text;
-        .attention-summary-link { color: $link-hover; }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Stats — HTML bar chart (stats/index). Axes are real text, so they keep

@@ -114,6 +114,7 @@
             <summary>View as table</summary>
             <div class="table-responsive mt-3 table-frame" style="max-height: 260px; overflow-y: auto;">
                 <table class="table data-table mb-0">
+                    <caption class="visually-hidden">Chapters and estimated words read per day, newest first</caption>
                     <thead><tr><th>Date</th><th class="text-end">Chapters</th><th class="text-end">&asymp;Words</th></tr></thead>
                     <tbody>
                         @foreach(array_reverse($daily) as $day)
@@ -140,7 +141,8 @@
         <div class="card-body"><p class="text-muted mb-0">No chapters read in the last {{ $window_days }} days.</p></div>
     @else
         <div class="table-responsive">
-            <table class="table table-hover align-middle">
+            <table class="table table-hover align-middle table-responsive-cards">
+                <caption class="visually-hidden">Most-read novels in the last {{ $window_days }} days</caption>
                 <thead>
                     <tr>
                         <th>Novel</th>
@@ -151,11 +153,11 @@
                 <tbody>
                     @foreach($top_novels as $row)
                         <tr>
-                            <td class="text-truncate" style="max-width: 340px;">
+                            <td class="cell-primary text-truncate" style="max-width: 340px;">
                                 <a href="{{ route('novels.show', $row->novel_id) }}">{{ $row->novel->name }}</a>
                             </td>
-                            <td class="text-end"><span class="mono-figure text-amber">{{ number_format($row->chapters) }}</span></td>
-                            <td class="text-end mono-muted">{{ \Carbon\Carbon::parse($row->last_read)->diffForHumans() }}</td>
+                            <td class="text-end" data-label="Chapters"><span class="mono-figure text-amber">{{ number_format($row->chapters) }}</span></td>
+                            <td class="text-end mono-muted" data-label="Last read">{{ \Carbon\Carbon::parse($row->last_read)->diffForHumans() }}</td>
                         </tr>
                     @endforeach
                 </tbody>

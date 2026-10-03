@@ -166,10 +166,97 @@ class NovelController extends Controller
             $query->whereHas('tags', fn($q) => $q->where('tags.id', $request->tag));
         }
 
+        // --- Reading index -------------------------------------------------
+        // One grouped pass over the chapter table gives every novel's read /
+        // new / TOC counts: it feeds the chip counts, the chip filters and the
+        // grid tiles' sublines and reading edges. "New" = downloaded, unread
+        // chapters that arrived after you last read the novel (so a backlog
+        // you haven't reached yet doesn't count as new).
+        // Whole-table aggregates: cached briefly so a big library doesn't pay
+        // for them on every page/filter change. Reading a chapter invalidates
+        // nothing here on purpose — 60 s of staleness is fine for a grid.
+        $cached = \Illuminate\Support\Facades\Cache::remember('library_reading_v1', 60, function () {
+        $lastRead = NovelChapter::query()
+            ->whereNotNull('read_at')
+            ->where('blacklist', 0)
+            ->selectRaw('novel_id, MAX(read_at) as last_read')
+            ->groupBy('novel_id');
+
+        $counts = \Illuminate\Support\Facades\DB::table('novel_chapters as c')
+            ->leftJoinSub($lastRead, 'lr', 'lr.novel_id', '=', 'c.novel_id')
+            ->where('c.blacklist', 0)
+            ->whereNull('c.deleted_at')
+            ->groupBy('c.novel_id')
+            ->selectRaw('c.novel_id,
+                COUNT(*) as toc,
+                SUM(CASE WHEN c.status = 1 THEN 1 ELSE 0 END) as downloaded,
+                SUM(CASE WHEN c.read_at IS NOT NULL THEN 1 ELSE 0 END) as read_count,
+                SUM(CASE WHEN c.status = 1 AND c.read_at IS NULL AND lr.last_read IS NOT NULL
+                         AND c.download_date > lr.last_read THEN 1 ELSE 0 END) as new_count')
+            ->get()
+            ->keyBy('novel_id');
+
+        $reading = [];
+        foreach (Novel::get(['id', 'no_of_chapters']) as $n) {
+            $row = $counts->get($n->id);
+            $read = (int) ($row->read_count ?? 0);
+            // Same denominator as the download progress everywhere else.
+            $total = \App\Services\NovelHealth::downloadProgress(
+                (int) ($row->downloaded ?? 0),
+                (int) ($row->toc ?? 0),
+                (int) ($n->no_of_chapters ?? 0)
+            )['total'];
+            $total = max($total, $read);
+
+            $reading[$n->id] = [
+                'read' => $read,
+                'new' => (int) ($row->new_count ?? 0),
+                'total' => $total,
+                'percent' => $total > 0 ? (int) min(100, floor($read / $total * 100)) : 0,
+                'finished' => $total > 0 && $read >= $total,
+            ];
+        }
+
+        return [
+            'reading' => $reading,
+            'totals' => [
+                'downloaded' => (int) $counts->sum('downloaded'),
+                'queued' => (int) $counts->sum(fn($r) => $r->toc - $r->downloaded),
+            ],
+        ];
+        });
+        $reading = $cached['reading'];
+        $totals = $cached['totals'];
+
+        $attentionIds = \App\Services\NovelHealth::attentionIds();
+
+        $sets = [
+            'reading' => array_keys(array_filter($reading, fn($r) => $r['read'] > 0 && !$r['finished'])),
+            'new' => array_keys(array_filter($reading, fn($r) => $r['new'] > 0)),
+            'attention' => array_values(array_intersect(array_keys($attentionIds), array_keys($reading))),
+            'finished' => array_keys(array_filter($reading, fn($r) => $r['finished'])),
+        ];
+        $chipCounts = array_map('count', $sets) + ['all' => count($reading)];
+
+        // Chip filter. "Offline" lives in this browser's IndexedDB, so the
+        // page script resolves it and comes back with ?filter=offline&ids=….
+        $filter = $request->query('filter');
+        if (!in_array($filter, ['reading', 'new', 'attention', 'offline', 'finished'], true)) {
+            $filter = 'all';
+        }
+        $offlinePending = false;
+        if ($filter === 'offline') {
+            $offlinePending = !$request->has('ids');
+            $ids = array_filter(array_map('intval', explode(',', (string) $request->query('ids', ''))));
+            $query->whereIn('id', $ids ?: [0]);
+        } elseif ($filter !== 'all') {
+            $query->whereIn('id', $sets[$filter] ?: [0]);
+        }
+
         // Sort: explicit ?sort= wins, otherwise the last choice in session.
         $sort = $request->query('sort');
-        if (!in_array($sort, ['name', 'progress', 'updated', 'chapters'], true)) {
-            $sort = session('novels_sort', 'name');
+        if (!in_array($sort, ['read', 'name', 'progress', 'updated', 'chapters'], true)) {
+            $sort = session('novels_sort', 'read');
         }
         session(['novels_sort' => $sort]);
 
@@ -184,26 +271,40 @@ class NovelController extends Controller
                     ->orderByDesc('download_date')
                     ->limit(1)
             ),
-            default => $query->orderBy('name'),
+            'name' => $query->orderBy('name'),
+            // Last read first; never-read novels after them (NULL sorts last
+            // in DESC on both SQLite and MySQL/MariaDB), then by name.
+            default => $query->orderByDesc(
+                NovelChapter::selectRaw('MAX(read_at)')->whereColumn('novel_id', 'novels.id')
+            ),
         };
+        $query->orderBy('name');
 
-        // List/grid toggle: explicit ?view= wins, otherwise the last choice
-        // remembered in the session.
+        // Grid/table toggle: explicit ?view= wins (the old ?view=list means
+        // table), otherwise the last choice remembered in the session; the
+        // cover grid is the default.
         $view = $request->query('view');
-        if (!in_array($view, ['list', 'grid'], true)) {
-            $view = session('novels_view', 'list');
+        $view = $view === 'list' ? 'table' : $view;
+        if (!in_array($view, ['grid', 'table'], true)) {
+            $view = session('library_view', 'grid');
         }
-        session(['novels_view' => $view]);
+        session(['library_view' => $view]);
 
         // Only what the list renders (plus relation keys) — novels.* would
         // drag the longtext description along for every row.
         return view('novels.index', [
             'novels' => $query->paginate(
-                $view === 'grid' ? 48 : 25,
-                ['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters']
+                $view === 'grid' ? 42 : 25,
+                ['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures']
             ),
             'view' => $view,
             'sort' => $sort,
+            'filter' => $filter,
+            'offlinePending' => $offlinePending,
+            'chipCounts' => $chipCounts,
+            'totals' => $totals,
+            'reading' => $reading,
+            'attentionIds' => $attentionIds,
             'tags' => \App\Tag::orderBy('name')->get(['id', 'name']),
             'activeTag' => $request->query('tag'),
         ]);

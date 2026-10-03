@@ -15,7 +15,7 @@
 
 @import "variables";
 
-@import 'bootstrap/scss/bootstrap';
+@import 'bootstrap-trim'; // Bootstrap, trimmed to the parts in use (Performance stream)
 
 // ---------------------------------------------------------------------------
 // Base
@@ -173,3 +173,8 @@ hr {
 @import "reader";
 @import "views";
 @import "status";
+@import "home";
+@import "library";
+@import "palette";
+@import "tables";
+@import "a11y";

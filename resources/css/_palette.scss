@@ -1,0 +1,190 @@
+// ---------------------------------------------------------------------------
+// Command palette (⌘K / Ctrl-K / "/") — partials/palette.blade.php +
+// resources/js/palette.js. Hosted in an .nv-sheet so it shares the focus
+// trap / inert / Esc plumbing; on ≥768px it is a centred panel near the top,
+// on phones a full-width sheet anchored to the top (the keyboard covers the
+// bottom half).
+// ---------------------------------------------------------------------------
+
+.palette.nv-sheet {
+    justify-content: flex-start;
+    align-items: center;
+    padding: calc(12vh + env(safe-area-inset-top)) $s-5 $s-5;
+}
+
+.palette-panel {
+    display: flex;
+    flex-direction: column;
+    width: min(640px, 100%);
+    max-height: min(560px, 76vh);
+    padding: 0;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    transform: translateY(-8px);
+    overflow: hidden;
+}
+
+.palette-field {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: $s-3;
+    padding: 0 $s-5;
+    border-bottom: $hairline solid $border;
+
+    .icon { flex: none; width: 18px; height: 18px; color: $text-muted; }
+}
+
+.palette-input {
+    flex: 1;
+    min-width: 0;
+    height: 52px;
+    padding: 0;
+    font-family: $font-ui;
+    font-size: 16px; // ≥16px: iOS doesn't zoom the page on focus
+    color: $text;
+    background: transparent;
+    border: 0;
+    outline: none;
+
+    &::placeholder { color: $text-muted; }
+    &::-webkit-search-decoration,
+    &::-webkit-search-cancel-button { -webkit-appearance: none; }
+    &:focus-visible { outline: none; }
+}
+
+.palette-spinner {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    border: 2px solid $border;
+    border-top-color: $text-muted;
+    border-radius: 50%;
+    animation: palette-spin 0.7s linear infinite;
+    visibility: hidden;
+
+    .palette.is-loading & { visibility: visible; }
+}
+
+@keyframes palette-spin { to { transform: rotate(360deg); } }
+
+.palette-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: $s-1 $s-2 $s-2;
+}
+
+.palette-group + .palette-group { margin-top: $s-1; }
+
+.palette-group-label {
+    padding: $s-3 $s-3 $s-1;
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: $ls-micro;
+    text-transform: uppercase;
+    color: $text-muted;
+}
+
+.palette-option {
+    display: flex;
+    align-items: center;
+    gap: $s-4;
+    min-height: 44px;
+    padding: $s-2 $s-3;
+    border-radius: $radius;
+    color: $text;
+    cursor: pointer;
+    transition: background-color $transition, color $transition;
+
+    > .icon { flex: none; width: 16px; height: 16px; color: $text-muted; }
+
+    &.is-active {
+        background: $surface-alt;
+        box-shadow: inset 2px 0 0 $accent;
+
+        > .icon { color: $text; }
+        .palette-enter { visibility: visible; }
+    }
+}
+
+.palette-option-body {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.palette-option-title {
+    font-size: $fs-body;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    mark {
+        padding: 0;
+        color: inherit;
+        background: none;
+        text-decoration: underline;
+        text-decoration-color: $accent;
+        text-decoration-thickness: 2px;
+        text-underline-offset: 3px;
+    }
+}
+
+.palette-option-meta {
+    font-size: $fs-caption;
+    color: $text-muted;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.palette-option-aside {
+    flex: none;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: var(--nv-amber-ink);
+}
+
+.palette-enter { visibility: hidden; flex: none; }
+
+.palette-empty {
+    padding: $s-7 $s-5;
+    font-size: 13px;
+    color: $text-muted;
+    text-align: center;
+
+    a { font-weight: 500; }
+}
+
+.palette-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-1 $s-5;
+    padding: $s-2 $s-5;
+    font-size: $fs-caption;
+    color: $text-muted;
+    background: $surface;
+    border-top: $hairline solid $border;
+
+    span { display: inline-flex; align-items: center; gap: 6px; }
+    .palette-foot-all { margin-left: auto; }
+}
+
+@include media-breakpoint-down(md) {
+    .palette.nv-sheet { padding: env(safe-area-inset-top) 0 0; }
+
+    .palette-panel {
+        width: 100%;
+        max-height: 78vh;
+        border-width: 0 0 $hairline;
+        border-radius: 0 0 $radius $radius;
+    }
+
+    // Touch: arrow/tab hints are noise.
+    .palette-foot .palette-foot-keys { display: none; }
+}
