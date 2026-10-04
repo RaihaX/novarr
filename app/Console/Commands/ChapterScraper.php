@@ -694,27 +694,42 @@ class ChapterScraper extends Command
             return false;
         }
 
-        // Genuine locked/empty-page boilerplate only. Links, Ko-fi/Patreon/
-        // Discord plugs and thanks to subscribers are neutral — real author
-        // notes are full of them. Anchored on a word start.
-        $boilerplate = '/\b(?:log ?in|sign ?up|register|locked|unlock|premium|coins?|please wait|loading'
-            . '|not (?:yet )?available|not found|404\b|try again(?: later)?|refresh (?:the )?page'
-            . '|enable javascript|captcha|cloudflare|you are reading|read (?:more|the latest) at'
+        // Links, Ko-fi/Patreon/Discord plugs and thanks to subscribers are
+        // neutral — real author notes are full of them.
+        // Genuine locked/empty-page boilerplate. Two tiers:
+        //  - hard lock phrases always reject, even under a "Translator:" line
+        //    (a locked page can carry a translator header too);
+        //  - site chrome / paywall phrasing rejects only when there is no
+        //    explicit speaker line. Every entry is a PHRASE, not a bare word:
+        //    "register" alone matched "registered their members" in a real
+        //    translator's note (White Dragon Lord ch. 2281) and threw it away.
+        $hardLock = '/\b(?:locked|unlock(?:s|ed)?\b(?! (?:in|on|at) )|premium (?:chapter|content|only)|coins? (?:to|required|needed)'
+            . '|log ?in (?:to|required|now|first)|sign ?up (?:to|now|for)|register (?:to|an account|now|for free)|registration (?:required|needed)'
+            . '|captcha|cloudflare|not found|404\b)/iu';
+        $chrome = '/\b(?:please wait|loading\.{0,3}$|not (?:yet )?available|try again(?: later)?|refresh (?:the )?page'
+            . '|enable javascript|you are reading|read (?:more|the latest) at'
             . '|report (?:this )?(?:chapter|issue)|next chapter|prev(?:ious)? chapter|chapter list|table of contents'
             // Paywall / advance-release stubs: "available early on my Patreon",
             // "the rest of this chapter will be posted tomorrow". A bare
             // Ko-fi/Patreon/Discord mention is still neutral.
             . '|advance(?:d)? chapters?|early access|available (?:early|now) on|rest of (?:this|the) chapter'
             . '|(?:will|to) be (?:posted|uploaded|released)|(?:read|continue) (?:the )?(?:full|rest of)|unlocks? (?:in|on|at))/iu';
-        if (preg_match($boilerplate, $plain) === 1) {
+
+        if (preg_match($hardLock, $plain) === 1) {
             return false;
         }
 
-        // Explicit speaker prefix at a line/paragraph start, or a named note.
+        // Explicit speaker prefix at a line/paragraph start, or a named note:
+        // the strongest signal there is — accepted even if the body mentions
+        // "next chapter" or "report".
         $speaker = '/^\s*(?:translator|author|tl|tn|editor|a\/?n|t\/?n)\s*[:：]/imu';
         $namedNote = '/\b(?:author\'?s? (?:note|message|words?)|translator\'?s? note)/iu';
         if (preg_match($speaker, $plain) === 1 || preg_match($namedNote, $plain) === 1) {
             return true;
+        }
+
+        if (preg_match($chrome, $plain) === 1) {
+            return false;
         }
 
         // A truncated chapter of a first-person novel also says "I" and may

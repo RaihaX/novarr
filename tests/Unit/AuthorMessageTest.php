@@ -227,4 +227,29 @@ class AuthorMessageTest extends TestCase
         $this->assertFalse(ChapterScraper::looksLikeAuthorMessage($prose));
         $this->assertFalse(ChapterScraper::acceptableWordCount('Chapter 88', 60, 250, $prose));
     }
+
+    /** A real translator's note that mentions "registered" (White Dragon Lord ch. 2281). */
+    public function testTranslatorNoteMentioningRegisteredIsAccepted(): void
+    {
+        $text = "<p>Translator: 54969033</p><p>Recently, I was a little annoyed because the employees at wumiandian registered "
+            . "their members under my name when they registered for membership. I also opened wechat to make a secret payment, "
+            . "so they directly swiped my money when they bought things. Therefore, the author decided to fight to the death. "
+            . "Today, he only went to work on the lawsuit and did not have the time to update it. I hope everyone can understand, "
+            . "i'll make up for it in two days.</p>";
+        $this->assertTrue(ChapterScraper::looksLikeAuthorMessage($text));
+        $this->assertTrue(ChapterScraper::acceptableWordCount('Chapter 2281 - 2281', 107, 250, $text));
+        $this->assertSame('note', ChapterScraper::chapterKind('Chapter 2281 - 2281', 107, 250, $text));
+    }
+
+    /** A speaker line does not rescue a genuinely locked page. */
+    public function testSpeakerLineDoesNotRescueALockedPage(): void
+    {
+        $locked = "<p>Translator: Night</p><p>This chapter is locked. Please log in to unlock it with coins. Sorry for the inconvenience.</p>";
+        $this->assertFalse(ChapterScraper::looksLikeAuthorMessage($locked));
+        $this->assertFalse(ChapterScraper::acceptableWordCount('Chapter 300', 18, 250, $locked));
+
+        // Only the generic words moved to phrases; "register to read" still rejects without a speaker.
+        $stub = "<p>Please register to read the rest of this chapter. I am sorry for the wait.</p>";
+        $this->assertFalse(ChapterScraper::looksLikeAuthorMessage($stub));
+    }
 }
