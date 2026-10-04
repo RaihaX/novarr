@@ -267,7 +267,7 @@ class HomeController extends Controller
      * Novels you're partway through: most-recently-read first, each with its
      * next unread downloaded chapter. Skips novels you've fully caught up on.
      */
-    private function continueReading(int $limit = 8): array
+    public function continueReading(int $limit = 8): array
     {
         // Candidate novels, most-recently-read first (ordered novel_id => last_read).
         $recent = NovelChapter::where('status', 1)
