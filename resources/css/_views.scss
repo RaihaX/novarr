@@ -576,9 +576,9 @@
         gap: $s-2;
         flex-wrap: wrap;
 
-        .btn { padding: 6px 12px; font-size: $fs-caption; }
+        .btn { padding: 0 12px; font-size: $fs-caption; } /* 32px tall via the shared .btn-sm rule */
 
-        .form-control { height: 30px; font-size: $fs-caption; }
+        .form-control { height: 32px; font-size: $fs-caption; }
     }
 }
 

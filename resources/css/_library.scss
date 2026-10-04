@@ -399,18 +399,24 @@
     -webkit-line-clamp: 2;
     overflow: hidden;
     overflow-wrap: anywhere;
+    // Reserve two lines even for one-line titles so the author row, synopsis
+    // and "More" land on the same baselines across a row of cards.
+    min-height: 2.6em;
 
     &:hover { color: $link-hover; }
 }
 
 .disc-meta {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap; // one line: the author truncates, the badge never wraps
     align-items: center;
     gap: 6px;
     font-size: $fs-caption;
     color: $text-muted;
     min-width: 0;
+    min-height: 24px;
+
+    > .badge { flex: none; }
 
     .disc-author {
         min-width: 0;
@@ -430,6 +436,7 @@
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
     overflow: hidden;
+    min-height: 4.5em; // three lines, so short synopses don't lift "More"
 
     &.is-expanded {
         display: block;
@@ -439,6 +446,7 @@
 
 .disc-more {
     align-self: flex-start;
+    margin-top: auto; // pinned to the card's bottom edge (grid rows stretch)
     padding: 0;
     min-height: 24px;
     font-size: $fs-caption;

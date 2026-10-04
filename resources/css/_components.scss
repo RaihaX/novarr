@@ -409,6 +409,32 @@ hr { border-top-color: $border; }
 .input-group .btn,
 .btn-close { justify-content: center; }
 
+// One height per control size, so a toolbar that mixes buttons, inputs and
+// selects lines up: Bootstrap gives small buttons 6px of vertical padding
+// but small inputs 4px (33px vs 30px), and the same mismatch at full size.
+.btn,
+.form-control,
+.form-select {
+    min-height: 36px;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+.btn-sm,
+.form-control-sm,
+.form-select-sm {
+    min-height: 32px;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+.btn-lg,
+.form-control-lg,
+.form-select-lg {
+    min-height: 44px;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+textarea.form-control { min-height: 96px; padding-top: 8px; padding-bottom: 8px; }
+
 .btn-primary {
     // Runtime fill tokens: #4F5CE6 dark / #4A58E8 light (white label ≥ 4.5:1).
     --#{$prefix}btn-bg: var(--nv-accent);
