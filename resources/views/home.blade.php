@@ -179,18 +179,10 @@
                             </span>
                         </div>
                         <div class="home-new-side">
-                            @if($g['notes'] > 0)
-                                <x-status state="attention" class="home-pill">Author's note</x-status>
-                            @endif
-                            @if($g['queued'] > 0)
-                                <x-status state="queued" class="home-pill">{{ number_format($g['queued']) }} queued</x-status>
-                            @endif
-                            @if($g['downloaded'] > 0)
-                                <x-status state="downloaded" class="home-pill">{{ number_format($g['downloaded']) }} downloaded</x-status>
-                            @endif
-                            @if($g['read_from_id'])
-                                <a href="{{ route('chapters.show', $g['read_from_id']) }}" class="btn btn-ghost btn-sm home-new-read">Read from {{ $ch($g['read_from']) }}</a>
-                            @endif
+                            <span class="home-new-slot">@if($g['notes'] > 0)<x-status state="attention" class="home-pill">Author's note</x-status>@endif</span>
+                            <span class="home-new-slot">@if($g['queued'] > 0)<x-status state="queued" class="home-pill">{{ number_format($g['queued']) }} queued</x-status>@endif</span>
+                            <span class="home-new-slot">@if($g['downloaded'] > 0)<x-status state="downloaded" class="home-pill">{{ number_format($g['downloaded']) }} downloaded</x-status>@endif</span>
+                            <span class="home-new-slot">@if($g['read_from_id'])<a href="{{ route('chapters.show', $g['read_from_id']) }}" class="btn btn-ghost btn-sm home-new-read">Read from {{ $ch($g['read_from']) }}</a>@endif</span>
                         </div>
                     </li>
                 @endforeach

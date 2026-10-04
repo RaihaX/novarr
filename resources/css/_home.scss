@@ -386,12 +386,20 @@ $home-cover-sm: 140px;
 }
 
 .home-new-side {
-    display: flex;
-    flex-wrap: wrap;
+    // Fixed slots (note · queued · downloaded · read) so the pills and the
+    // "Read from" link line up as columns down the list.
+    display: grid;
+    grid-template-columns: 112px 112px 140px 148px;
     align-items: center;
-    justify-content: flex-end;
+    justify-items: end;
     gap: $s-4;
     flex: none;
+}
+
+.home-new-slot {
+    display: flex;
+    justify-content: flex-end;
+    min-width: 0;
 }
 
 .home-pill { white-space: nowrap; }
@@ -479,7 +487,13 @@ $home-cover-sm: 140px;
         gap: $s-3;
     }
 
-    .home-new-side { justify-content: flex-start; }
+    .home-new-side {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+
+    .home-new-slot:empty { display: none; }
 }
 
 // Secondary text inside a strip item ("chapters · 2 jobs running").
