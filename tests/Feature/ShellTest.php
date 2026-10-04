@@ -62,6 +62,7 @@ class ShellTest extends TestCase
                     'id' => $novel->id,
                     'name' => 'Ascending the Nine Heavens',
                     'author' => 'Feng Qingyang',
+                    'origin_label' => null,
                     'url' => route('novels.show', $novel->id),
                     'progress' => 50,
                 ]],

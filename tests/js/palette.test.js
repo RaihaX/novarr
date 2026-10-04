@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    fuzzyScore, parseCommand, serverQuery, buildGroups, flatten, groupJump, pushRecent, highlight,
+    fuzzyScore, parseCommand, serverQuery, buildGroups, flatten, groupJump, pushRecent, highlight, novelMeta,
 } from '../../resources/js/palette.js';
 import { resolve, nextPref } from '../../resources/js/theme.js';
 
@@ -108,4 +108,15 @@ test('theme: system follows the OS, explicit choices win, cycle is system → li
     assert.equal(nextPref('light'), 'dark');
     assert.equal(nextPref('dark'), 'system');
     assert.equal(nextPref('bogus'), 'system');
+});
+
+test('novel rows show the origin label after the author', () => {
+    assert.equal(novelMeta({ author: 'Singshong', origin_label: 'Translated · Korean' }), 'Singshong · Translated · Korean');
+    assert.equal(novelMeta({ author: 'Feng', origin_label: null }), 'Feng');
+    assert.equal(novelMeta({ author: null, origin_label: 'Original · English' }), 'Original · English');
+    assert.equal(novelMeta({}), '');
+
+    const groups = buildGroups('ascending', { novels: [{ ...novel, origin_label: 'Translated · Chinese' }], chapters: [] });
+    const item = groups.find((g) => g.id === 'novels').items[0];
+    assert.equal(item.meta, 'Feng · Translated · Chinese');
 });

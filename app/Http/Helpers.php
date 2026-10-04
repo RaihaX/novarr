@@ -1755,6 +1755,9 @@ function fetchNovelUpdatesMetadata(string $url): array
         "description" => "", "author" => "", "no_of_chapters" => 0, "image" => "",
         "status_text" => "", "completed" => false, "fully_translated" => null, "genres" => [],
         "title" => "", "associated" => [],
+        // Origin (see App\Scraping\OriginInference::fromNovelUpdates):
+        // #showtype verbatim ("Web Novel (KR)") and #showlang ("Korean").
+        "type" => "", "original_language" => "",
     ];
 
     try {
@@ -1802,6 +1805,16 @@ function fetchNovelUpdatesMetadata(string $url): array
             $metadata["completed"] = stripos($metadata["status_text"], "complete") !== false;
         }
 
+        $squash = fn(string $text) => trim(preg_replace('/\s+/u', ' ', $text) ?? '');
+        $type = $crawler->filter("#showtype");
+        if ($type->count() > 0) {
+            $metadata["type"] = $squash($type->first()->text());
+        }
+        $language = $crawler->filter("#showlang");
+        if ($language->count() > 0) {
+            $metadata["original_language"] = $squash($language->first()->text());
+        }
+
         $translated = $crawler->filter("#showtranslated");
         if ($translated->count() > 0) {
             $metadata["fully_translated"] = stripos(trim($translated->first()->text()), "yes") !== false;
@@ -1846,6 +1859,15 @@ function getMetadata($data)
         }
     };
 
+    // Origin (translated / original) from a page we trust as this novel —
+    // never over a manual choice (Novel::applyOrigin enforces precedence).
+    $origin = function (array $metadata) use ($data) {
+        if (($data->exists ?? false) && $data instanceof \App\Novel
+            && ($attributes = \App\Scraping\OriginInference::fromNovelUpdates($metadata))) {
+            $data->applyOrigin($attributes, 'novelupdates');
+        }
+    };
+
     // 1. Explicit override saved on the novel.
     if (!empty($data->novelupdates_url)) {
         $metadata = fetchNovelUpdatesMetadata($data->novelupdates_url);
@@ -1853,6 +1875,9 @@ function getMetadata($data)
             $score = \App\Scraping\NovelUpdatesMatcher::score($data->name, $data->author, $metadata);
             $persist(["novelupdates_match_score" => $score]);
             \Log::info("getMetadata: scored saved NovelUpdates URL for '{$data->name}' ({$data->novelupdates_url}): {$score}");
+        }
+        if ($data->novelupdates_match_score !== null && (float) $data->novelupdates_match_score >= $threshold) {
+            $origin($metadata);
         }
         return $metadata;
     }
@@ -1866,6 +1891,7 @@ function getMetadata($data)
         $slugScore = \App\Scraping\NovelUpdatesMatcher::score($data->name, $data->author, $metadata);
         if ($slugScore >= $threshold) {
             $persist(["novelupdates_url" => $url, "novelupdates_match_score" => $slugScore]);
+            $origin($metadata);
             return $metadata;
         }
         \Log::info("getMetadata: slug page '{$url}' ('{$metadata["title"]}') scored {$slugScore} for '{$data->name}'; trying NovelUpdates search");
@@ -1880,6 +1906,7 @@ function getMetadata($data)
         if (!empty($found["description"])) {
             $persist(["novelupdates_url" => $resolved, "novelupdates_match_score" => $report["score"]]);
             \Log::info("getMetadata: resolved '{$data->name}' -> {$resolved} (score {$report["score"]})");
+            $origin($found);
             return $found;
         }
     }

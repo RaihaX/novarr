@@ -16,7 +16,7 @@ class SearchController extends Controller
      * "<novel words> <number>" (e.g. "ascending 142") — that chapter of each
      * matching novel. Commands and navigation are matched client-side.
      *
-     * Shape: { novels: [{id, name, author, url, progress}], chapters: [{id,
+     * Shape: { novels: [{id, name, author, origin_label, url, progress}], chapters: [{id,
      * novel_id, novel, number, label, url, downloaded, read}] }, ≤ 8 each.
      */
     public function palette(Request $request)
@@ -64,6 +64,8 @@ class SearchController extends Controller
                 'id' => $n->id,
                 'name' => $n->name,
                 'author' => $n->author,
+                // "Translated · Korean" / "Original · English" / null.
+                'origin_label' => $n->originLabel(),
                 'url' => route('novels.show', $n->id),
                 // Reading progress, 0–100 (read / non-blacklisted chapters).
                 'progress' => $n->total_chapters_count > 0
@@ -102,7 +104,7 @@ class SearchController extends Controller
             ->orderBy('name')
             ->orderBy('id')
             ->limit($limit)
-            ->get(['id', 'name', 'author']);
+            ->get(['id', 'name', 'author', 'origin', 'origin_language']);
     }
 
     /**

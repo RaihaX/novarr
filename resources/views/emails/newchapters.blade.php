@@ -242,7 +242,7 @@
                                                 </tr>
                                                 <tr>
                                                     <td class="nv-muted" style="padding-top: 4px; font-family: {{ $mono }}; font-size: 12px; line-height: 1.55; color: #8B95A5;">
-                                                        {{ \App\Mail\NewChapters::chapterRange($novel) }} · <span style="color: #E8EBF0;">{{ number_format($novel['count']) }} new</span>@if ($novel['source']) <span style="white-space: nowrap;">· {{ $novel['source'] }}</span>@endif
+                                                        {{ \App\Mail\NewChapters::chapterRange($novel) }} · <span style="color: #E8EBF0;">{{ number_format($novel['count']) }} new</span>@if ($novel['source']) <span style="white-space: nowrap;">· {{ $novel['source'] }}</span>@endif @if (!empty($novel['origin'])) <span style="white-space: nowrap;">· {{ $novel['origin'] }}</span>@endif
                                                     </td>
                                                 </tr>
                                                 @if ($pct !== null)

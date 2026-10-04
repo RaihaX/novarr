@@ -11,13 +11,17 @@
 {{-- Hero — cover, identity, actions, meters                               --}}
 {{-- ===================================================================== --}}
 <div class="detail-hero">
-    <div>
+    <div class="detail-cover-wrap">
         @if($data->file)
             <img src="{{ Storage::url($data->file->file_path) }}" alt="Cover of {{ $data->name }}" class="detail-cover">
         @else
             <div class="detail-cover-placeholder" aria-hidden="true">
                 <x-brand-mark variant="mono" :size="34" />
             </div>
+        @endif
+        @if($originChip = $data->originChip())
+            {{-- Same micro-label as the <x-cover> chip on Library tiles --}}
+            <span class="cover-chip" aria-hidden="true">{{ $originChip }}</span>
         @endif
     </div>
 
@@ -41,6 +45,7 @@
                     $metaItems = [];
                     if ($data->group && $data->group->label) $metaItems[] = ['key' => 'Group', 'value' => $data->group->label];
                     if ($data->language && $data->language->label) $metaItems[] = ['key' => 'Lang', 'value' => $data->language->label];
+                    if ($originLabel = $data->originLabel()) $metaItems[] = ['key' => 'Origin', 'value' => $originLabel];
                 @endphp
                 @if($data->translator_url || count($metaItems))
                     <div class="detail-meta">

@@ -92,6 +92,13 @@ class CreateNovel extends Command
 
         $object->save();
 
+        // Origin: getMetadata() already set it when NovelUpdates matched;
+        // otherwise infer from the author/source (no network, never
+        // overrides NovelUpdates).
+        if ($object->origin_source === null && ($origin = $object->inferOrigin())) {
+            $this->info("  Origin: " . ($object->originLabel() ?? "unknown") . " ({$origin['reason']})");
+        }
+
         if (!empty($metadata["genres"])) {
             $tagIds = collect($metadata["genres"])
                 ->map(fn($g) => \App\Tag::firstOrCreate(["name" => $g])->id);

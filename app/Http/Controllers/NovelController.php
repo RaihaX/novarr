@@ -236,12 +236,20 @@ class NovelController extends Controller
             'attention' => array_values(array_intersect(array_keys($attentionIds), array_keys($reading))),
             'finished' => array_keys(array_filter($reading, fn($r) => $r['finished'])),
         ];
+        // Origin chips: translated web novels vs original English ones.
+        $origins = Novel::whereIn('origin', ['translated', 'original'])->pluck('origin', 'id');
+        foreach (['translated', 'original'] as $origin) {
+            $sets[$origin] = array_values(array_intersect(
+                array_keys($origins->filter(fn($o) => $o === $origin)->all()),
+                array_keys($reading)
+            ));
+        }
         $chipCounts = array_map('count', $sets) + ['all' => count($reading)];
 
         // Chip filter. "Offline" lives in this browser's IndexedDB, so the
         // page script resolves it and comes back with ?filter=offline&ids=….
         $filter = $request->query('filter');
-        if (!in_array($filter, ['reading', 'new', 'attention', 'offline', 'finished'], true)) {
+        if (!in_array($filter, ['reading', 'new', 'attention', 'offline', 'finished', 'translated', 'original'], true)) {
             $filter = 'all';
         }
         $offlinePending = false;
@@ -295,7 +303,7 @@ class NovelController extends Controller
         return view('novels.index', [
             'novels' => $query->paginate(
                 $view === 'grid' ? 42 : 25,
-                ['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures']
+                ['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures', 'origin', 'origin_language']
             ),
             'view' => $view,
             'sort' => $sort,
@@ -606,6 +614,9 @@ class NovelController extends Controller
 
         $object->save();
 
+        // Origin guess from the form's author / URLs (no network).
+        $object->inferOrigin();
+
         // Clear DataTables cache for novels
         CacheHelper::clearNovelDataTablesCache();
 
@@ -710,6 +721,8 @@ class NovelController extends Controller
             'language_id' => 'nullable|integer|exists:languages,id',
             'unique_id' => 'nullable|string|max:255',
             'image' => 'nullable|image|max:10240',
+            'origin' => 'nullable|in:unknown,original,translated',
+            'origin_language' => 'nullable|in:en,zh,ko,ja,vi,th,id,other',
         ]);
 
         $object = $this->novels->findOrFail($id);
@@ -776,6 +789,28 @@ class NovelController extends Controller
 
         if ( $request->has('alternative_url') ) {
             $object->alternative_url = $request->alternative_url;
+        }
+
+        // Origin override: a change made here is the user's call and sticks
+        // (origin_source = manual — NovelUpdates/inference never overwrite
+        // it). Choosing "Unknown" hands the novel back to automatic detection.
+        if ( $request->has('origin') ) {
+            $origin = $request->input('origin') ?: 'unknown';
+            $language = $request->input('origin_language');
+            $language = ($language === 'other' || $language === '') ? null : $language;
+            if ($origin === 'original') {
+                $language ??= 'en';
+            }
+            $currentOrigin = $object->isTranslated() === null ? 'unknown' : $object->origin;
+            $currentLanguage = $currentOrigin === 'unknown' ? null : $object->origin_language;
+
+            if ($origin === 'unknown') {
+                if ($currentOrigin !== 'unknown' || $object->origin_source === 'manual') {
+                    $object->forceFill(['origin' => null, 'origin_language' => null, 'origin_source' => null]);
+                }
+            } elseif ($origin !== $currentOrigin || $language !== $currentLanguage) {
+                $object->forceFill(['origin' => $origin, 'origin_language' => $language, 'origin_source' => 'manual']);
+            }
         }
 
         $object->save();

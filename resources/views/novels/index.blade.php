@@ -11,6 +11,8 @@
         'attention' => ['Needs attention', $chipCounts['attention'], 'tone-warning'],
         'offline' => ['Offline', null, null],
         'finished' => ['Finished', null, null],
+        'translated' => ['Translated', $chipCounts['translated'] ?? null, null],
+        'original' => ['Original', $chipCounts['original'] ?? null, null],
     ];
     $sorts = ['read' => 'Last read', 'name' => 'Name', 'updated' => 'Updated', 'progress' => 'Progress'];
 @endphp
@@ -137,7 +139,7 @@
                 <li class="lib-tile" data-id="{{ $novel->id }}">
                     <a href="{{ route('novels.show', $novel->id) }}" class="lib-tile-link"
                        title="{{ $novel->name }} — {{ number_format($prog['downloaded']) }} of {{ number_format($prog['total']) }} · {{ $prog['percent'] }}% downloaded">
-                        <x-cover :novel="$novel" :progress="$r['percent']" :flag="$flag" :chapters="$prog['total']" decorative />
+                        <x-cover :novel="$novel" :progress="$r['percent']" :flag="$flag" :chapters="$prog['total']" :chip="$novel->originChip()" decorative />
                         <span class="lib-tile-title">{{ $novel->name }}</span>
                         <span class="lib-tile-sub {{ $subTone }}" data-reading="{{ $r['read'] }}/{{ $r['total'] }}">{{ $sub }}</span>
                     </a>

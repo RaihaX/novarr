@@ -157,6 +157,33 @@
     }
 }
 
+// Origin micro-label ("TRANSLATED · KO"), bottom-right, sitting just above
+// the progress edge. Deliberately quiet: 10px mono, muted, on a translucent
+// $bg plate so it stays legible over cover art without competing with it.
+.cover-chip {
+    position: absolute;
+    right: 5px;
+    bottom: 7px;
+    z-index: 2;
+    max-width: calc(100% - 10px);
+    padding: 2px 4px;
+    font-family: $font-mono;
+    font-size: 10px;
+    line-height: 1.1;
+    letter-spacing: 0.04em;
+    color: $text-muted;
+    background-color: rgba($bg, 0.78);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+
+// Typographic covers: lift the title/author foot clear of the chip.
+.cover.has-chip .cover-type {
+    padding-bottom: calc(10cqi + 20px);
+}
+
 // ===========================================================================
 // Library (/novels)
 // ===========================================================================

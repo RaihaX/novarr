@@ -23,7 +23,7 @@ NEW CHAPTERS
 @foreach ($v['novels'] as $novel)
 
 - {!! $novel['name'] !!}{!! ($novel['notes'] ?? 0) > 0 ? " [Author's note]" : '' !!}
-  {{ \App\Mail\NewChapters::chapterRange($novel) }} · {{ number_format($novel['count']) }} new{!! $novel['source'] ? ' · ' . $novel['source'] : '' !!}
+  {{ \App\Mail\NewChapters::chapterRange($novel) }} · {{ number_format($novel['count']) }} new{!! $novel['source'] ? ' · ' . $novel['source'] : '' !!}{!! !empty($novel['origin']) ? ' · ' . $novel['origin'] : '' !!}
 @if ($novel['percent'] !== null)
   {{ $novel['percent'] }}% read
 @endif

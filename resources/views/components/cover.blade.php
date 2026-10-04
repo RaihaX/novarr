@@ -23,6 +23,9 @@
                     (muted). Anything else is ignored: flags are for exceptions.
         src         cover URL override.
         chapters    chapter-count override for the typographic cover.
+        chip        optional micro-label, bottom-right just above the progress
+                    edge — e.g. Novel::originChip() ("TRANSLATED · KO");
+                    null/empty renders nothing.
         decorative  true when the novel's title is printed next to the cover
                     (tiles): the image gets alt="" so it isn't read twice.
 --}}
@@ -33,6 +36,7 @@
     'flag' => null,
     'src' => null,
     'chapters' => null,
+    'chip' => null,
     'decorative' => false,
 ])
 
@@ -77,7 +81,7 @@
     };
 @endphp
 
-<div {{ $attributes->merge(['class' => "cover cover-{$size}" . ($url ? ' has-image' : '')]) }}>
+<div {{ $attributes->merge(['class' => "cover cover-{$size}" . ($url ? ' has-image' : '') . (filled($chip) ? ' has-chip' : '')]) }}>
     {{-- The typographic cover is always drawn: it is what shows while an
          image loads and what remains if the image fails. --}}
     <div class="cover-type" aria-hidden="true">
@@ -100,6 +104,9 @@
     @endif
     @if($flagLabel)
         <x-status :state="$flagState" :label="$flagLabel" class="cover-flag" />
+    @endif
+    @if(filled($chip))
+        <span class="cover-chip">{{ $chip }}</span>
     @endif
     @if($progress > 0)
         <span class="cover-progress" aria-hidden="true"><span style="width: {{ $progress }}%"></span></span>

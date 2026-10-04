@@ -59,6 +59,12 @@ class CommandController extends Controller
             'command' => 'novel:metadata',
             'params' => ['novel_id'],
         ],
+        'origin' => [
+            'name' => 'Detect Origin',
+            'description' => 'Mark novels as translated or original English (NovelUpdates, else inferred)',
+            'command' => 'novel:origin',
+            'params' => ['novel_id'],
+        ],
         'normalize_labels' => [
             'name' => 'Normalize Chapter Labels',
             'description' => 'Normalize chapter labels to consistent format',

@@ -181,7 +181,7 @@ class EmailSummary extends Command
         }
 
         $novels = Novel::whereIn('id', $groups->pluck('novel_id')->all())
-            ->get(['id', 'name', 'translator_url', 'last_toc_count'])
+            ->get(['id', 'name', 'translator_url', 'last_toc_count', 'origin', 'origin_language'])
             ->keyBy('id');
 
         $rows = [];
@@ -196,6 +196,8 @@ class EmailSummary extends Command
                 'name' => $novel->name,
                 'url' => route('novels.show', $novel->id),
                 'source' => $host ? preg_replace('/^www\./', '', $host) : null,
+                // "Translated (KO)" / "Original" / null — appended to the subline.
+                'origin' => $novel->originShortLabel(),
                 'count' => (int) $g->new_count,
                 'notes' => (int) $g->notes,
                 'first' => (float) $g->first_chapter,

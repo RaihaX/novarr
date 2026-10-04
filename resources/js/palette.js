@@ -104,6 +104,11 @@ function escapeRegExp(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** A novel row's subline: author, then its origin ("Translated · Korean") when known. */
+export function novelMeta(n) {
+    return [n.author, n.origin_label].filter(Boolean).join(' · ');
+}
+
 /**
  * Build the grouped, ordered result list.
  *
@@ -174,7 +179,7 @@ export function buildGroups(query, data, { nav = [], recents = [], searchUrl = '
 
     const novelItems = parsed ? [] : novels.map((n) => ({
         id: `novel:${n.id}`, kind: 'url', url: n.url, title: n.name,
-        meta: n.author || '', aside: n.progress > 0 ? `${n.progress}%` : '', icon: 'book-open',
+        meta: novelMeta(n), aside: n.progress > 0 ? `${n.progress}%` : '', icon: 'book-open',
     }));
 
     const themeItems = THEMES

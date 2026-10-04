@@ -177,6 +177,12 @@
     margin-bottom: $s-8;
 }
 
+// Positions the origin .cover-chip (shared with <x-cover>) on the hero cover.
+.detail-cover-wrap {
+    position: relative;
+    align-self: start;
+}
+
 .detail-cover,
 .detail-cover-placeholder {
     width: 100%;
