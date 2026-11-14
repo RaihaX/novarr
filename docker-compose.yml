@@ -135,10 +135,13 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root_secret}"]
-      interval: 10s
+      # Over TCP, not the socket: on first boot the image runs a temporary
+      # socket-only server to create the database, and a socket ping reports
+      # healthy while the port the app connects to is still closed.
+      test: ["CMD", "mysqladmin", "ping", "--protocol=tcp", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root_secret}"]
+      interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 40
     restart: unless-stopped
 
   redis:
