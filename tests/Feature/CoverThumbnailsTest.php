@@ -307,7 +307,9 @@ class CoverThumbnailsTest extends TestCase
 
         $this->get(route('novels.show', $novel->id))
             ->assertOk()
-            ->assertSee('<img src="/storage/covers/md/detail.jpg" alt="Cover of Detail" class="detail-cover">', false);
+            // The hero now uses <x-cover> (lg slot → md thumbnail), loaded eagerly.
+            ->assertSee('<img src="/storage/covers/md/detail.jpg" alt="Cover of Detail" width="240" height="360"', false)
+            ->assertSee('loading="eager" fetchpriority="high"', false);
     }
 
     public function test_offline_manifest_caches_the_md_thumbnail(): void
