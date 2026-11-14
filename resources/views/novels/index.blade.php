@@ -96,6 +96,7 @@
 
 <div id="bulkBar" class="novels-bulk-bar">
     <span id="bulkCount" class="bulk-count"></span>
+    <button type="button" id="bulkRead" class="btn btn-secondary">Mark all read</button>
     <button type="button" id="bulkComplete" class="btn btn-secondary">Mark complete</button>
     <button type="button" id="bulkDelete" class="btn btn-outline-danger">Delete</button>
     <button type="button" id="bulkClear" class="btn btn-ghost ms-auto">Clear selection</button>
@@ -484,6 +485,11 @@
             { title: 'Mark complete', confirmText: 'Mark complete' }
         )) return;
 
+        if (action === 'read' && !await Novarr.confirmDialog(
+            `Mark every chapter of ${ids.length} novel(s) as read?`,
+            { title: 'Mark all read', confirmText: 'Mark all read' }
+        )) return;
+
         try {
             const response = await fetch('{{ route('novels.bulk') }}', {
                 method: 'POST',
@@ -501,6 +507,17 @@
                 if (action === 'delete') {
                     boxes.forEach(c => (c.closest('tr') ?? c.closest('.novel-row') ?? c.closest('.lib-tile'))?.remove());
                     Novarr.showToast(`Deleted ${ids.length} novel(s).`, 'success');
+                } else if (action === 'read') {
+                    // Reload so the Read column, shelves and chip counts all
+                    // show the server's numbers; the toast follows the reload.
+                    const message = `Marked ${Number(data.chapters || 0).toLocaleString()} chapter(s) read in ${ids.length} novel(s).`;
+                    if (window.Turbo) {
+                        document.addEventListener('turbo:load', () => Novarr.showToast(message, 'success'), { once: true });
+                        Turbo.visit(location.href, { action: 'replace' });
+                    } else {
+                        location.reload();
+                    }
+                    return;
                 } else {
                     boxes.forEach(c => {
                         const cbtn = c.closest('tr')?.querySelector('.novel-complete-btn');
@@ -520,6 +537,7 @@
 
     document.getElementById('bulkDelete')?.addEventListener('click', () => bulkAction('delete'));
     document.getElementById('bulkComplete')?.addEventListener('click', () => bulkAction('complete'));
+    document.getElementById('bulkRead')?.addEventListener('click', () => bulkAction('read'));
 
     // --- Toggle complete (table rows) ---
     document.querySelectorAll('.novel-complete-btn').forEach(btn => {
