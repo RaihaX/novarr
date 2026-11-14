@@ -117,12 +117,12 @@ class WordCountAndHomeQueriesTest extends TestCase
 
         // The stored count wins over the body (proves the body isn't read).
         DB::table('chapter_texts')->where('novel_chapter_id', $next->id)->update(['word_count' => 1150]);
-        $this->get(route('home'))->assertOk()->assertSee('5 MIN READ');
+        $this->get(route('home'))->assertOk()->assertSee('about 5 min to read');
 
         // Not backfilled yet: counted from the body as before.
         Cache::flush();
         DB::table('chapter_texts')->where('novel_chapter_id', $next->id)->update(['word_count' => null]);
-        $this->get(route('home'))->assertOk()->assertSee('2 MIN READ');
+        $this->get(route('home'))->assertOk()->assertSee('about 2 min to read');
     }
 
     // --- 5. Home query budget ----------------------------------------------
@@ -152,6 +152,33 @@ class WordCountAndHomeQueriesTest extends TestCase
         // separate stat counts, select * plus a body fetch for the hero). Now
         // fixed: 6 attention/snooze, 5 continue, 1 counts, 2 hero, 3 new
         // chapters, 3 stats — independent of how many novels are in progress.
+        $this->assertLessThanOrEqual(20, $count, "Home ran {$count} queries on an empty cache");
+    }
+
+    public function test_home_query_count_holds_with_not_started_novels_in_new_chapters(): void
+    {
+        // Same budget as above with the New chapters split exercised: the
+        // "started" flag rides on the novels query and both kinds of
+        // read-from target share one UNION statement.
+        for ($i = 1; $i <= 4; $i++) {
+            $novel = $this->novel("Reading {$i}");
+            $this->chapter($novel, 1, '<p>read one</p>', ['read_at' => now()->subMinutes(60 - $i)]);
+            $this->chapter($novel, 2, '<p>next one</p>');
+        }
+        for ($i = 1; $i <= 6; $i++) {
+            $novel = $this->novel("Fresh {$i}");
+            $this->chapter($novel, 0, '<p>notice</p>');
+            $this->chapter($novel, 1, '<p>first</p>');
+            $this->chapter($novel, 2);
+        }
+
+        Cache::flush();
+        DB::enableQueryLog();
+        $response = $this->get(route('home'))->assertOk();
+        $count = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        $response->assertSee('6 novels not started yet')->assertSee('In novels you are reading');
         $this->assertLessThanOrEqual(20, $count, "Home ran {$count} queries on an empty cache");
     }
 

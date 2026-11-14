@@ -8,12 +8,13 @@
     <span class="mono-muted">Last {{ $window_days }} days</span>
 </div>
 
-{{-- Tiles — mono figures, caption labels. Amber marks the reading metrics. --}}
+{{-- Tiles — mono figures, caption labels. Amber marks a reading metric only
+     when it has something to show; a zero is muted, not a call to action. --}}
 <div class="row g-3 mb-4">
     <div class="col-6 col-lg-3">
         <div class="card dash-stat">
             <div class="card-body">
-                <div class="dash-stat-value value-amber">{{ number_format($streak) }}<span class="dash-stat-unit">day{{ $streak === 1 ? '' : 's' }}</span></div>
+                <div class="dash-stat-value {{ $streak > 0 ? 'value-amber' : 'text-muted' }}">{{ number_format($streak) }}<span class="dash-stat-unit">day{{ $streak === 1 ? '' : 's' }}</span></div>
                 <div class="dash-stat-label">Reading streak</div>
             </div>
         </div>
@@ -21,7 +22,7 @@
     <div class="col-6 col-lg-3">
         <div class="card dash-stat">
             <div class="card-body">
-                <div class="dash-stat-value value-amber">{{ number_format($read_today) }}</div>
+                <div class="dash-stat-value {{ $read_today > 0 ? 'value-amber' : 'text-muted' }}">{{ number_format($read_today) }}</div>
                 <div class="dash-stat-label">Chapters today</div>
             </div>
         </div>
@@ -29,7 +30,7 @@
     <div class="col-6 col-lg-3">
         <div class="card dash-stat">
             <div class="card-body">
-                <div class="dash-stat-value">{{ number_format($read_week) }}</div>
+                <div class="dash-stat-value {{ $read_week > 0 ? '' : 'text-muted' }}">{{ number_format($read_week) }}</div>
                 <div class="dash-stat-label">Chapters this week</div>
             </div>
         </div>
@@ -37,7 +38,7 @@
     <div class="col-6 col-lg-3">
         <div class="card dash-stat">
             <div class="card-body">
-                <div class="dash-stat-value">{{ number_format($read_total) }}</div>
+                <div class="dash-stat-value {{ $read_total > 0 ? '' : 'text-muted' }}">{{ number_format($read_total) }}</div>
                 <div class="dash-stat-label">Chapters all-time</div>
                 <div class="health-detail">&asymp;{{ $words_total >= 1000000 ? round($words_total / 1000000, 1) . 'M' : number_format($words_total) }} words</div>
             </div>

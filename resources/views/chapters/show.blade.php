@@ -242,7 +242,12 @@
                         @unless($chapter->status)
                             <span class="reader-kicker-sep">&middot;</span><span class="reader-kicker-pending">Pending</span>
                         @endunless
-                        <span class="reader-kicker-sep">&middot;</span><span data-mins>&mdash;</span>
+                        {{-- Minutes left only when there is a body to time: a
+                             pending chapter has none, so its kicker must not end
+                             in a separator and an empty dash. --}}
+                        @if($wordCount > 0)
+                            <span class="reader-kicker-sep">&middot;</span><span data-mins>&mdash;</span>
+                        @endif
                     </p>
                     <h1 class="reader-title">{{ $chapterTitle }}</h1>
                     <div class="reader-title-rule" aria-hidden="true"></div>

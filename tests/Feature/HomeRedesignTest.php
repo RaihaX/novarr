@@ -75,9 +75,20 @@ class HomeRedesignTest extends TestCase
             ->assertSee('id="heroResume"', false)
             ->assertSee('href="' . route('chapters.show', $c2->id) . '" class="btn btn-primary" id="heroResume"', false)
             ->assertSee(route('novels.show', $novel->id) . '#chapterPanel', false)
-            // 50% of 460 words at 230 wpm = 1 minute; position 2 of 4.
-            ->assertSeeInOrder(['CHAPTER 2 OF 4', '1 MIN LEFT IN THIS CHAPTER', '50% OF CHAPTER'])
+            ->assertSee('Resume chapter 2')
+            ->assertSee('novelfull.test')
+            // Position in the novel (2 of 4, 2 to go) on the bar; the chapter
+            // remainder (50% of 460 words at 230 wpm = 1 minute) labelled
+            // apart. No "% of chapter" caption competing with the bar.
+            ->assertSeeInOrder(['Chapter 2 of 4', '2 to go', 'aria-valuetext="Chapter 2 of 4"', '1 min left in this chapter'], false)
+            ->assertDontSee('OF CHAPTER')
             ->assertDontSee('id="nothingReading"', false);
+
+        // Novel progress shows once: the hero cover has no reading edge.
+        $html = $this->get(route('home'))->getContent();
+        preg_match('/<a href="[^"]*" class="home-hero-cover".*?<\/a>/s', $html, $cover);
+        $this->assertNotEmpty($cover);
+        $this->assertStringNotContainsString('home-cover-edge', $cover[0]);
     }
 
     public function test_empty_state_when_nothing_has_been_read(): void
@@ -113,7 +124,8 @@ class HomeRedesignTest extends TestCase
             ->assertSee('id="continue-section"', false)
             ->assertSeeInOrder(['id="nowReading"', 'Hero Book', 'id="continue-section"', 'Shelf Book'], false)
             ->assertSee(route('chapters.show', $s2->id), false)
-            ->assertSee('CH 2 · 2 NEW');
+            ->assertSee('Continue Shelf Book at chapter 2, 2 to read')
+            ->assertSee('Next: </span>ch 2 · 2 <span class="home-tile-wide">to read</span>', false);
     }
 
     public function test_new_chapters_are_grouped_by_novel_with_counts(): void
@@ -141,21 +153,110 @@ class HomeRedesignTest extends TestCase
         $this->assertNotEmpty($alpha, 'Alpha group renders');
         $this->assertStringContainsString('Chapters 2 to 5', $alpha[1]);
         $this->assertStringContainsString('novelfull.test', $alpha[1]);
-        $this->assertStringContainsString('3 downloaded', $alpha[1]);
+        // A plain count, not a "N downloaded" badge.
+        $this->assertStringContainsString('<span class="home-new-count">3 new</span>', $alpha[1]);
+        $this->assertStringNotContainsString('downloaded', $alpha[1]);
         $this->assertStringContainsString('1 queued', $alpha[1]);
-        $this->assertStringContainsString("Author's note", $alpha[1]);
-        $this->assertStringContainsString('Read from 2', $alpha[1]);
+        $this->assertStringContainsString("author's note", $alpha[1]);
+        $this->assertStringContainsString('Continue at ch 2', $alpha[1]);
         $this->assertStringContainsString(route('chapters.show', $readFrom->id), $alpha[1]);
 
         preg_match('/<li class="home-new-row" data-novel="' . $b->id . '">(.*?)<\/li>/s', $html, $beta);
         $this->assertNotEmpty($beta, 'Beta group renders');
         $this->assertStringContainsString('Chapter 7', $beta[1]);
         $this->assertStringContainsString('1 queued', $beta[1]);
-        $this->assertStringNotContainsString('downloaded', $beta[1]);
-        $this->assertStringNotContainsString("Author's note", $beta[1]);
-        $this->assertStringNotContainsString('Read from', $beta[1]);
+        $this->assertStringNotContainsString(' new<', $beta[1]);
+        $this->assertStringNotContainsString("author's note", $beta[1]);
+        // Nothing downloaded yet: nothing to start.
+        $this->assertStringNotContainsString('Start', $beta[1]);
+
+        // Alpha has been read, so it sits under "In novels you are reading";
+        // Beta has not, so it sits under "Not started yet".
+        $response->assertSeeInOrder(['id="newReading"', 'data-novel="' . $a->id . '"', 'id="newFresh"', 'data-novel="' . $b->id . '"'], false);
 
         $response->assertDontSee('Stale Gamma');
+    }
+
+    public function test_new_chapters_split_into_reading_and_not_started(): void
+    {
+        $reading = $this->novel(['name' => 'Started Novel']);
+        $old = $this->chapter($reading, 1);
+        $this->age($old, 30);
+        $old->forceFill(['read_at' => now()->subDays(20), 'read_progress' => 100])->save();
+        $next = $this->chapter($reading, 2);
+
+        $fresh = $this->novel(['name' => 'Fresh Novel', 'translator_url' => 'https://novelping.test/fresh']);
+        $first = $this->chapter($fresh, 1);
+        $this->chapter($fresh, 2);
+        $this->chapter($fresh, 3, false);
+
+        $html = $this->get(route('home'))->assertOk()->getContent();
+
+        preg_match('/id="newReading".*?<\/ul>/s', $html, $readingBlock);
+        preg_match('/id="newFresh".*?<\/ul>/s', $html, $freshBlock);
+        $this->assertNotEmpty($readingBlock);
+        $this->assertNotEmpty($freshBlock);
+
+        $this->assertStringContainsString('In novels you are reading', $readingBlock[0]);
+        $this->assertStringContainsString('Started Novel', $readingBlock[0]);
+        $this->assertStringNotContainsString('Fresh Novel', $readingBlock[0]);
+        $this->assertStringContainsString('Continue at ch 2', $readingBlock[0]);
+        $this->assertStringContainsString(route('chapters.show', $next->id), $readingBlock[0]);
+
+        $this->assertStringContainsString('Not started yet', $freshBlock[0]);
+        $this->assertStringContainsString('1 novel not started yet', $freshBlock[0]);
+        $this->assertStringContainsString('Fresh Novel', $freshBlock[0]);
+        $this->assertStringNotContainsString('Started Novel', $freshBlock[0]);
+        $this->assertStringContainsString('Chapters 1 to 3 · <span class="home-mono">novelping.test</span>', $freshBlock[0]);
+        $this->assertStringContainsString('<span class="home-new-count">2 new</span>', $freshBlock[0]);
+        $this->assertStringContainsString('1 queued', $freshBlock[0]);
+        $this->assertStringContainsString('href="' . route('chapters.show', $first->id) . '" class="home-new-go"', $freshBlock[0]);
+        $this->assertStringNotContainsString('Read from', $html);
+    }
+
+    public function test_start_never_opens_chapter_zero_when_a_chapter_one_exists(): void
+    {
+        $novel = $this->novel(['name' => 'Prologue Novel']);
+        // Reading order: chapter 0, a translator's note, chapter 1, chapter 2.
+        $zero = $this->chapter($novel, 0, true, ['label' => 'Chapter 0 - Notice', 'sort_key' => 0]);
+        $note = $this->chapter($novel, 1, true, ['kind' => NovelChapter::KIND_NOTE, 'label' => 'Translator note', 'sort_key' => 1]);
+        $one = $this->chapter($novel, 1, true, ['sort_key' => 2]);
+        $this->chapter($novel, 2, true, ['sort_key' => 3]);
+
+        // Only a chapter 0 downloaded: that is all there is to start with.
+        $onlyZero = $this->novel(['name' => 'Only Zero Novel']);
+        $zeroOnly = $this->chapter($onlyZero, 0);
+        $this->chapter($onlyZero, 1, false);
+
+        $html = $this->get(route('home'))->assertOk()->getContent();
+
+        preg_match('/<li class="home-new-row" data-novel="' . $novel->id . '">(.*?)<\/li>/s', $html, $row);
+        $this->assertNotEmpty($row);
+        $this->assertStringContainsString('href="' . route('chapters.show', $one->id) . '" class="home-new-go"', $row[1]);
+        $this->assertStringContainsString('at chapter 1', $row[1]);
+        $this->assertStringNotContainsString(route('chapters.show', $zero->id) . '"', $row[1]);
+        $this->assertStringNotContainsString(route('chapters.show', $note->id) . '"', $row[1]);
+
+        preg_match('/<li class="home-new-row" data-novel="' . $onlyZero->id . '">(.*?)<\/li>/s', $html, $zeroRow);
+        $this->assertNotEmpty($zeroRow);
+        $this->assertStringContainsString('href="' . route('chapters.show', $zeroOnly->id) . '" class="home-new-go"', $zeroRow[1]);
+    }
+
+    public function test_reading_novel_continues_where_the_shelf_does(): void
+    {
+        // In progress mid-chapter 2: New chapters continues there, like the
+        // hero, rather than at the first unread chapter (3).
+        $novel = $this->novel(['name' => 'Mid Chapter Novel']);
+        $this->chapter($novel, 1)->forceFill(['read_at' => now()->subHour(), 'read_progress' => 100])->save();
+        $mid = $this->chapter($novel, 2);
+        $mid->forceFill(['read_at' => now(), 'read_progress' => 30])->save();
+        $this->chapter($novel, 3);
+
+        $html = $this->get(route('home'))->assertOk()->getContent();
+        preg_match('/<li class="home-new-row" data-novel="' . $novel->id . '">(.*?)<\/li>/s', $html, $row);
+        $this->assertNotEmpty($row);
+        $this->assertStringContainsString('Continue at ch 2', $row[1]);
+        $this->assertStringContainsString(route('chapters.show', $mid->id), $row[1]);
     }
 
     public function test_status_strip_counts(): void
@@ -176,35 +277,70 @@ class HomeRedesignTest extends TestCase
         $response = $this->get(route('home'))->assertOk();
         $html = $response->getContent();
 
-        $this->assertMatchesRegularExpression('/id="stripScheduler"[^>]*>.*?Scheduler OK/s', $html);
+        $this->assertMatchesRegularExpression('/is-success" id="stripScheduler">\s*<dt>scheduler<\/dt>.*?>OK<\/a>/s', $html);
         // "Queued" is pending chapter downloads (what Activity calls "chapters
         // queued"), not background jobs — those only appear when running.
         $pending = \App\NovelChapter::where('status', 0)->where('blacklist', 0)->count();
-        $this->assertMatchesRegularExpression('/id="stripQueue"[^>]*>.*?Queued.*?<span class="home-strip-mono">' . number_format($pending) . '<\/span>\s*<span class="home-strip-sub">chapters?<\/span>/s', $html);
-        $this->assertMatchesRegularExpression('/id="stripToday"[^>]*>.*?<span class="home-strip-mono">2<\/span> chapters today/s', $html);
-        $response->assertSee('1 novel</strong> needs attention', false)
-            ->assertSee(route('health.index') . '#attentionPanel', false)
+        $this->assertMatchesRegularExpression('/is-pending" id="stripQueue">\s*<dt>queued<\/dt>\s*<dd><a [^>]*>' . number_format($pending) . '<\/a><\/dd>/s', $html);
+        $this->assertMatchesRegularExpression('/id="stripToday">\s*<dt>downloaded today<\/dt>\s*<dd><a [^>]*>2<\/a><\/dd>/s', $html);
+
+        // The attention item: name, plain reason, source host, and the same
+        // actions Health offers (test the source, snooze for 7 days).
+        preg_match('/id="attentionSummary">(.*?)<dl class="home-status-nums">/s', $html, $attn);
+        $this->assertNotEmpty($attn, 'attention block renders');
+        $this->assertStringContainsString('Needs attention', $attn[1]);
+        $this->assertStringContainsString('Failing Strip Novel', $attn[1]);
+        $this->assertStringContainsString('12 consecutive scrape runs failed', $attn[1]);
+        $this->assertStringContainsString('novelfull.test', $attn[1]);
+        $this->assertStringContainsString('target="_blank" rel="noopener" class="btn btn-secondary btn-sm">Test source', $attn[1]);
+        $this->assertStringContainsString('action="' . route('novels.attention_snooze', $failing->id) . '"', $attn[1]);
+        $this->assertStringContainsString('name="days" value="7"', $attn[1]);
+        $this->assertStringContainsString('Snooze 7 days', $attn[1]);
+
+        $response->assertSee(route('health.index') . '#attentionPanel', false)
             ->assertSee('is-warning" id="attentionSummary"', false)
+            // Phones: one tappable row instead of the card.
+            ->assertSee('id="attentionRow"', false)
+            ->assertSee('1 novel needs attention')
             ->assertSee(route('activity.index'), false)
-            // The old stat tiles are gone.
+            // The scrolling strip and the old stat tiles are gone.
+            ->assertDontSee('home-strip', false)
             ->assertDontSee('stat-tile', false);
 
         // A stale heartbeat reads "late".
         Cache::put('scheduler_last_run', now()->subMinutes(10)->toDateTimeString());
-        $this->get(route('home'))->assertSee('Scheduler late');
+        $this->assertMatchesRegularExpression('/is-danger" id="stripScheduler">.*?>late<\/a>/s', $this->get(route('home'))->getContent());
     }
 
-    public function test_strip_items_are_muted_when_zero(): void
+    public function test_snooze_from_home_uses_the_attention_endpoint_and_comes_back(): void
+    {
+        $failing = $this->novel(['name' => 'Snooze From Home']);
+        $failing->scrape_failures = 12;
+        $failing->save();
+        $this->chapter($failing, 1, false);
+
+        $this->from(route('home'))
+            ->post(route('novels.attention_snooze', $failing->id), ['days' => 7])
+            ->assertRedirect(route('home'));
+
+        $this->assertNotNull($failing->fresh()->attention_ignored_until);
+        $this->get(route('home'))->assertOk()
+            ->assertDontSee('id="attentionRow"', false)
+            ->assertSee('attention-snoozed', false);
+    }
+
+    public function test_status_numbers_are_muted_when_zero(): void
     {
         $this->get(route('home'))
             ->assertOk()
-            ->assertSee('Scheduler not running')
+            ->assertSee('>not running</a>', false)
             ->assertSee('is-zero" id="attentionSummary"', false)
             ->assertSee('is-zero" id="stripToday"', false)
-            ->assertSee('is-zero" id="stripQueue"', false);
+            ->assertSee('is-zero" id="stripQueue"', false)
+            ->assertDontSee('id="attentionRow"', false);
     }
 
-    public function test_activity_renders_the_missing_and_recent_tables(): void
+    public function test_activity_renders_the_queued_and_recent_tables(): void
     {
         $novel = $this->novel(['name' => 'Activity Novel']);
         $this->chapter($novel, 1);
@@ -217,9 +353,14 @@ class HomeRedesignTest extends TestCase
 
         $this->get(route('activity.index'))
             ->assertOk()
-            ->assertSee('id="missing-section"', false)
+            ->assertSee('id="queued-section"', false)
             ->assertSee('id="recent-section"', false)
-            ->assertSee('Missing chapters')
+            // The download backlog is "Queued" everywhere, in the queued
+            // (cyan) colour, not a red "Missing" alarm.
+            ->assertSee('Queued chapters')
+            ->assertSee('chip-mono chip-mono-pending', false)
+            ->assertDontSee('Missing chapters')
+            ->assertDontSee('chip-mono-danger', false)
             ->assertSee('Recently downloaded')
             ->assertSee('Chapter 2 - Still Missing')
             ->assertSee('Activity Novel')
@@ -229,7 +370,7 @@ class HomeRedesignTest extends TestCase
         // …and they are no longer on the home page.
         $this->get(route('home'))
             ->assertOk()
-            ->assertDontSee('id="missing-section"', false)
+            ->assertDontSee('id="queued-section"', false)
             ->assertDontSee('id="recent-section"', false);
     }
 
@@ -239,7 +380,8 @@ class HomeRedesignTest extends TestCase
 
         $this->get(route('home'))
             ->assertOk()
-            ->assertSee('1 novel</strong> needs attention', false);
+            ->assertSee('Needs attention')
+            ->assertSee('Prewarmed');
 
         $this->assertTrue(Cache::has('dashboard_stats'));
         $this->assertTrue(Cache::has('dashboard_continue'));
