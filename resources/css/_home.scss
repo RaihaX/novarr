@@ -2,91 +2,19 @@
 // Novarr — Home ("Now reading") and the Activity page head
 //
 // Owner: home.blade.php, activity/index.blade.php.
-// Board "Home: now reading": status strip · hero · Continue shelf · New
-// chapters. Tokens only; reading signals are amber, actions indigo, states
-// use the triad (.tone-* / <x-status>).
+// Layout: hero beside a status card · Continue shelf · New chapters (novels
+// you are reading / not started yet). Tokens only; reading signals are amber,
+// actions indigo, states use the triad (.tone-* / <x-status>).
+// Phones (< md, the tab-bar layout): the status card collapses to one
+// attention row plus a mono line in the navbar.
 // ---------------------------------------------------------------------------
 
-$home-cover-lg: 220px;
-$home-cover-sm: 140px;
+$home-cover-lg: 200px;
+$home-cover-phone: 96px;
 
 .home-mono {
     font-family: $font-mono;
     font-variant-numeric: tabular-nums;
-}
-
-// ===========================================================================
-// Status strip — a 32px full-bleed line under the navbar. It sits in the
-// layout's .container, so the bleed is painted (box-shadow fill + an
-// outset border image), never laid out: no horizontal page scroll.
-// ===========================================================================
-.home-strip {
-    display: flex;
-    align-items: center;
-    height: 32px;
-    margin: -24px 0 $s-8;           // pull up flush to the navbar (main.py-4)
-    background: $surface;
-    box-shadow: 0 0 0 100vmax $surface;
-    clip-path: inset(0 -100vmax);
-    border-bottom: $hairline solid transparent;
-    border-image: linear-gradient($border, $border) 0 0 1 0 / 0 0 $hairline 0 / 0 100vmax;
-    font-size: $fs-caption;
-    white-space: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-
-    &::-webkit-scrollbar { display: none; }
-}
-
-.home-strip-item {
-    display: inline-flex;
-    align-items: center;
-    gap: $s-2;
-    height: 100%;
-    padding: 0 $s-6;
-    color: $text-muted;
-    border-left: $hairline solid $border;
-    transition: color $transition, background-color $transition;
-
-    &:first-child { padding-left: 0; border-left: 0; }
-
-    &:hover { color: $text; background-color: $surface-alt; }
-    &:first-child:hover { background-color: transparent; }
-
-    strong { font-weight: 600; }
-
-    // Triad colour drives the marker (dot / icon); the words stay calm,
-    // except warning and danger, which read in their colour as on the board.
-    &.is-success { --strip-c: #{$success}; }
-    &.is-pending { --strip-c: #{$pending}; }
-    &.is-warning { --strip-c: #{$warning}; color: $warning; }
-    &.is-danger  { --strip-c: #{$danger};  color: $danger; }
-    &.is-zero    { --strip-c: #{$muted};   color: $muted; }
-
-    .home-strip-dot { background-color: var(--strip-c, #{$muted}); }
-    > .icon { color: var(--strip-c, #{$muted}); flex: none; }
-}
-
-.home-strip-dot {
-    width: 8px;
-    height: 8px;
-    flex: none;
-}
-
-.home-strip-mono {
-    font-family: $font-mono;
-    font-size: $fs-caption;
-    color: $text;
-
-    .is-zero & { color: $muted; }
-}
-
-.home-strip-item .home-strip-label > .home-strip-mono { margin-right: 2px; }
-
-.home-snoozed {
-    margin: (-$s-5) 0 $s-7;
-
-    .attention-snoozed { margin: 0; }
 }
 
 // ===========================================================================
@@ -95,12 +23,27 @@ $home-cover-sm: 140px;
 .home {
     display: flex;
     flex-direction: column;
-    gap: 40px;
+    gap: $s-9;
+    padding-top: $s-4;
+}
+
+// Hero and status card share the first row; the card wraps under the hero
+// when the row gets narrow (no breakpoint needed).
+.home-top {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-8;
+    align-items: stretch;
+
+    > .home-hero,
+    > .home-empty { flex: 999 1 620px; min-width: 0; }
+    > .home-status { flex: 1 1 320px; min-width: 0; }
 }
 
 // ===========================================================================
-// Typographic cover — 2:3, surface-alt ground, Literata title, 3px amber
-// reading edge at the bottom. A real cover image fills the box when present.
+// Covers — 2:3 box, surface-alt ground, Literata title when there is no
+// image. Shelf tiles carry a 3px amber reading edge; the hero does not (its
+// progress is the bar beside it).
 // ===========================================================================
 .home-cover {
     position: relative;
@@ -128,7 +71,7 @@ $home-cover-sm: 140px;
     font-weight: 600;
     font-size: 15px;
     line-height: 1.2;
-    color: $text;
+    color: $text-soft;
     overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-line-clamp: 5;
@@ -136,7 +79,7 @@ $home-cover-sm: 140px;
     overflow: hidden;
     margin-bottom: 3px;
 
-    .home-cover-lg & { font-size: 22px; -webkit-line-clamp: 6; }
+    .home-cover-lg & { font-size: 19px; -webkit-line-clamp: 7; }
 }
 
 .home-cover-edge {
@@ -156,25 +99,34 @@ $home-cover-sm: 140px;
 }
 
 // ===========================================================================
-// Hero
+// Hero — cover beside the text; a grid so phones can put the progress and
+// buttons full-width under a smaller cover without duplicating markup.
 // ===========================================================================
 .home-hero {
-    display: flex;
-    gap: $s-8;
-    align-items: center;
+    display: grid;
+    grid-template-columns: $home-cover-lg minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr;
+    grid-template-areas:
+        "cover head"
+        "cover prog"
+        "cover act";
+    column-gap: $s-8;
+    row-gap: $s-5;
+    align-items: start;
 }
 
 .home-hero-cover {
-    flex: none;
-    width: $home-cover-lg;
+    grid-area: cover;
     display: block;
 }
 
-.home-hero-body {
+.home-hero-head {
+    grid-area: head;
     display: flex;
     flex-direction: column;
-    gap: $s-5;
+    gap: $s-4;
     min-width: 0;
+    padding-top: $s-2;
 }
 
 .home-eyebrow {
@@ -182,7 +134,7 @@ $home-cover-sm: 140px;
     font-weight: $fw-micro;
     letter-spacing: $ls-micro;
     text-transform: uppercase;
-    color: $brand-amber;
+    color: var(--nv-amber-ink);
 }
 
 .home-hero-title {
@@ -200,16 +152,28 @@ $home-cover-sm: 140px;
     margin: 0;
     font-size: $fs-body;
     color: $text-muted;
-
-    .home-mono { font-size: 13px; color: $text; }
 }
 
 .home-hero-progress {
+    grid-area: prog;
     display: flex;
     flex-direction: column;
     gap: $s-2;
     max-width: 560px;
+    min-width: 0;
 }
+
+.home-hero-pos {
+    display: flex;
+    justify-content: space-between;
+    gap: $s-5;
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    color: $text;
+}
+
+.home-hero-togo { color: $text-muted; }
+.home-hero-mins-short { display: none; color: $text-muted; }
 
 .home-progress {
     height: $progress-track;
@@ -224,21 +188,26 @@ $home-cover-sm: 140px;
     }
 }
 
-.home-kicker {
-    font-family: $font-mono;
-    font-size: $fs-mono;
-    letter-spacing: 0.04em;
+.home-hero-mins {
+    margin: 0;
+    font-size: 13px;
     color: $text-muted;
 }
 
 .home-hero-actions {
+    grid-area: act;
     display: flex;
     flex-wrap: wrap;
-    gap: $s-4;
+    align-items: center;
+    gap: $s-2;
 
-    .btn { height: 40px; padding: 0 $s-5; font-size: $fs-body; font-weight: 600; }
+    .btn { height: 40px; padding: 0 $s-5; font-size: 13px; font-weight: 600; }
+    .btn-ghost { color: $text-soft; font-weight: 500; }
     .btn-primary .icon { margin-right: 2px; }
 }
+
+// Chapter list: text on wide screens, an icon button on phones.
+.home-hero-list .icon { display: none; }
 
 // Empty state: a calm panel, no hero.
 .home-empty {
@@ -271,6 +240,153 @@ $home-cover-sm: 140px;
     margin: 0;
     max-width: 60ch;
     color: $text-muted;
+}
+
+// ===========================================================================
+// Status card — needs attention (one item, its actions) over three numbers
+// ===========================================================================
+.home-status {
+    display: flex;
+    flex-direction: column;
+    align-self: flex-start;
+    background: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+}
+
+.home-status-attn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: $s-5 $s-6;
+    border-bottom: $hairline solid $border;
+}
+
+.home-status-key {
+    display: inline-flex;
+    align-items: center;
+    gap: $s-2;
+    font-size: $fs-caption;
+    font-weight: 600;
+    letter-spacing: $ls-caption;
+    text-transform: uppercase;
+    color: $text-muted;
+
+    &:hover { color: $text; }
+
+    .is-warning > & { color: $warning; }
+    .is-warning > &:hover { color: $text; }
+    .is-zero > & { font-weight: $fw-caption; text-transform: none; letter-spacing: 0; font-size: 13px; }
+    .is-zero > & .icon { color: $success; }
+}
+
+.home-status-name {
+    font-size: $fs-card-title;
+    font-weight: 600;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.home-status-reason {
+    font-size: 13px;
+    color: $text-muted;
+
+    .home-mono { font-size: $fs-mono; }
+}
+
+.home-status-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2;
+    padding-top: 6px;
+
+    .btn-sm { min-height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 $s-4; font-size: 13px; }
+    .btn-ghost { padding: 0 $s-2; }
+}
+
+.home-status-snooze { margin: 0; }
+
+.home-status-more { font-size: 13px; }
+
+.home-snoozed {
+    padding: $s-3 $s-6;
+    border-bottom: $hairline solid $border;
+
+    .attention-snoozed { margin: 0; padding: 0; border: 0; }
+}
+
+.home-status-nums {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: $s-5;
+    margin: 0;
+    padding: $s-5 $s-6;
+}
+
+// dt comes first in the source (term, then value); the value shows on top.
+.home-status-num {
+    display: flex;
+    flex-direction: column-reverse;
+    justify-content: flex-end;
+    gap: 2px;
+    min-width: 0;
+
+    dt { font-size: $fs-caption; font-weight: 400; color: $text-muted; }
+    dd { margin: 0; }
+
+    dd a {
+        font-family: $font-mono;
+        font-size: 18px;
+        line-height: 27px;
+        color: $text;
+
+        &:hover { color: $link-hover; }
+    }
+
+    &.is-pending dd a { color: $pending; }
+    &.is-zero dd a { color: $muted; }
+    &.is-success .home-status-word a { color: $success; }
+    &.is-danger .home-status-word a { color: $danger; }
+
+    .home-status-word a { font-family: $font-ui; font-size: 15px; font-weight: 600; white-space: nowrap; }
+}
+
+// "2 background jobs running" under the queue figure (order: under dt).
+.home-status-sub {
+    order: -1;
+    font-size: $fs-micro;
+    color: $text-muted;
+}
+
+// ===========================================================================
+// Phones: navbar status line + one attention row (both hidden from md up)
+// ===========================================================================
+.navbar-status { display: none; }
+.home-alert { display: none; }
+
+.home-navstat {
+    display: inline-flex;
+    align-items: center;
+    gap: $s-2;
+    min-height: 44px;
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    color: $text-muted;
+    white-space: nowrap;
+
+    &:hover { color: $text; }
+
+    &.is-success { --navstat-c: #{$success}; }
+    &.is-danger { --navstat-c: #{$danger}; }
+}
+
+.home-navstat-dot {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    background: var(--navstat-c, #{$muted});
 }
 
 // ===========================================================================
@@ -329,7 +445,7 @@ $home-cover-sm: 140px;
 .home-tile-title {
     font-size: 13px;
     font-weight: 500;
-    line-height: 1.3;
+    line-height: 1.35;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -346,27 +462,58 @@ $home-cover-sm: 140px;
     text-overflow: ellipsis;
 }
 
+.home-tile-narrow { display: none; }
+
 // --- New chapters -----------------------------------------------------------
+.home-new-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.home-new-head {
+    margin: 0;
+    padding: $s-2 0;
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: $ls-micro;
+    text-transform: uppercase;
+    color: $text-muted;
+    border-bottom: $hairline solid $border;
+}
+
+// The phone toggle for "Not started yet" (see the md block).
+.home-new-toggle { display: none; }
+
 .home-new {
     list-style: none;
     margin: 0;
     padding: 0;
-    border-top: $hairline solid $border;
 }
 
 .home-new-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: $s-5;
-    padding: $s-4 0;
+    padding: 14px 0;
     border-bottom: $hairline solid $border;
+    min-width: 0;
+}
+
+.home-new-thumb {
+    position: relative;
+    flex: 0 0 32px;
+    height: 48px;
+    overflow: hidden;
+    background: $surface-alt;
+    border: $hairline solid $border;
+
+    img { width: 100%; height: 100%; object-fit: cover; display: block; }
 }
 
 .home-new-main {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 2px;
     min-width: 0;
 }
 
@@ -374,6 +521,9 @@ $home-cover-sm: 140px;
     font-size: $fs-card-title;
     font-weight: 600;
     color: $text;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 
     &:hover { color: $link-hover; }
 }
@@ -385,30 +535,36 @@ $home-cover-sm: 140px;
     .home-mono { font-size: $fs-mono; }
 }
 
-.home-new-side {
-    // Fixed slots (note · queued · downloaded · read) so the pills and the
-    // "Read from" link line up as columns down the list.
-    display: grid;
-    grid-template-columns: 112px 112px 140px 148px;
-    align-items: center;
-    justify-items: end;
-    gap: $s-4;
+.home-new-note { color: var(--nv-amber-ink); }
+
+.home-new-queued,
+.home-new-count {
     flex: none;
-}
-
-.home-new-slot {
-    display: flex;
-    justify-content: flex-end;
-    min-width: 0;
-}
-
-.home-pill { white-space: nowrap; }
-
-.home-new-read {
-    height: 32px;
-    padding: 0 $s-4;
-    font-size: 13px;
+    font-family: $font-mono;
+    font-size: $fs-mono;
     white-space: nowrap;
+}
+
+.home-new-queued { color: $pending; }
+.home-new-count { color: $success; min-width: 64px; text-align: right; }
+
+.home-new-go {
+    flex: 0 0 150px;
+    text-align: right;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+// Not started: two columns of compact rows.
+.home-new-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: $s-9;
+
+    .home-new-row { gap: $s-4; padding: $s-4 0; }
+    .home-new-name { font-size: $fs-body; font-weight: 500; }
+    .home-new-range { font-size: $fs-caption; }
+    .home-new-go { flex-basis: 44px; }
 }
 
 // ===========================================================================
@@ -441,28 +597,113 @@ $home-cover-sm: 140px;
 // ===========================================================================
 // Responsive
 // ===========================================================================
+@include media-breakpoint-down(xl) {
+    .home-new-grid { column-gap: $s-8; }
+}
+
 @include media-breakpoint-down(lg) {
-    .home-shelf { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    // Six tiles: two even rows of three.
+    .home-shelf { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .home-new-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 @include media-breakpoint-down(md) {
-    .home { gap: $s-8; }
+    .home { gap: $s-7; padding-top: 0; }
 
-    .home-hero {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: $s-6;
+    // Status: the card goes; one attention row (full bleed under the navbar,
+    // painted rather than laid out so nothing scrolls sideways) and the
+    // navbar line take its place.
+    .home-status { display: none; }
+    .navbar-status { display: block; min-width: 0; }
+
+    .home-alert {
+        display: flex;
+        align-items: center;
+        gap: $s-3;
+        min-height: 44px;
+        margin: -24px 0 $s-6;              // flush to the navbar (main.py-4)
+        background: $surface-alt;
+        box-shadow: 0 0 0 100vmax $surface-alt;
+        clip-path: inset(0 -100vmax);
+        border-bottom: $hairline solid $border;
+        color: $warning;
+        font-size: 13px;
+        font-weight: 500;
+
+        &:hover { color: $warning; }
+
+        .icon { flex: none; }
     }
 
-    .home-hero-cover { width: $home-cover-sm; }
-    .home-cover-lg .home-cover-title { font-size: 16px; }
+    .home-alert-text {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 
-    .home-hero-title { font-size: 28px; }
+    // Hero: small cover beside the title; progress and buttons full width.
+    .home-hero {
+        grid-template-columns: $home-cover-phone minmax(0, 1fr);
+        grid-template-rows: auto;
+        grid-template-areas:
+            "cover head"
+            "prog prog"
+            "act act";
+        column-gap: 14px;
+        row-gap: 14px;
+    }
+
+    .home-cover-lg { padding: $s-2; }
+    .home-cover-lg .home-cover-title { font-size: 11px; }
+
+    .home-hero-head { gap: $s-2; padding-top: 0; }
+    .home-hero-title { font-size: 21px; line-height: 1.22; letter-spacing: -0.01em; }
+    .home-hero-meta { font-size: 13px; }
+    .home-hero-source { display: none; }
+
+    .home-hero-progress { max-width: none; gap: 6px; }
+    .home-hero-togo,
+    .home-hero-mins { display: none; }
+    .home-hero-mins-short { display: inline; }
+
+    .home-hero-actions {
+        flex-wrap: nowrap;
+
+        .btn { height: 48px; }
+        .btn-primary { flex: 1; justify-content: center; }
+    }
+
+    .home-hero-list {
+        flex: 0 0 48px;
+        width: 48px;
+        padding: 0 !important;
+        justify-content: center;
+        border: $hairline solid $btn-secondary-border;
+        color: $text;
+
+        .icon { display: block; }
+    }
+
+    .home-hero-list-text {
+        // Still the link's name, just not drawn.
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+    }
+
+    .home-hero-novel { display: none; }
 
     .home-empty { padding: $s-6; }
 
-    // Phones: the shelf becomes a horizontal, snapping row that bleeds to the
-    // container edge.
+    .home-section { gap: $s-4; }
+    .home-section-title { font-size: 17px; }
+
+    // Continue: a horizontal, snapping row that bleeds to the container edge.
     .home-shelf {
         display: flex;
         overflow-x: auto;
@@ -477,29 +718,88 @@ $home-cover-sm: 140px;
     }
 
     .home-tile {
-        flex: 0 0 120px;
+        flex: 0 0 112px;
         scroll-snap-align: start;
+        gap: 6px;
     }
 
-    .home-new-row {
-        flex-direction: column;
-        align-items: stretch;
-        gap: $s-3;
+    .home-shelf .home-cover { padding: $s-2; }
+    .home-shelf .home-cover-title { font-size: 12px; }
+    .home-tile-title { display: none; }
+    // "ch 1 · 2,136 left" must fit 112px of 11px mono.
+    .home-tile-meta { font-size: $fs-micro; letter-spacing: -0.04em; }
+    .home-tile-wide { display: none; }
+    .home-tile-narrow { display: inline; }
+
+    // New chapters: name and range on the left; the count over the action
+    // on the right.
+    .home-new-thumb { display: none; }
+
+    .home-new-row,
+    .home-new-grid .home-new-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "main count"
+            "main go";
+        align-items: center;
+        column-gap: $s-4;
+        row-gap: 0;
+        padding: $s-2 0;
+        min-height: 56px;
     }
 
-    .home-new-side {
+    .home-new-main { grid-area: main; }
+    .home-new-name { white-space: normal; }
+    .home-new-queued { display: none; }
+    .home-new-count { grid-area: count; min-width: 0; }
+
+    .home-new-go,
+    .home-new-grid .home-new-go {
+        grid-area: go;
+        justify-self: end;
+        min-height: 32px;
         display: flex;
-        flex-wrap: wrap;
-        justify-content: flex-start;
+        align-items: center;
     }
 
-    .home-new-slot:empty { display: none; }
-}
+    #newReading .home-new-head { display: none; }
 
-// Secondary text inside a strip item ("chapters · 2 jobs running").
-.home-strip-sub {
-    color: var(--nv-muted, $muted);
-    font-size: 12px;
-    margin-left: 4px;
-    white-space: nowrap;
+    // Not started: one tappable summary row that opens the list.
+    .home-new-toggle { display: block; }
+    #newFresh .home-new-head { display: none; }
+    .home-new-toggle:not([open]) ~ .home-new { display: none; }
+
+    .home-new-summary {
+        display: flex;
+        align-items: center;
+        gap: $s-4;
+        min-height: 56px;
+        padding: $s-2 0;
+        list-style: none;
+        cursor: pointer;
+        border-bottom: $hairline solid $border;
+
+        &::-webkit-details-marker { display: none; }
+
+        .icon { flex: none; color: $text-muted; transition: transform $transition; }
+    }
+
+    .home-new-toggle[open] .home-new-summary .icon { transform: rotate(90deg); }
+
+    .home-new-summary-main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .home-new-summary-title { font-weight: 600; }
+
+    .home-new-summary .home-new-range {
+        font-size: $fs-caption;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 }

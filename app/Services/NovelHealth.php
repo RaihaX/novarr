@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Novel;
 use App\NovelChapter;
+use App\Scraping\SourceUnavailable;
 use Carbon\Carbon;
 
 class NovelHealth
@@ -49,6 +50,15 @@ class NovelHealth
             ];
         }
 
+        // Novels whose content-failed chapters are parked as a group (the
+        // source lists them but does not serve them, see SourceUnavailable):
+        // those chapters are a known state shown on the Health page, not a
+        // stall.
+        // A subquery, not a pluck: Home's query budget is fixed.
+        $notParked = fn($m) => $m->whereNotIn('novel_id', \Illuminate\Support\Facades\DB::table('novels')->select('id')->where('source_fail_streak', '>', 0))
+            ->orWhereNull('last_failure_reason')
+            ->orWhereNotIn('last_failure_reason', SourceUnavailable::CONTENT_REASONS);
+
         $stalled = Novel::where('status', 0)
             ->whereNull('paused_at')
             ->where($this->notSnoozed(...))
@@ -58,7 +68,8 @@ class NovelHealth
             ->whereHas('chapters', fn($q) => $q->where('status', 0)->where('blacklist', 0)
                 ->where('attempts', '<', NovelChapter::REVIEW_ATTEMPTS)
                 // Chapters the source no longer lists are parked, not stalled.
-                ->where(fn($m) => $m->whereNull('last_failure_reason')->orWhere('last_failure_reason', '!=', 'source_missing')))
+                ->where(fn($m) => $m->whereNull('last_failure_reason')->orWhere('last_failure_reason', '!=', 'source_missing'))
+                ->where($notParked))
             ->orderBy('name')
             ->get(['id', 'name', 'translator_url', 'alternative_url', 'group_id', 'created_at', 'scrape_failures']);
 
@@ -76,6 +87,7 @@ class NovelHealth
             ->where('status', 0)->where('blacklist', 0)
             ->where('attempts', '<', NovelChapter::REVIEW_ATTEMPTS)
             ->where(fn($m) => $m->whereNull('last_failure_reason')->orWhere('last_failure_reason', '!=', 'source_missing'))
+            ->where($notParked)
             ->selectRaw('novel_id, COUNT(*) as pending')
             ->groupBy('novel_id')
             ->pluck('pending', 'novel_id');
@@ -200,12 +212,14 @@ class NovelHealth
      * matching chapter of every novel first (150-550 ms on production).
      *
      * $perNovel adds the filters, columns and ORDER BY to a builder already
-     * scoped to one novel (soft-delete scope included). The grammar wraps
+     * scoped to one novel (soft-delete scope included); it also receives that
+     * novel's id, so members may differ per novel (Home's "Start" vs
+     * "Continue" targets share one statement this way). The grammar wraps
      * each member so its ORDER BY/LIMIT stays its own: `(select ...)` on
      * MySQL/MariaDB, `select * from (select ...)` on SQLite.
      *
      * @param  int[]  $novelIds
-     * @param  \Closure(\Illuminate\Database\Eloquent\Builder): mixed  $perNovel
+     * @param  \Closure(\Illuminate\Database\Eloquent\Builder, int): mixed  $perNovel
      * @return \Illuminate\Support\Collection<int, NovelChapter>  keyed by novel_id
      */
     public static function firstPerNovel(array $novelIds, \Closure $perNovel)
@@ -217,7 +231,7 @@ class NovelHealth
 
         $member = function (int $novelId) use ($perNovel) {
             $query = NovelChapter::where('novel_id', $novelId);
-            $perNovel($query);
+            $perNovel($query, $novelId);
 
             return $query->limit(1);
         };

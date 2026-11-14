@@ -32,7 +32,7 @@
  * version computed at runtime would never trigger an update. Build assets are
  * kept in sync with the manifest by pruneBuildAssets() instead.
  */
-const CACHE_VERSION = 'novarr-v5';
+const CACHE_VERSION = 'novarr-v6';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGE_CACHE = `${CACHE_VERSION}-pages`;
 // Covers are unversioned too, so a version bump doesn't throw away every

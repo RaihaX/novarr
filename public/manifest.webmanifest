@@ -29,8 +29,8 @@
             "icons": [{ "src": "/shortcut-discover.png", "sizes": "96x96", "type": "image/png" }]
         },
         {
-            "name": "Downloads",
-            "short_name": "Downloads",
+            "name": "Offline",
+            "short_name": "Offline",
             "description": "Novels saved on this device for offline reading",
             "url": "/library",
             "icons": [{ "src": "/shortcut-downloads.png", "sizes": "96x96", "type": "image/png" }]

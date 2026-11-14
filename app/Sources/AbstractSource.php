@@ -37,8 +37,9 @@ abstract class AbstractSource implements Source
 
     /**
      * Host names this source serves, e.g. ['novelfull.com']. The default
-     * matches()/matchesUrl() accept a URL that contains one of them
-     * (case-insensitive), and the first is the Discover host.
+     * matches()/matchesUrl() accept a URL whose host is one of them or a
+     * subdomain of one (case-insensitive, so "www." is covered), and the
+     * first is the Discover host.
      *
      * @return string[]
      */
@@ -54,8 +55,52 @@ abstract class AbstractSource implements Source
 
     public function matchesUrl(string $url): bool
     {
-        foreach ($this->hosts() as $host) {
-            if ($host !== '' && stripos($url, $host) !== false) {
+        return self::hostMatches(self::urlHost($url), $this->hosts());
+    }
+
+    /**
+     * The lower-cased host of a URL, or null when it has none. A URL
+     * without a scheme ("novelfull.com/x", "//novelfull.com/x") is read as
+     * host + path; one starting with "/" is a path and has no host.
+     */
+    public static function urlHost(string $url): ?string
+    {
+        $url = trim($url);
+        if ($url === '' || (str_starts_with($url, '/') && !str_starts_with($url, '//'))) {
+            return null;
+        }
+        if (!preg_match('#^[a-z][a-z0-9+.\-]*://#i', $url) && !str_starts_with($url, '//')) {
+            $url = '//' . $url;
+        }
+
+        $host = parse_url($url, PHP_URL_HOST);
+        if (!is_string($host)) {
+            return null;
+        }
+        $host = rtrim(strtolower($host), '.');
+
+        return $host === '' ? null : $host;
+    }
+
+    /**
+     * Whether $host equals one of $hosts or is a subdomain of one
+     * ("www.novelfull.com" matches "novelfull.com"; "notnovelfull.com"
+     * does not). Case-insensitive.
+     *
+     * @param string[] $hosts
+     */
+    public static function hostMatches(?string $host, array $hosts): bool
+    {
+        if ($host === null || $host === '') {
+            return false;
+        }
+        $host = strtolower($host);
+        foreach ($hosts as $candidate) {
+            $candidate = strtolower(trim((string) $candidate));
+            if ($candidate === '') {
+                continue;
+            }
+            if ($host === $candidate || str_ends_with($host, '.' . $candidate)) {
                 return true;
             }
         }

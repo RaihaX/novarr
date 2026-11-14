@@ -90,8 +90,14 @@ class PerHostSweepTest extends TestCase
         return '<p>' . str_repeat('word ', 400) . '</p>';
     }
 
+    /**
+     * Fixed delays: adaptive pace off, so the plain rand(min, max) applies
+     * and exact gaps can be asserted (AdaptiveHostPaceTest covers the
+     * adaptive pace).
+     */
     private function delays(int $min, int $max): void
     {
+        Setting::put('scrape_adaptive', '0');
         Setting::put('scrape_min_delay', $min);
         Setting::put('scrape_max_delay', $max);
     }

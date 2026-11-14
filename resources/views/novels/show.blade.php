@@ -2,240 +2,94 @@
 
 @section('title', $data->name)
 
+@php
+    // ---- Figures, each stated once on the page -----------------------------
+    $unread = max(0, $current_chapters - $read_count);
+    // Not downloaded = waiting for a first fetch (queued) + whose last fetch
+    // failed (failed). "Gaps" are numbers missing from the 1..latest sequence.
+    $queued = max(0, $current_chapters_not_downloaded - $failed_count);
+    $gaps = count($missing_chapters);
+    $dupes = count($duplicate_chapters);
+    $readPct = $current_chapters > 0 ? (int) round($read_count / $current_chapters * 100) : 0;
+
+    // Download progress uses the one shared definition — downloaded ÷
+    // chapters known to the source — so it matches the Library.
+    $dl = \App\Services\NovelHealth::downloadProgress(
+        (int) $current_chapters,
+        (int) $current_chapters + (int) $current_chapters_not_downloaded,
+        (int) ($data->no_of_chapters ?? 0)
+    );
+    $dlState = \App\Services\NovelHealth::progressState(
+        $dl['percent'],
+        (bool) $data->status,
+        !$data->status && (bool) $data->paused_at,
+        isset(\App\Services\NovelHealth::attentionIds()[$data->id])
+    );
+    $dlComplete = $dl['total'] > 0 && $dl['downloaded'] >= $dl['total'];
+
+    $continueLabel = $continue_number !== null && $continue_number !== '' ? 'chapter ' . $continue_number : null;
+
+    $metaItems = [];
+    if ($data->translator_url) $metaItems[] = ['href' => $data->translator_url, 'text' => parse_url($data->translator_url, PHP_URL_HOST)];
+    if ($originLabel = $data->originLabel()) $metaItems[] = ['text' => $originLabel];
+    if ($data->group && $data->group->label) $metaItems[] = ['text' => $data->group->label];
+    if ($data->language && $data->language->label) $metaItems[] = ['text' => $data->language->label];
+
+    // The Book column only earns its space when some chapter is in a book.
+    $showBookCol = $chapters->contains(fn($c) => (int) $c->book !== 0);
+    $chapterUrl = route('chapters.show', '__ID__');
+@endphp
+
 @section('content')
 <a href="{{ route('novels.index') }}" class="back-link">
     <x-icon name="chevron-left" :size="14" :stroke="1.5" /> Library
 </a>
 
 {{-- ===================================================================== --}}
-{{-- Hero — cover, identity, actions, meters                               --}}
+{{-- Hero — cover, identity, about, actions; the progress card beside it.  --}}
+{{-- Grid areas re-order it on phones (resources/css/_novel.scss).         --}}
 {{-- ===================================================================== --}}
-<div class="detail-hero">
-    <div class="detail-cover-wrap">
-        @if($cover = $data->coverUrl('md'))
-            <img src="{{ $cover }}" alt="Cover of {{ $data->name }}" class="detail-cover">
-        @else
-            <div class="detail-cover-placeholder" aria-hidden="true">
-                <x-brand-mark variant="mono" :size="34" />
-            </div>
-        @endif
-        @if($originChip = $data->originChip())
-            {{-- Same micro-label as the <x-cover> chip on Library tiles --}}
-            <span class="cover-chip" aria-hidden="true">{{ $originChip }}</span>
-        @endif
+<div class="nv-hero">
+    <div class="nv-cover">
+        <x-cover :novel="$data" size="lg" :progress="$readPct" eager />
     </div>
 
-    <div class="detail-main">
-        <div class="detail-head">
-            <div class="detail-ident">
-                <h1 class="detail-title">{{ $data->name }}</h1>
-
-                <div class="detail-byline">
-                    <span class="detail-author">{{ $data->author ?: 'Unknown author' }}</span>
-                    @if($data->status)
-                        <x-status state="completed" id="novelStatusBadge" data-completed="1" />
-                    @elseif($data->paused_at)
-                        <x-status state="paused" id="novelStatusBadge" title="Paused {{ $data->paused_at->format('j M Y') }} — automatic downloads skip this novel" />
-                    @else
-                        <x-status state="active" id="novelStatusBadge" />
-                    @endif
-                </div>
-
-                @php
-                    $metaItems = [];
-                    if ($data->group && $data->group->label) $metaItems[] = ['key' => 'Group', 'value' => $data->group->label];
-                    if ($data->language && $data->language->label) $metaItems[] = ['key' => 'Lang', 'value' => $data->language->label];
-                    if ($originLabel = $data->originLabel()) $metaItems[] = ['key' => 'Origin', 'value' => $originLabel];
-                @endphp
-                @if($data->translator_url || count($metaItems))
-                    <div class="detail-meta">
-                        @if($data->translator_url)
-                            <a class="detail-meta-item" href="{{ $data->translator_url }}" target="_blank" rel="noopener">
-                                <span class="detail-meta-key">Source</span>{{ parse_url($data->translator_url, PHP_URL_HOST) }} <x-icon name="external-link" :size="11" />
-                            </a>
-                            @if(count($metaItems))<span class="detail-meta-sep">·</span>@endif
-                        @endif
-                        @foreach($metaItems as $i => $item)
-                            <span class="detail-meta-item"><span class="detail-meta-key">{{ $item['key'] }}</span>{{ $item['value'] }}</span>
-                            @if($i < count($metaItems) - 1)<span class="detail-meta-sep">·</span>@endif
-                        @endforeach
-                    </div>
-                @endif
-
-                @if(!$data->status)
-                    {{-- Hourly checks: a switch, posting to the existing toggle endpoint --}}
-                    <div class="form-check form-switch detail-switch mb-0">
-                        <input class="form-check-input" type="checkbox" role="switch" id="frequentToggle" data-id="{{ $data->id }}" @checked($data->frequent_toc)>
-                        <label class="form-check-label" for="frequentToggle" title="Check this novel's source for new chapters every hour instead of once a day">Hourly checks</label>
-                    </div>
-                @endif
-            </div>
-
-            {{-- Header actions: one primary, one Download menu, one overflow menu. --}}
-            <div class="detail-actions">
-                @if($continue_chapter_id)
-                    <a href="{{ route('chapters.show', $continue_chapter_id) }}" class="btn btn-primary">
-                        <x-icon name="book-open" :size="14" />{{ $read_count > 0 ? 'Continue reading' : 'Start reading' }}
-                    </a>
-                @endif
-                <span id="offlineControls" data-id="{{ $data->id }}" data-total="{{ $current_chapters }}" data-unread="{{ max(0, $current_chapters - $read_count) }}" class="d-inline-flex">
-                    <div class="dropdown">
-                        <button type="button" id="offlineBtn" class="btn btn-secondary btn-icon-label" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                            <x-icon name="download" :size="14" />
-                            <span class="offline-btn-label">Download</span>
-                            <span class="offline-btn-count d-none"></span>
-                            <x-icon name="chevron-down" :size="14" class="icon caret" />
-                        </button>
-                        <ul class="dropdown-menu dropdown-menu-end download-menu">
-                            <li><h6 class="dropdown-header label-caption">Save for offline</h6></li>
-                            <li><button type="button" class="dropdown-item" data-scope="unread-next" data-limit="100">Next 100 unread</button></li>
-                            <li><button type="button" class="dropdown-item" data-scope="unread">All unread (<span class="offl-unread">0</span>)</button></li>
-                            <li><button type="button" class="dropdown-item" data-scope="all">All chapters (<span class="offl-total">0</span>)</button></li>
-                            <li>
-                                <div style="padding: 4px 12px 8px;">
-                                    <div class="label-caption mb-2">Chapter range</div>
-                                    <div class="d-flex gap-1 align-items-center">
-                                        <input type="number" id="offlFrom" class="form-control form-control-sm" placeholder="From" min="0" step="any" style="width: 78px;" aria-label="Range from chapter">
-                                        <input type="number" id="offlTo" class="form-control form-control-sm" placeholder="To" min="0" step="any" style="width: 78px;" aria-label="Range to chapter">
-                                        <button type="button" class="btn btn-sm btn-secondary" data-scope="range">Get</button>
-                                    </div>
-                                </div>
-                            </li>
-                            <li><button type="button" id="offlineRemove" class="dropdown-item item-danger d-none"><x-icon name="trash-2" :size="14" />Remove offline copy</button></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><h6 class="dropdown-header label-caption">ePub</h6></li>
-                            <li><a href="{{ route('novels.download_epub', $data->id) }}" class="dropdown-item" data-turbo="false" data-turbo-prefetch="false"><x-icon name="download" :size="14" />Download ePub</a></li>
-                            <li>
-                                <button type="button" class="dropdown-item cmd-btn" data-command="epub" data-novel="{{ $data->id }}" title="Build an ePub from the downloaded chapters">
-                                    <x-icon name="refresh-cw" :size="14" />
-                                    <span class="cmd-label">Generate ePub</span>
-                                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
-                                    <span class="cmd-done d-none">Done</span>
-                                    <span class="cmd-fail d-none">Failed</span>
-                                </button>
-                            </li>
-                            <li>
-                                <button type="button" class="dropdown-item cmd-btn" data-command="send_to_kindle" data-novel="{{ $data->id }}" title="Email this novel's ePub to your Kindle">
-                                    <x-icon name="external-link" :size="14" />
-                                    <span class="cmd-label">Send to Kindle</span>
-                                    <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Sending</span>
-                                    <span class="cmd-done d-none">Sent</span>
-                                    <span class="cmd-fail d-none">Failed</span>
-                                </button>
-                            </li>
-                        </ul>
-                    </div>
-                </span>
-                <div class="dropdown">
-                    <button type="button" class="btn btn-secondary btn-icon" id="novelMoreBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="More actions" title="More actions">
-                        <x-icon name="more-horizontal" :size="16" />
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="novelMoreBtn">
-                        <li><a href="{{ route('novels.edit', $data->id) }}" class="dropdown-item"><x-icon name="pencil" :size="14" />Edit details</a></li>
-                        <li>
-                            <button type="button" id="pauseToggle" class="dropdown-item" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
-                                <x-icon name="pause" :size="14" class="icon pause-icon-pause {{ $data->paused_at ? 'd-none' : '' }}" />
-                                <x-icon name="play" :size="14" class="icon pause-icon-play {{ $data->paused_at ? '' : 'd-none' }}" />
-                                <span class="pause-label">{{ $data->paused_at ? 'Resume downloads' : 'Pause downloads' }}</span>
-                            </button>
-                        </li>
-                        <li>
-                            <button type="button" class="dropdown-item cmd-btn" id="refreshMetadataBtn" data-command="metadata" data-novel="{{ $data->id }}" title="Re-fetch title, author, cover and synopsis from the source">
-                                <x-icon name="refresh-cw" :size="14" />
-                                <span class="cmd-label">Refresh metadata</span>
-                                <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
-                                <span class="cmd-done d-none">Done</span>
-                                <span class="cmd-fail d-none">Failed</span>
-                            </button>
-                        </li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><button type="button" id="deleteNovel" class="dropdown-item item-danger" data-id="{{ $data->id }}" data-name="{{ $data->name }}"><x-icon name="trash-2" :size="14" />Delete novel</button></li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-
-        {{-- Metric strip --}}
-        <div class="metric-strip">
-            <div class="metric">
-                <x-status state="downloaded" as="text" class="metric-value">{{ number_format($current_chapters) }}</x-status>
-                <div class="metric-label">Downloaded</div>
-            </div>
-            <div class="metric">
-                @if($current_chapters_not_downloaded > 0)
-                    <x-status state="queued" as="text" class="metric-value">{{ number_format($current_chapters_not_downloaded) }}</x-status>
-                @else
-                    <div class="metric-value value-muted">0</div>
-                @endif
-                <div class="metric-label">Queued</div>
-            </div>
-            <div class="metric">
-                @if(count($missing_chapters) > 0)
-                    <x-status state="failed" as="text" class="metric-value">{{ number_format(count($missing_chapters)) }}</x-status>
-                @else
-                    <div class="metric-value value-muted">0</div>
-                @endif
-                <div class="metric-label">Missing</div>
-            </div>
-            <div class="metric">
-                <x-status state="reading" as="text" class="metric-value">{{ number_format($read_count) }}</x-status>
-                <div class="metric-label">Read</div>
-            </div>
-        </div>
-
-        {{-- Meters: download progress (status colour), reading progress (always amber).
-             Download progress uses the one shared definition — downloaded ÷
-             chapters known to the source — so it matches the novels list. --}}
-        @php
-            $dl = \App\Services\NovelHealth::downloadProgress(
-                (int) $current_chapters,
-                (int) $current_chapters + (int) $current_chapters_not_downloaded,
-                (int) ($data->no_of_chapters ?? 0)
-            );
-            $dlState = \App\Services\NovelHealth::progressState(
-                $dl['percent'],
-                (bool) $data->status,
-                !$data->status && (bool) $data->paused_at,
-                isset(\App\Services\NovelHealth::attentionIds()[$data->id])
-            );
-        @endphp
-        <div>
-            <div class="meter">
-                <div class="meter-head">
-                    <span class="meter-label">Downloaded</span>
-                    <span class="meter-value">{{ number_format($dl['downloaded']) }} of {{ number_format($dl['total']) }} on source · <span data-progress-percent>{{ $dl['percent'] }}%</span></span>
-                </div>
-                <div class="progress progress-{{ $dlState }}" role="progressbar" aria-label="Download progress" aria-valuenow="{{ $dl['percent'] }}" aria-valuemin="0" aria-valuemax="100">
-                    <div class="progress-bar" style="width: {{ $dl['percent'] }}%"></div>
-                </div>
-            </div>
-
-            @if($current_chapters > 0)
-                @php $readPct = (int) round($read_count / $current_chapters * 100); @endphp
-                <div class="meter meter-reading">
-                    <div class="meter-head">
-                        <span class="meter-label">Read</span>
-                        <span class="meter-value">{{ number_format($read_count) }} / {{ number_format($current_chapters) }} · {{ $readPct }}%</span>
-                    </div>
-                    <div class="progress progress-reading" role="progressbar" aria-label="Reading progress" aria-valuenow="{{ $readPct }}" aria-valuemin="0" aria-valuemax="100">
-                        <div class="progress-bar" style="width: {{ $readPct }}%"></div>
-                    </div>
-                </div>
+    <div class="nv-head">
+        <h1 class="nv-title">{{ $data->name }}</h1>
+        <p class="nv-byline">
+            <span class="nv-author">{{ $data->author ?: 'Unknown author' }}</span>
+            <span class="nv-sep" aria-hidden="true">·</span>
+            @if($data->status)
+                <x-status state="completed" as="text" id="novelStatusBadge" data-completed="1" />
+            @elseif($data->paused_at)
+                <x-status state="paused" as="text" id="novelStatusBadge" title="Paused {{ $data->paused_at->format('j M Y') }} — automatic downloads skip this novel" />
+            @else
+                <x-status state="active" as="text" id="novelStatusBadge" />
             @endif
-        </div>
+            @foreach($metaItems as $item)
+                <span class="nv-sep" aria-hidden="true">·</span>
+                @isset($item['href'])
+                    <a href="{{ $item['href'] }}" class="nv-meta-link" target="_blank" rel="noopener">{{ $item['text'] }}<span class="visually-hidden"> (source site, opens in a new tab)</span></a>
+                @else
+                    <span>{{ $item['text'] }}</span>
+                @endisset
+            @endforeach
+        </p>
+    </div>
 
+    <div class="nv-about">
         {{-- Tags --}}
         <div>
-            <div id="tagDisplay" class="tag-strip">
-                <span class="tag-strip-key">Tags</span>
-                <span id="tagList" class="d-flex align-items-center gap-2 flex-wrap">
+            <div id="tagDisplay" class="nv-tags">
+                <span class="visually-hidden">Tags:</span>
+                <span id="tagList" class="nv-tag-list">
                     @forelse($data->tags as $tag)
-                        <a href="{{ route('novels.index', ['tag' => $tag->id]) }}" class="tag-chip">{{ $tag->name }}</a>
+                        <a href="{{ route('novels.index', ['tag' => $tag->id]) }}" class="nv-tag">{{ $tag->name }}</a>
                     @empty
-                        <span class="tag-empty">None</span>
+                        <span class="tag-empty">No tags</span>
                     @endforelse
                 </span>
-                <button type="button" id="editTags" class="btn btn-ghost btn-sm">Edit</button>
+                <button type="button" id="editTags" class="nv-link-btn">Edit tags</button>
             </div>
             <div id="tagEditor" class="d-none">
                 <div class="label-caption mb-2">Tags</div>
@@ -251,7 +105,7 @@
         @if($synopsis)
             <div class="detail-synopsis" id="synopsis">
                 <div class="synopsis-body" id="synopsisBody">{!! $synopsis !!}</div>
-                <button type="button" class="synopsis-toggle d-none" id="synopsisToggle" aria-expanded="false">Read more</button>
+                <button type="button" class="synopsis-toggle d-none" id="synopsisToggle" aria-expanded="false" aria-controls="synopsisBody">Read more</button>
             </div>
         @else
             <div class="detail-no-synopsis">
@@ -260,13 +114,355 @@
             </div>
         @endif
     </div>
+
+    {{-- Actions: one primary, Download for offline, and the overflow menu. --}}
+    <div class="nv-actions">
+        @if($continue_chapter_id)
+            <a href="{{ route('chapters.show', $continue_chapter_id) }}" class="btn btn-primary nv-continue">
+                <x-icon name="play" :size="13" />
+                @if($read_count > 0)
+                    Continue{{ $continueLabel ? ' at ' . $continueLabel : ' reading' }}
+                @else
+                    Start reading
+                @endif
+            </a>
+        @endif
+        <span id="offlineControls" data-id="{{ $data->id }}" data-total="{{ $current_chapters }}" data-unread="{{ $unread }}" class="nv-offline">
+            <div class="dropdown">
+                <button type="button" id="offlineBtn" class="btn btn-secondary btn-icon-label" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Download for offline">
+                    <x-icon name="download" :size="14" />
+                    <span class="offline-btn-label">Download for offline</span>
+                    <span class="offline-btn-count d-none"></span>
+                    <x-icon name="chevron-down" :size="14" class="icon caret" />
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end download-menu">
+                    <li><h6 class="dropdown-header label-caption">Save on this device</h6></li>
+                    <li><button type="button" class="dropdown-item" data-scope="unread-next" data-limit="100">Next 100 unread</button></li>
+                    <li><button type="button" class="dropdown-item" data-scope="unread">All unread (<span class="offl-unread">0</span>)</button></li>
+                    <li><button type="button" class="dropdown-item" data-scope="all">All chapters (<span class="offl-total">0</span>)</button></li>
+                    <li>
+                        <div class="download-range">
+                            <div class="label-caption mb-2">Chapter range</div>
+                            <div class="d-flex gap-1 align-items-center">
+                                <input type="number" id="offlFrom" class="form-control form-control-sm" placeholder="From" min="0" step="any" aria-label="Range from chapter">
+                                <input type="number" id="offlTo" class="form-control form-control-sm" placeholder="To" min="0" step="any" aria-label="Range to chapter">
+                                <button type="button" class="btn btn-sm btn-secondary" data-scope="range">Get</button>
+                            </div>
+                        </div>
+                    </li>
+                    <li><button type="button" id="offlineRemove" class="dropdown-item item-danger d-none"><x-icon name="trash-2" :size="14" />Remove offline copy</button></li>
+                </ul>
+            </div>
+        </span>
+        <div class="dropdown">
+            <button type="button" class="btn btn-secondary btn-icon" id="novelMoreBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="More actions" title="More actions">
+                <x-icon name="more-horizontal" :size="16" />
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="novelMoreBtn">
+                <li><a href="{{ route('novels.edit', $data->id) }}" class="dropdown-item"><x-icon name="pencil" :size="14" />Edit details</a></li>
+                <li>
+                    <button type="button" id="pauseToggle" class="dropdown-item" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
+                        <x-icon name="pause" :size="14" class="icon pause-icon-pause {{ $data->paused_at ? 'd-none' : '' }}" />
+                        <x-icon name="play" :size="14" class="icon pause-icon-play {{ $data->paused_at ? '' : 'd-none' }}" />
+                        <span class="pause-label">{{ $data->paused_at ? 'Resume downloads' : 'Pause downloads' }}</span>
+                    </button>
+                </li>
+                <li>
+                    <button type="button" class="dropdown-item cmd-btn" id="refreshMetadataBtn" data-command="metadata" data-novel="{{ $data->id }}" title="Re-fetch title, author, cover and synopsis from the source">
+                        <x-icon name="refresh-cw" :size="14" />
+                        <span class="cmd-label">Refresh metadata</span>
+                        <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                        <span class="cmd-done d-none">Done</span>
+                        <span class="cmd-fail d-none">Failed</span>
+                    </button>
+                </li>
+                <li><a href="{{ route('search.index', ['novel' => $data->id]) }}" class="dropdown-item"><x-icon name="search" :size="14" />Search the text of this novel</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><h6 class="dropdown-header label-caption">ePub</h6></li>
+                <li><a href="{{ route('novels.download_epub', $data->id) }}" class="dropdown-item" data-turbo="false" data-turbo-prefetch="false"><x-icon name="download" :size="14" />Download ePub</a></li>
+                <li>
+                    <button type="button" class="dropdown-item cmd-btn" data-command="epub" data-novel="{{ $data->id }}" title="Build an ePub from the downloaded chapters">
+                        <x-icon name="refresh-cw" :size="14" />
+                        <span class="cmd-label">Generate ePub</span>
+                        <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                        <span class="cmd-done d-none">Done</span>
+                        <span class="cmd-fail d-none">Failed</span>
+                    </button>
+                </li>
+                <li>
+                    <button type="button" class="dropdown-item cmd-btn" data-command="send_to_kindle" data-novel="{{ $data->id }}" title="Email this novel's ePub to your Kindle">
+                        <x-icon name="external-link" :size="14" />
+                        <span class="cmd-label">Send to Kindle</span>
+                        <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Sending</span>
+                        <span class="cmd-done d-none">Sent</span>
+                        <span class="cmd-fail d-none">Failed</span>
+                    </button>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li><button type="button" id="deleteNovel" class="dropdown-item item-danger" data-id="{{ $data->id }}" data-name="{{ $data->name }}"><x-icon name="trash-2" :size="14" />Delete novel</button></li>
+            </ul>
+        </div>
+    </div>
+
+    {{-- Progress: reading and downloads, each stated once. Exception counts
+         (queued / failed / review / gaps / duplicates) only when non-zero. --}}
+    <div class="nv-side">
+        <section class="nv-progress" aria-labelledby="nvProgressTitle">
+            <h2 class="visually-hidden" id="nvProgressTitle">Progress</h2>
+
+            <div class="nv-progress-part">
+                <h3 class="nv-progress-key">Reading</h3>
+                @if($current_chapters > 0)
+                    <p class="nv-progress-figure">
+                        <span class="nv-progress-pct">{{ $readPct }}%</span>
+                        <span class="nv-progress-of">{{ number_format($read_count) }} of {{ number_format($current_chapters) }} read</span>
+                    </p>
+                    <div class="progress progress-reading" role="progressbar" aria-label="Reading progress" aria-valuenow="{{ $readPct }}" aria-valuemin="0" aria-valuemax="100" aria-valuetext="{{ number_format($read_count) }} of {{ number_format($current_chapters) }} chapters read">
+                        <div class="progress-bar" style="width: {{ $readPct }}%"></div>
+                    </div>
+                    <p class="nv-progress-note">
+                        @if($unread > 0)
+                            {{ number_format($unread) }} {{ Str::plural('chapter', $unread) }} unread
+                        @else
+                            All caught up
+                        @endif
+                    </p>
+                @else
+                    <p class="nv-progress-note">Nothing downloaded to read yet.</p>
+                @endif
+            </div>
+
+            <div class="nv-progress-part">
+                <h3 class="nv-progress-key">Downloads</h3>
+                <p class="nv-dl-line">
+                    <span class="nv-dot {{ \App\Enums\NovelState::from($dlState)->barClass() }}" aria-hidden="true"></span>
+                    @if($dlComplete)
+                        <span>All {{ number_format($dl['downloaded']) }} {{ Str::plural('chapter', $dl['downloaded']) }} downloaded</span>
+                    @else
+                        <span>Downloaded {{ number_format($dl['downloaded']) }} of {{ number_format($dl['total']) }} on source · <span data-progress-percent>{{ $dl['percent'] }}%</span></span>
+                    @endif
+                </p>
+                @unless($dlComplete)
+                    <div class="progress progress-{{ $dlState }}" role="progressbar" aria-label="Download progress" aria-valuenow="{{ $dl['percent'] }}" aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-bar" style="width: {{ $dl['percent'] }}%"></div>
+                    </div>
+                @endunless
+
+                @if($queued || $failed_count || $review_count || $gaps || $dupes)
+                    <ul class="nv-issues">
+                        @if($queued > 0)
+                            <li><span class="nv-issue-num tone-pending">{{ number_format($queued) }}</span> queued</li>
+                        @endif
+                        @if($failed_count > 0)
+                            <li>
+                                <span class="nv-issue-num tone-danger">{{ number_format($failed_count) }}</span> failed
+                                <button type="button" class="nv-link-btn" data-show-chapters="failed">Show</button>
+                            </li>
+                        @endif
+                        @if($review_count > 0)
+                            <li title="Failed {{ \App\NovelChapter::REVIEW_ATTEMPTS }} or more times — still retried every 3 days, but worth a look">
+                                <span class="nv-issue-num tone-warning">{{ number_format($review_count) }}</span> {{ $review_count === 1 ? 'needs' : 'need' }} review
+                            </li>
+                        @endif
+                        @if($gaps > 0)
+                            <li title="Chapter numbers between 1 and the latest that no chapter covers">
+                                <span class="nv-issue-num tone-warning">{{ number_format($gaps) }}</span> missing from the numbering
+                            </li>
+                        @endif
+                        @if($dupes > 0)
+                            <li>
+                                <span class="nv-issue-num tone-warning">{{ number_format($dupes) }}</span> duplicated {{ Str::plural('chapter', $dupes) }}
+                                <button type="button" id="removeDupes" class="nv-link-btn" data-id="{{ $data->id }}" title="{{ $dupes }} duplicate chapter group(s) detected">Remove {{ $dupes }} duplicate(s)</button>
+                            </li>
+                        @endif
+                    </ul>
+                @else
+                    <p class="nv-progress-note">Nothing queued or failed · checked {{ !$data->status && $data->frequent_toc ? 'hourly' : 'daily' }}</p>
+                @endif
+
+                @if($queued + $failed_count > 0)
+                    <button type="button" class="btn btn-secondary btn-sm cmd-btn nv-progress-action" data-command="chapter" data-novel="{{ $data->id }}" title="Fetch the queued and failed chapters now">
+                        <span class="cmd-label">{{ $failed_count > 0 ? 'Retry downloads now' : 'Download queued now' }}</span>
+                        <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
+                        <span class="cmd-done d-none">Done</span>
+                        <span class="cmd-fail d-none">Failed</span>
+                    </button>
+                @endif
+
+                @if(!$data->status)
+                    {{-- Hourly checks: a switch, posting to the existing toggle endpoint --}}
+                    <div class="form-check form-switch detail-switch mb-0">
+                        <input class="form-check-input" type="checkbox" role="switch" id="frequentToggle" data-id="{{ $data->id }}" @checked($data->frequent_toc)>
+                        <label class="form-check-label" for="frequentToggle" title="Check this novel's source for new chapters every hour instead of once a day">Check this novel hourly</label>
+                    </div>
+                @endif
+            </div>
+        </section>
+        @include('partials.source-unavailable', ['novel' => $data])
+    </div>
 </div>
+
+{{-- Output pane for header-menu and progress-card commands (Generate ePub,
+     Send to Kindle, Refresh metadata, Retry) — near where they are started. --}}
+<div id="cmdOutput" class="card mb-4 d-none">
+    <pre id="cmdOutputText" class="cmd-output-pane" aria-live="polite"></pre>
+</div>
+
+{{-- ===================================================================== --}}
+{{-- Chapters — server-rendered page of rows; the filter (resources/js/    --}}
+{{-- novel.js) loads chapters-json once and filters it in memory.          --}}
+{{-- ===================================================================== --}}
+<section class="card chapter-panel nv-chapters" id="chapterPanel" aria-labelledby="chaptersTitle"
+         data-novel-chapters
+         data-novel-id="{{ $data->id }}"
+         data-json-url="{{ route('novels.chapters_json', $data->id) }}"
+         data-chapter-url="{{ $chapterUrl }}"
+         data-bulk-url="{{ route('chapters.bulk_read') }}"
+         data-continue-id="{{ $continue_chapter_id }}"
+         data-book-col="{{ $showBookCol ? 1 : 0 }}">
+    <div class="nv-ch-head">
+        <h2 class="panel-title" id="chaptersTitle">Chapters <span class="count-chip">{{ number_format($chapters->total()) }}</span></h2>
+
+        <div class="nv-chips" role="group" aria-label="Show chapters">
+            <button type="button" class="nv-chip" data-state-filter="all" aria-pressed="true">All <span class="nv-chip-count">{{ number_format($chapters->total()) }}</span></button>
+            <button type="button" class="nv-chip" data-state-filter="unread" aria-pressed="false">Unread <span class="nv-chip-count">{{ number_format($unread) }}</span></button>
+            @if($queued > 0)
+                <button type="button" class="nv-chip" data-state-filter="queued" aria-pressed="false">Queued <span class="nv-chip-count">{{ number_format($queued) }}</span></button>
+            @endif
+            @if($failed_count > 0)
+                <button type="button" class="nv-chip" data-state-filter="failed" aria-pressed="false">Failed <span class="nv-chip-count tone-danger">{{ number_format($failed_count) }}</span></button>
+            @endif
+        </div>
+
+        @if($continue_chapter_id)
+            <a href="{{ request()->fullUrlWithQuery(['page' => $continue_page > 1 ? $continue_page : null]) }}#ch-{{ $continue_chapter_id }}" class="nv-jump" data-jump-current data-jump-page="{{ $continue_page }}">Jump to {{ $continueLabel ?? 'the next chapter' }}</a>
+        @endif
+
+        <span class="nv-ch-spacer"></span>
+
+        {{-- Typing filters the list; Enter on a number opens that chapter
+             (the old "Ch. #" jump), also without JavaScript. --}}
+        <form method="GET" action="{{ route('novels.jump_chapter', $data->id) }}" class="nv-filter" role="search" data-chapter-filter-form>
+            <label for="chFilter" class="visually-hidden">Filter chapters by title or number; press Enter on a number to open it</label>
+            <x-icon name="search" :size="13" />
+            <input type="search" id="chFilter" name="n" class="form-control" placeholder="Filter or go to chapter" autocomplete="off" enterkeyhint="go" aria-describedby="chFilterStatus">
+        </form>
+
+        <div class="nv-ch-tools">
+            {{-- Phones: checkboxes stay hidden until selection mode is on --}}
+            <button type="button" id="chSelectToggle" class="btn btn-ghost btn-sm ch-select-toggle" aria-pressed="false" aria-controls="chapterTable">Select</button>
+            <div id="chBulkBar" class="bulk-bar">
+                <span id="chBulkCount" class="bulk-count"></span>
+                <button type="button" id="chMarkRead" class="btn btn-ghost btn-sm">Mark read</button>
+                <button type="button" id="chMarkUnread" class="btn btn-ghost btn-sm">Mark unread</button>
+            </div>
+            <div class="dropdown">
+                <button type="button" class="btn btn-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Mark read</button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><h6 class="dropdown-header label-caption">Needs one chapter selected</h6></li>
+                    <li><button type="button" class="dropdown-item" id="chReadUpTo">Read up to selected chapter</button></li>
+                    <li><button type="button" class="dropdown-item" id="chReadFrom">Read from selected chapter to end</button></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><button type="button" class="dropdown-item" id="chReadAll">Mark all chapters read</button></li>
+                    <li><button type="button" class="dropdown-item item-danger" id="chUnreadAll">Mark all chapters unread</button></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <p class="nv-filter-status" id="chFilterStatus" role="status" aria-live="polite"></p>
+
+    <div class="table-responsive">
+        <table class="table chapter-table align-middle" id="chapterTable">
+            <caption class="visually-hidden">Chapters of {{ $data->name }}</caption>
+            <thead>
+                <tr>
+                    <th class="ch-select" style="width: 46px"><input type="checkbox" id="chSelectAll" class="form-check-input" aria-label="Select all chapters shown"></th>
+                    <th style="width: 84px">Ch.</th>
+                    @if($showBookCol)
+                        <th style="width: 60px">Book</th>
+                    @endif
+                    <th>Title</th>
+                    <th style="width: 150px">State</th>
+                    <th class="ch-date-head" style="width: 150px">Downloaded</th>
+                </tr>
+            </thead>
+            <tbody id="chRows">
+                @forelse($chapters as $chapter)
+                    @php
+                        $state = \App\Http\Controllers\NovelController::chapterState($chapter);
+                        $isRead = $chapter->read_at !== null;
+                        $isCurrent = (int) $chapter->id === (int) $continue_chapter_id;
+                        $review = $state !== 'downloaded' && (int) ($chapter->attempts ?? 0) >= \App\NovelChapter::REVIEW_ATTEMPTS;
+                    @endphp
+                    <tr class="chapter-row is-{{ $state }}{{ $isRead ? ' is-read' : '' }}{{ $isCurrent ? ' is-current' : '' }}" id="ch-{{ $chapter->id }}">
+                        <td class="ch-select"><input type="checkbox" class="form-check-input ch-check" value="{{ $chapter->id }}" aria-label="Select chapter {{ $chapter->chapter }}"></td>
+                        <td class="ch-num"><span class="ch-num-prefix">Ch. </span>{{ $chapter->chapter }}</td>
+                        @if($showBookCol)
+                            <td class="ch-book"><span class="ch-num-prefix">Book </span>{{ $chapter->book ?: '—' }}</td>
+                        @endif
+                        <td class="ch-title">
+                            @if($chapter->status)
+                                <a href="{{ route('chapters.show', $chapter->id) }}" class="chapter-link">{{ Str::limit($chapter->label, 90) }}</a>
+                            @else
+                                <span class="chapter-label">{{ Str::limit($chapter->label, 90) }}</span>
+                            @endif
+                            @if($chapter->isNote())
+                                <x-status state="paused" class="ms-1" title="Author's note — a message from the author or translator, not a story chapter">Note</x-status>
+                            @endif
+                            @if($state === 'failed')
+                                <span class="ch-reason">{{ \App\Http\Controllers\NovelController::failureReasonText($chapter->last_failure_reason) . ((int) $chapter->attempts > 1 ? ' · ' . (int) $chapter->attempts . ' attempts' : '') }}</span>
+                            @endif
+                        </td>
+                        <td class="ch-status">
+                            @if($isCurrent)
+                                <span class="ch-current">Up next</span>
+                            @endif
+                            @if($review)
+                                <x-status state="attention" title="Download failed {{ (int) $chapter->attempts }} times — still retried every 3 days, but it needs a look">Needs review</x-status>
+                            @elseif($state === 'failed')
+                                <x-status state="failed" />
+                            @elseif($state === 'queued')
+                                <x-status state="queued" />
+                            @endif
+                            @if($isRead)
+                                <span class="ch-read" title="Read {{ $chapter->read_at->format('Y-m-d H:i') }}"><x-icon name="check" :size="13" :stroke="2.25" />Read</span>
+                            @endif
+                        </td>
+                        <td class="ch-date">{{ $chapter->download_date ? $chapter->download_date->format('Y-m-d H:i') : '—' }}</td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="{{ $showBookCol ? 6 : 5 }}" class="text-center text-muted py-4">No chapters found.</td>
+                    </tr>
+                @endforelse
+            </tbody>
+            {{-- Filter results, rendered by resources/js/novel.js --}}
+            <tbody id="chFiltered" hidden></tbody>
+        </table>
+    </div>
+    <div class="nv-filter-more" id="chFilterMore" hidden>
+        <button type="button" class="btn btn-secondary btn-sm" id="chShowMore">Show more</button>
+    </div>
+    @if($chapters->hasPages())
+        <div class="card-footer" id="chPager">
+            {{ $chapters->links() }}
+        </div>
+    @endif
+</section>
+<template id="checkIconTpl"><x-icon name="check" :size="13" :stroke="2.25" /></template>
+<template id="chStatusTpl">
+    <x-status state="failed" data-tpl="failed" />
+    <x-status state="queued" data-tpl="queued" />
+    <x-status state="attention" data-tpl="review">Needs review</x-status>
+    <x-status state="paused" class="ms-1" data-tpl="note" title="Author's note — a message from the author or translator, not a story chapter">Note</x-status>
+</template>
 
 {{-- ===================================================================== --}}
 {{-- Maintenance — one disclosure, collapsed by default. The command        --}}
 {{-- buttons inside are unchanged (data-dry-run-first wiring below).        --}}
 {{-- ===================================================================== --}}
-<details class="card maintenance-panel mb-4" id="maintenancePanel">
+<details class="card maintenance-panel mt-4" id="maintenancePanel">
     <summary class="panel-head maintenance-summary">
         <h2 class="panel-title">Maintenance</h2>
         <span class="panel-note">Scrape, repair and inspect — commands run in the background</span>
@@ -361,7 +557,7 @@
 
                     const summary = text.split('\n').map(l => l.trim()).filter(Boolean).slice(-3).join(' · ');
                     const ok = await Novarr.confirmDialog(
-                        `Dry run finished (output below the buttons). ${summary} — apply these changes for real?`,
+                        `Dry run finished (output shown above the chapter list). ${summary} — apply these changes for real?`,
                         { title: label, confirmText: 'Apply', danger: true }
                     );
                     if (!ok) return;
@@ -373,123 +569,10 @@
         </div>
     </div>
 </details>
-{{-- Output pane sits outside the disclosure so header-menu commands
-     (Generate ePub, Send to Kindle, Refresh metadata) show their output
-     even while Maintenance is collapsed. --}}
-<div id="cmdOutput" class="card mb-4 d-none">
-    <pre id="cmdOutputText" class="cmd-output-pane"></pre>
-</div>
-
-{{-- ===================================================================== --}}
-{{-- Chapters                                                               --}}
-{{-- ===================================================================== --}}
-@php
-    // The Book column only earns its space when some chapter is in a book.
-    $showBookCol = $chapters->contains(fn($c) => (int) $c->book !== 0);
-@endphp
-<div class="card chapter-panel" id="chapterPanel">
-    <div class="panel-head">
-        <h2 class="panel-title">Chapters <span class="count-chip">{{ number_format($chapters->total()) }}</span></h2>
-        <div class="panel-tools">
-            {{-- Phones: checkboxes stay hidden until selection mode is on --}}
-            <button type="button" id="chSelectToggle" class="btn btn-ghost btn-sm ch-select-toggle" aria-pressed="false" aria-controls="chapterTable">Select</button>
-            <div id="chBulkBar" class="bulk-bar">
-                <span id="chBulkCount" class="bulk-count"></span>
-                <button type="button" id="chMarkRead" class="btn btn-ghost btn-sm">Mark read</button>
-                <button type="button" id="chMarkUnread" class="btn btn-ghost btn-sm">Mark unread</button>
-            </div>
-            <div class="dropdown">
-                <button type="button" class="btn btn-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Mark read</button>
-                <ul class="dropdown-menu dropdown-menu-end">
-                    <li><h6 class="dropdown-header label-caption">Needs one chapter selected</h6></li>
-                    <li><button type="button" class="dropdown-item" id="chReadUpTo">Read up to selected chapter</button></li>
-                    <li><button type="button" class="dropdown-item" id="chReadFrom">Read from selected chapter to end</button></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><button type="button" class="dropdown-item" id="chReadAll">Mark all chapters read</button></li>
-                    <li><button type="button" class="dropdown-item item-danger" id="chUnreadAll">Mark all chapters unread</button></li>
-                </ul>
-            </div>
-            @if(count($duplicate_chapters) > 0)
-                <button type="button" id="removeDupes" class="btn btn-warning btn-sm" data-id="{{ $data->id }}" title="{{ count($duplicate_chapters) }} duplicate chapter group(s) detected">Remove {{ count($duplicate_chapters) }} duplicate(s)</button>
-            @endif
-            <form method="GET" action="{{ route('novels.jump_chapter', $data->id) }}" class="d-flex gap-1">
-                <input type="number" name="n" step="any" min="0" class="form-control form-control-sm" style="width: 84px;" placeholder="Ch. #" aria-label="Jump to chapter">
-                <button type="submit" class="btn btn-secondary btn-sm">Go</button>
-            </form>
-            <form method="GET" action="{{ route('search.index') }}" class="d-flex gap-1">
-                <input type="hidden" name="novel" value="{{ $data->id }}">
-                <input type="search" name="q" minlength="2" class="form-control form-control-sm" style="width: 150px;" placeholder="Search in novel…" aria-label="Search within this novel">
-                <button type="submit" class="btn btn-secondary btn-sm">Find</button>
-            </form>
-        </div>
-    </div>
-    <div class="table-responsive">
-        <table class="table table-hover chapter-table align-middle" id="chapterTable">
-            <thead>
-                <tr>
-                    <th style="width: 46px"><input type="checkbox" id="chSelectAll" class="form-check-input" aria-label="Select all chapters"></th>
-                    <th style="width: 84px">Ch.</th>
-                    @if($showBookCol)
-                        <th style="width: 60px">Book</th>
-                    @endif
-                    <th>Title</th>
-                    <th style="width: 118px">Status</th>
-                    <th style="width: 150px">Downloaded</th>
-                </tr>
-            </thead>
-            <tbody>
-                @forelse($chapters as $chapter)
-                    <tr class="chapter-row {{ $chapter->status ? 'is-downloaded' : 'is-queued' }}">
-                        <td class="ch-select"><input type="checkbox" class="form-check-input ch-check" value="{{ $chapter->id }}" aria-label="Select chapter {{ $chapter->chapter }}"></td>
-                        <td class="ch-num"><span class="ch-num-prefix">Ch. </span>{{ $chapter->chapter }}</td>
-                        @if($showBookCol)
-                            <td class="ch-book"><span class="ch-num-prefix">Book </span>{{ $chapter->book ?: '—' }}</td>
-                        @endif
-                        <td class="ch-title">
-                            @if($chapter->read_at)
-                                <span class="read-check" title="Read {{ $chapter->read_at->format('Y-m-d H:i') }}"><x-icon name="check" :size="13" :stroke="2.25" /><span class="visually-hidden">Read</span></span>
-                            @endif
-                            @if($chapter->status)
-                                <a href="{{ route('chapters.show', $chapter->id) }}" class="chapter-link {{ $chapter->read_at ? 'text-muted' : '' }}">{{ Str::limit($chapter->label, 90) }}</a>
-                            @else
-                                <span class="text-muted">{{ Str::limit($chapter->label, 90) }}</span>
-                            @endif
-                            @if($chapter->isNote())
-                                <x-status state="paused" class="ms-1" title="Author's note — a message from the author or translator, not a story chapter">Note</x-status>
-                            @endif
-                            {{-- attempts may not be selected/migrated yet; ?? keeps this safe either way --}}
-                            @if((int) ($chapter->attempts ?? 0) >= \App\NovelChapter::REVIEW_ATTEMPTS)
-                                <x-status state="paused" class="ms-1" title="Download failed {{ (int) ($chapter->attempts ?? 0) }} times — still retried every 3 days, but it needs a look{{ !empty($chapter->last_failure_reason) ? ' (last: ' . $chapter->last_failure_reason . ')' : '' }}">Needs review</x-status>
-                            @endif
-                        </td>
-                        <td class="ch-status">
-                            <x-status :state="\App\Enums\NovelState::forChapter($chapter)" />
-                        </td>
-                        <td class="ch-date">{{ $chapter->download_date ? $chapter->download_date->format('Y-m-d H:i') : '—' }}</td>
-                    </tr>
-                @empty
-                    <tr>
-                        <td colspan="{{ $showBookCol ? 6 : 5 }}" class="text-center text-muted py-4">No chapters found.</td>
-                    </tr>
-                @endforelse
-            </tbody>
-        </table>
-    </div>
-    @if($chapters->hasPages())
-        <div class="card-footer">
-            {{ $chapters->links() }}
-        </div>
-    @endif
-</div>
-<template id="checkIconTpl"><x-icon name="check" :size="13" :stroke="2.25" /></template>
 @endsection
-
 @push('scripts')
 <script>
 (() => {
-    // Lucide "check", cloned from the server-rendered icon template below.
-    const CHECK_ICON = document.getElementById('checkIconTpl')?.innerHTML.trim() || '';
-
     // Buttons that stand in for a header-menu action (e.g. "Refresh metadata"
     // in the no-synopsis note) click the real one, so it runs in one place.
     document.querySelectorAll('[data-proxy-click]').forEach(el => el.addEventListener('click', () => {
@@ -566,10 +649,10 @@
                     pauseToggle.querySelector('.pause-icon-pause')?.classList.toggle('d-none', data.paused);
                     pauseToggle.querySelector('.pause-icon-play')?.classList.toggle('d-none', !data.paused);
 
-                    // Same classes the x-status component renders for NovelState::Paused / ::Active.
+                    // Same classes the x-status component (as="text") renders for NovelState::Paused / ::Active.
                     const badge = document.getElementById('novelStatusBadge');
                     if (badge && !badge.dataset.completed) {
-                        badge.className = 'badge ' + (data.paused ? 'badge-paused' : 'badge-active');
+                        badge.className = data.paused ? 'tone-muted' : 'tone-success';
                         badge.dataset.state = data.paused ? 'paused' : 'active';
                         badge.textContent = data.paused ? 'Paused' : 'Active';
                     }
@@ -637,14 +720,14 @@
             if (!tags || !tags.length) {
                 const none = document.createElement('span');
                 none.className = 'tag-empty';
-                none.textContent = 'None';
+                none.textContent = 'No tags';
                 list.appendChild(none);
                 return;
             }
             tags.forEach(t => {
                 const a = document.createElement('a');
                 a.href = `${tagBase}?tag=${t.id}`;
-                a.className = 'tag-chip';
+                a.className = 'nv-tag';
                 a.textContent = t.name;
                 list.appendChild(a);
             });
@@ -713,160 +796,6 @@
         });
     }
 
-    // ---- Chapter bulk read/unread ----
-    const chChecks = () => [...document.querySelectorAll('.ch-check')];
-    const chSelected = () => chChecks().filter(c => c.checked).map(c => c.value);
-    const chBulkBar = document.getElementById('chBulkBar');
-    const chSelectAll = document.getElementById('chSelectAll');
-
-    function refreshChBulk() {
-        const n = chSelected().length;
-        chBulkBar.classList.toggle('d-none', n === 0);
-        chBulkBar.classList.toggle('d-flex', n > 0);
-        document.getElementById('chBulkCount').textContent = `${n} selected`;
-        if (chSelectAll) {
-            chSelectAll.checked = n > 0 && n === chChecks().length;
-            chSelectAll.indeterminate = n > 0 && n < chChecks().length;
-        }
-    }
-
-    chChecks().forEach(c => c.addEventListener('change', refreshChBulk));
-
-    // Phones: "Select" reveals the row checkboxes; turning it off clears them.
-    const chPanel = document.getElementById('chapterPanel');
-    const chSelectToggle = document.getElementById('chSelectToggle');
-    chSelectToggle?.addEventListener('click', () => {
-        const on = !chPanel.classList.contains('is-selecting');
-        chPanel.classList.toggle('is-selecting', on);
-        chSelectToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
-        chSelectToggle.textContent = on ? 'Done' : 'Select';
-        if (!on) {
-            chChecks().forEach(c => c.checked = false);
-            refreshChBulk();
-        }
-    });
-    chSelectAll?.addEventListener('change', () => {
-        chChecks().forEach(c => c.checked = chSelectAll.checked);
-        refreshChBulk();
-    });
-
-    // Toggle a chapter row's read indicator (amber check + muted title) in place,
-    // so the long paginated table keeps its scroll position after a bulk action.
-    function setChapterRowRead(checkbox, read) {
-        const cell = checkbox.closest('tr')?.querySelector('td.ch-title');
-        if (!cell) return;
-
-        let mark = cell.querySelector('.read-check');
-        if (read && !mark) {
-            mark = document.createElement('span');
-            mark.className = 'read-check';
-            mark.title = 'Read';
-            mark.innerHTML = CHECK_ICON + '<span class="visually-hidden">Read</span>';
-            cell.insertBefore(mark, cell.firstChild);
-        } else if (!read && mark) {
-            mark.remove();
-        }
-        cell.querySelector('.chapter-link')?.classList.toggle('text-muted', read);
-    }
-
-    async function bulkRead(read) {
-        const boxes = chChecks().filter(c => c.checked);
-        const ids = boxes.map(c => c.value);
-        if (!ids.length) return;
-        try {
-            const response = await fetch('{{ route('chapters.bulk_read') }}', {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ ids, read }),
-            });
-            const data = await response.json();
-            if (data.success) {
-                boxes.forEach(c => { setChapterRowRead(c, read); c.checked = false; });
-                refreshChBulk();
-                Novarr.showToast(
-                    data.queued
-                        ? 'Saved offline — will sync when you reconnect.'
-                        : `Marked ${ids.length} chapter(s) as ${read ? 'read' : 'unread'}.`,
-                    data.queued ? 'info' : 'success'
-                );
-            } else {
-                Novarr.showToast(data.message || 'Failed to update chapters.', 'danger');
-            }
-        } catch (err) {
-            Novarr.showToast('Error: ' + err.message, 'danger');
-        }
-    }
-
-    document.getElementById('chMarkRead')?.addEventListener('click', () => bulkRead(true));
-    document.getElementById('chMarkUnread')?.addEventListener('click', () => bulkRead(false));
-
-    // Scoped variants: whole novel, or everything up to / from an anchor
-    // chapter. Server updates all pages; the DOM update below only needs to
-    // cover the rows visible on this page.
-    async function bulkReadScope(scope, read) {
-        let anchorId = null;
-        if (scope === 'up_to' || scope === 'from') {
-            const sel = chSelected();
-            if (sel.length !== 1) {
-                Novarr.showToast('Select exactly one chapter as the starting point first.', 'warning');
-                return;
-            }
-            anchorId = parseInt(sel[0], 10);
-        }
-
-        if (scope === 'all') {
-            const ok = await Novarr.confirmDialog(
-                `Mark ALL chapters as ${read ? 'read' : 'unread'}?`,
-                { title: read ? 'Mark all read' : 'Mark all unread', confirmText: 'Continue', danger: !read }
-            );
-            if (!ok) return;
-        }
-
-        try {
-            const response = await fetch('{{ route('chapters.bulk_read') }}', {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ read, scope, novel_id: {{ $data->id }}, anchor_id: anchorId }),
-            });
-            const data = await response.json();
-            if (!data.success) {
-                Novarr.showToast(data.message || 'Failed to update chapters.', 'danger');
-                return;
-            }
-
-            const boxes = chChecks();
-            let affected = boxes;
-            if (anchorId !== null) {
-                const idx = boxes.findIndex(c => parseInt(c.value, 10) === anchorId);
-                affected = scope === 'up_to' ? boxes.slice(0, idx + 1) : boxes.slice(idx);
-            }
-            affected.forEach(c => setChapterRowRead(c, read));
-            boxes.forEach(c => c.checked = false);
-            refreshChBulk();
-            Novarr.showToast(
-                data.queued
-                    ? 'Saved offline — will sync when you reconnect.'
-                    : `Marked ${data.count} chapter(s) as ${read ? 'read' : 'unread'}.`,
-                data.queued ? 'info' : 'success'
-            );
-        } catch (err) {
-            Novarr.showToast('Error: ' + err.message, 'danger');
-        }
-    }
-
-    document.getElementById('chReadUpTo')?.addEventListener('click', () => bulkReadScope('up_to', true));
-    document.getElementById('chReadFrom')?.addEventListener('click', () => bulkReadScope('from', true));
-    document.getElementById('chReadAll')?.addEventListener('click', () => bulkReadScope('all', true));
-    document.getElementById('chUnreadAll')?.addEventListener('click', () => bulkReadScope('all', false));
-
     // ---- Download for offline (PWA), with range options ----
     function initOfflineBtn() {
         const wrap = document.getElementById('offlineControls');
@@ -884,7 +813,7 @@
 
         async function reflect() {
             const rec = await Novarr.getNovel(id);
-            label.textContent = 'Download';
+            label.textContent = 'Download for offline';
             count.textContent = rec ? `${rec.chapterCount} offline` : '';
             count.classList.toggle('d-none', !rec);
             btn.title = rec ? `${rec.chapterCount} chapters saved on this device` : 'Save for offline or export';

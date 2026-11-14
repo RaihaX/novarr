@@ -90,6 +90,99 @@
     <div class="mb-4">@include('partials.snoozed-note', ['snoozed' => $snoozed])</div>
 @endif
 
+{{-- Download pace: the adaptive per-host pace (App\Scraping\HostPace). --}}
+<div class="card mb-4" id="downloadPace">
+    <div class="panel-head">
+        <h2 class="panel-title">
+            Download pace
+            <span class="count-chip">{{ ($pace_adaptive ?? true) ? 'adaptive' : 'fixed' }}</span>
+        </h2>
+    </div>
+    @if(count($host_pace ?? []))
+        <div class="table-responsive">
+            <table class="table align-middle table-responsive-cards">
+                <caption class="visually-hidden">Delay between chapter requests per site</caption>
+                <thead>
+                    <tr>
+                        <th>Site</th>
+                        <th>Delay now</th>
+                        <th>Fastest allowed</th>
+                        <th>Learned floor</th>
+                        <th>Last slowdown</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($host_pace as $row)
+                        <tr>
+                            <td class="mono-figure" data-label="Site">{{ $row['host'] }}</td>
+                            <td class="mono-figure" data-label="Delay now">{{ $row['range'][0] }}–{{ $row['range'][1] }} s</td>
+                            <td class="mono-figure" data-label="Fastest allowed">{{ $row['adaptive'] ? rtrim(rtrim(number_format($row['fastest'], 1), '0'), '.') . ' s' : '—' }}</td>
+                            <td class="mono-muted" data-label="Learned floor">
+                                @if($row['floor'] !== null)
+                                    {{ $row['floor'] }} s until {{ $row['floor_until']->format('j M H:i') }}
+                                @else
+                                    none
+                                @endif
+                            </td>
+                            <td class="mono-muted" data-label="Last slowdown">
+                                @if($row['last_slowdown_at'])
+                                    {{ match ($row['last_slowdown_reason']) {
+                                        'rate_limited' => 'rate limited (HTTP 429/503)',
+                                        'cloudflare' => 'Cloudflare challenge',
+                                        'fetch_failed' => 'failed fetch',
+                                        default => $row['last_slowdown_reason'] ?? 'unknown',
+                                    } }}, {{ $row['last_slowdown_at']->diffForHumans() }}
+                                @else
+                                    never
+                                @endif
+                            </td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    @else
+        <div class="card-body">
+            <p class="text-muted mb-0">No chapter downloads recorded yet — each site starts at the min delay from Settings.</p>
+        </div>
+    @endif
+</div>
+
+{{-- Chapters parked because the source lists them but does not serve them. --}}
+@if(($parked_novels ?? collect())->isNotEmpty())
+    <div class="card mb-4" id="parkedChapters">
+        <div class="panel-head">
+            <h2 class="panel-title">
+                Not available on the source
+                <span class="count-chip">{{ number_format($parked_novels->sum('parked_count')) }}</span>
+            </h2>
+        </div>
+        <div class="table-responsive">
+            <table class="table align-middle table-responsive-cards">
+                <caption class="visually-hidden">Novels with chapters the source lists but does not serve</caption>
+                <thead>
+                    <tr>
+                        <th>Novel</th>
+                        <th>Chapters</th>
+                        <th>Source answers</th>
+                        <th>Next re-check</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($parked_novels as $parked)
+                        <tr>
+                            <td data-label="Novel"><a href="{{ route('novels.show', $parked->id) }}">{{ $parked->name }}</a></td>
+                            <td class="mono-figure" data-label="Chapters">{{ number_format($parked->parked_count) }}</td>
+                            <td data-label="Source answers">{{ \App\Scraping\SourceUnavailable::reasonWords($parked->parked_reasons) }}</td>
+                            <td class="mono-muted" data-label="Next re-check">{{ $parked->source_recheck_at ? $parked->source_recheck_at->format('j M Y H:i') : 'next run' }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    </div>
+@endif
+
 <div class="card">
     <div class="panel-head">
         <h2 class="panel-title">

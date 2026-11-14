@@ -13,6 +13,9 @@ use Illuminate\Support\Facades\DB;
 
 class NovelController extends Controller
 {
+    /** Chapter rows per page on the novel page. */
+    public const CHAPTERS_PER_PAGE = 50;
+
     /**
      * The novel repository instance.
      */
@@ -69,10 +72,13 @@ class NovelController extends Controller
     {
         abort_unless(Novel::whereKey($id)->exists(), 404);
 
+        // Also feeds the novel page's chapter filter (resources/js/novel.js),
+        // which filters this one list in memory instead of asking the server
+        // per keystroke; the conditional-GET middleware keeps repeats at 304.
         $chapters = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
             ->ordered()
-            ->get(['id', 'chapter', 'book', 'label', 'status', 'read_at', 'kind'])
+            ->get(['id', 'chapter', 'book', 'label', 'status', 'read_at', 'kind', 'download_date', 'attempts', 'last_failure_reason'])
             ->map(fn($c) => [
                 'id' => $c->id,
                 'chapter' => $c->chapter,
@@ -81,9 +87,48 @@ class NovelController extends Controller
                 'downloaded' => (bool) $c->status,
                 'read' => $c->read_at !== null,
                 'note' => $c->isNote(),
+                'state' => static::chapterState($c),
+                'reason' => static::chapterState($c) === 'failed' ? static::failureReasonText($c->last_failure_reason) : null,
+                'review' => !$c->status && (int) $c->attempts >= NovelChapter::REVIEW_ATTEMPTS,
+                'attempts' => $c->status ? 0 : (int) $c->attempts,
+                'date' => $c->download_date?->format('Y-m-d H:i'),
             ]);
 
         return response()->json(['chapters' => $chapters]);
+    }
+
+    /**
+     * Plain-words explanations of NovelChapter::last_failure_reason, as the
+     * chapter scraper records it (ChapterScraper::recordFailure / its hints).
+     */
+    public const FAILURE_REASONS = [
+        'fetch_failed' => 'The chapter page could not be fetched.',
+        'cloudflare' => 'The source answered with a Cloudflare check instead of the page.',
+        'rate_limited' => 'The source is rate-limiting requests; it will be retried later.',
+        'no_content' => 'The page loaded but contains no chapter text.',
+        'short_content' => 'The page had too little text to be the chapter.',
+        'not_found' => 'The source answers 404 for this chapter; it may have been removed or renumbered there.',
+        'exception' => 'The scraper hit an error while reading the page.',
+        'source_missing' => 'The source no longer lists this chapter.',
+    ];
+
+    public static function failureReasonText(?string $reason): string
+    {
+        return self::FAILURE_REASONS[$reason] ?? 'The download failed.';
+    }
+
+    /**
+     * A chapter row's download state for the novel page: 'downloaded',
+     * 'failed' (not downloaded and the last fetch recorded a failure) or
+     * 'queued' (waiting for its first fetch).
+     */
+    public static function chapterState(object $chapter): string
+    {
+        if (!empty($chapter->status)) {
+            return 'downloaded';
+        }
+
+        return !empty($chapter->last_failure_reason) ? 'failed' : 'queued';
     }
 
     public function offlineManifest($id, Request $request)
@@ -270,7 +315,15 @@ class NovelController extends Controller
         }
         session(['library_view' => $view]);
 
+        // Shelves (Reading / Not started / Finished) only head the grid in its
+        // default state: last-read sort, no chip, search, tag or status
+        // filter. They group the current page's tiles (pagination and order
+        // are unchanged); any explicit sort or filter shows one flat list.
+        $shelved = $view === 'grid' && $sort === 'read' && $filter === 'all'
+            && !$request->filled('search') && !$request->filled('tag') && !$request->filled('status');
+
         return view('novels.index', [
+            'shelved' => $shelved,
             'novels' => static::paginateLibrary($orderedIds, $aggregates, $view === 'grid' ? 42 : 25),
             'view' => $view,
             'sort' => $sort,
@@ -742,7 +795,7 @@ class NovelController extends Controller
         $chapters = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
             ->ordered()
-            ->paginate(50, ['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'download_date', 'read_at', 'kind', 'attempts', 'last_failure_reason']);
+            ->paginate(self::CHAPTERS_PER_PAGE, ['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'download_date', 'read_at', 'kind', 'attempts', 'last_failure_reason']);
 
         return view('novels.show', [
             'data' => $data,
@@ -755,6 +808,11 @@ class NovelController extends Controller
             'current_chapters_not_downloaded' => $stats['not_downloaded_count'],
             'read_count' => $stats['read_count'] ?? 0,
             'continue_chapter_id' => $stats['continue_chapter_id'] ?? null,
+            'continue_number' => $stats['continue_number'] ?? null,
+            // The list page holding the continue chapter, for "Jump to chapter N".
+            'continue_page' => intdiv((int) ($stats['continue_index'] ?? 0), self::CHAPTERS_PER_PAGE) + 1,
+            'failed_count' => $stats['failed_count'] ?? 0,
+            'review_count' => $stats['review_count'] ?? 0,
             'progress' => round($progress),
         ]);
     }
@@ -962,6 +1020,8 @@ class NovelController extends Controller
                     COUNT(CASE WHEN status = 1 THEN 1 END) as downloaded_count,
                     COUNT(CASE WHEN status = 0 THEN 1 END) as not_downloaded_count,
                     COUNT(CASE WHEN status = 1 AND read_at IS NOT NULL THEN 1 END) as read_count,
+                    COUNT(CASE WHEN status = 0 AND last_failure_reason IS NOT NULL THEN 1 END) as failed_count,
+                    COUNT(CASE WHEN status = 0 AND attempts >= ' . (int) NovelChapter::REVIEW_ATTEMPTS . ' THEN 1 END) as review_count,
                     MAX(chapter) as latest_chapter
                 ')
                 ->first();
@@ -974,21 +1034,30 @@ class NovelController extends Controller
             // "Continue reading" target: a chapter abandoned mid-scroll wins
             // (read_progress syncs from the reader), else the first
             // downloaded-but-unread chapter.
-            $continueChapterId = NovelChapter::where('novel_id', $id)
+            $continueColumns = ['id', 'chapter', 'book', 'sort_key', 'number', 'part'];
+            $continue = NovelChapter::where('novel_id', $id)
                 ->where('blacklist', 0)
                 ->where('status', 1)
                 ->whereNotNull('read_at')
                 ->whereNotNull('read_progress')
                 ->where('read_progress', '<', 90)
                 ->orderByDesc('read_at')
-                ->value('id');
+                ->first($continueColumns);
 
-            $continueChapterId = $continueChapterId ?: NovelChapter::where('novel_id', $id)
+            $continue = $continue ?: NovelChapter::where('novel_id', $id)
                 ->where('blacklist', 0)
                 ->where('status', 1)
                 ->whereNull('read_at')
                 ->ordered()
-                ->value('id');
+                ->first($continueColumns);
+            $continueChapterId = $continue?->id;
+
+            // Its position in the chapter list (rows before it in reading
+            // order), so the page can link straight to the list page holding it.
+            $continueIndex = $continue ? NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->relativeTo($continue, '<')
+                ->count() : 0;
 
             // Duplicate (chapter, book) groups — counted in SQL; the page only
             // shows how many there are.
@@ -1008,6 +1077,10 @@ class NovelController extends Controller
                 'not_downloaded_count' => $not_downloaded_count,
                 'read_count' => $read_count,
                 'continue_chapter_id' => $continueChapterId,
+                'continue_number' => $continue?->displayNumber() ?: null,
+                'continue_index' => $continueIndex,
+                'failed_count' => (int) ($aggregates->failed_count ?? 0),
+                'review_count' => (int) ($aggregates->review_count ?? 0),
                 'new_chapters' => $not_downloaded_count,
                 'duplicate_count' => $duplicateCount,
                 'missing_count' => $missingCount,

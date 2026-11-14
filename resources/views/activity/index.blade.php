@@ -18,7 +18,7 @@
 <ul class="activity-summary" aria-label="Library summary">
     <li><a href="{{ route('novels.index', ['status' => 0]) }}"><span class="home-mono">{{ number_format($stats['active']) }}</span> <x-status state="active" as="text">active</x-status></a></li>
     <li><a href="{{ route('novels.index', ['status' => 1]) }}"><span class="home-mono">{{ number_format($stats['completed']) }}</span> completed</a></li>
-    <li><a href="#missing-section"><span class="home-mono">{{ number_format($stats['pending']) }}</span> <x-status state="queued" as="text">chapters queued</x-status></a></li>
+    <li><a href="#queued-section"><span class="home-mono">{{ number_format($stats['pending']) }}</span> <x-status state="queued" as="text">chapters queued</x-status></a></li>
     <li><a href="#recent-section"><span class="home-mono">{{ number_format($stats['downloaded_today']) }}</span> downloaded in 24 h</a></li>
     <li><a href="{{ route('health.index') }}#attentionPanel"><span class="home-mono">{{ number_format($attention_count) }}</span> <x-status :state="$attention_count > 0 ? 'attention' : 'paused'" as="text">need attention</x-status></a></li>
 </ul>
@@ -28,12 +28,13 @@
 @endif
 
 <div class="dash-grid">
-    {{-- Missing chapters --}}
-    <section class="dash-panel" id="missing-section" aria-labelledby="missingTitle">
+    {{-- Queued chapters: indexed, waiting to be downloaded. Cyan, the
+         "queued" triad colour: a backlog is not a failure. --}}
+    <section class="dash-panel" id="queued-section" aria-labelledby="queuedTitle">
         <div class="dash-panel-head">
-            <h2 class="dash-panel-title" id="missingTitle">Missing chapters</h2>
+            <h2 class="dash-panel-title" id="queuedTitle">Queued chapters</h2>
             <div class="dash-panel-tools">
-                <span class="chip-mono {{ $missing_chapters->total() > 0 ? 'chip-mono-danger' : '' }}">{{ number_format($missing_chapters->total()) }}</span>
+                <span class="chip-mono {{ $missing_chapters->total() > 0 ? 'chip-mono-pending' : '' }}" title="Chapters waiting to be downloaded">{{ number_format($missing_chapters->total()) }}</span>
             </div>
         </div>
         @if($missing_chapters->count() > 0)
@@ -64,7 +65,7 @@
                 </table>
             </div>
         @else
-            <p class="dash-panel-empty mb-0">Nothing pending — every indexed chapter is downloaded.</p>
+            <p class="dash-panel-empty mb-0">Nothing queued: every indexed chapter is downloaded.</p>
         @endif
         @if($missing_chapters->hasPages())
             <div class="dash-panel-foot">

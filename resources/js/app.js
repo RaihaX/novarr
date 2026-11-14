@@ -18,6 +18,9 @@ import {
     initOffline, downloadNovel, removeNovel, getLibrary,
     getNovel, isDownloaded, queuedFetch, flushQueue,
 } from './offline';
+// Novel page chapter list (filter, selection); re-initialised per visit.
+import { initNovelPage } from './novel';
+document.addEventListener('turbo:load', initNovelPage);
 
 // Refresh the current page while keeping the scroll position — a drop-in
 // replacement for location.reload() on long pages (novel chapter tables).

@@ -10,10 +10,10 @@
         ['title' => 'Library', 'url' => route('novels.index'), 'icon' => 'library', 'keywords' => 'novels books all'],
         ['title' => 'Discover', 'url' => route('novels.discover'), 'icon' => 'compass', 'keywords' => 'browse find new add'],
         ['title' => 'Add a novel', 'url' => route('novels.create'), 'icon' => 'plus', 'keywords' => 'new create add novel'],
-        ['title' => 'Downloads', 'url' => route('library'), 'icon' => 'download', 'meta' => 'Saved for offline reading', 'keywords' => 'offline saved device'],
+        ['title' => 'Offline', 'url' => route('library'), 'icon' => 'wifi-off', 'meta' => 'Saved for offline reading', 'keywords' => 'offline saved device downloads'],
         ['title' => 'Highlights', 'url' => route('bookmarks.index'), 'icon' => 'highlighter', 'keywords' => 'bookmarks notes quotes'],
         ['title' => 'Stats', 'url' => route('stats.index'), 'icon' => 'chart-column', 'keywords' => 'statistics reading streak charts'],
-        ['title' => 'Activity', 'url' => route('activity.index'), 'icon' => 'activity', 'meta' => 'System', 'keywords' => 'recent downloads missing chapters'],
+        ['title' => 'Activity', 'url' => route('activity.index'), 'icon' => 'activity', 'meta' => 'System', 'keywords' => 'recent downloads queued queue chapters'],
         ['title' => 'Commands', 'url' => route('commands.index'), 'icon' => 'terminal', 'meta' => 'System', 'keywords' => 'artisan run scrape jobs'],
         ['title' => 'Logs', 'url' => route('logs.index'), 'icon' => 'scroll-text', 'meta' => 'System', 'keywords' => 'errors log viewer'],
         ['title' => 'Health', 'url' => route('health.index'), 'icon' => 'heart-pulse', 'meta' => 'System', 'keywords' => 'status sources failing attention'],
@@ -21,7 +21,7 @@
         ['title' => 'Search page', 'url' => route('search.index'), 'icon' => 'search', 'keywords' => 'full text search chapters'],
     ];
     $paletteIcons = ['book-open', 'file-text', 'arrow-right', 'search', 'refresh-cw', 'download', 'sun', 'moon', 'sun-moon',
-        'house', 'library', 'compass', 'plus', 'highlighter', 'chart-column', 'activity', 'terminal', 'scroll-text', 'heart-pulse', 'settings'];
+        'house', 'library', 'compass', 'plus', 'highlighter', 'chart-column', 'activity', 'terminal', 'scroll-text', 'heart-pulse', 'settings', 'wifi-off'];
 @endphp
 <div class="nv-sheet palette" id="palette" role="dialog" aria-modal="true" aria-label="Command palette" hidden>
     <div class="nv-sheet-backdrop" data-sheet-close></div>

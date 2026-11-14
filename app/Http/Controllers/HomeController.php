@@ -19,9 +19,11 @@ class HomeController extends Controller
     public const NEW_CHAPTER_DAYS = 7;
 
     /**
-     * GET / — the "Now reading" home: the current book as a hero, the next
-     * six in-progress novels, new chapters grouped by novel, and a one-line
-     * status strip. The ops tables live on /activity (ActivityController).
+     * GET / — the "Now reading" home: the current book as a hero beside a
+     * status card (needs attention, downloaded today, queued, scheduler), the
+     * next six in-progress novels, and new chapters split into novels you are
+     * reading and novels not started yet. The ops tables live on /activity
+     * (ActivityController).
      */
     public function index(NovelHealth $health)
     {
@@ -51,10 +53,35 @@ class HomeController extends Controller
             ];
         }, array_slice($continue, 1, 6));
 
+        // New chapters, split by whether you have started the novel. A novel
+        // that is also on the Continue shelf continues where the shelf does
+        // (an abandoned chapter resumes), so the two never disagree; its
+        // cover comes from the shelf's already-loaded novel (no extra query).
+        $onShelf = [];
+        foreach ($continue as $item) {
+            $onShelf[$item['novel']->id] = $item;
+        }
+        $newReading = [];
+        $newFresh = [];
+        foreach (Cache::remember('dashboard_new_chapters', 60, fn() => $this->newChapters()) as $g) {
+            // ?? false: an entry cached by the previous release has no flag.
+            if (!($g['reading'] ?? false)) {
+                $newFresh[] = $g;
+                continue;
+            }
+            if ($item = $onShelf[$g['novel_id']] ?? null) {
+                $g['read_from_id'] = $item['next']->id;
+                $g['read_from'] = (float) $item['next']->chapter;
+                $g['novel'] = $item['novel'];
+            }
+            $newReading[] = $g;
+        }
+
         return view('home', [
             'hero' => $hero,
             'shelf' => $shelf,
-            'new_chapters' => Cache::remember('dashboard_new_chapters', 60, fn() => $this->newChapters()),
+            'new_reading' => $newReading,
+            'new_fresh' => $newFresh,
             'strip' => $this->statusStrip(count($attention)),
             'attention' => $attention,
             'snoozed' => $snoozed,
@@ -63,7 +90,7 @@ class HomeController extends Controller
 
     /**
      * Library-wide counts, cached briefly (NovelController forgets the key on
-     * writes). Shared by the status strip and the Activity page.
+     * writes). Shared by Home's status card and the Activity page.
      *
      * @return array{active:int, completed:int, pending:int, downloaded_today:int, today:int}
      */
@@ -97,7 +124,7 @@ class HomeController extends Controller
     }
 
     /**
-     * The status strip: scheduler heartbeat (read-only — the same cache key
+     * The status card's numbers: scheduler heartbeat (read-only — the same cache key
      * and 3-minute staleness rule as SystemHealthController), queue depth,
      * attention count and chapters downloaded today.
      */
@@ -205,6 +232,9 @@ class HomeController extends Controller
             'resume' => (bool) $item['resume'],
             'index' => $index,
             'total' => $total,
+            // Chapters after this one ("79 to go").
+            'to_go' => max(0, $total - $index),
+            'source' => self::host($novel->translator_url),
             'chapter_percent' => $chapterPct,
             'book_percent' => $bookPct,
             'minutes_left' => $minutesLeft,
@@ -215,7 +245,19 @@ class HomeController extends Controller
     /**
      * Chapters indexed in the last NEW_CHAPTER_DAYS days, grouped by novel
      * (newest activity first): range, downloaded/queued split, whether any is
-     * an author's note, and the first unread downloaded chapter to read from.
+     * an author's note, whether you have started the novel, and where to read
+     * from.
+     *
+     * Where to read from: in a novel you are reading, its first unread
+     * downloaded chapter; in one you have not started, its first downloaded
+     * real chapter (numbered 1 or later, not an author's note), so "Start"
+     * never opens a chapter 0 notice when a chapter 1 is there. Both kinds
+     * share one UNION statement (one member per novel); the fallback query
+     * only runs for a not-started novel with no such chapter downloaded.
+     *
+     * Statements: the grouped window aggregate, the novels (with an EXISTS
+     * probe on idx_novel_read for "started"), the read-from UNION, and rarely
+     * the fallback: the same three as before the split.
      */
     private function newChapters(int $limit = 10): array
     {
@@ -235,11 +277,40 @@ class HomeController extends Controller
             return [];
         }
 
+        // "Started" = any chapter carries a read_at: a correlated EXISTS per
+        // novel (at most $limit), each an idx_novel_read probe that stops at
+        // its first row, folded into the novels query.
         $novels = Novel::whereIn('id', $groups->pluck('novel_id')->all())
-            ->get(['id', 'name', 'translator_url'])
+            ->select(['id', 'name', 'translator_url'])
+            ->selectSub(
+                NovelChapter::query()
+                    ->selectRaw('1')
+                    ->whereColumn('novel_chapters.novel_id', 'novels.id')
+                    ->whereNotNull('read_at')
+                    ->limit(1),
+                'is_reading'
+            )
+            ->get()
             ->keyBy('id');
 
-        $readFrom = $this->firstUnread($novels->keys()->all(), ['id', 'novel_id', 'chapter', 'kind']);
+        $readingSet = $novels->filter(fn($n) => (bool) $n->is_reading)->map(fn() => true)->all();
+        $columns = ['id', 'novel_id', 'chapter', 'kind'];
+
+        $readFrom = NovelHealth::firstPerNovel($novels->keys()->all(), function ($q, int $novelId) use ($readingSet, $columns) {
+            $q->where('status', 1)->where('blacklist', 0)->whereNull('read_at')->select($columns);
+            if (!isset($readingSet[$novelId])) {
+                self::realChapter($q);
+            }
+            // Exactly NovelChapter::scopeOrdered().
+            $q->ordered();
+        });
+
+        // Not started, and no real chapter downloaded yet (only a chapter 0
+        // or a note): fall back to the first unread downloaded chapter.
+        $unresolved = array_values(array_diff($novels->keys()->all(), array_keys($readingSet), $readFrom->keys()->all()));
+        if ($unresolved !== []) {
+            $readFrom = $readFrom->union($this->firstUnread($unresolved, $columns));
+        }
 
         $out = [];
         foreach ($groups as $g) {
@@ -249,12 +320,12 @@ class HomeController extends Controller
             }
 
             $first = $readFrom->get($novel->id);
-            $host = parse_url((string) $novel->translator_url, PHP_URL_HOST);
 
             $out[] = [
                 'novel_id' => $novel->id,
                 'name' => $novel->name,
-                'source' => $host ? preg_replace('/^www\./', '', $host) : null,
+                'source' => self::host($novel->translator_url),
+                'reading' => isset($readingSet[$novel->id]),
                 'total' => (int) $g->total,
                 'downloaded' => (int) $g->downloaded,
                 'queued' => (int) $g->total - (int) $g->downloaded,
@@ -267,6 +338,24 @@ class HomeController extends Controller
         }
 
         return $out;
+    }
+
+    /**
+     * Constrain to "real" chapters, where a not-started novel's "Start"
+     * should open: numbered 1 or later and not an author's note.
+     */
+    private static function realChapter($query): void
+    {
+        $query->where('chapter', '>=', 1)
+            ->where(fn($k) => $k->whereNull('kind')->orWhere('kind', '!=', NovelChapter::KIND_NOTE));
+    }
+
+    /** A source URL's host without "www." ("novelping.com"), or null. */
+    private static function host(?string $url): ?string
+    {
+        $host = $url ? parse_url($url, PHP_URL_HOST) : null;
+
+        return $host ? preg_replace('/^www\./', '', $host) : null;
     }
 
     /**
@@ -310,7 +399,7 @@ class HomeController extends Controller
         $novelIds = $recent->keys()->all();
         $novels = Novel::with('file')
             ->whereIn('id', $novelIds)
-            ->get(['id', 'name', 'author', 'status', 'paused_at', 'last_toc_count'])
+            ->get(['id', 'name', 'author', 'status', 'paused_at', 'last_toc_count', 'translator_url'])
             ->keyBy('id');
 
         // Abandoned mid-chapter? Resume it exactly where the reader left off
