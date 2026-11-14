@@ -74,6 +74,10 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        //
+        // The native app's API answers errors (404, 422) as JSON whatever
+        // Accept header the client sends.
+        $exceptions->shouldRenderJsonWhen(
+            fn(\Illuminate\Http\Request $request) => $request->is('api/v1/*') || $request->expectsJson()
+        );
     })
     ->create();

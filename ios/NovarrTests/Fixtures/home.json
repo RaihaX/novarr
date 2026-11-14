@@ -1,0 +1,90 @@
+{
+    "continue": [
+        {
+            "novel": {
+                "id": 2,
+                "name": "Ascending the Nine Heavens",
+                "author": "Feng Qingyang",
+                "cover_url": "https://novarr.example.ts.net/storage/covers/ascending.jpg",
+                "cover_large_url": "https://novarr.example.ts.net/storage/covers/ascending.jpg",
+                "state": "failed",
+                "completed": false,
+                "paused": false,
+                "origin": "Translated · ZH",
+                "tags": [
+                    {
+                        "id": 2,
+                        "name": "Cultivation"
+                    },
+                    {
+                        "id": 1,
+                        "name": "Xianxia"
+                    }
+                ],
+                "chapters_total": 323,
+                "chapters_downloaded": 20,
+                "chapters_read": 18,
+                "chapters_new": 0,
+                "read_percent": 5,
+                "download_percent": 6,
+                "finished": false,
+                "last_read_at": "2026-11-14T06:19:59Z",
+                "updated_at": "2026-08-28T12:01:09Z",
+                "resume_chapter_id": 21
+            },
+            "chapter": {
+                "id": 16,
+                "label": "Chapter 15 - The Long Road",
+                "chapter": 15,
+                "book": 0
+            }
+        }
+    ],
+    "new_chapters": [
+        {
+            "novel": {
+                "id": 2,
+                "name": "Ascending the Nine Heavens",
+                "author": "Feng Qingyang",
+                "cover_url": "https://novarr.example.ts.net/storage/covers/ascending.jpg",
+                "cover_large_url": "https://novarr.example.ts.net/storage/covers/ascending.jpg",
+                "state": "failed",
+                "completed": false,
+                "paused": false,
+                "origin": "Translated · ZH",
+                "tags": [
+                    {
+                        "id": 2,
+                        "name": "Cultivation"
+                    },
+                    {
+                        "id": 1,
+                        "name": "Xianxia"
+                    }
+                ],
+                "chapters_total": 323,
+                "chapters_downloaded": 20,
+                "chapters_read": 18,
+                "chapters_new": 0,
+                "read_percent": 5,
+                "download_percent": 6,
+                "finished": false,
+                "last_read_at": "2026-11-14T06:19:59Z",
+                "updated_at": "2026-08-28T12:01:09Z",
+                "resume_chapter_id": 21
+            },
+            "count": 0,
+            "first_chapter": {
+                "id": 16,
+                "label": "Chapter 15 - The Long Road",
+                "chapter": 15,
+                "book": 0
+            }
+        }
+    ],
+    "stats": {
+        "novels": 5,
+        "chapters_downloaded": 22,
+        "chapters_queued": 7
+    }
+}

@@ -26,20 +26,7 @@ class NovelChapterController extends Controller
     {
         $chapter = $this->novelchapters->with(['novel:id,name', 'text'])->findOrFail($id);
 
-        // Neighbours in reading order: (book, sort_key, chapter) tuple
-        // comparison — same book and a later key, else the next book. Rows
-        // without a sort_key fall back to the legacy chapter number.
-        $prev = NovelChapter::where('novel_id', $chapter->novel_id)
-            ->where('blacklist', 0)
-            ->relativeTo($chapter, '<')
-            ->orderedDesc()
-            ->first(['id', 'chapter', 'label']);
-
-        $next = NovelChapter::where('novel_id', $chapter->novel_id)
-            ->where('blacklist', 0)
-            ->relativeTo($chapter, '>')
-            ->ordered()
-            ->first(['id', 'chapter', 'label']);
+        [$prev, $next] = static::neighbours($chapter);
 
         // Opening a downloaded chapter marks it read — but only when a person
         // actually opened it. Background fetches are skipped (see
@@ -80,6 +67,31 @@ class NovelChapterController extends Controller
     }
 
     /**
+     * The chapters before and after $chapter in reading order (blacklisted
+     * excluded): (book, sort_key, chapter) tuple comparison — same book and a
+     * later key, else the next book. Rows without a sort_key fall back to the
+     * legacy chapter number.
+     *
+     * @return array{0: ?NovelChapter, 1: ?NovelChapter}
+     */
+    public static function neighbours(NovelChapter $chapter, array $columns = ['id', 'chapter', 'label']): array
+    {
+        $prev = NovelChapter::where('novel_id', $chapter->novel_id)
+            ->where('blacklist', 0)
+            ->relativeTo($chapter, '<')
+            ->orderedDesc()
+            ->first($columns);
+
+        $next = NovelChapter::where('novel_id', $chapter->novel_id)
+            ->where('blacklist', 0)
+            ->relativeTo($chapter, '>')
+            ->ordered()
+            ->first($columns);
+
+        return [$prev, $next];
+    }
+
+    /**
      * Whether this request is a fetch the reader never asked to see:
      *  - browser / Turbo prefetches (`Sec-Purpose`, `Purpose`, and Turbo 8's
      *    `X-Sec-Purpose: prefetch` for hover/instant prefetch);
@@ -110,23 +122,42 @@ class NovelChapterController extends Controller
     {
         $recordedAt = $this->recordedAt($request);
         $chapter = $this->novelchapters->findOrFail($id);
-        $read = $chapter->read_at === null;
+        $this->applyRead($chapter, $chapter->read_at === null, $recordedAt);
+
+        return response()->json([
+            'success' => true,
+            'read' => $chapter->read_at !== null,
+        ]);
+    }
+
+    /**
+     * Set (not toggle) a chapter's read state — the native app's explicit
+     * mark. Same side effects as toggleRead().
+     */
+    public function setRead(Request $request, $id)
+    {
+        $read = (bool) $request->validate(['read' => 'required|boolean'])['read'];
+        $recordedAt = $this->recordedAt($request);
+        $chapter = $this->novelchapters->findOrFail($id);
+        $this->applyRead($chapter, $read, $recordedAt);
+
+        return response()->json(['success' => true, 'read' => $chapter->read_at !== null]);
+    }
+
+    private function applyRead(NovelChapter $chapter, bool $read, Carbon $recordedAt): void
+    {
         // An explicit mark also settles the in-chapter position: done when
         // read, forgotten when unread — so Continue Reading doesn't resume
-        // into a chapter the user has already dealt with.
+        // into a chapter the user has already dealt with. A chapter already
+        // read keeps its original date.
         $chapter->forceFill([
-            'read_at' => $read ? now() : null,
+            'read_at' => $read ? ($chapter->read_at ?? now()) : null,
             'read_progress' => $read ? 100 : null,
             // An explicit mark supersedes scroll positions recorded before it
             // (a replayed mark carries its own, earlier time).
             'read_progress_at' => $recordedAt,
         ])->saveQuietly();
         CacheHelper::clearNovelCache($chapter->novel_id);
-
-        return response()->json([
-            'success' => true,
-            'read' => $chapter->read_at !== null,
-        ]);
     }
 
     /**
