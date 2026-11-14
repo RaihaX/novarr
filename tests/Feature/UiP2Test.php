@@ -219,7 +219,7 @@ class UiP2Test extends TestCase
         $this->assertSame('/bookmarks', parse_url(route('bookmarks.index'), PHP_URL_PATH));
 
         $this->get(route('bookmarks.index'))->assertOk()->assertSee('<title>Highlights · ', false);
-        $this->get(route('library'))->assertOk()->assertSee('<title>Downloads · ', false);
+        $this->get(route('library'))->assertOk()->assertSee('<title>Offline · ', false);
     }
 
     public function test_offline_copies_are_called_offline_in_the_tab_bar_and_palette(): void
@@ -347,7 +347,7 @@ class UiP2Test extends TestCase
 
         $shortcuts = collect($manifest['shortcuts']);
         $this->assertSame('/continue', $shortcuts->firstWhere('name', 'Continue Reading')['url']);
-        $this->assertNotNull($shortcuts->firstWhere('name', 'Downloads'));
+        $this->assertNotNull($shortcuts->firstWhere('name', 'Offline'));
 
         $icons = $shortcuts->map(fn ($s) => $s['icons'][0]['src']);
         $this->assertCount(4, $icons->unique());

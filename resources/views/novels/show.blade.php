@@ -298,7 +298,7 @@
                 @endif
             </div>
         </section>
-        {{-- source-unavailable partial is included here by the lead --}}
+        @include('partials.source-unavailable', ['novel' => $data])
     </div>
 </div>
 

@@ -1,13 +1,13 @@
 @extends('layouts.app')
 
-@section('title', 'Downloads')
+@section('title', 'Offline')
 
 @section('content')
 <div class="lib-page">
 <div class="page-head">
     <div class="page-head-titles">
         <span class="page-head-kicker">On this device</span>
-        <h1 class="page-title mb-0">Downloads</h1>
+        <h1 class="page-title mb-0">Offline</h1>
         <p class="page-head-sub mb-0">Novels cached in this browser — they open and read without a connection.</p>
     </div>
     <div class="page-head-actions">

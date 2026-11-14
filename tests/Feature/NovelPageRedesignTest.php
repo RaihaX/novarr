@@ -155,7 +155,7 @@ class NovelPageRedesignTest extends TestCase
         }
 
         // The slot comment is the lead's include point, directly under the card.
-        $this->assertMatchesRegularExpression('#</section>\s*\{\{-- source-unavailable#', file_get_contents(resource_path('views/novels/show.blade.php')));
+        $this->assertMatchesRegularExpression('#</section>\s*@include\(.partials\.source-unavailable#', file_get_contents(resource_path('views/novels/show.blade.php')));
 
         // Filter: labelled input, real toggle buttons, Literata title.
         $this->assertStringContainsString('<label for="chFilter" class="visually-hidden">', $html);

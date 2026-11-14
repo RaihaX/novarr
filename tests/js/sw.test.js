@@ -105,18 +105,18 @@ test('activate migrates old caches and prunes only unreferenced stale bundles', 
     // Downloads survive under the unversioned name.
     assert.deepEqual(fc.paths('novarr-offline'), ['/chapters/1']);
     // Auto-cached pages carried over: the newest 60 chapter pages only.
-    const pages = fc.paths('novarr-v5-pages');
+    const pages = fc.paths('novarr-v6-pages');
     assert.equal(pages.length, 60);
     assert.equal(pages[0], '/chapters/111');
     assert.equal(pages.at(-1), '/chapters/170');
     assert.ok(!pages.includes('/settings'));
     // Old versioned caches are gone.
-    assert.deepEqual([...fc.store.keys()].sort(), ['novarr-covers', 'novarr-offline', 'novarr-v5-pages', 'novarr-v5-static']);
+    assert.deepEqual([...fc.store.keys()].sort(), ['novarr-covers', 'novarr-offline', 'novarr-v6-pages', 'novarr-v6-static']);
     // Covers move to their own cache.
     assert.deepEqual(fc.paths('novarr-covers'), ['/storage/covers/1.jpg']);
     // Bundles: live + referenced by a cached page are kept; stale ones go.
     // Icons are not carried over (install precaches them again).
-    assert.deepEqual(fc.paths('novarr-v5-static').sort(), [
+    assert.deepEqual(fc.paths('novarr-v6-static').sort(), [
         '/build/assets/app-NEW.js',
         '/build/assets/app-OLD.js',
         '/build/assets/app-PAGE.css',
@@ -127,7 +127,7 @@ test('a slow navigation serves the cached page and still refreshes the cache', a
     mock.timers.enable({ apis: ['setTimeout'] });
     try {
         const fc = fakeCaches();
-        await seed(fc, 'novarr-v5-pages', [['/chapters/5', html('<title>old</title>')]]);
+        await seed(fc, 'novarr-v6-pages', [['/chapters/5', html('<title>old</title>')]]);
 
         let resolveNetwork;
         const fetch = () => new Promise((r) => { resolveNetwork = r; });
@@ -151,7 +151,7 @@ test('a slow navigation serves the cached page and still refreshes the cache', a
 
         resolveNetwork(html('<title>new</title>'));
         await Promise.all(waits);
-        const cached = await (await fc.api.open('novarr-v5-pages')).match(abs('/chapters/5'));
+        const cached = await (await fc.api.open('novarr-v6-pages')).match(abs('/chapters/5'));
         assert.match(await cached.text(), /new/);
     } finally {
         mock.timers.reset();
@@ -213,9 +213,9 @@ test('shell pages keep their bundles across a deploy and outlive the page-cache 
     // Install precaches the shell and the bundles it loads.
     await runInstall(handlers);
     await runActivate(handlers);
-    assert.deepEqual(fc.paths('novarr-v5-pages'), ['/', '/library', '/offline']);
-    assert.ok(fc.paths('novarr-v5-static').includes('/build/assets/app-AAA.css'));
-    assert.ok(fc.paths('novarr-v5-static').includes('/build/assets/app-AAA.js'));
+    assert.deepEqual(fc.paths('novarr-v6-pages'), ['/', '/library', '/offline']);
+    assert.ok(fc.paths('novarr-v6-static').includes('/build/assets/app-AAA.css'));
+    assert.ok(fc.paths('novarr-v6-static').includes('/build/assets/app-AAA.js'));
 
     // Deploy: new hashes. The reader opens lots of chapters (more than the
     // cap) while the shell is never revisited.
@@ -224,16 +224,16 @@ test('shell pages keep their bundles across a deploy and outlive the page-cache 
     await dispatchFetch(handlers, '/build/assets/app-BBB.css');
     await runActivate(handlers); // prune against the new manifest
 
-    const pages = fc.paths('novarr-v5-pages');
+    const pages = fc.paths('novarr-v6-pages');
     for (const shell of ['/', '/library', '/offline']) assert.ok(pages.includes(shell), `${shell} kept`);
     assert.equal(pages.filter((p) => p.startsWith('/chapters/')).length, 60);
-    const statics = fc.paths('novarr-v5-static');
+    const statics = fc.paths('novarr-v6-static');
     assert.ok(statics.includes('/build/assets/app-AAA.css'), 'shell CSS survives the prune');
     assert.ok(statics.includes('/build/assets/app-AAA.js'), 'shell JS survives the prune');
 
     // An online visit refreshes the shell copy to the new build.
     await navigate(handlers, '/library');
-    const lib = await (await fc.api.open('novarr-v5-pages')).match(abs('/library'));
+    const lib = await (await fc.api.open('novarr-v6-pages')).match(abs('/library'));
     assert.match(await lib.text(), /app-BBB\.css/);
 });
 
@@ -254,7 +254,7 @@ test('/ is served from the cache when the network fails', async () => {
 
 test('a cached hashed build asset is served with no network request', async () => {
     const fc = fakeCaches();
-    await seed(fc, 'novarr-v5-static', [['/build/assets/app-X.js', asset()]]);
+    await seed(fc, 'novarr-v6-static', [['/build/assets/app-X.js', asset()]]);
     let calls = 0;
     const handlers = loadWorker({ caches: fc.api, fetch: async () => { calls += 1; return asset(); } });
 
@@ -313,7 +313,7 @@ test('a cover older than a day is served from cache and refreshed once in the ba
 
 test('a download also caches the /build files its pages load, once per asset', async () => {
     const fc = fakeCaches();
-    await seed(fc, 'novarr-v5-static', [['/build/assets/app-X.css', asset()]]);
+    await seed(fc, 'novarr-v6-static', [['/build/assets/app-X.css', asset()]]);
     const requested = [];
     const fetch = async (req) => {
         const path = new URL(urlOf(req), ORIGIN).pathname;
@@ -336,7 +336,7 @@ test('a download also caches the /build files its pages load, once per asset', a
     await done;
 
     assert.deepEqual(fc.paths('novarr-offline'), ['/chapters/1', '/chapters/2', '/chapters/3']);
-    assert.deepEqual(fc.paths('novarr-v5-static').sort(), [
+    assert.deepEqual(fc.paths('novarr-v6-static').sort(), [
         '/build/assets/app-X.css', '/build/assets/app-X.js', '/build/assets/index-R.js',
     ]);
     // Each new asset fetched once for the whole run; the cached CSS not at all.
@@ -361,7 +361,7 @@ test('the old static cache\'s offline page survives an install during maintenanc
     await runInstall(handlers);
     await runActivate(handlers);
 
-    assert.deepEqual(fc.paths('novarr-v5-pages').sort(), ['/library', '/offline']);
+    assert.deepEqual(fc.paths('novarr-v6-pages').sort(), ['/library', '/offline']);
     assert.ok(!fc.store.has('novarr-v4-static'));
     assert.deepEqual(fc.paths('novarr-covers'), ['/storage/covers/9.jpg'], 'covers survive activate');
 
@@ -381,6 +381,6 @@ test('a fresh shell page from install is not replaced by the old static cache co
     } });
     await runInstall(handlers);
     await runActivate(handlers);
-    const page = await (await fc.api.open('novarr-v5-pages')).match(abs('/offline'));
+    const page = await (await fc.api.open('novarr-v6-pages')).match(abs('/offline'));
     assert.match(await page.text(), /new/);
 });
