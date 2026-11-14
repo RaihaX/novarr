@@ -71,6 +71,22 @@ class SettingsController extends Controller
                 'max' => 600,
                 'default' => (string) config('novarr.defaults.scrape_max_delay', 90),
             ],
+            'scrape_adaptive' => [
+                'label' => 'Adaptive download pace',
+                'help' => 'Per site: start at the min delay, speed up after every 10 clean requests down to the fastest delay, and slow down by itself (and remember it for 7 days) when the site rate-limits or challenges. Off = a random pause between min and max delay.',
+                'type' => 'checkbox',
+                'group' => 'Scraping',
+                'default' => config('novarr.defaults.scrape_adaptive', true) ? '1' : '0',
+            ],
+            'scrape_fastest_delay' => [
+                'label' => 'Fastest delay (seconds)',
+                'help' => 'The shortest pause the adaptive pace may reach on any site (3–600).',
+                'type' => 'number',
+                'group' => 'Scraping',
+                'min' => \App\Scraping\HostPace::MIN_FASTEST,
+                'max' => 600,
+                'default' => (string) config('novarr.defaults.scrape_fastest_delay', \App\Scraping\HostPace::DEFAULT_FASTEST),
+            ],
             'min_chapter_words' => [
                 'label' => 'Minimum words per chapter',
                 'help' => 'A downloaded chapter with fewer words is treated as a failed/short fetch and retried later (50–2000).',
@@ -177,6 +193,8 @@ class SettingsController extends Controller
                 ['nullable', 'integer', 'min:0', 'max:600'],
                 $request->filled('scrape_min_delay') ? ['gte:scrape_min_delay'] : []
             ),
+            'scrape_adaptive' => 'nullable',
+            'scrape_fastest_delay' => 'nullable|integer|min:' . \App\Scraping\HostPace::MIN_FASTEST . '|max:600',
             'min_chapter_words' => 'nullable|integer|min:50|max:2000',
             'max_chapters_per_novel_per_run' => 'nullable|integer|min:0|max:500',
             'max_run_minutes' => 'nullable|integer|min:10|max:140',
@@ -187,6 +205,7 @@ class SettingsController extends Controller
             'auto_kindle' => 'nullable',
         ], [
             'scrape_max_delay.gte' => 'The max delay must be greater than or equal to the min delay.',
+            'scrape_fastest_delay.min' => 'The fastest delay must be at least ' . \App\Scraping\HostPace::MIN_FASTEST . ' seconds.',
             'max_run_minutes.max' => 'The max run length must stay below the 150-minute scheduler lock (140 minutes at most).',
             'novelupdates_match_threshold.min' => 'The match threshold must be between 0.5 and 1.0.',
             'novelupdates_match_threshold.max' => 'The match threshold must be between 0.5 and 1.0.',
