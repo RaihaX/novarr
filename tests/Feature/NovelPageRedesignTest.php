@@ -163,6 +163,21 @@ class NovelPageRedesignTest extends TestCase
         $this->assertStringContainsString('<h1 class="nv-title">', $html);
     }
 
+    public function test_reading_percent_uses_the_same_denominator_as_the_library(): void
+    {
+        // 3 downloaded (2 read) + 1 queued, 10 advertised by the source.
+        $novel = $this->novel('Percent Novel', ['no_of_chapters' => 10]);
+        $this->chapter($novel, 1, ['read_at' => now()]);
+        $this->chapter($novel, 2, ['read_at' => now()]);
+        $this->chapter($novel, 3);
+        $this->chapter($novel, 4, ['status' => 0, 'download_date' => null]);
+
+        // read ÷ chapters on the source (2 of 10), not ÷ downloaded (2 of 3).
+        $this->get(route('novels.show', $novel->id))->assertOk()
+            ->assertSee('2 of 10 read')
+            ->assertSee('<span class="nv-progress-pct">20%</span>', false);
+    }
+
     public function test_jump_link_points_at_the_list_page_holding_the_next_chapter(): void
     {
         $novel = $this->novel();

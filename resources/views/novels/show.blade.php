@@ -10,7 +10,6 @@
     $queued = max(0, $current_chapters_not_downloaded - $failed_count);
     $gaps = count($missing_chapters);
     $dupes = count($duplicate_chapters);
-    $readPct = $current_chapters > 0 ? (int) round($read_count / $current_chapters * 100) : 0;
 
     // Download progress uses the one shared definition — downloaded ÷
     // chapters known to the source — so it matches the Library.
@@ -19,6 +18,10 @@
         (int) $current_chapters + (int) $current_chapters_not_downloaded,
         (int) ($data->no_of_chapters ?? 0)
     );
+    // Reading progress is read ÷ chapters known to the source, the same
+    // figure the Library grid and table show.
+    $readTotal = max((int) $dl['total'], (int) $read_count);
+    $readPct = $readTotal > 0 ? (int) min(100, floor($read_count / $readTotal * 100)) : 0;
     $dlState = \App\Services\NovelHealth::progressState(
         $dl['percent'],
         (bool) $data->status,
@@ -215,9 +218,9 @@
                 @if($current_chapters > 0)
                     <p class="nv-progress-figure">
                         <span class="nv-progress-pct">{{ $readPct }}%</span>
-                        <span class="nv-progress-of">{{ number_format($read_count) }} of {{ number_format($current_chapters) }} read</span>
+                        <span class="nv-progress-of">{{ number_format($read_count) }} of {{ number_format($readTotal) }} read</span>
                     </p>
-                    <div class="progress progress-reading" role="progressbar" aria-label="Reading progress" aria-valuenow="{{ $readPct }}" aria-valuemin="0" aria-valuemax="100" aria-valuetext="{{ number_format($read_count) }} of {{ number_format($current_chapters) }} chapters read">
+                    <div class="progress progress-reading" role="progressbar" aria-label="Reading progress" aria-valuenow="{{ $readPct }}" aria-valuemin="0" aria-valuemax="100" aria-valuetext="{{ number_format($read_count) }} of {{ number_format($readTotal) }} chapters read">
                         <div class="progress-bar" style="width: {{ $readPct }}%"></div>
                     </div>
                     <p class="nv-progress-note">
