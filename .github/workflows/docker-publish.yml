@@ -89,10 +89,12 @@ jobs:
         with:
           composer-options: --no-interaction --prefer-dist
 
-      - name: Set up Node 20
+      # Node 22: `node --test` expands the tests/js/*.test.js glob itself from
+      # Node 21 on (the script quotes it so the shell does not).
+      - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: yarn
 
       # package.json pins yarn@1.22.22 (classic, lockfile v1); the runner's

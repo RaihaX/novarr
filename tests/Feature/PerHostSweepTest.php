@@ -277,7 +277,7 @@ class PerHostSweepTest extends TestCase
 
         Artisan::call('novel:chapter');
 
-        $this->assertCount(3, $this->fetchesOn('a.test'), 'three blocking failures, then the breaker; fetches: ' . json_encode($this->scraper->fetches));
+        $this->assertCount(3, $this->fetchesOn('a.test'), 'three blocking failures, then the breaker; fetches: ' . json_encode($this->scraper->fetches) . ' output: ' . Artisan::output() . ' novels: ' . Novel::count() . ' pending: ' . NovelChapter::where('status', 0)->count());
         $this->assertCount(3, $this->fetchesOn('b.test'));
         $this->assertSame(0, NovelChapter::where('novel_id', $fine->id)->where('status', 0)->count());
         $this->assertSame(1, (int) $blocked->fresh()->scrape_failures);

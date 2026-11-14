@@ -3,7 +3,7 @@
 # copying it into a layer.)
 
 # Stage 1: Node.js Builder - Build frontend assets
-FROM node:20-alpine AS node-builder
+FROM node:22-alpine AS node-builder
 
 WORKDIR /app
 
@@ -35,7 +35,9 @@ COPY composer.json composer.lock ./
 # Install dependencies without dev packages. The optimized autoloader is
 # generated later in the final stage, where the full app (incl. the
 # database/factories classmap dir) is present — scanning it here would fail.
-RUN composer install --no-dev --no-interaction --no-scripts --no-progress --no-autoloader
+# The PHP extensions the packages ask for (sockets, gd, …) are compiled into
+# the final stage, not this throwaway one, so skip the extension checks here.
+RUN composer install --no-dev --no-interaction --no-scripts --no-progress --no-autoloader --ignore-platform-req=ext-*
 
 
 # Stage 3: Final Application Image
