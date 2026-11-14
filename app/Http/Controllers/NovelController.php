@@ -134,18 +134,13 @@ class NovelController extends Controller
      */
     public function index(Request $request)
     {
-        // Only what the list renders (plus relation keys). The select must
-        // come before withCount(), which otherwise adds novels.* and drags the
-        // longtext description/json columns along for every row.
-        $query = Novel::with('file')
-            ->select(['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures', 'origin', 'origin_language'])
-            ->withCount([
-                'chapters',
-                'chapters as downloaded_chapters_count' => fn($q) => $q->where('status', 1)->where('blacklist', 0),
-                // TOC rows known to the source — the progress denominator
-                // shared with the novel page (NovelHealth::downloadProgress).
-                'chapters as source_chapters_count' => fn($q) => $q->where('blacklist', 0),
-            ]);
+        // Candidate novels: every filter that is a plain condition on novels
+        // (text, status, tag, chip id sets) stays in SQL, and the rows come
+        // back in the database's name order (its collation decides case and
+        // accents), with id as a final tie-break. The sort below is a stable
+        // PHP sort on cached per-novel chapter aggregates, so ties keep this
+        // name order, exactly like the old `ORDER BY <key>, name`.
+        $query = Novel::query()->select(['id', 'name', 'no_of_chapters']);
 
         if ($request->filled('search')) {
             $query->where('name', 'like', '%' . $request->search . '%');
@@ -166,8 +161,8 @@ class NovelController extends Controller
         // chapters that arrived after you last read the novel (so a backlog
         // you haven't reached yet doesn't count as new).
         // Whole-table aggregates: cached briefly so a big library doesn't pay
-        // for them on every page/filter change. Reading a chapter invalidates
-        // nothing here on purpose — 60 s of staleness is fine for a grid.
+        // for them on every page/filter change; CacheHelper::clearNovelCache()
+        // drops the cache whenever a chapter's read/download state changes.
         $cached = \Illuminate\Support\Facades\Cache::remember('library_reading_v1', 60, function () {
         $lastRead = NovelChapter::query()
             ->whereNotNull('read_at')
@@ -261,25 +256,9 @@ class NovelController extends Controller
         }
         session(['novels_sort' => $sort]);
 
-        match ($sort) {
-            // Same denominator as NovelHealth::downloadProgress; * 1.0 avoids
-            // integer division on SQLite.
-            'progress' => $query->orderByRaw('(downloaded_chapters_count * 1.0 / NULLIF(CASE WHEN COALESCE(no_of_chapters, 0) > source_chapters_count THEN no_of_chapters ELSE source_chapters_count END, 0)) DESC'),
-            'chapters' => $query->orderByDesc('chapters_count'),
-            'updated' => $query->orderByDesc(
-                NovelChapter::select('download_date')
-                    ->whereColumn('novel_id', 'novels.id')
-                    ->orderByDesc('download_date')
-                    ->limit(1)
-            ),
-            'name' => $query->orderBy('name'),
-            // Last read first; never-read novels after them (NULL sorts last
-            // in DESC on both SQLite and MySQL/MariaDB), then by name.
-            default => $query->orderByDesc(
-                NovelChapter::selectRaw('MAX(read_at)')->whereColumn('novel_id', 'novels.id')
-            ),
-        };
-        $query->orderBy('name');
+        $aggregates = static::libraryAggregates();
+        $candidates = $query->orderBy('name')->orderBy('id')->get();
+        $orderedIds = static::sortLibraryIds($candidates, $aggregates, $sort);
 
         // Grid/table toggle: explicit ?view= wins (the old ?view=list means
         // table), otherwise the last choice remembered in the session; the
@@ -292,7 +271,7 @@ class NovelController extends Controller
         session(['library_view' => $view]);
 
         return view('novels.index', [
-            'novels' => $query->paginate($view === 'grid' ? 42 : 25),
+            'novels' => static::paginateLibrary($orderedIds, $aggregates, $view === 'grid' ? 42 : 25),
             'view' => $view,
             'sort' => $sort,
             'filter' => $filter,
@@ -303,6 +282,134 @@ class NovelController extends Controller
             'attentionIds' => $attentionIds,
             'tags' => \App\Tag::orderBy('name')->get(['id', 'name']),
             'activeTag' => $request->query('tag'),
+        ]);
+    }
+
+    /**
+     * Per-novel chapter aggregates for the Library, from one grouped pass over
+     * novel_chapters (soft-deleted rows excluded, as the old correlated
+     * subqueries did). Same lifetime and invalidation as library_reading_v1.
+     *
+     * @return array<int, array{chapters:int, downloaded:int, source:int, last_read:?string, last_download:?string}>
+     */
+    public static function libraryAggregates(): array
+    {
+        return Cache::remember(CacheHelper::LIBRARY_AGGREGATES_KEY, 60, function () {
+            $rows = DB::table('novel_chapters')
+                ->whereNull('deleted_at')
+                ->groupBy('novel_id')
+                ->selectRaw('novel_id,
+                    COUNT(*) as chapters,
+                    SUM(CASE WHEN status = 1 AND blacklist = 0 THEN 1 ELSE 0 END) as downloaded,
+                    SUM(CASE WHEN blacklist = 0 THEN 1 ELSE 0 END) as source,
+                    MAX(read_at) as last_read,
+                    MAX(download_date) as last_download')
+                ->get();
+
+            $out = [];
+            foreach ($rows as $r) {
+                $out[(int) $r->novel_id] = [
+                    'chapters' => (int) $r->chapters,
+                    'downloaded' => (int) $r->downloaded,
+                    'source' => (int) $r->source,
+                    'last_read' => $r->last_read !== null ? (string) $r->last_read : null,
+                    'last_download' => $r->last_download !== null ? (string) $r->last_download : null,
+                ];
+            }
+
+            return $out;
+        });
+    }
+
+    /**
+     * Order the candidate novels (already in SQL `name, id` order) by $sort.
+     * usort is stable, so equal keys keep the name order — the old
+     * `ORDER BY <key> DESC, name`. NULL keys sort last, as NULLs do in a DESC
+     * ORDER BY on both MariaDB and SQLite.
+     *
+     * @param  \Illuminate\Support\Collection<int, Novel>  $candidates
+     * @return int[]
+     */
+    public static function sortLibraryIds($candidates, array $aggregates, string $sort): array
+    {
+        $agg = fn(int $id) => $aggregates[$id] ?? ['chapters' => 0, 'downloaded' => 0, 'source' => 0, 'last_read' => null, 'last_download' => null];
+        $mysql = in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true);
+
+        $keyOf = match ($sort) {
+            'name' => null,
+            'chapters' => fn(Novel $n) => $agg($n->id)['chapters'],
+            'updated' => fn(Novel $n) => $agg($n->id)['last_download'],
+            'progress' => function (Novel $n) use ($agg, $mysql) {
+                // Was: downloaded * 1.0 / NULLIF(CASE WHEN COALESCE(no_of_chapters, 0)
+                // > source THEN no_of_chapters ELSE source END, 0)
+                $a = $agg($n->id);
+                $advertised = (int) ($n->no_of_chapters ?? 0);
+                $total = $advertised > $a['source'] ? $advertised : $a['source'];
+                if ($total <= 0) {
+                    return null;
+                }
+                // MariaDB divides DECIMALs at scale 1 (from "* 1.0") +
+                // div_precision_increment (default 4) = 5 places, rounded half
+                // up, so ratios that agree to 5 places tie there and fall back
+                // to name. SQLite divides as a double.
+                return $mysql
+                    ? intdiv(2 * $a['downloaded'] * 100000 + $total, 2 * $total)
+                    : $a['downloaded'] / $total;
+            },
+            default => fn(Novel $n) => $agg($n->id)['last_read'],
+        };
+
+        $items = $candidates->all();
+        if ($keyOf !== null) {
+            $keys = [];
+            foreach ($items as $n) {
+                $keys[$n->id] = $keyOf($n);
+            }
+            usort($items, function (Novel $x, Novel $y) use ($keys) {
+                $a = $keys[$x->id];
+                $b = $keys[$y->id];
+                if ($a === null || $b === null) {
+                    return ($a === null) <=> ($b === null); // NULLs last
+                }
+
+                return is_string($a) ? strcmp($b, $a) : $b <=> $a; // DESC
+            });
+        }
+
+        return array_map(fn(Novel $n) => (int) $n->id, $items);
+    }
+
+    /**
+     * Paginate the ordered id list and load only that page's novels, with the
+     * columns the list renders and the counts the view reads.
+     */
+    public static function paginateLibrary(array $orderedIds, array $aggregates, int $perPage): \Illuminate\Pagination\LengthAwarePaginator
+    {
+        $page = \Illuminate\Pagination\Paginator::resolveCurrentPage('page');
+        $pageIds = array_slice($orderedIds, ($page - 1) * $perPage, $perPage);
+
+        $novels = $pageIds === [] ? collect() : Novel::with('file')
+            ->select(['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures', 'origin', 'origin_language'])
+            ->whereIn('id', $pageIds)
+            ->get()
+            ->keyBy('id');
+
+        $items = [];
+        foreach ($pageIds as $id) {
+            $novel = $novels->get($id);
+            if ($novel === null) {
+                continue; // deleted between the two queries
+            }
+            $a = $aggregates[$id] ?? null;
+            $novel->setAttribute('chapters_count', $a['chapters'] ?? 0);
+            $novel->setAttribute('downloaded_chapters_count', $a['downloaded'] ?? 0);
+            $novel->setAttribute('source_chapters_count', $a['source'] ?? 0);
+            $items[] = $novel;
+        }
+
+        return new \Illuminate\Pagination\LengthAwarePaginator($items, count($orderedIds), $perPage, $page, [
+            'path' => \Illuminate\Pagination\Paginator::resolveCurrentPath(),
+            'pageName' => 'page',
         ]);
     }
 
