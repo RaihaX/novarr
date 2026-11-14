@@ -160,19 +160,22 @@ body.reader-theme-light {
 }
 
 // --- 2px chapter-progress rail -------------------------------------------
-// Overrides the viewport-fixed rail in _components.scss: here it belongs to
-// the chrome, sitting directly under the bar.
+// The rail belongs to the chrome, sitting directly under the bar.
 #readProgressBar {
     position: static;
     height: $progress-rail;
     background: var(--rd-line);
     pointer-events: none;
 
+    // Full-width fill scaled from the left: the JS sets scaleX(0–1), which
+    // animates on the compositor instead of re-laying out the rail.
     #readProgressFill {
         height: 100%;
-        width: 0;
+        width: 100%;
+        transform: scaleX(0);
+        transform-origin: left center;
         background: var(--rd-amber);
-        transition: width $transition-bar;
+        transition: transform $transition-bar;
     }
 }
 

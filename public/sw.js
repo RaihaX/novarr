@@ -2,16 +2,23 @@
  * Novarr service worker.
  *
  * Strategy:
- *  - Static assets (/build, /storage, icons): cache-first, refreshed in the
- *    background (stale-while-revalidate). Hashed /build/ files that are no
- *    longer in the current Vite manifest — and that no cached page still
- *    loads — are purged on activate (and at most every few hours while
- *    running), so old bundles don't pile up per deploy.
+ *  - Hashed build files (/build/assets/*): cache-first with no revalidation —
+ *    the content hash in the name means a cached copy is never stale. Files
+ *    that are no longer in the current Vite manifest — and that no cached
+ *    page still loads — are purged on activate (and at most every few hours
+ *    while running), so old bundles don't pile up per deploy.
+ *  - Covers (/storage/*): the offline cache first (downloaded novels), then
+ *    their own cache, capped at COVER_CACHE_MAX (oldest dropped first) and
+ *    refreshed in the background at most once a day per cover.
+ *  - Other static files (icons, the manifest…): stale-while-revalidate.
  *  - Navigations (HTML pages, incl. Turbo visits): network-first with a
  *    timeout, so a dead-slow connection falls back to the cached copy instead
  *    of hanging; then a generic offline page.
  *  - Chapter and novel pages you open (/chapters/*, /novels/*) are cached
  *    automatically, capped at PAGE_CACHE_MAX entries (oldest dropped first).
+ *  - The app shell (SHELL_PAGES: Home = the manifest start_url, Downloads,
+ *    the offline page) is precached at install and refreshed on every
+ *    successful online visit, in the page cache but exempt from its cap.
  *  - Explicit "Download for offline": the page posts CACHE_URLS and the
  *    worker pre-fetches a whole novel's chapters into OFFLINE_CACHE. That
  *    cache is NOT versioned and never trimmed — a service worker update must
@@ -25,44 +32,89 @@
  * version computed at runtime would never trigger an update. Build assets are
  * kept in sync with the manifest by pruneBuildAssets() instead.
  */
-const CACHE_VERSION = 'novarr-v4';
+const CACHE_VERSION = 'novarr-v5';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGE_CACHE = `${CACHE_VERSION}-pages`;
+// Covers are unversioned too, so a version bump doesn't throw away every
+// cached cover (the cap and the daily refresh keep it fresh).
+const COVER_CACHE = 'novarr-covers';
 const OFFLINE_CACHE = 'novarr-offline'; // explicitly-downloaded novels (unversioned)
 const LEGACY_OFFLINE_CACHE = /^novarr-v\d+-offline$/; // pre-v4 name, migrated on activate
 const LEGACY_PAGE_CACHE = /^novarr-v\d+-pages$/; // older versions' page caches, migrated on activate
+const LEGACY_STATIC_CACHE = /^novarr-v\d+-static$/; // older versions' asset caches, migrated on activate
 const OFFLINE_URL = '/offline';
 const MANIFEST_URL = '/build/manifest.json';
+// Pages the installed app must open offline: the manifest start_url, the
+// Downloads page and the offline fallback.
+const SHELL_PAGES = ['/', '/library', OFFLINE_URL];
 
 const PAGE_CACHE_MAX = 60;
+const COVER_CACHE_MAX = 300;
+const COVER_REFRESH_MS = 24 * 60 * 60 * 1000;
+const COVER_FETCHED_AT = 'x-novarr-sw-fetched-at';
 const NETWORK_TIMEOUT_MS = 4500;
 const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 self.addEventListener('install', (event) => {
-    event.waitUntil(
-        caches.open(STATIC_CACHE).then((cache) => cache.addAll([
-            OFFLINE_URL,
-            '/library',
-            '/icon-192.png',
-            '/logo.svg',
-        ])).catch(() => {})
-    );
+    event.waitUntil(Promise.all([
+        caches.open(STATIC_CACHE)
+            .then((cache) => cache.addAll(['/icon-192.png', '/logo.svg']))
+            .catch(() => {}),
+        precacheShell(),
+    ]));
     self.skipWaiting();
 });
+
+/**
+ * Store the shell pages, plus the /build files they load, so the very first
+ * offline launch is styled and scripted (the page that registered the worker
+ * loaded its bundles before the worker controlled it).
+ */
+async function precacheShell() {
+    try {
+        const [pages, assets] = await Promise.all([caches.open(PAGE_CACHE), caches.open(STATIC_CACHE)]);
+        const wanted = new Set();
+        for (const path of SHELL_PAGES) {
+            try {
+                const res = await fetch(path, { credentials: 'same-origin' });
+                // A redirected response can't answer a navigation later.
+                if (!res.ok || res.redirected || !isHtml(res)) continue;
+                await pages.put(path, res.clone());
+                (await referencedBuildAssets(res)).forEach((p) => wanted.add(p));
+            } catch (e) {
+                // Offline at install — the next online visit stores it.
+            }
+        }
+        for (const path of wanted) {
+            if (await assets.match(path)) continue;
+            try {
+                const res = await fetch(path, { credentials: 'same-origin' });
+                if (res.ok) await assets.put(path, res);
+            } catch (e) {
+                // Fetched again on first use.
+            }
+        }
+    } catch (e) {
+        // Cache Storage unavailable — nothing to precache into.
+    }
+}
 
 self.addEventListener('activate', (event) => {
     event.waitUntil((async () => {
         await migrateLegacyOfflineCaches();
         await migrateLegacyPageCaches();
+        await migrateLegacyStaticCaches();
         const keys = await caches.keys();
         await Promise.all(
             keys
                 .filter((k) => !k.startsWith(`${CACHE_VERSION}-`)
                     && k !== OFFLINE_CACHE
+                    && k !== COVER_CACHE
                     // Legacy caches are only removed once migrated (a failed
                     // migration is retried on the next activate).
                     && !LEGACY_OFFLINE_CACHE.test(k)
-                    && !LEGACY_PAGE_CACHE.test(k))
+                    && !LEGACY_PAGE_CACHE.test(k)
+                    && !LEGACY_STATIC_CACHE.test(k))
                 .map((k) => caches.delete(k))
         );
         await pruneBuildAssets();
@@ -71,6 +123,7 @@ self.addEventListener('activate', (event) => {
 });
 
 const isLegacyPageCache = (k) => LEGACY_PAGE_CACHE.test(k) && k !== PAGE_CACHE;
+const isLegacyStaticCache = (k) => LEGACY_STATIC_CACHE.test(k) && k !== STATIC_CACHE;
 
 /** Move downloads from versioned offline caches (novarr-v3-offline…) into OFFLINE_CACHE. */
 async function migrateLegacyOfflineCaches() {
@@ -106,7 +159,8 @@ async function migrateLegacyPageCaches() {
             const old = await caches.open(name);
             const reqs = (await old.keys()).filter((req) => isAutoCachedPage(new URL(req.url)));
             // keys() is oldest → newest; keep the newest that still fit.
-            const room = PAGE_CACHE_MAX - (await target.keys()).length;
+            // (Shell pages precached at install don't count against the cap.)
+            const room = PAGE_CACHE_MAX - (await target.keys()).filter((req) => !isShellPage(new URL(req.url))).length;
             const keep = room > 0 ? reqs.slice(-room) : [];
             for (const req of keep) {
                 if (await target.match(req)) continue;
@@ -116,6 +170,47 @@ async function migrateLegacyPageCaches() {
             await caches.delete(name);
         } catch (e) {
             // Left in place; caches.match() still finds it, retried next activate.
+        }
+    }
+}
+
+/**
+ * Carry build files and covers from older asset caches (novarr-v4-static…):
+ * downloaded and auto-cached pages still load the bundles they were rendered
+ * with, so those must outlive the version bump (pruneBuildAssets drops the
+ * ones nothing references). Covers move to COVER_CACHE, newest first, within
+ * its cap. Shell pages (the offline fallback, Downloads) move to PAGE_CACHE
+ * unless install already stored fresh copies — install may have run during a
+ * deploy's maintenance window (503s), and the offline page must not be lost.
+ * Icons are re-fetched instead.
+ */
+async function migrateLegacyStaticCaches() {
+    const legacy = (await caches.keys()).filter(isLegacyStaticCache);
+    if (!legacy.length) return;
+    const [assets, covers, pages] = await Promise.all([
+        caches.open(STATIC_CACHE), caches.open(COVER_CACHE), caches.open(PAGE_CACHE),
+    ]);
+    for (const name of legacy) {
+        try {
+            const old = await caches.open(name);
+            const reqs = await old.keys();
+            const builds = reqs.filter((req) => new URL(req.url).pathname.startsWith('/build/'));
+            const room = COVER_CACHE_MAX - (await covers.keys()).length;
+            const coverReqs = room > 0
+                ? reqs.filter((req) => isCover(new URL(req.url))).slice(-room)
+                : [];
+            const shell = reqs.filter((req) => isShellPage(new URL(req.url)));
+            for (const [target, list] of [[assets, builds], [covers, coverReqs], [pages, shell]]) {
+                for (const req of list) {
+                    if (await target.match(req)) continue;
+                    const res = await old.match(req);
+                    if (!res || (target === pages && !isHtml(res))) continue;
+                    await target.put(req, res);
+                }
+            }
+            await caches.delete(name);
+        } catch (e) {
+            // Left in place, retried next activate.
         }
     }
 }
@@ -159,12 +254,12 @@ async function pruneBuildAssets() {
         }
         if (!candidates.size) return;
 
-        // Spare anything a cached page still points at. Stops scanning as
-        // soon as every candidate is accounted for.
-        const pageCaches = (await caches.keys()).filter((k) => k === PAGE_CACHE
-            || k === OFFLINE_CACHE
-            || LEGACY_OFFLINE_CACHE.test(k)
-            || isLegacyPageCache(k));
+        // Spare anything a cached page still points at — in every cache that
+        // can hold HTML (pages incl. the shell, downloads, legacy caches not
+        // yet migrated). Covers hold only images. Stops scanning as soon as
+        // every candidate is accounted for.
+        const pageCaches = (await caches.keys()).filter((k) => k !== COVER_CACHE);
+        pageCaches.sort((a, b) => (b === PAGE_CACHE) - (a === PAGE_CACHE));
         scan:
         for (const name of pageCaches) {
             const pages = await caches.open(name);
@@ -190,9 +285,24 @@ function isStaticAsset(url) {
         || /\.(png|jpg|jpeg|webp|svg|ico|css|js|woff2?)$/.test(url.pathname);
 }
 
+/** Content-hashed Vite output: immutable once cached. */
+function isHashedBuildAsset(url) {
+    return url.pathname.startsWith('/build/assets/');
+}
+
+/** Uploaded images (novel covers) under the public storage link. */
+function isCover(url) {
+    return url.pathname.startsWith('/storage/');
+}
+
 /** Pages worth keeping for offline reading without an explicit download. */
 function isAutoCachedPage(url) {
     return /^\/(chapters|novels)\/[^/]+/.test(url.pathname);
+}
+
+/** App-shell pages: cached on every visit, never trimmed. Exact path, no query. */
+function isShellPage(url) {
+    return !url.search && SHELL_PAGES.includes(url.pathname);
 }
 
 function isHtml(res) {
@@ -201,20 +311,47 @@ function isHtml(res) {
 
 let trimChain = Promise.resolve();
 
-/** Store a page and drop the oldest entries beyond PAGE_CACHE_MAX (serialised). */
-function putPage(request, response) {
+/**
+ * Store a response and drop the oldest entries beyond `max` (serialised, so
+ * concurrent puts can't over- or under-trim). Entries `keep` matches are
+ * neither counted nor evicted.
+ */
+function putCapped(cacheName, max, request, response, keep = () => false) {
     trimChain = trimChain.then(async () => {
-        const cache = await caches.open(PAGE_CACHE);
+        const cache = await caches.open(cacheName);
         // Cache.put replaces an existing entry by appending it, so keys()
         // order is least- to most-recently stored.
         await cache.put(request, response);
-        const keys = await cache.keys();
-        const excess = keys.length - PAGE_CACHE_MAX;
+        const keys = (await cache.keys()).filter((req) => !keep(new URL(req.url)));
+        const excess = keys.length - max;
         for (let i = 0; i < excess; i++) {
             await cache.delete(keys[i]);
         }
     }).catch(() => {});
     return trimChain;
+}
+
+/** Store a page; the oldest beyond PAGE_CACHE_MAX go, the shell never does. */
+const putPage = (request, response) => putCapped(PAGE_CACHE, PAGE_CACHE_MAX, request, response, isShellPage);
+
+/** Store a cover, stamped with when it was fetched (for the daily refresh). */
+async function putCover(request, response) {
+    const headers = new Headers(response.headers);
+    headers.set(COVER_FETCHED_AT, String(Date.now()));
+    const stamped = new Response(await response.blob(), {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+    });
+    return putCapped(COVER_CACHE, COVER_CACHE_MAX, request, stamped);
+}
+
+/** When a cached cover was fetched: our stamp, else the server's Date header. */
+function coverFetchedAt(res) {
+    const stamp = Number(res.headers.get(COVER_FETCHED_AT));
+    if (stamp) return stamp;
+    const date = Date.parse(res.headers.get('date') || '');
+    return Number.isNaN(date) ? 0 : date;
 }
 
 const TIMED_OUT = Symbol('timed-out');
@@ -233,10 +370,10 @@ function networkFirst(event, request, url) {
     // timeout served the cached copy) throws InvalidStateError, and the page
     // cache would never refresh on a slow connection. The clone is taken in
     // the first reaction to the response, before the page reads the body.
-    if (isAutoCachedPage(url)) {
+    if (isAutoCachedPage(url) || isShellPage(url)) {
         event.waitUntil(
             network
-                .then((res) => (res.ok && isHtml(res) ? putPage(request, res.clone()) : null))
+                .then((res) => (res.ok && !res.redirected && isHtml(res) ? putPage(request, res.clone()) : null))
                 .catch(() => {})
         );
     }
@@ -272,7 +409,26 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Static assets: cache-first, revalidate in the background.
+    // Hashed build files: cache-first, never revalidated.
+    if (isHashedBuildAsset(url)) {
+        event.respondWith(
+            caches.open(STATIC_CACHE).then(async (cache) => {
+                const cached = await cache.match(request);
+                if (cached) return cached;
+                const res = await fetch(request);
+                if (res.ok) await cache.put(request, res.clone());
+                return res;
+            })
+        );
+        return;
+    }
+
+    if (isCover(url)) {
+        event.respondWith(respondCover(event, request));
+        return;
+    }
+
+    // Other static assets: cache-first, revalidate in the background.
     if (isStaticAsset(url)) {
         event.respondWith(
             caches.open(STATIC_CACHE).then(async (cache) => {
@@ -298,6 +454,39 @@ self.addEventListener('fetch', (event) => {
     }
 });
 
+/** In-memory: last background refresh attempt per cover URL (throttles failures). */
+const coverRefreshTried = new Map();
+
+/**
+ * Covers: a downloaded novel's copy in OFFLINE_CACHE wins (it is never
+ * evicted); then COVER_CACHE, refreshed in the background once a day; then
+ * the network, stored in COVER_CACHE.
+ */
+async function respondCover(event, request) {
+    const downloaded = await (await caches.open(OFFLINE_CACHE)).match(request);
+    if (downloaded) return downloaded;
+
+    const cached = await (await caches.open(COVER_CACHE)).match(request);
+    if (cached) {
+        const now = Date.now();
+        const tried = coverRefreshTried.get(request.url) || 0;
+        if (now - coverFetchedAt(cached) > COVER_REFRESH_MS && now - tried > COVER_REFRESH_MS) {
+            coverRefreshTried.set(request.url, now);
+            event.waitUntil(
+                fetch(request)
+                    .then((res) => (res.ok ? putCover(request, res) : null))
+                    .catch(() => {})
+            );
+        }
+        return cached;
+    }
+
+    const res = await fetch(request);
+    // Registered while respondWith is still pending, so waitUntil is allowed.
+    if (res.ok) event.waitUntil(putCover(request, res.clone()));
+    return res;
+}
+
 // ---- Explicit offline downloads ----
 // The page drives these via postMessage; the worker fetches each URL straight
 // from the network (SW-initiated fetches don't re-enter the fetch handler) and
@@ -313,6 +502,11 @@ self.addEventListener('message', (event) => {
 
 async function cacheUrls(urls, client) {
     const cache = await caches.open(OFFLINE_CACHE);
+    // /build files the downloaded pages load (the reader module, its CSS…):
+    // they only reach the cache otherwise if a chapter was opened online, so
+    // a novel downloaded on a fresh device would open offline unscripted.
+    // Each distinct asset is checked once per download run.
+    const seenAssets = new Set();
     let done = 0;
     for (const url of urls) {
         try {
@@ -323,7 +517,10 @@ async function cacheUrls(urls, client) {
                 credentials: 'same-origin',
                 headers: { 'X-Novarr-Fetch': 'offline' },
             });
-            if (res.ok) await cache.put(url, res.clone());
+            if (res.ok) {
+                await cache.put(url, res.clone());
+                await cacheBuildAssets(await referencedBuildAssets(res), seenAssets);
+            }
         } catch (e) {
             // Skip failures; a partial download is still useful.
         }
@@ -331,6 +528,22 @@ async function cacheUrls(urls, client) {
         client?.postMessage({ type: 'CACHE_PROGRESS', done, total: urls.length });
     }
     client?.postMessage({ type: 'CACHE_COMPLETE', total: urls.length });
+}
+
+/** Fetch into STATIC_CACHE the paths not cached yet (skipping any in `seen`). */
+async function cacheBuildAssets(paths, seen) {
+    const assets = await caches.open(STATIC_CACHE);
+    for (const path of paths) {
+        if (seen.has(path)) continue;
+        seen.add(path);
+        if (await assets.match(path)) continue;
+        try {
+            const res = await fetch(path, { credentials: 'same-origin' });
+            if (res.ok) await assets.put(path, res);
+        } catch (e) {
+            // Fetched again on first use online.
+        }
+    }
 }
 
 async function removeUrls(urls) {

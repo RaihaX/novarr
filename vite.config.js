@@ -39,6 +39,10 @@ export default defineConfig({
             input: [
                 'resources/css/app.scss',
                 'resources/js/app.js',
+                // Chapter reader: its own entry, loaded by @vite from the
+                // reader view (not a dynamic import from app.js), so cached
+                // and downloaded chapter pages reference its hashed URL.
+                'resources/js/reader/index.js',
             ],
             refresh: true,
         }),

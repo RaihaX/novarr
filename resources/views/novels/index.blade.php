@@ -139,7 +139,7 @@
                 <li class="lib-tile" data-id="{{ $novel->id }}">
                     <a href="{{ route('novels.show', $novel->id) }}" class="lib-tile-link"
                        title="{{ $novel->name }} — {{ number_format($prog['downloaded']) }} of {{ number_format($prog['total']) }} · {{ $prog['percent'] }}% downloaded">
-                        <x-cover :novel="$novel" :progress="$r['percent']" :flag="$flag" :chapters="$prog['total']" :chip="$novel->originChip()" decorative />
+                        <x-cover :novel="$novel" :progress="$r['percent']" :flag="$flag" :chapters="$prog['total']" :chip="$novel->originChip()" :eager="$loop->index < 6" decorative />
                         <span class="lib-tile-title">{{ $novel->name }}</span>
                         <span class="lib-tile-sub {{ $subTone }}" data-reading="{{ $r['read'] }}/{{ $r['total'] }}">{{ $sub }}</span>
                     </a>
@@ -175,8 +175,8 @@
             <div class="novel-row">
                 <input type="checkbox" class="form-check-input novel-check flex-shrink-0" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}">
                 <a href="{{ route('novels.show', $novel->id) }}" class="novel-row-link">
-                    @if($novel->file)
-                        <img src="{{ Storage::url($novel->file->file_path) }}" alt="Cover of {{ $novel->name }}" loading="lazy" class="cover-thumb">
+                    @if($thumb = $novel->coverUrl('sm'))
+                        <img src="{{ $thumb }}" alt="Cover of {{ $novel->name }}" loading="lazy" decoding="async" class="cover-thumb">
                     @else
                         <div class="cover-placeholder" aria-hidden="true"><x-brand-mark variant="mono" :size="16" /></div>
                     @endif
@@ -230,8 +230,8 @@
                     <tr>
                         <td class="col-select"><input type="checkbox" class="form-check-input novel-check" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}"></td>
                         <td class="col-cover">
-                            @if($novel->file)
-                                <img src="{{ Storage::url($novel->file->file_path) }}" alt="Cover of {{ $novel->name }}" loading="lazy" class="cover-thumb">
+                            @if($thumb = $novel->coverUrl('sm'))
+                                <img src="{{ $thumb }}" alt="Cover of {{ $novel->name }}" loading="lazy" decoding="async" class="cover-thumb">
                             @else
                                 <div class="cover-placeholder" aria-hidden="true"><x-brand-mark variant="mono" :size="16" /></div>
                             @endif

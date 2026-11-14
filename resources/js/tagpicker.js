@@ -23,9 +23,6 @@ function initTagPicker(root) {
     };
 
     toggle.addEventListener('click', () => menu.classList.toggle('d-none'));
-    document.addEventListener('click', (e) => {
-        if (!root.contains(e.target)) menu.classList.add('d-none');
-    });
 
     if (search) {
         search.addEventListener('input', () => {
@@ -89,6 +86,24 @@ function initTagPicker(root) {
     updateLabel();
 }
 
+let outsideClickBound = false;
+
+/**
+ * Close every open picker on a click outside it. One delegated listener for
+ * the whole session: initTagPickers runs on every turbo:load, and a listener
+ * per picker would pile up and keep each old page's DOM alive.
+ */
+function bindOutsideClick() {
+    if (outsideClickBound) return;
+    outsideClickBound = true;
+    document.addEventListener('click', (e) => {
+        document.querySelectorAll('[data-tag-picker]').forEach((root) => {
+            if (!root.contains(e.target)) root.querySelector('.tag-picker-menu')?.classList.add('d-none');
+        });
+    });
+}
+
 export function initTagPickers(scope = document) {
+    bindOutsideClick();
     scope.querySelectorAll('[data-tag-picker]').forEach(initTagPicker);
 }

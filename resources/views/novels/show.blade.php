@@ -12,8 +12,8 @@
 {{-- ===================================================================== --}}
 <div class="detail-hero">
     <div class="detail-cover-wrap">
-        @if($data->file)
-            <img src="{{ Storage::url($data->file->file_path) }}" alt="Cover of {{ $data->name }}" class="detail-cover">
+        @if($cover = $data->coverUrl('md'))
+            <img src="{{ $cover }}" alt="Cover of {{ $data->name }}" class="detail-cover">
         @else
             <div class="detail-cover-placeholder" aria-hidden="true">
                 <x-brand-mark variant="mono" :size="34" />
