@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Novel;
 use App\NovelChapter;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class SearchController extends Controller
@@ -135,37 +137,48 @@ class SearchController extends Controller
                     ->get(['id', 'name', 'author', 'status', 'paused_at']);
             }
 
-            $isMysql = \Illuminate\Support\Facades\DB::connection()->getDriverName() === 'mysql';
+            $page = max(1, (int) $request->query('page', 1));
 
-            $paginator = NovelChapter::with(['novel:id,name', 'text'])
-                ->where('status', 1)
-                ->where('blacklist', 0)
-                ->when($novelId, fn($query) => $query->where('novel_id', $novelId))
-                ->when($isMysql,
-                    fn($query) => $query->where(fn($w) => $w
-                        ->whereFullText('label', $q)
-                        ->orWhereHas('text', fn($t) => $t->whereFullText('content', $q))),
-                    fn($query) => $query->where(fn($w) => $w
-                        ->whereRaw("label LIKE ? ESCAPE '!'", ['%' . self::escapeLike($q) . '%'])
-                        ->orWhereHas('text', fn($t) => $t->whereRaw("content LIKE ? ESCAPE '!'", ['%' . self::escapeLike($q) . '%'])))
-                )
-                // Stable order so pagination never repeats or skips rows.
-                ->orderBy('novel_id')
-                ->orderBy('book')
-                ->orderBy('chapter')
-                ->orderBy('id')
-                ->paginate(40, ['id', 'novel_id', 'chapter', 'book', 'label'])
-                ->withQueryString();
+            // Ids for this page (plus one, to know whether a next page exists):
+            // label hits first, then text hits, each from its own index. No
+            // COUNT(*): an exact total over a common word cost 15 s on production.
+            $ids = self::mergeHitIds(
+                self::labelHitsQuery($q, $novelId, $page * self::PER_PAGE + 1)->pluck('novel_chapters.id')->all(),
+                self::contentHitsQuery($q, $novelId, $page * self::PER_PAGE + 1)->pluck('chapter_texts.novel_chapter_id')->all(),
+                $page,
+                self::PER_PAGE
+            );
 
-            $results = collect($paginator->items())
-                ->map(function ($c) use ($q) {
+            $paginator = (new Paginator($ids, self::PER_PAGE, $page, [
+                'path' => Paginator::resolveCurrentPath(),
+                'pageName' => 'page',
+            ]))->withQueryString();
+            $pageIds = $paginator->items();
+
+            // Slim rows, no chapter bodies: the snippet is cut in SQL.
+            $chapters = $pageIds === [] ? collect() : NovelChapter::with('novel:id,name')
+                ->whereIn('id', $pageIds)
+                ->get(['id', 'novel_id', 'chapter', 'book', 'label'])
+                ->keyBy('id');
+            $excerpts = $pageIds === [] ? collect() : self::snippetQuery($pageIds, self::needles($q))
+                ->get()
+                ->keyBy('novel_chapter_id');
+
+            $results = collect($pageIds)
+                ->map(fn($id) => $chapters->get($id))
+                ->filter()
+                ->map(function ($c) use ($q, $excerpts) {
+                    $row = $excerpts->get($c->id);
+
                     return [
                         'novel' => $c->novel,
                         'chapter' => $c,
-                        'snippet' => $this->snippet($c->rawText(), $q),
+                        'snippet' => $row ? self::cleanSnippet((string) $row->excerpt, (int) $row->excerpt_start, $q) : '',
                     ];
                 })
-                ->filter(fn($r) => $r['novel'] !== null);
+                ->filter(fn($r) => $r['novel'] !== null)
+                ->values();
+            $paginator->setCollection($results);
         }
 
         return view('search.index', [
@@ -178,25 +191,166 @@ class SearchController extends Controller
         ]);
     }
 
-    /**
-     * A short plain-text excerpt around the first match of the query.
-     */
-    private function snippet(?string $html, string $q): string
+    /** Chapter hits per page. */
+    public const PER_PAGE = 40;
+
+    /** Characters of raw chapter HTML fetched around the match for a snippet. */
+    private const EXCERPT_BEFORE = 80;
+    private const EXCERPT_LENGTH = 300;
+
+    /** Whether the default (or named) connection searches with FULLTEXT. */
+    private static function usesFullText(?string $connection = null): bool
     {
-        $text = trim(preg_replace('/\s+/', ' ', strip_tags($html ?? '')));
+        return in_array(DB::connection($connection)->getDriverName(), ['mysql', 'mariadb'], true);
+    }
+
+    /**
+     * Ids of readable chapters (downloaded, not blacklisted, not deleted,
+     * optionally in one novel) whose label matches, at most $limit.
+     * MySQL/MariaDB, whole library: MATCH(label) on ftx_chapter_label;
+     * within one novel, and on other drivers, a literal LIKE in reading order.
+     */
+    public static function labelHitsQuery(string $q, int $novelId, int $limit, ?string $connection = null)
+    {
+        $fullText = self::usesFullText($connection) && !$novelId;
+
+        return NovelChapter::on($connection)
+            ->select('novel_chapters.id')
+            ->where('novel_chapters.status', 1)
+            ->where('novel_chapters.blacklist', 0)
+            ->when($novelId, fn($w) => $w->where('novel_chapters.novel_id', $novelId))
+            ->when($fullText,
+                fn($w) => $w->whereFullText('novel_chapters.label', $q),
+                fn($w) => $w->whereRaw("novel_chapters.label LIKE ? ESCAPE '!'", ['%' . self::escapeLike($q) . '%'])
+                    ->orderBy('novel_chapters.novel_id')->orderBy('novel_chapters.book')
+                    ->orderBy('novel_chapters.chapter')->orderBy('novel_chapters.id'))
+            ->limit($limit);
+    }
+
+    /**
+     * Ids of readable chapters whose text matches, at most $limit. Driven
+     * from chapter_texts (MATCH(content) on ftx_chapter_text) and joined to
+     * novel_chapters so the chapter filters, including the novel scope, are
+     * applied before the LIMIT: one novel's hits are never cut off by
+     * another's.
+     */
+    public static function contentHitsQuery(string $q, int $novelId, int $limit, ?string $connection = null)
+    {
+        // Within one novel the FULLTEXT index is the wrong driver: it walks
+        // every match in the library looking for this novel's (17 s on
+        // production for a small novel with few hits). A LIKE over just that
+        // novel's chapters is bounded by the novel's size (about 0.1 s
+        // typically, 2 s for a 7,600-chapter novel with no match).
+        $fullText = self::usesFullText($connection) && !$novelId;
+
+        return DB::connection($connection)->table('chapter_texts')
+            ->join('novel_chapters', 'novel_chapters.id', '=', 'chapter_texts.novel_chapter_id')
+            ->select('chapter_texts.novel_chapter_id')
+            ->where('novel_chapters.status', 1)
+            ->where('novel_chapters.blacklist', 0)
+            ->whereNull('novel_chapters.deleted_at')
+            ->when($novelId, fn($w) => $w->where('novel_chapters.novel_id', $novelId))
+            ->when($fullText,
+                fn($w) => $w->whereFullText('chapter_texts.content', $q),
+                fn($w) => $w->whereRaw("chapter_texts.content LIKE ? ESCAPE '!'", ['%' . self::escapeLike($q) . '%'])
+                    ->orderBy('novel_chapters.novel_id')->orderBy('novel_chapters.book')
+                    ->orderBy('novel_chapters.chapter')->orderBy('novel_chapters.id'))
+            ->limit($limit);
+    }
+
+    /**
+     * The ids for one page plus one more when a next page exists: label
+     * hits first, then text hits, duplicates dropped (first position wins).
+     *
+     * @param  int[]  $labelIds
+     * @param  int[]  $contentIds
+     * @return int[]
+     */
+    public static function mergeHitIds(array $labelIds, array $contentIds, int $page, int $perPage): array
+    {
+        $merged = array_values(array_unique(array_map('intval', array_merge($labelIds, $contentIds))));
+
+        return array_slice($merged, (max(1, $page) - 1) * $perPage, $perPage + 1);
+    }
+
+    /**
+     * What a snippet is centred on, in order of preference: the whole query,
+     * then each of its words (≤ 5). FULLTEXT can match a word the literal
+     * phrase never appears as, so the first word found wins.
+     *
+     * @return string[]
+     */
+    public static function needles(string $q): array
+    {
+        $words = array_slice(preg_split('/\s+/u', $q, -1, PREG_SPLIT_NO_EMPTY), 0, 5);
+
+        return array_values(array_unique(array_filter([$q, ...$words], fn($w) => $w !== '')));
+    }
+
+    /**
+     * A raw-HTML excerpt per chapter: EXCERPT_LENGTH characters starting
+     * EXCERPT_BEFORE before the first needle found, or the start of the text
+     * when none is (LOCATE/INSTR return 0, COALESCE falls through to 1).
+     * Selects novel_chapter_id, excerpt and excerpt_start (1-based).
+     *
+     * @param  int[]  $ids
+     * @param  string[]  $needles
+     */
+    public static function snippetQuery(array $ids, array $needles, ?string $connection = null)
+    {
+        $fullText = self::usesFullText($connection);
+        // MySQL/MariaDB LOCATE follows the column's (case-insensitive)
+        // collation; SQLite's INSTR is case-sensitive, so compare lowered.
+        $locate = $fullText ? 'NULLIF(LOCATE(?, content), 0)' : 'NULLIF(INSTR(LOWER(content), LOWER(?)), 0)';
+        $greatest = $fullText ? 'GREATEST' : 'MAX';
+        $start = sprintf('%s(COALESCE(%s, 1) - %d, 1)',
+            $greatest,
+            implode(', ', array_fill(0, count($needles), $locate)),
+            self::EXCERPT_BEFORE);
+        $substr = $fullText ? 'SUBSTRING' : 'SUBSTR';
+
+        return DB::connection($connection)->table('chapter_texts')
+            ->select('novel_chapter_id')
+            ->selectRaw("{$substr}(content, {$start}, " . self::EXCERPT_LENGTH . ') as excerpt', $needles)
+            ->selectRaw("{$start} as excerpt_start", $needles)
+            ->whereIn('novel_chapter_id', $ids);
+    }
+
+    /**
+     * A short plain-text snippet from a raw-HTML excerpt that began at
+     * character $start of the chapter: tag fragments cut by the excerpt
+     * edges are dropped, tags stripped, whitespace collapsed, and the text
+     * trimmed to about 200 characters around the first match. Plain text
+     * only; the view escapes it.
+     */
+    public static function cleanSnippet(string $html, int $start, string $q): string
+    {
+        if ($start > 1) {
+            // Started inside a tag ("lass=\"x\">text") or an entity ("quot;").
+            $html = preg_replace(['/^[^<>]*>/', '/^[a-z0-9#]{1,10};/i'], '', $html, 1);
+        }
+        // Ends inside an entity ("&am"); an unclosed "<p cla" goes with strip_tags.
+        $html = preg_replace('/&[a-z0-9#]{0,10}$/i', '', $html);
+
+        $text = trim(preg_replace('/\s+/u', ' ', strip_tags($html)));
         if ($text === '') {
             return '';
         }
 
-        $pos = stripos($text, $q);
+        $pos = false;
+        foreach (self::needles($q) as $needle) {
+            if (($pos = mb_stripos($text, $needle)) !== false) {
+                break;
+            }
+        }
+        $lead = $start > 1 ? '… ' : '';
         if ($pos === false) {
-            return Str::limit($text, 160);
+            return $lead . Str::limit($text, 160);
         }
 
-        $start = max(0, $pos - 60);
-        $excerpt = ($start > 0 ? '… ' : '') . mb_substr($text, $start, 200) . ' …';
+        $from = max(0, $pos - 60);
 
-        return $excerpt;
+        return ($lead !== '' || $from > 0 ? '… ' : '') . mb_substr($text, $from, 200) . ' …';
     }
 
     /**

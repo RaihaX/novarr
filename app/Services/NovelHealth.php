@@ -168,18 +168,12 @@ class NovelHealth
 
         $novels = (new \Illuminate\Database\Eloquent\Collection($novels))->loadMissing('group');
 
-        $ranked = NovelChapter::whereIn('novel_id', $novels->modelKeys())
+        $firstPending = self::firstPerNovel($novels->modelKeys(), fn($q) => $q
             ->where('status', 0)
             ->where('blacklist', 0)
             ->select(['id', 'novel_id', 'chapter', 'book', 'sort_key', 'url'])
             // Same order as NovelChapter::scopeOrdered().
-            ->selectRaw('ROW_NUMBER() OVER (PARTITION BY novel_id ORDER BY book, sort_key, chapter, id) as rn');
-
-        $firstPending = NovelChapter::withoutGlobalScopes()
-            ->fromSub($ranked, 'ranked')
-            ->where('rn', 1)
-            ->get(['id', 'novel_id', 'chapter', 'book', 'sort_key', 'url'])
-            ->keyBy('novel_id');
+            ->ordered());
 
         $urls = [];
         foreach ($novels as $novel) {
@@ -193,6 +187,52 @@ class NovelHealth
         }
 
         return $urls;
+    }
+
+    /** Members per UNION ALL statement (SQLite caps a compound select at 500). */
+    private const UNION_CHUNK = 200;
+
+    /**
+     * The top chapter of each novel, for many novels in one statement: a
+     * UNION ALL of one `WHERE novel_id = ? ... ORDER BY ... LIMIT 1` select
+     * per novel. Each member is an index range scan that stops at its first
+     * row, where a ROW_NUMBER() over `novel_id IN (...)` had to sort every
+     * matching chapter of every novel first (150-550 ms on production).
+     *
+     * $perNovel adds the filters, columns and ORDER BY to a builder already
+     * scoped to one novel (soft-delete scope included). The grammar wraps
+     * each member so its ORDER BY/LIMIT stays its own: `(select ...)` on
+     * MySQL/MariaDB, `select * from (select ...)` on SQLite.
+     *
+     * @param  int[]  $novelIds
+     * @param  \Closure(\Illuminate\Database\Eloquent\Builder): mixed  $perNovel
+     * @return \Illuminate\Support\Collection<int, NovelChapter>  keyed by novel_id
+     */
+    public static function firstPerNovel(array $novelIds, \Closure $perNovel)
+    {
+        $novelIds = array_values(array_unique(array_map('intval', $novelIds)));
+        if ($novelIds === []) {
+            return collect();
+        }
+
+        $member = function (int $novelId) use ($perNovel) {
+            $query = NovelChapter::where('novel_id', $novelId);
+            $perNovel($query);
+
+            return $query->limit(1);
+        };
+
+        $rows = collect();
+        foreach (array_chunk($novelIds, self::UNION_CHUNK) as $chunk) {
+            $query = $member(array_shift($chunk));
+            foreach ($chunk as $novelId) {
+                // toBase() applies the global (soft-delete) scope to the member.
+                $query->unionAll($member($novelId)->toBase());
+            }
+            $rows = $rows->concat($query->get());
+        }
+
+        return $rows->keyBy('novel_id');
     }
 
     /**
