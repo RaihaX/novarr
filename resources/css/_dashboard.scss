@@ -352,10 +352,46 @@ $bp-table-collapse: 900px;
 
 @media (min-width: $bp-table-collapse) {
     .novels-list { display: none; }
-    // The page is the only thing that scrolls. Bootstrap's .table-responsive
-    // sets overflow-x: auto, which also makes the box scroll vertically; a
-    // one pixel rounding overflow was enough for it to swallow the wheel.
     .novels-table { display: block; overflow: visible; }
+}
+
+// Library list contained in the window: the list (table or cover grid) takes
+// the height left under the filters and scrolls inside it, so search, chips
+// and sort stay in view. The script on the page measures the height into
+// --lib-fit-h. Desktop only, and only when the window is tall enough for a
+// useful list; otherwise the page scrolls as usual.
+.lib-shelves.lib-fit-body { margin-bottom: $s-4; }
+
+@media (min-width: $bp-table-collapse) and (min-height: 560px) {
+    .lib-fit {
+        display: flex;
+        flex-direction: column;
+        max-height: var(--lib-fit-h, none);
+        min-height: 280px;
+    }
+
+    .lib-fit > .lib-fit-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        margin-bottom: 0;
+    }
+
+    .lib-fit > .dash-panel-foot,
+    .lib-fit > .lib-fit-foot { flex: none; }
+
+    .lib-fit > .lib-fit-foot { padding-top: $s-3; }
+
+    // Column headings stay pinned while the rows scroll under them.
+    .lib-fit .table-novels > thead > tr > th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background-color: $surface-alt;
+        box-shadow: inset 0 -#{$hairline} 0 $border;
+    }
 }
 
 // Between the collapse width and a full desktop the table is wider than the

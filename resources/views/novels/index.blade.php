@@ -132,7 +132,8 @@
             $shelfNames = ['reading' => 'Reading', 'unstarted' => 'Not started', 'finished' => 'Finished'];
             $tileIndex = 0;
         @endphp
-        <div class="lib-shelves mb-4" id="libGrid">
+        <div class="lib-fit" data-lib-fit>
+        <div class="lib-shelves lib-fit-body" id="libGrid">
             @foreach($shelves as $shelf => $shelfNovels)
                 <section class="lib-shelf" @if($shelved) aria-labelledby="shelf-{{ $shelf }}" @endif>
                     @if($shelved)
@@ -191,12 +192,15 @@
                 </section>
             @endforeach
         </div>
-    @endif
-    @if($novels->hasPages())
-        {{ $novels->appends(request()->query())->links() }}
+        @if($novels->hasPages())
+            <div class="lib-fit-foot">
+                {{ $novels->appends(request()->query())->links() }}
+            </div>
+        @endif
+        </div>
     @endif
 @else
-<div class="dash-panel">
+<div class="dash-panel lib-fit" data-lib-fit>
     {{-- Below 900px the table collapses to the novel-row list (handoff) --}}
     <div class="novels-list">
         @forelse($novels as $novel)
@@ -243,7 +247,7 @@
     </div>
 
     {{-- 900px and up: the full table (handoff §4 column recipe) --}}
-    <div class="table-responsive novels-table">
+    <div class="table-responsive novels-table lib-fit-body">
         <table class="table table-hover table-novels align-middle">
             <caption class="visually-hidden">Novels in the library</caption>
             <thead>
@@ -399,11 +403,27 @@
     // so dedupe by value.
     const selected = () => [...new Set(checks().filter(c => c.checked).map(c => c.value))];
 
+    // --- The list fills the rest of the window and scrolls inside it, so
+    // the filters and search above stay in view. CSS applies the height on
+    // desktop only; phones keep the normal page scroll.
+    const fitEl = document.querySelector('[data-lib-fit]');
+    function fitList() {
+        if (!fitEl) return;
+        const top = fitEl.getBoundingClientRect().top + window.scrollY;
+        const gap = parseFloat(getComputedStyle(document.getElementById('main-content')).paddingBottom) || 0;
+        fitEl.style.setProperty('--lib-fit-h', `${Math.max(0, Math.floor(window.innerHeight - top - gap))}px`);
+    }
+    fitList();
+    window.addEventListener('resize', fitList);
+    document.addEventListener('turbo:before-cache', () => window.removeEventListener('resize', fitList), { once: true });
+    document.fonts?.ready.then(fitList);
+
     function refreshBulkBar() {
         const n = selected().length;
         if (bulkBar) {
             bulkBar.classList.toggle('is-active', n > 0);
             document.getElementById('bulkCount').textContent = `${n} selected`;
+            fitList();
         }
         if (selectAll) {
             selectAll.checked = n > 0 && n === checks().length;
