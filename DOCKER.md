@@ -17,7 +17,7 @@ Not using Docker at all? The bare-metal path is `deploy.sh` — see the readme's
 - Built-in `HEALTHCHECK` on `/api/ping` (liveness). The stacks override it per service: the app probes `/api/health`, the scheduler checks its heartbeat.
 - Production only: no Composer, no Node, no dev dependencies. Run tests, linting, `composer` and `yarn` on a development machine, not inside the container.
 - Includes `mariadb-client` (`mysqldump` / `mariadb-dump`) for `php artisan backup:run`, and the `tailscale` CLI for the in-app Tailscale panel.
-- The published image is linux/amd64. A local build (`docker compose up -d --build`) fetches the RoadRunner binary for the build's own architecture, so it also works on arm64.
+- Published for linux/amd64 and linux/arm64. A local build (`docker compose up -d --build`) fetches the RoadRunner binary for the build's own architecture.
 
 ## One-click stack
 

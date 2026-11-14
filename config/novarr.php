@@ -98,6 +98,16 @@ return [
     'chapter_fetch_delay_ms' => [500, 1500],
 
     /*
+    | Minutes a host's Cloudflare clearance (cf_clearance cookie + the user
+    | agent it was issued to, from a FlareSolverr solve) is reused for plain
+    | requests (App\Scraping\Fetcher::page()), shared between processes via
+    | the application cache. 0 disables the store: every chapter page goes
+    | through FlareSolverr as before. Only works while FlareSolverr and
+    | Novarr reach the sites from the same public IP.
+    */
+    'clearance_minutes' => (int) env('NOVARR_CLEARANCE_MINUTES', 25),
+
+    /*
     |--------------------------------------------------------------------------
     | Settings-page defaults
     |--------------------------------------------------------------------------

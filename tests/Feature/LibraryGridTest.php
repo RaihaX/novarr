@@ -159,7 +159,9 @@ class LibraryGridTest extends TestCase
 
         // A chip that matches nothing gets its own empty copy.
         NovelChapter::query()->update(['download_date' => now()->subYear()]);
-        Cache::forget('library_reading_v1'); // a direct DB write bypasses the model/controller hooks that bust it
+        // A direct DB write bypasses the model/controller hooks that bust these.
+        Cache::forget('library_reading_v1');
+        Cache::forget(\App\Http\Helpers\CacheHelper::LIBRARY_AGGREGATES_KEY);
         $this->assertStringContainsString('You’re caught up', $only('new'));
     }
 

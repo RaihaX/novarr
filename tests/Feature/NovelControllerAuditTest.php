@@ -149,11 +149,15 @@ class NovelControllerAuditTest extends TestCase
 
         DB::enableQueryLog();
         $this->get(route('novels.index'))->assertOk()->assertSee('Slim Library Novel');
-        $queries = array_column(DB::getQueryLog(), 'query');
+        // MySQL/MariaDB quote identifiers with backticks, sqlite with double
+        // quotes: compare on one form.
+        $queries = array_map(fn($q) => str_replace('`', '"', $q), array_column(DB::getQueryLog(), 'query'));
         DB::disableQueryLog();
 
-        $library = array_values(array_filter($queries, fn($q) => str_contains($q, 'chapters_count') && str_contains($q, 'limit')));
-        $this->assertNotEmpty($library, 'Library page query not found');
+        // The page's novels are loaded by id once the order is known; the
+        // candidate query that orders them is slimmer still.
+        $library = array_values(array_filter($queries, fn($q) => str_contains($q, 'from "novels"')));
+        $this->assertNotEmpty(array_filter($library, fn($q) => str_contains($q, '"author"') && str_contains($q, '"id" in (')), 'Library page query not found');
         foreach ($library as $sql) {
             $this->assertStringNotContainsString('description', $sql);
             $this->assertStringNotContainsString('"novels".*', $sql);

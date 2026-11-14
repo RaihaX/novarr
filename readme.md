@@ -25,7 +25,7 @@ This is fully self-contained — it runs migrations and generates an app key aut
 Open **http://&lt;host&gt;/** and start adding novels.
 
 - **PWA / install-to-home-screen needs HTTPS** — put a reverse proxy (Nginx Proxy Manager, Caddy, Traefik) or **Tailscale Serve** in front, then set `APP_URL` to that origin in the compose file.
-- The prebuilt image targets **linux/amd64** (typical x86 hosts / Proxmox); on ARM, use the clone-and-build stack below, which builds for your machine. MySQL & Redis ports are not exposed; the internal default passwords are safe to leave as-is.
+- The prebuilt image is published for **linux/amd64 and linux/arm64** (x86 hosts, Apple Silicon, ARM boards). MySQL & Redis ports are not exposed; the internal default passwords are safe to leave as-is.
 - Email (summary / Send-to-Kindle) is off by default (`MAIL_MAILER: log`) — set `MAIL_MAILER`, `RESEND_KEY`, and `MAIL_FROM_ADDRESS` to enable it.
 
 **Or clone and build it yourself** — the same stack, built from the source in the checkout (also works on Apple Silicon and ARM boards):

@@ -12,7 +12,8 @@ use Tests\TestCase;
 /**
  * App\Scraping\Fetcher against a MockHttpClient: FlareSolverr retry/backoff
  * for html() and htmlWithSession(), rate-limit classification with
- * Retry-After, client reuse and the Cloudflare challenge check.
+ * Retry-After, client reuse and the Cloudflare challenge check, and the
+ * per-host clearance store behind page() / sessionPage().
  */
 class FetcherTest extends TestCase
 {
@@ -38,7 +39,7 @@ class FetcherTest extends TestCase
             public function __construct(array $responses)
             {
                 $this->mock = new MockHttpClient(function ($method, $url, $options) use (&$responses) {
-                    $this->requests[] = ['method' => $method, 'url' => $url, 'body' => $options['body'] ?? null];
+                    $this->requests[] = ['method' => $method, 'url' => $url, 'body' => $options['body'] ?? null, 'headers' => $options['headers'] ?? []];
                     return array_shift($responses) ?? new MockResponse('', ['http_code' => 500]);
                 });
             }
@@ -295,5 +296,225 @@ class FetcherTest extends TestCase
         $this->assertFalse(Fetcher::isCloudflareChallenge('<p>Protected by Cloudflare. Chapter 1 begins…</p>'));
         $this->assertFalse(Fetcher::isCloudflareChallenge(''));
         $this->assertFalse(Fetcher::isCloudflareChallenge(null));
+    }
+
+    // ---- Per-host clearance store: page() / sessionPage() ----------------
+
+    private const CHAPTER = 'https://a.test/novel/chapter-1.html';
+
+    private static function solvedWithClearance(string $html, string $cf = 'clear-me', string $ua = 'UA/1.0'): MockResponse
+    {
+        return self::solved($html, 200, [
+            'cookies' => [['name' => 'other', 'value' => 'x'], ['name' => 'cf_clearance', 'value' => $cf]],
+            'userAgent' => $ua,
+        ]);
+    }
+
+    /** Requests that went to the target host itself (not to FlareSolverr). */
+    private static function targetRequests(Fetcher $fetcher): array
+    {
+        return array_values(array_filter($fetcher->requests, fn($r) => str_starts_with($r['url'], 'https://a.test/')));
+    }
+
+    private static function flareRequests(Fetcher $fetcher): array
+    {
+        return array_values(array_filter($fetcher->requests, fn($r) => str_starts_with($r['url'], 'http://flaresolverr.test/')));
+    }
+
+    public function testPageWithoutClearanceUsesFlareSolverrAndStoresTheEntry(): void
+    {
+        $fetcher = $this->fetcher([self::solvedWithClearance('<p>chapter</p>')]);
+
+        $reason = 'unset';
+        $via = null;
+        $this->assertSame('<p>chapter</p>', $fetcher->page(self::CHAPTER, $reason, $via));
+        $this->assertNull($reason);
+        $this->assertSame('flaresolverr', $via);
+        $this->assertCount(1, self::flareRequests($fetcher));
+        $this->assertCount(0, self::targetRequests($fetcher));
+
+        // Only cf_clearance is kept (the cookie set the plain path sends).
+        $this->assertSame(['cookies' => ['cf_clearance' => 'clear-me'], 'user_agent' => 'UA/1.0'], $fetcher->clearance('a.test'));
+        $this->assertSame($fetcher->clearance('a.test'), $fetcher->clearance('https://A.test/other'), 'keyed by host');
+        $this->assertNull($fetcher->clearance('b.test'));
+    }
+
+    public function testASolveWithoutCfClearanceStoresNothing(): void
+    {
+        $fetcher = $this->fetcher([self::solved('<p>chapter</p>', 200, ['cookies' => [['name' => 'other', 'value' => 'x']], 'userAgent' => 'UA/1.0'])]);
+
+        $via = null;
+        $this->assertSame('<p>chapter</p>', $fetcher->page(self::CHAPTER, $reason, $via));
+        $this->assertSame('flaresolverr', $via);
+        $this->assertNull($fetcher->clearance('a.test'));
+    }
+
+    public function testPageWithClearanceGoesPlainWithExactlyTheStoredUserAgentAndCookie(): void
+    {
+        $fetcher = $this->fetcher([new MockResponse('<p>chapter via plain</p>')]);
+        $fetcher->rememberClearance('a.test', ['cf_clearance' => 'stored-cf', 'ignored' => 'y'], 'Stored-UA/2.0');
+
+        $reason = 'unset';
+        $via = null;
+        $this->assertSame('<p>chapter via plain</p>', $fetcher->page(self::CHAPTER, $reason, $via));
+        $this->assertNull($reason);
+        $this->assertSame('plain', $via);
+        $this->assertCount(0, self::flareRequests($fetcher), 'FlareSolverr not called');
+
+        $target = self::targetRequests($fetcher);
+        $this->assertCount(1, $target);
+        $this->assertSame('GET', $target[0]['method']);
+        $this->assertContains('User-Agent: Stored-UA/2.0', $target[0]['headers']);
+        $this->assertContains('Cookie: cf_clearance=stored-cf', $target[0]['headers']);
+        $this->assertCount(1, array_filter($target[0]['headers'], fn($h) => stripos($h, 'User-Agent:') === 0), 'one user agent');
+        $this->assertNotNull($fetcher->clearance('a.test'), 'entry kept');
+    }
+
+    public static function refusedPlainAnswers(): array
+    {
+        return [
+            '403' => [fn() => new MockResponse('<p>forbidden</p>', ['http_code' => 403])],
+            '503' => [fn() => new MockResponse('<p>busy</p>', ['http_code' => 503, 'response_headers' => ['Retry-After: 120']])],
+            'challenge body with a 200' => [fn() => new MockResponse('<html><head><title>Just a moment...</title></head></html>')],
+            'transport error' => [fn() => new MockResponse('', ['error' => 'connection reset'])],
+            'empty body' => [fn() => new MockResponse('')],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedPlainAnswers')]
+    public function testRefusedPlainForgetsTheEntryFallsBackToFlareSolverrAndRefreshesIt(\Closure $plainAnswer): void
+    {
+        $fetcher = $this->fetcher([$plainAnswer(), self::solvedWithClearance('<p>chapter</p>', 'fresh-cf', 'Fresh-UA')]);
+        $fetcher->rememberClearance('a.test', ['cf_clearance' => 'stale-cf'], 'Old-UA');
+
+        $reason = 'unset';
+        $via = null;
+        $this->assertSame('<p>chapter</p>', $fetcher->page(self::CHAPTER, $reason, $via));
+        $this->assertNull($reason);
+        $this->assertSame('flaresolverr', $via);
+        $this->assertCount(1, self::targetRequests($fetcher));
+        $this->assertCount(1, self::flareRequests($fetcher));
+        $this->assertSame(['cookies' => ['cf_clearance' => 'fresh-cf'], 'user_agent' => 'Fresh-UA'], $fetcher->clearance('a.test'));
+        $this->assertNull(Fetcher::pullRetryAfter('a.test'), "a refusal's Retry-After does not linger");
+    }
+
+    public function testRefusedPlainWithASolveThatCarriesNoClearanceLeavesNoEntry(): void
+    {
+        $fetcher = $this->fetcher([new MockResponse('', ['http_code' => 403]), self::solved('<p>chapter</p>')]);
+        $fetcher->rememberClearance('a.test', ['cf_clearance' => 'stale-cf'], 'Old-UA');
+
+        $this->assertSame('<p>chapter</p>', $fetcher->page(self::CHAPTER));
+        $this->assertNull($fetcher->clearance('a.test'));
+    }
+
+    public function testPlain404IsNotFoundWithoutFlareSolverr(): void
+    {
+        $fetcher = $this->fetcher([new MockResponse('<h1>gone</h1>', ['http_code' => 404]), self::solved('<p>never</p>')]);
+        $fetcher->rememberClearance('a.test', ['cf_clearance' => 'cf'], 'UA');
+
+        $reason = null;
+        $via = null;
+        $this->assertNull($fetcher->page(self::CHAPTER, $reason, $via));
+        $this->assertSame('http_404', $reason, 'as FlareSolverr would classify it');
+        $this->assertSame('plain', $via);
+        $this->assertCount(0, self::flareRequests($fetcher));
+        $this->assertNotNull($fetcher->clearance('a.test'), 'entry kept');
+    }
+
+    public function testPlain429IsRateLimitedWithRetryAfterAndNoFlareSolverr(): void
+    {
+        $fetcher = $this->fetcher([new MockResponse('slow', ['http_code' => 429, 'response_headers' => ['Retry-After: 120']]), self::solved('<p>never</p>')]);
+        $fetcher->rememberClearance('a.test', ['cf_clearance' => 'cf'], 'UA');
+
+        $reason = null;
+        $via = null;
+        $this->assertNull($fetcher->page(self::CHAPTER, $reason, $via));
+        $this->assertSame('rate_limited', $reason);
+        $this->assertSame('plain', $via);
+        $this->assertSame(120, Fetcher::pullRetryAfter('a.test'));
+        $this->assertCount(0, self::flareRequests($fetcher));
+        $this->assertNotNull($fetcher->clearance('a.test'), 'entry kept');
+    }
+
+    public function testClearanceExpiresAfterTheTtl(): void
+    {
+        config(['novarr.clearance_minutes' => 25]);
+        $fetcher = $this->fetcher([]);
+        $fetcher->rememberClearance('a.test', ['cf_clearance' => 'cf'], 'UA');
+
+        $this->travel(24)->minutes();
+        $this->assertNotNull($fetcher->clearance('a.test'));
+        $this->travel(2)->minutes();
+        $this->assertNull($fetcher->clearance('a.test'));
+    }
+
+    public function testTheEntryIsSharedThroughTheApplicationCache(): void
+    {
+        $this->fetcher([self::solvedWithClearance('<p>x</p>'),])->page(self::CHAPTER);
+
+        // A fresh instance (another process, in production) sees it.
+        $this->assertSame('clear-me', $this->fetcher([])->clearance('a.test')['cookies']['cf_clearance']);
+        $this->assertSame('UA/1.0', \Cache::get(Fetcher::CLEARANCE_CACHE_PREFIX . 'a.test')['user_agent']);
+    }
+
+    public function testZeroMinutesMakesPageExactlyHtml(): void
+    {
+        config(['novarr.clearance_minutes' => 0]);
+        $fetcher = $this->fetcher([self::solvedWithClearance('<p>chapter</p>'), self::solvedWithClearance('<p>chapter</p>')]);
+        $fetcher->rememberClearance('a.test', ['cf_clearance' => 'cf'], 'UA');
+        $this->assertNull($fetcher->clearance('a.test'), 'nothing stored when off');
+
+        $via = null;
+        $this->assertSame('<p>chapter</p>', $fetcher->page(self::CHAPTER, $reason, $via));
+        $this->assertSame('flaresolverr', $via);
+        $this->assertSame($fetcher->html(self::CHAPTER), '<p>chapter</p>');
+        $this->assertCount(0, self::targetRequests($fetcher), 'never plain');
+        $this->assertCount(2, self::flareRequests($fetcher));
+        $this->assertNull(\Cache::get(Fetcher::CLEARANCE_CACHE_PREFIX . 'a.test'), 'solves store nothing');
+
+        // sessionPage() is then exactly htmlWithSession().
+        $session = $this->fetcher([self::solvedWithClearance('<p>toc</p>')])->sessionPage('https://a.test/novel');
+        $this->assertSame(['html' => '<p>toc</p>', 'cf_clearance' => 'clear-me', 'user_agent' => 'UA/1.0'], $session);
+        $this->assertNull(\Cache::get(Fetcher::CLEARANCE_CACHE_PREFIX . 'a.test'));
+    }
+
+    public function testHtmlAndHtmlWithSessionRefreshTheEntry(): void
+    {
+        $fetcher = $this->fetcher([self::solvedWithClearance('<p>1</p>', 'cf-1', 'UA-1'), self::solvedWithClearance('<p>2</p>', 'cf-2', 'UA-2')]);
+
+        $fetcher->html('https://a.test/1');
+        $this->assertSame('cf-1', $fetcher->clearance('a.test')['cookies']['cf_clearance']);
+
+        $session = $fetcher->htmlWithSession('https://a.test/2');
+        $this->assertSame(['html' => '<p>2</p>', 'cf_clearance' => 'cf-2', 'user_agent' => 'UA-2'], $session, 'return value unchanged');
+        $this->assertSame(['cookies' => ['cf_clearance' => 'cf-2'], 'user_agent' => 'UA-2'], $fetcher->clearance('a.test'));
+    }
+
+    public function testSessionPageGoesPlainWithACachedEntryAndHandsItBack(): void
+    {
+        $fetcher = $this->fetcher([new MockResponse('<p>toc page 1</p>')]);
+        $fetcher->rememberClearance('a.test', ['cf_clearance' => 'cf'], 'UA');
+
+        $via = null;
+        $this->assertSame(
+            ['html' => '<p>toc page 1</p>', 'cf_clearance' => 'cf', 'user_agent' => 'UA'],
+            $fetcher->sessionPage('https://a.test/novel?page=1', $reason, $via)
+        );
+        $this->assertSame('plain', $via);
+        $this->assertCount(0, self::flareRequests($fetcher));
+    }
+
+    public function testSessionPageFallsBackAndRefreshesWhenRefused(): void
+    {
+        $fetcher = $this->fetcher([new MockResponse('', ['http_code' => 403]), self::solvedWithClearance('<p>toc</p>', 'fresh', 'Fresh-UA')]);
+        $fetcher->rememberClearance('a.test', ['cf_clearance' => 'stale'], 'Old-UA');
+
+        $via = null;
+        $this->assertSame(
+            ['html' => '<p>toc</p>', 'cf_clearance' => 'fresh', 'user_agent' => 'Fresh-UA'],
+            $fetcher->sessionPage('https://a.test/novel', $reason, $via)
+        );
+        $this->assertSame('flaresolverr', $via);
+        $this->assertSame('fresh', $fetcher->clearance('a.test')['cookies']['cf_clearance']);
     }
 }
