@@ -123,7 +123,12 @@ on_exit() {
     rm -f -- "$SCRIPT_COPY"
     # A failure between recording the rollback point and promoting it (e.g.
     # at the pull): promote only if HEAD moved, else drop it.
-    [[ $MODE == deploy ]] && settle_pending_state
+    # `|| true`: under `set -e` a non-zero return here (nothing left to
+    # settle, the normal case after a good deploy) would abort the trap and
+    # turn a successful deploy into exit status 1.
+    if [[ $MODE == deploy ]]; then
+        settle_pending_state || true
+    fi
     [[ $status -eq 0 ]] && return
 
     if [[ $IN_MAINTENANCE -eq 1 ]]; then
