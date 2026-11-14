@@ -22,6 +22,20 @@ class SearchChapterHitsTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * Library-wide search uses FULLTEXT on MySQL/MariaDB, and InnoDB's
+     * FULLTEXT index does not see rows inserted inside the uncommitted
+     * transaction RefreshDatabase wraps each test in. Those statements are
+     * checked for shape below and were run by hand against production; the
+     * behaviour around them is tested here on the LIKE path.
+     */
+    private function skipWhereFullTextCannotSeeTestRows(): void
+    {
+        if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            $this->markTestSkipped('InnoDB FULLTEXT cannot see rows from an uncommitted test transaction.');
+        }
+    }
+
     private function novel(string $name): Novel
     {
         // Group 1/3/6 have special handling elsewhere; identity is irrelevant here.
@@ -49,6 +63,8 @@ class SearchChapterHitsTest extends TestCase
 
     public function test_label_hits_come_first_then_text_hits_without_duplicates(): void
     {
+        $this->skipWhereFullTextCannotSeeTestRows();
+
         $novel = $this->novel('Zeta Chronicle');
         $textOnly = $this->chapter($novel, 1, 'Chapter 1', '<p>The dragon slept.</p>');
         $both = $this->chapter($novel, 2, 'The Dragon Wakes', '<p>A dragon roared.</p>');
@@ -64,6 +80,8 @@ class SearchChapterHitsTest extends TestCase
 
     public function test_filters_exclude_undownloaded_blacklisted_and_deleted_chapters(): void
     {
+        $this->skipWhereFullTextCannotSeeTestRows();
+
         $novel = $this->novel('Filters');
         $ok = $this->chapter($novel, 1, 'Comet one', '<p>comet</p>');
         $this->chapter($novel, 2, 'Comet queued', null);
@@ -101,6 +119,8 @@ class SearchChapterHitsTest extends TestCase
 
     public function test_simple_pagination_has_a_next_page_and_no_count_query(): void
     {
+        $this->skipWhereFullTextCannotSeeTestRows();
+
         $novel = $this->novel('Paged');
         $chapters = [];
         for ($i = 1; $i <= SearchController::PER_PAGE + 3; $i++) {
@@ -131,6 +151,8 @@ class SearchChapterHitsTest extends TestCase
 
     public function test_no_chapter_body_is_loaded_and_snippets_are_plain_text(): void
     {
+        $this->skipWhereFullTextCannotSeeTestRows();
+
         $novel = $this->novel('Snippets');
         $long = str_repeat('<p>Filler words go here.</p>', 30);
         $chapter = $this->chapter($novel, 1, 'Chapter 1', $long . '<p class="x">The <b>Phoenix</b> &amp; the sea.</p>' . $long);
@@ -160,6 +182,8 @@ class SearchChapterHitsTest extends TestCase
 
     public function test_snippet_falls_back_to_the_start_when_no_needle_is_found(): void
     {
+        $this->skipWhereFullTextCannotSeeTestRows();
+
         $novel = $this->novel('Fallback');
         $chapter = $this->chapter($novel, 1, 'Chapter 1', '<p>Opening line about rivers.</p>');
 
