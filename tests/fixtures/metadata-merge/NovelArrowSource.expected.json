@@ -1,0 +1,1976 @@
+{
+    "site=full_a nu=full_a": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "completed": true,
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_a nu=full_b": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "fully_translated": false,
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "title": "Title B",
+            "associated": [],
+            "type": "Web Novel (KR)",
+            "original_language": "Korean",
+            "tried_urls": [
+                "https://novelping.com/novel/b"
+            ],
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_a nu=empty_shape": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "completed": true,
+            "fully_translated": null,
+            "genres": [
+                "Action"
+            ],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_a nu=nulls": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "completed": true,
+            "fully_translated": null,
+            "genres": [
+                "Action"
+            ],
+            "title": null,
+            "associated": null,
+            "type": null,
+            "original_language": null,
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_a nu=absent": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ],
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "genres": [
+                "Action"
+            ],
+            "status_text": "Completed",
+            "completed": true
+        }
+    },
+    "site=full_a nu=zero_strings": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "completed": true,
+            "fully_translated": "0",
+            "genres": [
+                "0"
+            ],
+            "title": "0",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_a nu=desc_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "completed": true,
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "fully_translated": null,
+            "genres": [
+                "Action"
+            ],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_a nu=no_status": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "status_text": "Completed",
+            "completed": true,
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_a nu=media_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "genres": [
+                "Fantasy"
+            ],
+            "status_text": "Ongoing",
+            "completed": "yes",
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_b nu=full_a": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "completed": true,
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_b nu=full_b": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "fully_translated": false,
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "title": "Title B",
+            "associated": [],
+            "type": "Web Novel (KR)",
+            "original_language": "Korean",
+            "tried_urls": [
+                "https://novelping.com/novel/b"
+            ],
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_b nu=empty_shape": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "fully_translated": null,
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_b nu=nulls": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "fully_translated": null,
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "title": null,
+            "associated": null,
+            "type": null,
+            "original_language": null,
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_b nu=absent": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ],
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false
+        }
+    },
+    "site=full_b nu=zero_strings": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "fully_translated": "0",
+            "genres": [
+                "0"
+            ],
+            "title": "0",
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_b nu=desc_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "completed": false,
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "fully_translated": null,
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_b nu=no_status": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=full_b nu=media_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "genres": [
+                "Fantasy"
+            ],
+            "status_text": "Ongoing",
+            "completed": "yes",
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=empty_shape nu=full_a": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "completed": true,
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=empty_shape nu=full_b": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "fully_translated": false,
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "title": "Title B",
+            "associated": [],
+            "type": "Web Novel (KR)",
+            "original_language": "Korean",
+            "tried_urls": [
+                "https://novelping.com/novel/b"
+            ],
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=empty_shape nu=empty_shape": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "",
+            "author": "",
+            "no_of_chapters": 0,
+            "image": "",
+            "status_text": "",
+            "completed": false,
+            "fully_translated": null,
+            "genres": [],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=empty_shape nu=nulls": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": null,
+            "author": null,
+            "no_of_chapters": null,
+            "image": null,
+            "status_text": null,
+            "completed": null,
+            "fully_translated": null,
+            "genres": null,
+            "title": null,
+            "associated": null,
+            "type": null,
+            "original_language": null,
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=empty_shape nu=absent": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=empty_shape nu=zero_strings": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "0",
+            "author": "0",
+            "no_of_chapters": "0",
+            "image": "0",
+            "status_text": "0",
+            "completed": true,
+            "fully_translated": "0",
+            "genres": [
+                "0"
+            ],
+            "title": "0",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=empty_shape nu=desc_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "completed": true,
+            "author": "",
+            "no_of_chapters": 0,
+            "image": "",
+            "status_text": "",
+            "fully_translated": null,
+            "genres": [],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=empty_shape nu=no_status": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "status_text": "",
+            "completed": false,
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=empty_shape nu=media_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "",
+            "author": null,
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "genres": [
+                "Fantasy"
+            ],
+            "status_text": "Ongoing",
+            "completed": "yes",
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=nulls nu=full_a": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "completed": true,
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=nulls nu=full_b": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "fully_translated": false,
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "title": "Title B",
+            "associated": [],
+            "type": "Web Novel (KR)",
+            "original_language": "Korean",
+            "tried_urls": [
+                "https://novelping.com/novel/b"
+            ],
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=nulls nu=empty_shape": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "",
+            "author": "",
+            "no_of_chapters": 0,
+            "image": "",
+            "status_text": "",
+            "completed": false,
+            "fully_translated": null,
+            "genres": [],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=nulls nu=nulls": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": null,
+            "author": null,
+            "no_of_chapters": null,
+            "image": null,
+            "status_text": null,
+            "completed": null,
+            "fully_translated": null,
+            "genres": null,
+            "title": null,
+            "associated": null,
+            "type": null,
+            "original_language": null,
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=nulls nu=absent": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=nulls nu=zero_strings": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "0",
+            "author": "0",
+            "no_of_chapters": "0",
+            "image": "0",
+            "status_text": "0",
+            "completed": true,
+            "fully_translated": "0",
+            "genres": [
+                "0"
+            ],
+            "title": "0",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=nulls nu=desc_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "completed": true,
+            "author": "",
+            "no_of_chapters": 0,
+            "image": "",
+            "status_text": "",
+            "fully_translated": null,
+            "genres": [],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=nulls nu=no_status": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "status_text": "",
+            "completed": false,
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=nulls nu=media_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "",
+            "author": null,
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "genres": [
+                "Fantasy"
+            ],
+            "status_text": "Ongoing",
+            "completed": "yes",
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=absent nu=full_a": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "completed": true,
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=absent nu=full_b": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "fully_translated": false,
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "title": "Title B",
+            "associated": [],
+            "type": "Web Novel (KR)",
+            "original_language": "Korean",
+            "tried_urls": [
+                "https://novelping.com/novel/b"
+            ],
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=absent nu=empty_shape": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "",
+            "author": "",
+            "no_of_chapters": 0,
+            "image": "",
+            "status_text": "",
+            "completed": false,
+            "fully_translated": null,
+            "genres": [],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=absent nu=nulls": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": null,
+            "author": null,
+            "no_of_chapters": null,
+            "image": null,
+            "status_text": null,
+            "completed": null,
+            "fully_translated": null,
+            "genres": null,
+            "title": null,
+            "associated": null,
+            "type": null,
+            "original_language": null,
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=absent nu=absent": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=absent nu=zero_strings": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "0",
+            "author": "0",
+            "no_of_chapters": "0",
+            "image": "0",
+            "status_text": "0",
+            "completed": true,
+            "fully_translated": "0",
+            "genres": [
+                "0"
+            ],
+            "title": "0",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=absent nu=desc_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "completed": true,
+            "author": "",
+            "no_of_chapters": 0,
+            "image": "",
+            "status_text": "",
+            "fully_translated": null,
+            "genres": [],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=absent nu=no_status": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "status_text": "",
+            "completed": false,
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=absent nu=media_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "",
+            "author": null,
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "genres": [
+                "Fantasy"
+            ],
+            "status_text": "Ongoing",
+            "completed": "yes",
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=zero_strings nu=full_a": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "completed": true,
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=zero_strings nu=full_b": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "fully_translated": false,
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "title": "Title B",
+            "associated": [],
+            "type": "Web Novel (KR)",
+            "original_language": "Korean",
+            "tried_urls": [
+                "https://novelping.com/novel/b"
+            ],
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=zero_strings nu=empty_shape": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "",
+            "author": "",
+            "no_of_chapters": 0,
+            "image": "",
+            "status_text": "",
+            "completed": false,
+            "fully_translated": null,
+            "genres": [
+                "0"
+            ],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=zero_strings nu=nulls": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": null,
+            "author": null,
+            "no_of_chapters": null,
+            "image": null,
+            "status_text": null,
+            "completed": null,
+            "fully_translated": null,
+            "genres": [
+                "0"
+            ],
+            "title": null,
+            "associated": null,
+            "type": null,
+            "original_language": null,
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=zero_strings nu=absent": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ],
+            "genres": [
+                "0"
+            ]
+        }
+    },
+    "site=zero_strings nu=zero_strings": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "0",
+            "author": "0",
+            "no_of_chapters": "0",
+            "image": "0",
+            "status_text": "0",
+            "completed": true,
+            "fully_translated": "0",
+            "genres": [
+                "0"
+            ],
+            "title": "0",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=zero_strings nu=desc_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "completed": true,
+            "author": "",
+            "no_of_chapters": 0,
+            "image": "",
+            "status_text": "",
+            "fully_translated": null,
+            "genres": [
+                "0"
+            ],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=zero_strings nu=no_status": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "status_text": "",
+            "completed": false,
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=zero_strings nu=media_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "",
+            "author": null,
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "genres": [
+                "Fantasy"
+            ],
+            "status_text": "Ongoing",
+            "completed": "yes",
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=desc_only nu=full_a": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "completed": true,
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=desc_only nu=full_b": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "fully_translated": false,
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "title": "Title B",
+            "associated": [],
+            "type": "Web Novel (KR)",
+            "original_language": "Korean",
+            "tried_urls": [
+                "https://novelping.com/novel/b"
+            ],
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=desc_only nu=empty_shape": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "author": "",
+            "no_of_chapters": 0,
+            "image": "",
+            "status_text": "",
+            "completed": false,
+            "fully_translated": null,
+            "genres": [],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=desc_only nu=nulls": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "author": null,
+            "no_of_chapters": null,
+            "image": null,
+            "status_text": null,
+            "completed": null,
+            "fully_translated": null,
+            "genres": null,
+            "title": null,
+            "associated": null,
+            "type": null,
+            "original_language": null,
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=desc_only nu=absent": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ],
+            "description": "Desc P"
+        }
+    },
+    "site=desc_only nu=zero_strings": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "author": "0",
+            "no_of_chapters": "0",
+            "image": "0",
+            "status_text": "0",
+            "completed": true,
+            "fully_translated": "0",
+            "genres": [
+                "0"
+            ],
+            "title": "0",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=desc_only nu=desc_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "completed": true,
+            "author": "",
+            "no_of_chapters": 0,
+            "image": "",
+            "status_text": "",
+            "fully_translated": null,
+            "genres": [],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=desc_only nu=no_status": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "status_text": "",
+            "completed": false,
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=desc_only nu=media_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "author": null,
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "genres": [
+                "Fantasy"
+            ],
+            "status_text": "Ongoing",
+            "completed": "yes",
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=no_status nu=full_a": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "completed": true,
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=no_status nu=full_b": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "fully_translated": false,
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "title": "Title B",
+            "associated": [],
+            "type": "Web Novel (KR)",
+            "original_language": "Korean",
+            "tried_urls": [
+                "https://novelping.com/novel/b"
+            ],
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=no_status nu=empty_shape": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "",
+            "completed": false,
+            "fully_translated": null,
+            "genres": [
+                "Action"
+            ],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=no_status nu=nulls": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": null,
+            "completed": null,
+            "fully_translated": null,
+            "genres": [
+                "Action"
+            ],
+            "title": null,
+            "associated": null,
+            "type": null,
+            "original_language": null,
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=no_status nu=absent": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ],
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "genres": [
+                "Action"
+            ]
+        }
+    },
+    "site=no_status nu=zero_strings": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "0",
+            "completed": true,
+            "fully_translated": "0",
+            "genres": [
+                "0"
+            ],
+            "title": "0",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=no_status nu=desc_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "completed": true,
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "",
+            "fully_translated": null,
+            "genres": [
+                "Action"
+            ],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=no_status nu=no_status": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "status_text": "",
+            "completed": false,
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=no_status nu=media_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "genres": [
+                "Fantasy"
+            ],
+            "status_text": "Ongoing",
+            "completed": "yes",
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=media_only nu=full_a": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "status_text": "Completed",
+            "completed": true,
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=media_only nu=full_b": {
+        "fetches": [
+            "novelupdates"
+        ],
+        "result": {
+            "description": "Desc B",
+            "author": "Author B",
+            "no_of_chapters": "250",
+            "image": "https://b.test/b.jpg",
+            "status_text": "12 Chapters (Ongoing)",
+            "completed": false,
+            "fully_translated": false,
+            "genres": [
+                "Drama",
+                "Romance"
+            ],
+            "title": "Title B",
+            "associated": [],
+            "type": "Web Novel (KR)",
+            "original_language": "Korean",
+            "tried_urls": [
+                "https://novelping.com/novel/b"
+            ],
+            "cover_candidates": [
+                "https://b.test/b.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=media_only nu=empty_shape": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "",
+            "author": "",
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "status_text": "Ongoing",
+            "completed": true,
+            "fully_translated": null,
+            "genres": [
+                "Fantasy"
+            ],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=media_only nu=nulls": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": null,
+            "author": null,
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "status_text": "Ongoing",
+            "completed": true,
+            "fully_translated": null,
+            "genres": [
+                "Fantasy"
+            ],
+            "title": null,
+            "associated": null,
+            "type": null,
+            "original_language": null,
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=media_only nu=absent": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ],
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "genres": [
+                "Fantasy"
+            ],
+            "status_text": "Ongoing",
+            "completed": true
+        }
+    },
+    "site=media_only nu=zero_strings": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "0",
+            "author": "0",
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "status_text": "Ongoing",
+            "completed": true,
+            "fully_translated": "0",
+            "genres": [
+                "0"
+            ],
+            "title": "0",
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=media_only nu=desc_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "Desc P",
+            "completed": true,
+            "author": "",
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "status_text": "Ongoing",
+            "fully_translated": null,
+            "genres": [
+                "Fantasy"
+            ],
+            "title": "",
+            "associated": [],
+            "type": "",
+            "original_language": "",
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=media_only nu=no_status": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "status_text": "Ongoing",
+            "completed": true,
+            "description": "Desc A",
+            "author": "Author A",
+            "no_of_chapters": 100,
+            "image": "https://a.test/a.jpg",
+            "fully_translated": true,
+            "genres": [
+                "Action"
+            ],
+            "title": "Title A",
+            "associated": [
+                "Alias A"
+            ],
+            "type": "Web Novel (CN)",
+            "original_language": "Chinese",
+            "extra_a": "only on A",
+            "cover_candidates": [
+                "https://a.test/a.jpg",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    },
+    "site=media_only nu=media_only": {
+        "fetches": [
+            "novelupdates",
+            "site"
+        ],
+        "result": {
+            "description": "",
+            "author": null,
+            "no_of_chapters": 7,
+            "image": "https://m.test/m.png",
+            "genres": [
+                "Fantasy"
+            ],
+            "status_text": "Ongoing",
+            "completed": "yes",
+            "cover_candidates": [
+                "https://m.test/m.png",
+                "https://images.novelping.com/novel/some-novel.jpg"
+            ]
+        }
+    }
+}

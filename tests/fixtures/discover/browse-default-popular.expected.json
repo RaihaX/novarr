@@ -1,0 +1,14 @@
+{
+    "status": 200,
+    "json": {
+        "success": true,
+        "items": [],
+        "hidden": 3
+    },
+    "fetches": [
+        {
+            "method": "json",
+            "url": "https://novelping.com/api-web/novels?status=all&sort=POPULAR&limit=40&page=1&genre=ALL"
+        }
+    ]
+}

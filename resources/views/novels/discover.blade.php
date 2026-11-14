@@ -16,9 +16,9 @@
 
 <div class="filter-bar mb-4">
     <select id="discoverSource" class="form-select" aria-label="Source">
-        <option value="novelarrow">NovelPing (novelarrow)</option>
-        <option value="empirenovel">empirenovel.com</option>
-        <option value="novelfull">novelfull.com</option>
+@foreach ($sources as $key => $option)
+        <option value="{{ $key }}">{{ $option['label'] }}</option>
+@endforeach
     </select>
     <div class="btn-group segmented" role="group" aria-label="Browse mode" id="discoverTabs">
         <button type="button" class="btn btn-secondary discover-tab active" data-type="popular">Popular</button>
@@ -68,7 +68,9 @@
 
     const source = () => sourceEl.value;
     // Host shown for each source key ("novelarrow" now lives on novelping.com).
-    const SOURCE_HOST = @json(['novelarrow' => novelArrowHost(), 'empirenovel' => 'empirenovel.com', 'novelfull' => 'novelfull.com']);
+    const SOURCE_HOST = @json($sourceHosts);
+    // Lists each source offers (search / popular / completed).
+    const SOURCE_LISTS = @json($sourceLists);
     const sourceHost = () => SOURCE_HOST[source()] || `${source()}.com`;
     const hiddenEl = document.getElementById('discoverHidden');
 
@@ -354,10 +356,10 @@
         loadList('search', q);
     });
 
-    // Only novelarrow has browse lists; other sources are search-only.
+    // Sources without browse lists are search-only.
     sourceEl.addEventListener('change', () => {
         const src = source();
-        const searchOnly = src !== 'novelarrow';
+        const searchOnly = !(SOURCE_LISTS[src] || []).includes('popular');
         tabsEl.classList.toggle('d-none', searchOnly);
         document.getElementById('discoverQuery').placeholder = `Search ${sourceHost()}…`;
         document.getElementById('discoverQuery').value = '';

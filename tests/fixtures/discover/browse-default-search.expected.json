@@ -1,0 +1,45 @@
+{
+    "status": 200,
+    "json": {
+        "success": true,
+        "items": [
+            {
+                "name": "Shadow Slave",
+                "url": "https://novelping.com/novel/shadow-slave",
+                "cover": "https://images.novelping.com/novel/shadow-slave.jpg",
+                "cover_thumb": "",
+                "author": "Guiltythree",
+                "description": "Growing up in poverty. Sunny.",
+                "status": "Ongoing",
+                "chapters": 3207,
+                "in_library": true
+            },
+            {
+                "name": "Lord of the Mysteries",
+                "url": "https://novelping.com/novel/lord-of-the-mysteries",
+                "cover": "https://images.novelping.com/novel/lord-of-the-mysteries.jpg",
+                "cover_thumb": "",
+                "author": "Cuttlefish",
+                "description": "",
+                "status": "Completed",
+                "in_library": true
+            },
+            {
+                "name": "A Free Novel",
+                "url": "https://novelping.com/novel/free-novel",
+                "cover": "https://images.novelping.com/novel/free-novel.jpg",
+                "cover_thumb": "",
+                "author": "Someone",
+                "description": "",
+                "in_library": true
+            }
+        ],
+        "hidden": 0
+    },
+    "fetches": [
+        {
+            "method": "json",
+            "url": "https://novelping.com/api-web/novels?status=all&sort=SEARCH_KEYWORD&keyword=shadow+slave&limit=40&page=1&genre=ALL"
+        }
+    ]
+}
