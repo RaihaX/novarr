@@ -316,15 +316,14 @@ class HomeController extends Controller
         // Abandoned mid-chapter? Resume it exactly where the reader left off
         // (read_progress syncs from the reader on every device): the most
         // recently read such chapter per novel, all novels in one query.
-        $inProgress = $this->firstPerNovel(
-            NovelChapter::whereIn('novel_id', $novelIds)
-                ->where('status', 1)->where('blacklist', 0)
-                ->whereNotNull('read_at')
-                ->whereNotNull('read_progress')
-                ->where('read_progress', '<', 90),
-            'read_at DESC, id DESC',
-            ['id', 'novel_id', 'chapter', 'label', 'read_progress']
-        );
+        $inProgress = NovelHealth::firstPerNovel($novelIds, fn($q) => $q
+            ->where('status', 1)->where('blacklist', 0)
+            ->whereNotNull('read_at')
+            ->whereNotNull('read_progress')
+            ->where('read_progress', '<', 90)
+            ->select(['id', 'novel_id', 'chapter', 'label', 'read_progress'])
+            ->orderByDesc('read_at')
+            ->orderByDesc('id'));
 
         // Otherwise the first unread in reading order.
         $next = $this->firstUnread($novelIds, ['id', 'novel_id', 'chapter', 'label']);
@@ -353,39 +352,19 @@ class HomeController extends Controller
     }
 
     /**
-     * Each novel's first downloaded, unread chapter in reading order.
+     * Each novel's first downloaded, unread chapter in reading order (one
+     * statement for all novels, see NovelHealth::firstPerNovel()).
      *
      * @param  int[]  $novelIds
      * @return \Illuminate\Support\Collection<int, NovelChapter>  keyed by novel_id
      */
     private function firstUnread(array $novelIds, array $columns)
     {
-        return $this->firstPerNovel(
-            NovelChapter::whereIn('novel_id', $novelIds)
-                ->where('status', 1)->where('blacklist', 0)
-                ->whereNull('read_at'),
+        return NovelHealth::firstPerNovel($novelIds, fn($q) => $q
+            ->where('status', 1)->where('blacklist', 0)
+            ->whereNull('read_at')
+            ->select($columns)
             // Exactly NovelChapter::scopeOrdered().
-            'book, sort_key, chapter, id',
-            $columns
-        );
-    }
-
-    /**
-     * The top row per novel of $query under $orderBy, for many novels in one
-     * query (ROW_NUMBER() — MariaDB 10.2+ / SQLite 3.25+) instead of one
-     * first() per novel.
-     *
-     * @return \Illuminate\Support\Collection<int, NovelChapter>  keyed by novel_id
-     */
-    private function firstPerNovel($query, string $orderBy, array $columns)
-    {
-        $ranked = $query->select($columns)
-            ->selectRaw("ROW_NUMBER() OVER (PARTITION BY novel_id ORDER BY {$orderBy}) as rn");
-
-        return NovelChapter::withoutGlobalScopes()
-            ->fromSub($ranked, 'ranked')
-            ->where('rn', 1)
-            ->get($columns)
-            ->keyBy('novel_id');
+            ->ordered());
     }
 }

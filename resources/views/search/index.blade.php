@@ -61,12 +61,14 @@
     @endif
 
     <section class="search-section" aria-labelledby="searchChaptersTitle">
-        <h2 class="search-section-title" id="searchChaptersTitle">In chapters @if($paginator)<span class="count-chip">{{ number_format($paginator->total()) }}</span>@endif</h2>
+        {{-- Simple pagination: no total is counted (a COUNT over FULLTEXT hits took seconds), so a count shows only when every hit fits on this one page. --}}
+        @php $exactCount = $paginator && $paginator->onFirstPage() && !$paginator->hasMorePages(); @endphp
+        <h2 class="search-section-title" id="searchChaptersTitle">In chapters @if($exactCount)<span class="count-chip">{{ number_format($results->count()) }}</span>@endif</h2>
 
         @if($results->isEmpty())
             <p class="mono-muted mb-3">No chapter text matched &ldquo;{{ $q }}&rdquo;.</p>
         @else
-            <p class="mono-muted mb-3">{{ number_format($paginator->total()) }} matching chapter(s){{ $novelFilter ? '' : ' across ' . $grouped->count() . ' novel(s) on this page' }}</p>
+            <p class="mono-muted mb-3">@if($exactCount){{ number_format($results->count()) }} matching chapter(s)@else Matches {{ number_format($paginator->firstItem()) }}–{{ number_format($paginator->firstItem() + $results->count() - 1) }}@endif{{ $novelFilter ? '' : ' across ' . $grouped->count() . ' novel(s) on this page' }}{{ $paginator->hasMorePages() ? ' · more on the next page' : '' }}</p>
 
             @foreach($grouped as $novelName => $rows)
                 <div class="card stack-card mb-3">
