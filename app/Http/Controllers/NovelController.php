@@ -592,7 +592,7 @@ class NovelController extends Controller
     public function bulk(Request $request)
     {
         $data = $request->validate([
-            'action' => 'required|in:delete,complete',
+            'action' => 'required|in:delete,complete,read',
             'ids' => 'required|array|min:1',
             'ids.*' => 'integer|exists:novels,id',
         ]);
@@ -602,6 +602,18 @@ class NovelController extends Controller
             // find()/delete() pair per id.
             NovelChapter::whereIn('novel_id', $data['ids'])->delete();
             Novel::whereIn('id', $data['ids'])->delete();
+        } elseif ($data['action'] === 'read') {
+            // Every chapter of the selected novels becomes read. Chapters
+            // already read keep their original timestamp, so reading stats
+            // for earlier days are not rewritten.
+            $marked = NovelChapter::whereIn('novel_id', $data['ids'])
+                ->where('blacklist', 0)
+                ->whereNull('read_at')
+                ->update([
+                    'read_at' => now(),
+                    'read_progress' => 100,
+                    'read_progress_at' => now(),
+                ]);
         } else {
             Novel::whereIn('id', $data['ids'])
                 ->where('status', 0)
@@ -615,7 +627,11 @@ class NovelController extends Controller
         Cache::forget('dashboard_stats');
         Cache::forget('dashboard_attention');
 
-        return response()->json(['success' => true, 'count' => count($data['ids'])]);
+        return response()->json(array_filter([
+            'success' => true,
+            'count' => count($data['ids']),
+            'chapters' => $marked ?? null,
+        ], fn($v) => $v !== null));
     }
 
     /**

@@ -352,7 +352,17 @@ $bp-table-collapse: 900px;
 
 @media (min-width: $bp-table-collapse) {
     .novels-list { display: none; }
-    .novels-table { display: block; }
+    // The page is the only thing that scrolls. Bootstrap's .table-responsive
+    // sets overflow-x: auto, which also makes the box scroll vertically; a
+    // one pixel rounding overflow was enough for it to swallow the wheel.
+    .novels-table { display: block; overflow: visible; }
+}
+
+// Between the collapse width and a full desktop the table is wider than the
+// panel; drop the author column so it never needs to scroll sideways.
+@media (min-width: $bp-table-collapse) and (max-width: 1179.98px) {
+    .table-novels th.col-author,
+    .table-novels td.col-author { display: none; }
 }
 
 // Bulk-selection bar, shown once a row is checked.
