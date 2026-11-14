@@ -495,6 +495,15 @@
 
     > .badge { flex: none; }
 
+    // Total chapters, pushed to the end of the line; never truncated.
+    .disc-chapters {
+        flex: none;
+        margin-left: auto;
+        font-family: $font-mono;
+        color: $text-soft;
+        white-space: nowrap;
+    }
+
     .disc-author {
         min-width: 0;
         max-width: 100%;

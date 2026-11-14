@@ -252,6 +252,17 @@
             pill.textContent = item.status;
             meta.appendChild(pill);
         }
+        // Total chapters, when the source reports it. (The typographic cover
+        // also carries it, but a real cover image hides that.)
+        if (item.chapters) {
+            const n = Number(item.chapters).toLocaleString();
+            const chapters = document.createElement('span');
+            chapters.className = 'disc-chapters';
+            chapters.textContent = `${n} ch`;
+            chapters.title = `${n} chapters`;
+            chapters.setAttribute('aria-label', `${n} chapters`);
+            meta.appendChild(chapters);
+        }
 
         // Synopsis: clamped to three lines, expandable when there's more.
         // The search-only sources may return none — the block is dropped.
