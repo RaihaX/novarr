@@ -5,9 +5,7 @@ name: Publish Docker image
 # master, version tags and manual runs only) builds the Novarr application
 # image and pushes it to the GitHub Container Registry (GHCR) so the one-click
 # stack can pull a prebuilt image instead of building locally. The image is
-# only published once both jobs have passed. The published image targets
-# linux/amd64 (Proxmox / typical x86 hosts); a local build picks the
-# RoadRunner binary for its own architecture.
+# only published once both jobs have passed, for linux/amd64 and linux/arm64.
 
 on:
   push:
@@ -40,11 +38,10 @@ jobs:
           # The suite as developers run it: phpunit.xml's sqlite :memory:.
           - db: sqlite
             experimental: false
-          # Same suite against the production engine, so migrations run on
-          # MariaDB. Never run before this workflow existed, so it is allowed
-          # to fail until it has been seen green (drop continue-on-error then).
+          # Same suite against the production engine, so migrations and the
+          # raw SQL run on MariaDB.
           - db: mariadb
-            experimental: true
+            experimental: false
     continue-on-error: ${{ matrix.experimental }}
 
     services:
@@ -149,8 +146,18 @@ jobs:
 
   # What a new user does: clone, `docker compose up -d --build`, open the app.
   stack:
-    name: Docker stack boots
-    runs-on: ubuntu-latest
+    name: Docker stack boots (${{ matrix.arch }})
+    # Built and booted natively on both architectures: x86 hosts, and
+    # Apple Silicon / ARM boards.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -220,6 +227,13 @@ jobs:
         id: img
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/novarr" >> "$GITHUB_OUTPUT"
 
+      # arm64 is built under emulation here; the stack job above has already
+      # built and booted it natively.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -244,7 +258,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
