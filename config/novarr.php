@@ -184,6 +184,11 @@ return [
     'defaults' => [
         'scrape_min_delay' => 30,
         'scrape_max_delay' => 90,
+        // Adaptive per-host pace (App\Scraping\HostPace): speeds a host up
+        // after clean requests down to scrape_fastest_delay, backs off by
+        // itself on a rate limit. Off = the plain random min..max delay.
+        'scrape_adaptive' => true,
+        'scrape_fastest_delay' => 15,
         'min_chapter_words' => 250,
         // 0 = no per-novel cap.
         'max_chapters_per_novel_per_run' => 25,

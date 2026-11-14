@@ -10,12 +10,27 @@ use Illuminate\Support\Facades\Schema;
 use App\Novel;
 use App\Mail\NewChapters;
 use App\Scraping\Fetcher;
+use App\Scraping\HostPace;
+use App\Scraping\SourceUnavailable;
+use App\Services\NovelHealth;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class ChapterScraper extends Command
 {
     /** Consecutive blocking failures (cloudflare / fetch_failed / rate_limited) that stop a novel for the run. */
     public const CIRCUIT_BREAKER_THRESHOLD = 3;
+
+    /**
+     * Consecutive content failures (not_found / no_content / short_content)
+     * that end a novel for the run and park its content-failed chapters
+     * (see SourceUnavailable). Neither cools the host down nor feeds the
+     * blocking breaker.
+     */
+    public const CONTENT_CIRCUIT_THRESHOLD = 3;
+
+    /** Reading within this many days moves a novel up the sweep order. */
+    public const READING_RECENT_DAYS = 30;
 
     /** How long a host stays skipped after a Cloudflare challenge (or a rate limit without Retry-After). */
     public const HOST_COOLDOWN_MINUTES = 15;
@@ -57,6 +72,9 @@ class ChapterScraper extends Command
     /** Cached Schema::hasColumn('novel_chapters', 'sort_key'). */
     private static ?bool $hasSortKey = null;
 
+    /** Per-host request pace for this run (resolved in handle()). */
+    private ?HostPace $pace = null;
+
     protected $signature = "novel:chapter {novel=0} {--chapter= : Download a single chapter by its id}";
     protected $description = "Scrape new chapters for each novel.";
 
@@ -78,6 +96,8 @@ class ChapterScraper extends Command
 
     public function handle()
     {
+        $this->pace = app(HostPace::class);
+
         if ($this->option("chapter")) {
             return $this->scrapeSingleChapter((int) $this->option("chapter"));
         }
@@ -179,6 +199,7 @@ class ChapterScraper extends Command
         // Novels that have waited longest for a successful download go first
         // (never-downloaded novels sort first: NULL is lowest), so a long run
         // can't starve the same novels every time. Falls back to updated_at.
+        // The sweep then re-sorts this order (sweepOrder()).
         $lastDownload = \App\NovelChapter::selectRaw("MAX(download_date)")
             ->whereColumn("novel_chapters.novel_id", "novels.id")
             ->where("status", 1);
@@ -203,6 +224,8 @@ class ChapterScraper extends Command
             return $newChapters;
         }
 
+        $ids = $this->sweepOrder($ids->all());
+
         // Per-novel cap for the sweep so one huge backlog can't hog a run.
         // <= 0 disables the cap.
         $cap = (int) setting("max_chapters_per_novel_per_run", 25);
@@ -219,10 +242,87 @@ class ChapterScraper extends Command
     }
 
     /**
+     * The automatic sweep's novel order, from the oldest-download-first $ids:
+     *  (a) novels with at least one due never-tried chapter (attempts = 0,
+     *      next_attempt_at NULL) before novels whose due chapters are all
+     *      retries, so fresh chapters are not queued behind dead ones;
+     *  (b) within each group, novels read in the last READING_RECENT_DAYS
+     *      days first, most recently read first;
+     *  (c) then the incoming order.
+     * Two cheap queries over all candidates (never one per novel): a UNION
+     * ALL of `LIMIT 1` probes on idx_novel_pending_due, and one grouped
+     * MAX(read_at) range read on idx_novel_read.
+     *
+     * @param  int[]  $ids
+     * @return int[]
+     */
+    private function sweepOrder(array $ids): array
+    {
+        $ids = array_values(array_map('intval', $ids));
+        if (count($ids) < 2) {
+            return $ids;
+        }
+
+        $fresh = NovelHealth::firstPerNovel($ids, fn($q) => $q
+            ->where("status", 0)
+            ->where("blacklist", 0)
+            ->where("attempts", 0)
+            ->whereNull("next_attempt_at")
+            ->select(["id", "novel_id"]))
+            ->keys()
+            ->map(fn($id) => (int) $id)
+            ->flip()
+            ->all();
+
+        $lastRead = DB::table("novel_chapters")
+            ->whereIn("novel_id", $ids)
+            ->where("read_at", ">=", Carbon::now()->subDays(self::READING_RECENT_DAYS))
+            ->groupBy("novel_id")
+            ->selectRaw("novel_id, MAX(read_at) as last_read")
+            ->pluck("last_read", "novel_id")
+            ->mapWithKeys(fn($at, $id) => [(int) $id => Carbon::parse($at)->getTimestamp()])
+            ->all();
+
+        return self::orderSweep($ids, $fresh, $lastRead);
+    }
+
+    /**
+     * The pure part of sweepOrder(): stable sort of $ids by (has a fresh
+     * chapter, read recently, most recent read), keeping the incoming order
+     * for ties.
+     *
+     * @param  int[]  $ids
+     * @param  array<int, mixed>  $fresh  novel id => anything, for novels with a due never-tried chapter
+     * @param  array<int, int>  $lastRead  novel id => Unix time of the latest recent read
+     * @return int[]
+     */
+    public static function orderSweep(array $ids, array $fresh, array $lastRead): array
+    {
+        $position = array_flip($ids);
+        usort($ids, function (int $a, int $b) use ($fresh, $lastRead, $position) {
+            return [
+                isset($fresh[$a]) ? 0 : 1,
+                isset($lastRead[$a]) ? 0 : 1,
+                -($lastRead[$a] ?? 0),
+                $position[$a],
+            ] <=> [
+                isset($fresh[$b]) ? 0 : 1,
+                isset($lastRead[$b]) ? 0 : 1,
+                -($lastRead[$b] ?? 0),
+                $position[$b],
+            ];
+        });
+
+        return $ids;
+    }
+
+    /**
      * The scheduled sweep. The politeness delay is per host: each host has a
      * nextAllowedAt, and the loop always works the novel whose host is
-     * ready soonest, so while one host waits out its 30–90 s the others are
-     * fetched. Within a host novels run one after another in the
+     * ready soonest, so while one host waits out its delay (HostPace: the
+     * adaptive per-host pace, or the plain random min..max) the others are
+     * fetched. The short failure pause across hosts follows only blocking
+     * failures; a content failure (404 / empty) just follows the host pace. Within a host novels run one after another in the
      * oldest-download-first order of $ids, so per novel every rule of the
      * sequential loop still holds (cap, backoff, rotation, circuit breaker,
      * host cooldown at novel start). Single process: it only ever sleeps
@@ -244,8 +344,6 @@ class ChapterScraper extends Command
             $queues[self::chapterHost($first, $novel) ?? ""][] = $id;
         }
 
-        $min = max(1, (int) setting("scrape_min_delay", 30));
-        $max = max($min, (int) setting("scrape_max_delay", 90));
         $failureDelay = self::failureDelaySeconds((int) setting("scrape_min_delay", 30));
 
         $current = [];       // host => run state of the novel being worked
@@ -327,7 +425,7 @@ class ChapterScraper extends Command
                     $result = null;
                     // The throw may have come after the request was sent:
                     // the host still gets its politeness delay.
-                    $nextAllowedAt[$host] = $this->clock() + rand($min, $max);
+                    $nextAllowedAt[$host] = $this->clock() + $this->hostPace()->delay($host !== "" ? $host : null);
                 }
 
                 if ($result === null) {
@@ -337,8 +435,9 @@ class ChapterScraper extends Command
                 }
 
                 if ($result["fetched"]) {
-                    $nextAllowedAt[$host] = $this->clock() + rand($min, $max);
-                    if (!$result["ok"] && $failureDelay > 0 && !self::circuitOpen($run->consecutiveBlocked)) {
+                    $nextAllowedAt[$host] = $this->clock() + $this->hostPace()->delay($host !== "" ? $host : null);
+                    if (!$result["ok"] && self::isBlockingFailure($result["category"])
+                        && $failureDelay > 0 && !self::circuitOpen($run->consecutiveBlocked)) {
                         $notBefore = $this->clock() + $failureDelay;
                     }
                 }
@@ -371,23 +470,24 @@ class ChapterScraper extends Command
                     continue;
                 }
 
-                if ($result["ok"]) {
-                    // Polite, human-like delay between chapters. Range is
-                    // configurable from Settings (defaults 30–90s).
-                    $min = max(1, (int) setting('scrape_min_delay', 30));
-                    $max = max($min, (int) setting('scrape_max_delay', 90));
-                    $readingDelay = rand($min, $max);
-                    Log::info("Waiting {$readingDelay} seconds before next chapter...");
-                    $this->info("  Waiting {$readingDelay} seconds before next chapter...");
-                    $this->pause($readingDelay);
-                } else {
-                    // Failures used to loop with no pause at all — a blocked
-                    // source got hammered. Short back-off before the next try.
-                    $failureDelay = self::failureDelaySeconds((int) setting('scrape_min_delay', 30));
-                    if ($failureDelay > 0 && !self::circuitOpen($run->consecutiveBlocked)) {
-                        $this->info("  Waiting {$failureDelay} seconds after failure...");
-                        $this->pause($failureDelay);
-                    }
+                $blocking = !$result["ok"] && self::isBlockingFailure($result["category"]);
+                if (!$result["ok"] && (self::circuitOpen($run->consecutiveBlocked) || $run->contentTripped)) {
+                    // A breaker just opened: the next step() ends the run.
+                    continue;
+                }
+
+                // Polite delay before the next chapter: the host's pace
+                // (HostPace; the plain random min..max with adaptive off).
+                // A content failure (404 / empty) follows the same pace; a
+                // blocking failure waits at least the failure pause.
+                $delay = $this->hostPace()->delay($run->host);
+                if ($blocking) {
+                    $delay = max($delay, self::failureDelaySeconds((int) setting('scrape_min_delay', 30)));
+                }
+                if ($delay > 0) {
+                    Log::info("Waiting {$delay} seconds before next chapter...");
+                    $this->info("  Waiting {$delay} seconds before next chapter...");
+                    $this->pause($delay);
                 }
             }
         } catch (\Throwable $e) {
@@ -447,6 +547,10 @@ class ChapterScraper extends Command
             "failed" => 0,
             // Consecutive blocking results for this novel.
             "consecutiveBlocked" => 0,
+            // Consecutive content failures (404 / empty / stub) and whether
+            // they ended the novel (parked its chapters) this run.
+            "consecutiveContent" => 0,
+            "contentTripped" => false,
             "stats" => self::emptyStats(),
             // Resolved once per novel — the acceptance helper stays pure.
             "minWords" => (int) setting("min_chapter_words", 250),
@@ -469,12 +573,13 @@ class ChapterScraper extends Command
             // explicit run (the novel page's Download button) is the user
             // asking for them now, so it ignores the schedule.
             ->when($sweep, fn($q) => $q->where(fn($d) => self::whereDue($d)))
-            // Never-tried chapters first, then the ones that have waited
-            // longest since their last attempt, so a few dead or stub
-            // chapters at the front can't fill the cap on every run and
-            // starve the rest. Portable NULLS FIRST.
-            ->orderByRaw("last_attempt_at IS NOT NULL")
-            ->orderBy("last_attempt_at")
+            // Never-failed chapters (attempts = 0) first, in chapter order;
+            // then previously failed ones, those that have waited longest
+            // since their last attempt first. Dead or stub chapters can then
+            // neither fill the cap on every run nor trip the content circuit
+            // ahead of fresh chapters. Portable NULLS FIRST.
+            ->orderByRaw("CASE WHEN attempts > 0 THEN 1 ELSE 0 END")
+            ->orderByRaw("CASE WHEN attempts > 0 THEN last_attempt_at END")
             ->orderBy("book")
             ->when(self::hasSortKey(), fn($q) => $q->orderBy("sort_key"))
             ->orderBy("chapter")
@@ -500,6 +605,11 @@ class ChapterScraper extends Command
             // Pending chapters left untried because the circuit breaker
             // opened (too many consecutive blocked/failed fetches).
             "circuit_open" => 0,
+            // Pending chapters left untried because the content circuit
+            // opened (the source lists chapters it does not serve). With it:
+            // content_parked (chapters now parked), content_host and
+            // content_recheck_at (set only when the circuit tripped).
+            "content_circuit" => 0,
             // Not counted as failures: chapters that have failed
             // NEEDS_REVIEW_ATTEMPTS+ times and failed again. They keep being
             // retried on the 3-day cadence but no longer flag the novel.
@@ -515,15 +625,17 @@ class ChapterScraper extends Command
     {
         return !$run->done
             && $run->index < count($run->chapters)
-            && !self::circuitOpen($run->consecutiveBlocked);
+            && !self::circuitOpen($run->consecutiveBlocked)
+            && !$run->contentTripped;
     }
 
     /**
      * Work the novel's next pending chapter. Returns null when the novel is
-     * done for this run (no chapters left, or the circuit breaker opened),
-     * else whether a fetch was made and whether it succeeded.
+     * done for this run (no chapters left, or a circuit breaker opened),
+     * else whether a fetch was made, whether it succeeded and the failure
+     * category (null on success).
      *
-     * @return ?array{fetched: bool, ok: bool}
+     * @return ?array{fetched: bool, ok: bool, category: ?string}
      */
     private function step(object $run, array &$newChapters): ?array
     {
@@ -568,7 +680,7 @@ class ChapterScraper extends Command
             if (self::isNeedsReview(self::recordFailure($item, "bad_url"))) {
                 $stats["needs_review"]++;
                 $this->error("  ✗ Skipped (needs review): invalid source URL \"{$url}\"");
-                return ["fetched" => false, "ok" => false];
+                return ["fetched" => false, "ok" => false, "category" => "bad_url"];
             }
             $run->failed++;
             $stats["bad_url"]++;
@@ -578,7 +690,7 @@ class ChapterScraper extends Command
             Log::warning(
                 "Chapter skipped due to invalid source URL: {$item->label} (\"{$url}\")"
             );
-            return ["fetched" => false, "ok" => false];
+            return ["fetched" => false, "ok" => false, "category" => "bad_url"];
         }
 
         $failureReason = null;
@@ -606,6 +718,9 @@ class ChapterScraper extends Command
 
             $run->succeeded++;
             $run->consecutiveBlocked = 0;
+            $run->consecutiveContent = 0;
+            // Read before updateChapter() clears the failure fields.
+            $wasUnavailable = SourceUnavailable::isContentFailure($item->last_failure_reason);
             $this->updateChapter(
                 $item,
                 $description,
@@ -615,9 +730,17 @@ class ChapterScraper extends Command
             if ($host !== null) {
                 Cache::forget(self::hostFailuresKey($host));
             }
+            $this->hostPace()->record($host, null);
+            // A chapter the source had stopped serving is back: release the
+            // novel's parked chapters now instead of at the next re-check. A
+            // brand-new chapter downloading says nothing about the dead ones,
+            // so it leaves them parked (and the re-check backoff growing).
+            if ($wasUnavailable) {
+                SourceUnavailable::release($novel);
+            }
             $this->addChapterToArray($novel, $item, $newChapters);
 
-            return ["fetched" => true, "ok" => true];
+            return ["fetched" => true, "ok" => true, "category" => null];
         }
 
         // Anything the fetcher didn't already explain is judged on word
@@ -627,6 +750,9 @@ class ChapterScraper extends Command
         $attempts = self::recordFailure($item, $category);
         $run->current = null;
         $run->consecutiveBlocked = self::isBlockingFailure($category) ? $run->consecutiveBlocked + 1 : 0;
+        // Any other result between two content failures breaks the run.
+        $run->consecutiveContent = SourceUnavailable::isContentFailure($category) ? $run->consecutiveContent + 1 : 0;
+        $this->hostPace()->record($host, $category);
 
         if (self::isNeedsReview($attempts)) {
             // A long-dead chapter: retried on the slow cadence but kept out
@@ -658,7 +784,52 @@ class ChapterScraper extends Command
             "Chapter skipped due to insufficient description: {$item->label} ({$wordCount} words, cause: {$category})"
         );
 
-        return ["fetched" => true, "ok" => false];
+        if (self::circuitOpen($run->consecutiveContent, self::CONTENT_CIRCUIT_THRESHOLD)) {
+            $this->tripContentCircuit($run);
+        }
+
+        return ["fetched" => true, "ok" => false, "category" => $category];
+    }
+
+    /**
+     * CONTENT_CIRCUIT_THRESHOLD content failures in a row: the source lists
+     * these chapters but does not serve them. End the novel for this run and
+     * park its content-failed chapters as a group until the next re-check
+     * (SourceUnavailable::park()). The host is not cooled down and the
+     * blocking breaker is not fed: the site answered fine.
+     */
+    private function tripContentCircuit(object $run): void
+    {
+        $novel = $run->novel;
+        $run->contentTripped = true;
+        $run->done = true;
+        $run->stats["content_circuit"] = max(0, $run->pendingTotal - $run->attempted);
+
+        try {
+            $park = SourceUnavailable::park($novel);
+        } catch (\Throwable $e) {
+            Log::error("novel:chapter could not park the unavailable chapters of {$novel->name} (ID {$novel->id}): " . $e->getMessage());
+            return;
+        }
+
+        $run->stats["content_parked"] = $park["parked"];
+        $run->stats["content_host"] = $run->host;
+        $run->stats["content_recheck_at"] = $park["recheck_at"]->toDateTimeString();
+        $run->stats["content_streak"] = $park["streak"];
+
+        $this->error("  ✗ {$run->consecutiveContent} chapters in a row are not available on the source — stopping {$novel->name} for this run");
+        Log::warning(
+            "Content circuit opened for {$novel->name}: the source lists these chapters but does not serve them "
+            . "(not found / empty, {$run->consecutiveContent} in a row). {$park["parked"]} chapter(s) parked until "
+            . "{$park["recheck_at"]->toDateTimeString()} (re-check #{$park["streak"]}); "
+            . "{$run->stats["content_circuit"]} pending chapter(s) left untried this run."
+        );
+    }
+
+    /** The run's request pace (set in handle(); resolved from the container otherwise). */
+    protected function hostPace(): HostPace
+    {
+        return $this->pace ??= app(HostPace::class);
     }
 
     /**
@@ -1195,6 +1366,17 @@ class ChapterScraper extends Command
      */
     public static function summarizeScrapeIssue(array $stats, ?int $minWords = null): ?string
     {
+        // The content circuit ended the run: a known, parked state rather
+        // than a transient failure, so it is stated as such (even when the
+        // chapters were too long dead to count as failures).
+        if (isset($stats["content_parked"], $stats["content_recheck_at"])) {
+            return self::sourceUnavailableMessage(
+                (int) $stats["content_parked"],
+                $stats["content_host"] ?? null,
+                Carbon::parse($stats["content_recheck_at"])
+            );
+        }
+
         $badUrl = (int) ($stats["bad_url"] ?? 0);
         $fetchFailed = (int) ($stats["fetch_failed"] ?? 0);
         $notFound = (int) ($stats["not_found"] ?? 0);
@@ -1253,6 +1435,19 @@ class ChapterScraper extends Command
     }
 
     /**
+     * The plain explanation for parked chapters: listed on the source but
+     * not served there, and when Novarr looks again. Pure.
+     */
+    public static function sourceUnavailableMessage(int $parked, ?string $host, Carbon $recheckAt): string
+    {
+        $where = $host ? preg_replace('/^www\./', '', $host) : "the source";
+        $count = $parked === 1 ? "1 chapter is" : "{$parked} chapters are";
+
+        return "{$count} listed on {$where} but not available there (not found or empty). "
+            . "Novarr checks again on " . $recheckAt->copy()->setTimezone(config("app.timezone"))->format("j M Y \\a\\t H:i") . ".";
+    }
+
+    /**
      * Keep a consecutive-failure counter per novel so runs where every
      * pending chapter fails (site change, dead source) get surfaced in the
      * daily summary email instead of failing silently forever. The run's
@@ -1261,6 +1456,25 @@ class ChapterScraper extends Command
      */
     private function trackScrapeHealth($novel, int $succeeded, int $failed, array $stats = [], ?int $minWords = null): void
     {
+        if (isset($stats["content_parked"])) {
+            // The content circuit parked chapters: one clear, non-alarming
+            // state. Not a failed run (no scrape_failures streak, so no
+            // "failed 3 runs in a row" alert and no Failed badge); the issue
+            // line says what is going on and when it is re-checked. The
+            // webhook hears about it at most once a week per novel, however
+            // often the canary re-check trips again.
+            $issue = self::summarizeScrapeIssue($stats, $minWords);
+            $novel->scrape_failures = 0;
+            $novel->last_scrape_issue = $issue;
+            $novel->save();
+
+            Log::info("{$novel->name}: {$issue}");
+            if (Cache::add("scrape:source-unavailable-notified:{$novel->id}", true, now()->addDays(7))) {
+                notify_webhook("ℹ️ {$novel->name} — {$issue}");
+            }
+            return;
+        }
+
         if ($succeeded > 0) {
             if ($novel->scrape_failures > 0) {
                 Log::info("Scrape recovered for {$novel->name} after {$novel->scrape_failures} failed run(s).");

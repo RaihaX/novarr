@@ -37,6 +37,11 @@ class SystemHealthController extends Controller
             'scheduler_stale' => $lastRun ? \Carbon\Carbon::parse($lastRun)->lt(now()->subMinutes(3)) : true,
             'queue_depth' => $this->queueDepth(),
             'failed_jobs' => $failed,
+            // Adaptive download pace per host, and novels whose chapters are
+            // parked because the source lists but does not serve them.
+            'host_pace' => app(\App\Scraping\HostPace::class)->overview(),
+            'pace_adaptive' => \App\Scraping\HostPace::adaptive(),
+            'parked_novels' => \App\Scraping\SourceUnavailable::parkedNovels(),
         ]);
     }
 

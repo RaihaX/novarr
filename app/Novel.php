@@ -59,6 +59,8 @@ class Novel extends Model
         'toc_failures' => 'integer',
         'toc_full_walk_at' => 'datetime',
         'novelupdates_checked_at' => 'datetime',
+        'source_fail_streak' => 'integer',
+        'source_recheck_at' => 'datetime',
         'origin' => 'string',
         'origin_language' => 'string',
         'origin_source' => 'string',
