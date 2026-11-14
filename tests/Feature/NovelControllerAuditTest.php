@@ -149,7 +149,9 @@ class NovelControllerAuditTest extends TestCase
 
         DB::enableQueryLog();
         $this->get(route('novels.index'))->assertOk()->assertSee('Slim Library Novel');
-        $queries = array_column(DB::getQueryLog(), 'query');
+        // MySQL/MariaDB quote identifiers with backticks, sqlite with double
+        // quotes: compare on one form.
+        $queries = array_map(fn($q) => str_replace('`', '"', $q), array_column(DB::getQueryLog(), 'query'));
         DB::disableQueryLog();
 
         // The page's novels are loaded by id once the order is known; the
