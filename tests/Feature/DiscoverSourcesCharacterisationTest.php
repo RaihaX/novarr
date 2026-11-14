@@ -85,6 +85,8 @@ class DiscoverSourcesCharacterisationTest extends GoldenTestCase
         // Popular / Completed tabs, Popular active, loaded on open.
         $this->assertStringContainsString(
             '<button type="button" class="btn btn-secondary discover-tab active" data-type="popular">Popular</button>' . "\n"
+            . '        <button type="button" class="btn btn-secondary discover-tab" data-type="new">New</button>' . "\n"
+            . '        <button type="button" class="btn btn-secondary discover-tab" data-type="random" title="A random page of the catalogue; click again for another">Random</button>' . "\n"
             . '        <button type="button" class="btn btn-secondary discover-tab" data-type="completed">Completed</button>',
             $html
         );

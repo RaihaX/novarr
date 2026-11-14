@@ -235,7 +235,7 @@ class NovelArrowSource extends AbstractSource
 
     public function discoverLists(): array
     {
-        return ['search', 'popular', 'completed'];
+        return ['search', 'popular', 'new', 'random', 'completed'];
     }
 
     /**
@@ -248,7 +248,16 @@ class NovelArrowSource extends AbstractSource
             'search' => ['status' => 'all', 'sort' => 'SEARCH_KEYWORD', 'keyword' => $query],
             'popular' => ['status' => 'all', 'sort' => 'POPULAR'],
             'completed' => ['status' => 'completed', 'sort' => 'COMPLETE'],
+            // Newest additions to the site first.
+            'new' => ['status' => 'all', 'sort' => 'NEW'],
+            // A random page of the whole catalogue (see randomDiscover()).
+            'random' => ['status' => 'all', 'sort' => 'POPULAR'],
         };
+
+        if ($type === 'random') {
+            return $this->randomDiscover($params);
+        }
+
         $url = self::canonicalBase() . '/api-web/novels?'
             . http_build_query($params + ['limit' => 40, 'page' => 1, 'genre' => 'ALL']);
 
@@ -263,6 +272,46 @@ class NovelArrowSource extends AbstractSource
             Log::warning('Discover: cache store unavailable (' . $e->getMessage() . ') — fetching uncached');
             return $this->fetchDiscoverList($url);
         }
+    }
+
+    /** Cache key of the catalogue's page count at the Discover page size. */
+    public const DISCOVER_PAGES_KEY = 'discover_novelarrow_total_pages';
+
+    /** Page count assumed until a list answer has reported the real one. */
+    public const DISCOVER_PAGES_DEFAULT = 300;
+
+    /**
+     * A random page of the catalogue, shuffled. Never cached, so every
+     * click on "Random" draws again. The page count comes from the last
+     * list answer (fetchDiscoverList() remembers it); a page past the end
+     * (the catalogue shrank) falls back to the first page.
+     */
+    protected function randomDiscover(array $params): ?array
+    {
+        $pages = self::DISCOVER_PAGES_DEFAULT;
+        try {
+            $pages = max(1, (int) Cache::get(self::DISCOVER_PAGES_KEY, self::DISCOVER_PAGES_DEFAULT));
+        } catch (\Throwable $e) {
+            // A broken cache store must not take the feature down.
+        }
+
+        $base = self::canonicalBase() . '/api-web/novels?';
+        $page = $this->randomPage($pages);
+        $items = $this->fetchDiscoverList($base . http_build_query($params + ['limit' => 40, 'page' => $page, 'genre' => 'ALL']));
+        if ($items === [] && $page !== 1) {
+            $items = $this->fetchDiscoverList($base . http_build_query($params + ['limit' => 40, 'page' => 1, 'genre' => 'ALL']));
+        }
+        if ($items) {
+            shuffle($items);
+        }
+
+        return $items;
+    }
+
+    /** A page number in 1..$pages. Overridable so tests can pin it. */
+    protected function randomPage(int $pages): int
+    {
+        return random_int(1, max(1, $pages));
     }
 
     /**
@@ -297,6 +346,17 @@ class NovelArrowSource extends AbstractSource
         if (!is_array($json)) {
             Log::error("Discover: could not fetch {$url}");
             return null;
+        }
+
+        // Remember how many pages the catalogue has, for the Random list.
+        $pagination = $json['pagination'] ?? null;
+        if (is_array($pagination) && (int) ($pagination['limit'] ?? 0) === 40 && (int) ($pagination['totalPages'] ?? 0) > 0
+            && !str_contains($url, 'status=completed') && !str_contains($url, 'SEARCH_KEYWORD')) {
+            try {
+                Cache::put(self::DISCOVER_PAGES_KEY, (int) $pagination['totalPages'], now()->addDays(7));
+            } catch (\Throwable $e) {
+                // Best effort.
+            }
         }
 
         $items = [];
