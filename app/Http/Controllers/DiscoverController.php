@@ -44,7 +44,7 @@ class DiscoverController extends Controller
 
     /**
      * Fetch a result list from a source.
-     * type: search (requires q) | popular | completed
+     * type: search (requires q) | popular | new | random | completed
      *
      * Browse lists (popular/completed) leave out novels already in the
      * library and report how many were hidden; typed searches keep every
@@ -63,7 +63,7 @@ class DiscoverController extends Controller
 
         $data = $request->validate([
             'source' => 'nullable|in:' . implode(',', array_keys($sources)),
-            'type' => 'required|in:search,popular,completed',
+            'type' => 'required|in:search,popular,new,random,completed',
             'q' => 'required_if:type,search|nullable|string|max:100',
         ]);
 

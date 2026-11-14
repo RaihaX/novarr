@@ -58,6 +58,70 @@ class DiscoverLibraryFilterTest extends TestCase
             ->assertJsonCount(1, 'items');
     }
 
+    public function testNewListAsksTheSourceForItsNewestNovels(): void
+    {
+        $this->getJson('/novels/discover/browse?type=new&source=novelarrow')
+            ->assertOk()
+            ->assertJsonPath('hidden', 2)
+            ->assertJsonCount(1, 'items');
+
+        $this->assertSame(
+            ['https://novelping.com/api-web/novels?status=all&sort=NEW&limit=40&page=1&genre=ALL'],
+            $this->fetcher->urls()
+        );
+    }
+
+    public function testRandomListDrawsAPageWithinTheCatalogueAndIsNeverCached(): void
+    {
+        // The catalogue's page count is learned from a list answer.
+        $this->fetcher = new FakeFetcher([], ['https://novelping.com/api-web/novels?' => json_encode([
+            'items' => [['novel_id' => 'free-novel', 'novel_name' => 'A Free Novel']],
+            'pagination' => ['page' => 1, 'limit' => 40, 'total' => 280, 'totalPages' => 7],
+        ])]);
+        app()->instance(Fetcher::class, $this->fetcher);
+        $this->getJson('/novels/discover/browse?type=popular&source=novelarrow')->assertOk();
+        $this->assertSame(7, Cache::get(\App\Sources\NovelArrowSource::DISCOVER_PAGES_KEY));
+
+        $before = count($this->fetcher->urls());
+        for ($i = 0; $i < 5; $i++) {
+            $this->getJson('/novels/discover/browse?type=random&source=novelarrow')
+                ->assertOk()
+                ->assertJsonCount(1, 'items');
+        }
+
+        // One request per click (not cached), each for a page in 1..7.
+        $random = array_slice($this->fetcher->urls(), $before);
+        $this->assertCount(5, $random);
+        foreach ($random as $url) {
+            $this->assertMatchesRegularExpression('~status=all&sort=POPULAR&limit=40&page=[1-7]&genre=ALL$~', $url);
+        }
+    }
+
+    public function testRandomFallsBackToTheFirstPageWhenTheDrawnPageIsEmpty(): void
+    {
+        Cache::put(\App\Sources\NovelArrowSource::DISCOVER_PAGES_KEY, 900);
+        // Longest match first: page 1 has a novel, every other page is empty.
+        $this->fetcher = new FakeFetcher([], [
+            'https://novelping.com/api-web/novels?status=all&sort=POPULAR&limit=40&page=1&genre=ALL'
+                => json_encode(['items' => [['novel_id' => 'free-novel', 'novel_name' => 'A Free Novel']]]),
+            'https://novelping.com/api-web/novels?' => json_encode(['items' => []]),
+        ]);
+        app()->instance(Fetcher::class, $this->fetcher);
+
+        $this->getJson('/novels/discover/browse?type=random&source=novelarrow')
+            ->assertOk()
+            ->assertJsonCount(1, 'items');
+    }
+
+    public function testSearchOnlySourcesAnswerEmptyForTheNewLists(): void
+    {
+        foreach (['new', 'random'] as $type) {
+            $this->getJson("/novels/discover/browse?type={$type}&source=novelfull")
+                ->assertOk()
+                ->assertJsonCount(0, 'items');
+        }
+    }
+
     public function testSearchKeepsEveryResultButMarksLibraryOnes(): void
     {
         $response = $this->getJson('/novels/discover/browse?type=search&q=slave&source=novelarrow')->assertOk();

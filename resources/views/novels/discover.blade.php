@@ -22,6 +22,8 @@
     </select>
     <div class="btn-group segmented" role="group" aria-label="Browse mode" id="discoverTabs">
         <button type="button" class="btn btn-secondary discover-tab active" data-type="popular">Popular</button>
+        <button type="button" class="btn btn-secondary discover-tab" data-type="new">New</button>
+        <button type="button" class="btn btn-secondary discover-tab" data-type="random" title="A random page of the catalogue; click again for another">Random</button>
         <button type="button" class="btn btn-secondary discover-tab" data-type="completed">Completed</button>
     </div>
     <form id="discoverSearch" class="d-flex gap-2 flex-nowrap">
@@ -69,7 +71,7 @@
     const source = () => sourceEl.value;
     // Host shown for each source key ("novelarrow" now lives on novelping.com).
     const SOURCE_HOST = @json($sourceHosts);
-    // Lists each source offers (search / popular / completed).
+    // Lists each source offers (search / popular / new / random / completed).
     const SOURCE_LISTS = @json($sourceLists);
     const sourceHost = () => SOURCE_HOST[source()] || `${source()}.com`;
     const hiddenEl = document.getElementById('discoverHidden');
