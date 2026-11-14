@@ -4,13 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Novel;
 use App\NovelChapter;
-use App\File;
 use App\Http\Helpers\CacheHelper;
 use App\Console\Commands\GenerateePub;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 
 class NovelController extends Controller
 {
@@ -31,27 +30,7 @@ class NovelController extends Controller
     }
 
 
-    public function get_novel($id) {
-        $data = $this->novels->with(['file' => function($q) {
-            $q->orderBy('id', 'desc');
-        }, 'group', 'language'])->findOrFail($id);
-
-        $stats = $this->novelStats($id);
-
-        $progress = $this->calculateProgress($data, $stats);
-
-        return response()->json([
-            'data' => $data,
-            'new_chapters' => $stats['new_chapters'],
-            'duplicate_chapters' => $stats['duplicate_chapters'],
-            'missing_chapters' => $stats['missing_chapters'],
-            'current_chapters' => $stats['count'],
-            'current_chapters_not_downloaded' => $stats['not_downloaded_count'],
-            'progress' => round($progress)
-        ]);
-    }
-
-    public function download_epub($id) {
+    public function download_epub($id, Request $request) {
         $object = $this->novels->findOrFail($id);
 
         // Same sanitised name the generator writes (reserved characters
@@ -62,7 +41,15 @@ class NovelController extends Controller
             abort(404, 'No ePub has been generated for this novel yet. Use “Generate ePub” first.');
         }
 
-        return response()->download($epub);
+        // Conditional download: the ETag changes whenever the generator
+        // rewrites the file, so an unchanged ePub answers 304 with no body.
+        clearstatcache(true, $epub);
+        $etag = md5(filemtime($epub) . '-' . filesize($epub));
+
+        $response = response()->download($epub)->setEtag($etag)->setPrivate();
+        $response->isNotModified($request);
+
+        return $response;
     }
 
     /**
@@ -80,6 +67,8 @@ class NovelController extends Controller
      */
     public function chaptersJson($id)
     {
+        abort_unless(Novel::whereKey($id)->exists(), 404);
+
         $chapters = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
             ->ordered()
@@ -99,7 +88,7 @@ class NovelController extends Controller
 
     public function offlineManifest($id, Request $request)
     {
-        $novel = $this->novels->with(['file' => fn($q) => $q->orderBy('id', 'desc')])->findOrFail($id);
+        $novel = $this->novels->with('file')->findOrFail($id);
 
         $query = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
@@ -125,7 +114,7 @@ class NovelController extends Controller
             'id' => $novel->id,
             'name' => $novel->name,
             'author' => $novel->author,
-            'cover' => $novel->file ? Storage::url($novel->file->file_path) : null,
+            'cover' => $novel->coverUrl('md'),
             'url' => route('novels.show', $novel->id),
             'chapterCount' => $chapters->count(),
             'chapters' => $chapters->map(fn($c) => [
@@ -145,7 +134,11 @@ class NovelController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Novel::withRelations()
+        // Only what the list renders (plus relation keys). The select must
+        // come before withCount(), which otherwise adds novels.* and drags the
+        // longtext description/json columns along for every row.
+        $query = Novel::with('file')
+            ->select(['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures', 'origin', 'origin_language'])
             ->withCount([
                 'chapters',
                 'chapters as downloaded_chapters_count' => fn($q) => $q->where('status', 1)->where('blacklist', 0),
@@ -298,13 +291,8 @@ class NovelController extends Controller
         }
         session(['library_view' => $view]);
 
-        // Only what the list renders (plus relation keys) — novels.* would
-        // drag the longtext description along for every row.
         return view('novels.index', [
-            'novels' => $query->paginate(
-                $view === 'grid' ? 42 : 25,
-                ['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures', 'origin', 'origin_language']
-            ),
+            'novels' => $query->paginate($view === 'grid' ? 42 : 25),
             'view' => $view,
             'sort' => $sort,
             'filter' => $filter,
@@ -372,6 +360,10 @@ class NovelController extends Controller
         if ($groups->isEmpty()) {
             return response()->json(['success' => true, 'removed' => 0]);
         }
+
+        // Rows are about to change outside a TOC run: force the next run to
+        // do a full sync rather than trust the unchanged-TOC fingerprint.
+        Novel::whereKey($id)->update(['toc_fingerprint' => null]);
 
         // Pull every row for the affected chapter numbers in a single query, then
         // partition by exact (chapter, book) in PHP — instead of one query per
@@ -460,7 +452,6 @@ class NovelController extends Controller
             CacheHelper::clearNovelCache($id);
         }
 
-        CacheHelper::clearNovelDataTablesCache();
         Cache::forget('dashboard_stats');
         Cache::forget('dashboard_attention');
 
@@ -514,7 +505,6 @@ class NovelController extends Controller
         $novel->save();
 
         CacheHelper::clearNovelCache($id);
-        CacheHelper::clearNovelDataTablesCache();
         Cache::forget('dashboard_stats');
 
         return response()->json([
@@ -617,18 +607,10 @@ class NovelController extends Controller
         // Origin guess from the form's author / URLs (no network).
         $object->inferOrigin();
 
-        // Clear DataTables cache for novels
-        CacheHelper::clearNovelDataTablesCache();
-
         if ( $request->hasFile('image') ) {
             $storedPath = $request->file('image')->store('', ['disk' => 'public']);
             @chmod(storage_path('app/public/' . $storedPath), 0644);
-            $file_object = new File([
-                'file_name' => $request->file('image')->getClientOriginalName(),
-                'file_path' => 'public/' . $storedPath,
-            ]);
-
-            $object->file()->save($file_object);
+            $object->attachCover($storedPath, $request->file('image')->getClientOriginalName());
         }
 
         $object->tags()->sync($request->input('tags', []));
@@ -644,9 +626,7 @@ class NovelController extends Controller
      */
     public function show($id)
     {
-        $data = $this->novels->with(['file' => function($q) {
-            $q->orderBy('id', 'desc');
-        }, 'group', 'language', 'tags'])->findOrFail($id);
+        $data = $this->novels->with(['file', 'group', 'language', 'tags'])->findOrFail($id);
 
         $stats = $this->novelStats($id);
 
@@ -662,8 +642,8 @@ class NovelController extends Controller
             'synopsis' => $this->cleanSynopsis($data->description, $data->name),
             'chapters' => $chapters,
             'new_chapters' => $stats['new_chapters'],
-            'duplicate_chapters' => $stats['duplicate_chapters'],
-            'missing_chapters' => $stats['missing_chapters'],
+            'duplicate_chapters' => $this->countOf($stats['duplicate_count']),
+            'missing_chapters' => $this->countOf($stats['missing_count']),
             'current_chapters' => $stats['count'],
             'current_chapters_not_downloaded' => $stats['not_downloaded_count'],
             'read_count' => $stats['read_count'] ?? 0,
@@ -739,6 +719,12 @@ class NovelController extends Controller
             $object->author = $request->author;
         }
 
+        // A renamed novel or corrected author can match NovelUpdates where the
+        // old one did not: let the next metadata run look it up again.
+        if ($object->isDirty(['name', 'author'])) {
+            $object->novelupdates_checked_at = null;
+        }
+
         if ( $request->has('translator') ) {
             $object->translator = $request->translator;
         }
@@ -764,7 +750,8 @@ class NovelController extends Controller
         }
 
         if ( $request->has('no_of_chapters') ) {
-            $object->no_of_chapters = $request->no_of_chapters;
+            // The column is NOT NULL: a cleared field means 0, as in store().
+            $object->no_of_chapters = $request->no_of_chapters == "" ? 0 : $request->no_of_chapters;
         }
 
         if ( $request->has('status') ) {
@@ -815,19 +802,12 @@ class NovelController extends Controller
 
         $object->save();
 
-        // Clear cache for this novel and DataTables
         CacheHelper::clearNovelCache($id);
-        CacheHelper::clearNovelDataTablesCache();
 
         if ( $request->hasFile('image') ) {
             $storedPath = $request->file('image')->store('', ['disk' => 'public']);
             @chmod(storage_path('app/public/' . $storedPath), 0644);
-            $file_object = new File([
-                'file_name' => $request->file('image')->getClientOriginalName(),
-                'file_path' => 'public/' . $storedPath,
-            ]);
-
-            $object->file()->save($file_object);
+            $object->attachCover($storedPath, $request->file('image')->getClientOriginalName());
         }
 
         if ($request->has('tags')) {
@@ -854,7 +834,6 @@ class NovelController extends Controller
 
         // Clear caches after deletion
         CacheHelper::clearNovelCache($id);
-        CacheHelper::clearNovelDataTablesCache();
         Cache::forget('dashboard_stats');
         Cache::forget('dashboard_attention');
 
@@ -862,13 +841,13 @@ class NovelController extends Controller
     }
 
     /**
-     * Per-novel stats (counts, continue target, duplicates, missing chapters)
-     * shared by show() and get_novel(). Cached for 5 minutes under a stable key
-     * so CacheHelper::clearNovelCache() can invalidate it.
+     * Per-novel stats for show() (counts, continue target, duplicate-group
+     * and missing-chapter counts). Cached for 5 minutes under a stable key so
+     * CacheHelper::clearNovelCache() can invalidate it.
      */
     protected function novelStats(int $id): array
     {
-        return Cache::remember("novel_stats_{$id}", now()->addMinutes(5), function () use ($id) {
+        return Cache::remember(CacheHelper::novelStatsKey($id), now()->addMinutes(5), function () use ($id) {
             // Consolidate the counts into a single aggregate query.
             $aggregates = NovelChapter::where('novel_id', $id)
                 ->where('blacklist', 0)
@@ -904,37 +883,18 @@ class NovelController extends Controller
                 ->ordered()
                 ->value('id');
 
-            // Duplicate (chapter, book) groups.
-            $duplicate_chapters = NovelChapter::where('novel_id', $id)
-                ->where('blacklist', 0)
-                ->groupBy('chapter', 'book')
-                ->havingRaw('count(id) > 1')
-                ->select('chapter', 'book')
-                ->get();
+            // Duplicate (chapter, book) groups — counted in SQL; the page only
+            // shows how many there are.
+            $duplicateCount = DB::query()->fromSub(
+                NovelChapter::where('novel_id', $id)
+                    ->where('blacklist', 0)
+                    ->groupBy('chapter', 'book')
+                    ->havingRaw('count(id) > 1')
+                    ->selectRaw('1 as g'),
+                'dupes'
+            )->count();
 
-            // Gaps in the 1..latest sequence: pull the existing chapter numbers
-            // and diff against the full range.
-            $existingChapters = NovelChapter::where('novel_id', $id)
-                ->where('blacklist', 0)
-                ->select('chapter', 'double_chapter')
-                ->get();
-
-            $existingChapterArray = [];
-            foreach ($existingChapters as $item) {
-                $existingChapterArray[] = intval($item->chapter);
-                if ($item->double_chapter == 1) {
-                    $existingChapterArray[] = intval($item->chapter) + 1;
-                }
-            }
-
-            $missing_chapters = array_values(
-                array_diff(range(1, max($latestChapter, 1)), $existingChapterArray)
-            );
-            // range() always yields [1]; if there are no chapters at all there's
-            // nothing missing.
-            if ($latestChapter === 0) {
-                $missing_chapters = [];
-            }
+            $missingCount = $this->missingChapterCount($id, $latestChapter);
 
             return [
                 'count' => $count,
@@ -942,10 +902,60 @@ class NovelController extends Controller
                 'read_count' => $read_count,
                 'continue_chapter_id' => $continueChapterId,
                 'new_chapters' => $not_downloaded_count,
-                'duplicate_chapters' => $duplicate_chapters,
-                'missing_chapters' => $missing_chapters,
+                'duplicate_count' => $duplicateCount,
+                'missing_count' => $missingCount,
             ];
         });
+    }
+
+    /**
+     * Gaps in the 1..latest sequence: how many integers in that range no
+     * chapter covers (a chapter covers intval(chapter); a double chapter also
+     * covers the next number). Counted in SQL, so one misparsed number such
+     * as 20231105 costs a query, not a 20-million-element array.
+     */
+    protected function missingChapterCount(int $id, int $latestChapter): int
+    {
+        // No chapters at all (or only chapter 0 / specials): nothing missing.
+        if ($latestChapter < 1) {
+            return 0;
+        }
+
+        // intval() semantics: truncate toward zero. MySQL's CAST(... AS
+        // SIGNED) rounds, so it uses TRUNCATE(); SQLite's CAST truncates.
+        $number = DB::connection()->getDriverName() === 'sqlite'
+            ? 'CAST(chapter AS INTEGER)'
+            : 'TRUNCATE(chapter, 0)';
+
+        $base = fn() => NovelChapter::where('novel_id', $id)->where('blacklist', 0);
+
+        $covered = DB::query()
+            ->fromSub(
+                $base()->selectRaw("{$number} as n")
+                    ->unionAll($base()->where('double_chapter', 1)->selectRaw("{$number} + 1 as n")),
+                'covered'
+            )
+            ->whereBetween('n', [1, $latestChapter])
+            ->distinct()
+            ->count('n');
+
+        return max(0, $latestChapter - $covered);
+    }
+
+    /**
+     * Something whose count() is $n, for views that only count a list the
+     * controller no longer materialises.
+     */
+    protected function countOf(int $n): \Countable
+    {
+        return new class($n) implements \Countable {
+            public function __construct(private int $n) {}
+
+            public function count(): int
+            {
+                return $this->n;
+            }
+        };
     }
 
     /**

@@ -37,7 +37,7 @@ class NovelHealth
             ->where('scrape_failures', '>=', 3)
             ->whereHas('chapters', fn($q) => $q->where('status', 0)->where('blacklist', 0))
             ->orderBy('name')
-            ->get(['id', 'name', 'scrape_failures', 'last_scrape_issue', 'translator_url']);
+            ->get(['id', 'name', 'scrape_failures', 'last_scrape_issue', 'translator_url', 'alternative_url', 'group_id']);
 
         foreach ($failing as $novel) {
             $attention[$novel->id] = [
@@ -45,7 +45,7 @@ class NovelHealth
                 'name' => $novel->name,
                 'reason' => "{$novel->scrape_failures} consecutive scrape runs failed — "
                     . ($novel->last_scrape_issue ?: 'the source site may have changed'),
-                'url' => $this->sourceUrlFor($novel),
+                'novel' => $novel,
             ];
         }
 
@@ -60,7 +60,7 @@ class NovelHealth
                 // Chapters the source no longer lists are parked, not stalled.
                 ->where(fn($m) => $m->whereNull('last_failure_reason')->orWhere('last_failure_reason', '!=', 'source_missing')))
             ->orderBy('name')
-            ->get(['id', 'name', 'translator_url', 'created_at', 'scrape_failures']);
+            ->get(['id', 'name', 'translator_url', 'alternative_url', 'group_id', 'created_at', 'scrape_failures']);
 
         // Batch the per-novel stats into two grouped aggregate queries (served by
         // idx_novel_download_date) instead of two queries inside the loop.
@@ -106,7 +106,7 @@ class NovelHealth
                     'name' => $novel->name,
                     'reason' => "{$pending} pending chapter(s) but no successful download since "
                         . ($lastDownload ? Carbon::parse($lastDownload)->format('j M Y') : 'ever'),
-                    'url' => $this->sourceUrlFor($novel),
+                    'novel' => $novel,
                 ];
             }
         }
@@ -119,7 +119,7 @@ class NovelHealth
             ->where($this->notSnoozed(...))
             ->where('toc_failures', '>=', 2)
             ->orderBy('name')
-            ->get(['id', 'name', 'translator_url', 'group_id', 'toc_failures', 'last_toc_issue']);
+            ->get(['id', 'name', 'translator_url', 'alternative_url', 'group_id', 'toc_failures', 'last_toc_issue']);
 
         foreach ($tocFailing as $novel) {
             if (isset($attention[$novel->id])) {
@@ -129,11 +129,18 @@ class NovelHealth
                 'id' => $novel->id,
                 'name' => $novel->name,
                 'reason' => $novel->last_toc_issue ?: "{$novel->toc_failures} consecutive TOC runs failed",
-                'url' => $this->sourceUrlFor($novel),
+                'novel' => $novel,
             ];
         }
 
-        return array_values($attention);
+        $urls = $this->sourceUrlsFor(array_column($attention, 'novel'));
+
+        return array_values(array_map(function (array $item) use ($urls) {
+            $novel = $item['novel'];
+            unset($item['novel']);
+
+            return $item + ['url' => $urls[$novel->id] ?? null];
+        }, $attention));
     }
 
     /**
@@ -142,18 +149,50 @@ class NovelHealth
      */
     public function sourceUrlFor(Novel $novel): ?string
     {
-        $chapter = NovelChapter::with('novel.group')
-            ->where('novel_id', $novel->id)
-            ->where('status', 0)
-            ->where('blacklist', 0)
-            ->ordered()
-            ->first(['id', 'novel_id', 'chapter', 'book', 'sort_key', 'url']);
+        return $this->sourceUrlsFor([$novel])[$novel->id] ?? null;
+    }
 
-        if ($chapter && $chapter->novel) {
-            return chapterSourceUrl($chapter);
+    /**
+     * sourceUrlFor() for many novels at once: one query for their groups and
+     * one for each novel's first pending chapter (in reading order). The
+     * novels need translator_url, alternative_url and group_id loaded.
+     *
+     * @param  Novel[]  $novels
+     * @return array<int, ?string>  keyed by novel id
+     */
+    public function sourceUrlsFor(array $novels): array
+    {
+        if ($novels === []) {
+            return [];
         }
 
-        return $novel->translator_url ?: null;
+        $novels = (new \Illuminate\Database\Eloquent\Collection($novels))->loadMissing('group');
+
+        $ranked = NovelChapter::whereIn('novel_id', $novels->modelKeys())
+            ->where('status', 0)
+            ->where('blacklist', 0)
+            ->select(['id', 'novel_id', 'chapter', 'book', 'sort_key', 'url'])
+            // Same order as NovelChapter::scopeOrdered().
+            ->selectRaw('ROW_NUMBER() OVER (PARTITION BY novel_id ORDER BY book, sort_key, chapter, id) as rn');
+
+        $firstPending = NovelChapter::withoutGlobalScopes()
+            ->fromSub($ranked, 'ranked')
+            ->where('rn', 1)
+            ->get(['id', 'novel_id', 'chapter', 'book', 'sort_key', 'url'])
+            ->keyBy('novel_id');
+
+        $urls = [];
+        foreach ($novels as $novel) {
+            $chapter = $firstPending->get($novel->id);
+            if ($chapter) {
+                $chapter->setRelation('novel', $novel);
+                $urls[$novel->id] = chapterSourceUrl($chapter);
+            } else {
+                $urls[$novel->id] = $novel->translator_url ?: null;
+            }
+        }
+
+        return $urls;
     }
 
     /**

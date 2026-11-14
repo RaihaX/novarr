@@ -5,9 +5,13 @@ namespace App\Http\Controllers;
 use App\NovelChapter;
 use App\Http\Helpers\CacheHelper;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 
 class NovelChapterController extends Controller
 {
+    /** Longest `age` honoured for a replayed write (the offline queue's TTL). */
+    private const MAX_WRITE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
     protected $novelchapters;
 
     public function __construct(NovelChapter $novelchapters)
@@ -104,6 +108,7 @@ class NovelChapterController extends Controller
      */
     public function toggleRead(Request $request, $id)
     {
+        $recordedAt = $this->recordedAt($request);
         $chapter = $this->novelchapters->findOrFail($id);
         $read = $chapter->read_at === null;
         // An explicit mark also settles the in-chapter position: done when
@@ -112,6 +117,9 @@ class NovelChapterController extends Controller
         $chapter->forceFill([
             'read_at' => $read ? now() : null,
             'read_progress' => $read ? 100 : null,
+            // An explicit mark supersedes scroll positions recorded before it
+            // (a replayed mark carries its own, earlier time).
+            'read_progress_at' => $recordedAt,
         ])->saveQuietly();
         CacheHelper::clearNovelCache($chapter->novel_id);
 
@@ -126,6 +134,11 @@ class NovelChapterController extends Controller
      * the position survives across devices. Accepts JSON or form data — the
      * pagehide save arrives via navigator.sendBeacon, which can only POST
      * form-encoded bodies.
+     *
+     * A position recorded before the stored one (see recordedAt(): replayed
+     * offline writes carry their `age`) is ignored, still answered with
+     * success so the client drops it; a live write counts as "now" and
+     * always applies.
      */
     public function progress(Request $request, $id)
     {
@@ -136,12 +149,17 @@ class NovelChapterController extends Controller
             'progress' => 'required_without:read|nullable|integer|min:0|max:100',
             'read' => 'sometimes|boolean',
         ]);
+        $at = $this->recordedAt($request);
 
         $chapter = $this->novelchapters->findOrFail($id);
 
         $fill = [];
         if (isset($data['progress'])) {
-            $fill['read_progress'] = $data['progress'];
+            $storedAt = $chapter->read_progress_at ? Carbon::parse($chapter->read_progress_at) : null;
+            if (!$storedAt || !$at->lt($storedAt)) {
+                $fill['read_progress'] = $data['progress'];
+                $fill['read_progress_at'] = $at;
+            }
         }
         $markRead = !empty($data['read']) && $chapter->status && $chapter->read_at === null;
         if ($markRead) {
@@ -159,12 +177,29 @@ class NovelChapterController extends Controller
     }
 
     /**
+     * When a read-state write was recorded. A write replayed from the offline
+     * queue carries `age`: how many milliseconds ago the client queued it,
+     * measured on the client's own clock, so a phone clock that is fast or
+     * slow doesn't matter. Absent means a live write (now). Capped at 30
+     * days, the queue's lifetime.
+     */
+    private function recordedAt(Request $request): Carbon
+    {
+        $age = $request->validate([
+            'age' => 'sometimes|nullable|integer|min:0',
+        ])['age'] ?? 0;
+
+        return now()->subMilliseconds(min((int) $age, self::MAX_WRITE_AGE_MS));
+    }
+
+    /**
      * Mark this chapter and every earlier downloaded chapter as read — for
      * catching up read state after reading elsewhere. Already-read chapters
      * keep their original timestamp.
      */
-    public function readThrough($id)
+    public function readThrough(Request $request, $id)
     {
+        $recordedAt = $this->recordedAt($request);
         $chapter = $this->novelchapters->findOrFail($id);
 
         $count = NovelChapter::where('novel_id', $chapter->novel_id)
@@ -172,7 +207,7 @@ class NovelChapterController extends Controller
             ->where('status', 1)
             ->whereNull('read_at')
             ->relativeTo($chapter, '<=')
-            ->update(['read_at' => now(), 'read_progress' => 100]);
+            ->update(['read_at' => now(), 'read_progress' => 100, 'read_progress_at' => $recordedAt]);
 
         CacheHelper::clearNovelCache($chapter->novel_id);
 
@@ -196,11 +231,13 @@ class NovelChapterController extends Controller
             'novel_id' => 'required_if:scope,all|integer',
             'anchor_id' => 'required_if:scope,up_to,from|integer',
         ]);
+        $recordedAt = $this->recordedAt($request);
 
         $scope = $data['scope'] ?? 'ids';
         $values = [
             'read_at' => $data['read'] ? now() : null,
             'read_progress' => $data['read'] ? 100 : null,
+            'read_progress_at' => $recordedAt,
         ];
 
         if ($scope === 'ids') {

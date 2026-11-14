@@ -9,7 +9,6 @@ return Application::configure(basePath: dirname(__DIR__))
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
-        channels: __DIR__.'/../routes/channels.php',
         health: '/up',
         then: function () {
             // Route caching is automatically loaded when available.
@@ -30,6 +29,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'chapters/*/read-through',
             'chapters/*/progress',
             'chapters/bulk-read',
+            // Highlights saved offline are replayed from the queue later,
+            // when the page's token may no longer match the session.
+            'bookmarks',
         ]);
 
         // Global middleware. Laravel 11's default global stack already runs

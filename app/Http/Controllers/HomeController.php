@@ -69,17 +69,31 @@ class HomeController extends Controller
      */
     public static function stats(): array
     {
-        return Cache::remember('dashboard_stats', 60, fn() => [
-            'active' => Novel::where('status', 0)->count(),
-            'completed' => Novel::where('status', 1)->count(),
-            'pending' => NovelChapter::where('status', 0)->where('blacklist', 0)->count(),
-            // Rolling 24 hours (Activity's "/ 24H" chip)…
-            'downloaded_today' => NovelChapter::where('status', 1)
-                ->where('download_date', '>=', now()->subDay())->count(),
-            // …and since local midnight (the strip's "chapters today").
-            'today' => NovelChapter::where('status', 1)
-                ->where('download_date', '>=', today())->count(),
-        ]);
+        return Cache::remember('dashboard_stats', 60, function () {
+            $novels = Novel::query()
+                ->selectRaw('SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) as active,
+                    SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as completed')
+                ->toBase()
+                ->first();
+
+            // Rolling 24 hours (Activity's "/ 24H" chip) and since local
+            // midnight (the strip's "chapters today") in one pass: midnight
+            // today always falls inside the last 24 hours.
+            $downloads = NovelChapter::where('status', 1)
+                ->where('download_date', '>=', now()->subDay())
+                ->selectRaw('COUNT(*) as downloaded_today,
+                    SUM(CASE WHEN download_date >= ? THEN 1 ELSE 0 END) as today', [today()])
+                ->toBase()
+                ->first();
+
+            return [
+                'active' => (int) ($novels->active ?? 0),
+                'completed' => (int) ($novels->completed ?? 0),
+                'pending' => NovelChapter::where('status', 0)->where('blacklist', 0)->count(),
+                'downloaded_today' => (int) ($downloads->downloaded_today ?? 0),
+                'today' => (int) ($downloads->today ?? 0),
+            ];
+        });
     }
 
     /**
@@ -152,8 +166,14 @@ class HomeController extends Controller
     {
         $novel = $item['novel'];
         // The cached item carries a slim column set; the position query needs
-        // book/sort_key, and minutes-left needs the body.
-        $chapter = NovelChapter::find($item['next']->id) ?? $item['next'];
+        // book/sort_key, and minutes-left the stored word count.
+        $chapter = NovelChapter::leftJoin('chapter_texts', 'chapter_texts.novel_chapter_id', '=', 'novel_chapters.id')
+            ->whereKey($item['next']->id)
+            ->first([
+                'novel_chapters.id', 'novel_chapters.novel_id', 'novel_chapters.chapter', 'novel_chapters.book',
+                'novel_chapters.sort_key', 'novel_chapters.label', 'novel_chapters.read_progress',
+                'chapter_texts.word_count', 'chapter_texts.novel_chapter_id as text_id',
+            ]) ?? $item['next'];
 
         $rows = $counts[$novel->id]['total'] ?? 0;
         $total = max((int) $novel->last_toc_count, $rows);
@@ -164,9 +184,13 @@ class HomeController extends Controller
 
         $chapterPct = $item['resume'] ? (int) max(0, min(100, (int) $chapter->read_progress)) : 0;
 
-        $words = $chapter instanceof NovelChapter
-            ? str_word_count(strip_tags((string) $chapter->rawText()))
-            : 0;
+        $words = (int) $chapter->word_count;
+        if ($chapter->word_count === null && $chapter->text_id !== null) {
+            // Not backfilled yet (chapters:word-counts): count the body.
+            $words = \App\ChapterText::countWords(
+                \App\ChapterText::whereKey($chapter->id)->value('content')
+            );
+        }
         $remaining = $words * (1 - $chapterPct / 100);
         $minutesLeft = $words > 0 ? max(1, (int) round($remaining / self::WPM)) : null;
 
@@ -215,6 +239,8 @@ class HomeController extends Controller
             ->get(['id', 'name', 'translator_url'])
             ->keyBy('id');
 
+        $readFrom = $this->firstUnread($novels->keys()->all(), ['id', 'novel_id', 'chapter', 'kind']);
+
         $out = [];
         foreach ($groups as $g) {
             $novel = $novels->get($g->novel_id);
@@ -222,12 +248,7 @@ class HomeController extends Controller
                 continue;
             }
 
-            $readFrom = NovelChapter::where('novel_id', $novel->id)
-                ->where('status', 1)->where('blacklist', 0)
-                ->whereNull('read_at')
-                ->ordered()
-                ->first(['id', 'chapter', 'kind']);
-
+            $first = $readFrom->get($novel->id);
             $host = parse_url((string) $novel->translator_url, PHP_URL_HOST);
 
             $out[] = [
@@ -240,8 +261,8 @@ class HomeController extends Controller
                 'notes' => (int) $g->notes,
                 'first' => (float) $g->first_chapter,
                 'last' => (float) $g->last_chapter,
-                'read_from_id' => $readFrom?->id,
-                'read_from' => $readFrom ? (float) $readFrom->chapter : null,
+                'read_from_id' => $first?->id,
+                'read_from' => $first ? (float) $first->chapter : null,
             ];
         }
 
@@ -283,12 +304,30 @@ class HomeController extends Controller
             return [];
         }
 
-        // Resolve every candidate novel (with its cover) in one query instead of
-        // a Novel::find() per row.
+        // Resolve every candidate novel (with its cover) in one query, with
+        // only the columns the hero/shelf/state badge read — this lands in the
+        // dashboard_continue cache, so no description/json.
+        $novelIds = $recent->keys()->all();
         $novels = Novel::with('file')
-            ->whereIn('id', $recent->keys()->all())
-            ->get()
+            ->whereIn('id', $novelIds)
+            ->get(['id', 'name', 'author', 'status', 'paused_at', 'last_toc_count'])
             ->keyBy('id');
+
+        // Abandoned mid-chapter? Resume it exactly where the reader left off
+        // (read_progress syncs from the reader on every device): the most
+        // recently read such chapter per novel, all novels in one query.
+        $inProgress = $this->firstPerNovel(
+            NovelChapter::whereIn('novel_id', $novelIds)
+                ->where('status', 1)->where('blacklist', 0)
+                ->whereNotNull('read_at')
+                ->whereNotNull('read_progress')
+                ->where('read_progress', '<', 90),
+            'read_at DESC, id DESC',
+            ['id', 'novel_id', 'chapter', 'label', 'read_progress']
+        );
+
+        // Otherwise the first unread in reading order.
+        $next = $this->firstUnread($novelIds, ['id', 'novel_id', 'chapter', 'label']);
 
         $items = [];
         foreach ($recent as $novelId => $lastRead) {
@@ -297,31 +336,12 @@ class HomeController extends Controller
                 continue;
             }
 
-            // Abandoned mid-chapter? Resume it exactly where the reader left
-            // off (read_progress syncs from the reader on every device).
-            $inProgress = NovelChapter::where('novel_id', $novelId)
-                ->where('status', 1)->where('blacklist', 0)
-                ->whereNotNull('read_at')
-                ->whereNotNull('read_progress')
-                ->where('read_progress', '<', 90)
-                ->orderByDesc('read_at')
-                ->first(['id', 'chapter', 'label', 'read_progress']);
-
-            if ($inProgress) {
-                $items[] = ['novel' => $novel, 'next' => $inProgress, 'resume' => true];
+            if ($chapter = $inProgress->get($novelId)) {
+                $items[] = ['novel' => $novel, 'next' => $chapter, 'resume' => true];
+            } elseif ($chapter = $next->get($novelId)) {
+                $items[] = ['novel' => $novel, 'next' => $chapter, 'resume' => false];
             } else {
-                // First unread in reading order (idx_novel_book_sort_key).
-                $next = NovelChapter::where('novel_id', $novelId)
-                    ->where('status', 1)->where('blacklist', 0)
-                    ->whereNull('read_at')
-                    ->ordered()
-                    ->first(['id', 'chapter', 'label']);
-
-                if (!$next) {
-                    continue; // caught up — nothing to continue
-                }
-
-                $items[] = ['novel' => $novel, 'next' => $next, 'resume' => false];
+                continue; // caught up — nothing to continue
             }
 
             if (count($items) >= $limit) {
@@ -330,5 +350,42 @@ class HomeController extends Controller
         }
 
         return $items;
+    }
+
+    /**
+     * Each novel's first downloaded, unread chapter in reading order.
+     *
+     * @param  int[]  $novelIds
+     * @return \Illuminate\Support\Collection<int, NovelChapter>  keyed by novel_id
+     */
+    private function firstUnread(array $novelIds, array $columns)
+    {
+        return $this->firstPerNovel(
+            NovelChapter::whereIn('novel_id', $novelIds)
+                ->where('status', 1)->where('blacklist', 0)
+                ->whereNull('read_at'),
+            // Exactly NovelChapter::scopeOrdered().
+            'book, sort_key, chapter, id',
+            $columns
+        );
+    }
+
+    /**
+     * The top row per novel of $query under $orderBy, for many novels in one
+     * query (ROW_NUMBER() — MariaDB 10.2+ / SQLite 3.25+) instead of one
+     * first() per novel.
+     *
+     * @return \Illuminate\Support\Collection<int, NovelChapter>  keyed by novel_id
+     */
+    private function firstPerNovel($query, string $orderBy, array $columns)
+    {
+        $ranked = $query->select($columns)
+            ->selectRaw("ROW_NUMBER() OVER (PARTITION BY novel_id ORDER BY {$orderBy}) as rn");
+
+        return NovelChapter::withoutGlobalScopes()
+            ->fromSub($ranked, 'ranked')
+            ->where('rn', 1)
+            ->get($columns)
+            ->keyBy('novel_id');
     }
 }

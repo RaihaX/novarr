@@ -95,14 +95,18 @@ class A11yTest extends TestCase
         $this->assertStringContainsString('aria-modal="false"', $m[0]);
         $this->assertStringContainsString('aria-labelledby="readerPlaybackTitle"', $m[0]);
 
-        // Focus-trap / inert plumbing and the shell hook are wired in.
-        $this->assertStringContainsString('window.Novarr', $html);
-        $this->assertStringContainsString('focusTrap', $html);
-        $this->assertStringContainsString('.inert = true', $html);
-
-        // The shortcut list documents only bound keys.
-        $this->assertStringContainsString("e.key === 'ArrowLeft'", $html);
-        $this->assertStringContainsString("e.key !== '?'", $html);
+        // The reader logic ships as a cached module, not inline; the
+        // focus-trap / inert plumbing lives in its sources (behaviour is
+        // covered by tests/js/reader.test.js).
+        $this->assertMatchesRegularExpression('/<script type="module" src="[^"]*\/build\/assets\/[^"]+\.js"/', $html);
+        $this->assertStringNotContainsString('focusTrap', $html);
+        $reader = '';
+        foreach (glob(resource_path('js/reader/*.js')) as $file) {
+            $reader .= file_get_contents($file);
+        }
+        $this->assertStringContainsString('window.Novarr', $reader);
+        $this->assertStringContainsString('focusTrap', $reader);
+        $this->assertStringContainsString('.inert = true', $reader);
     }
 
     public function test_reader_icon_only_controls_have_accessible_names(): void

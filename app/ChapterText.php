@@ -18,6 +18,33 @@ class ChapterText extends Model
 
     protected $fillable = ['novel_chapter_id', 'content'];
 
+    protected $casts = [
+        'word_count' => 'integer',
+    ];
+
+    /**
+     * The stored word count's one definition (the Home hero's minutes-left
+     * and /stats read it). Rows saved before the column existed are filled
+     * by `php artisan chapters:word-counts`.
+     */
+    public static function countWords(?string $content): int
+    {
+        return str_word_count(strip_tags((string) $content));
+    }
+
+    /**
+     * Every body write goes through this model (NovelChapter's saved hook
+     * uses updateOrCreate), so the count is kept in step here.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $text) {
+            if ($text->isDirty('content') || $text->word_count === null) {
+                $text->word_count = static::countWords($text->content);
+            }
+        });
+    }
+
     public function chapter(): BelongsTo
     {
         return $this->belongsTo(NovelChapter::class, 'novel_chapter_id');

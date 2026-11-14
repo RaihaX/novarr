@@ -7,13 +7,19 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Reading statistics, derived entirely from read_at timestamps (and text
- * length for an approximate word count — LENGTH()/6 avoids a stored
- * word_count column and works on both MySQL and SQLite).
+ * Reading statistics, derived entirely from read_at timestamps and the
+ * stored chapter_texts.word_count (see ChapterText::countWords()).
  */
 class StatsController extends Controller
 {
-    private const AVG_WORD_LEN = 6; // chars per word incl. space, rough
+    /**
+     * Rough chars per word (incl. space) — only for rows the
+     * chapters:word-counts backfill hasn't reached yet.
+     */
+    private const AVG_WORD_LEN = 6;
+
+    /** Words read, preferring the stored count. */
+    private const WORDS_SQL = 'SUM(COALESCE(chapter_texts.word_count, LENGTH(chapter_texts.content) / ' . self::AVG_WORD_LEN . ')) as words';
 
     public function index()
     {
@@ -27,13 +33,13 @@ class StatsController extends Controller
         $days = 30;
         $since = now()->subDays($days - 1)->startOfDay();
 
-        // Chapters + text volume read per day, last 30 days. Body text lives
-        // in chapter_texts, hence the join for the length sum.
+        // Chapters + words read per day, last 30 days. Word counts live in
+        // chapter_texts, hence the join.
         $rows = NovelChapter::query()
             ->leftJoin('chapter_texts', 'chapter_texts.novel_chapter_id', '=', 'novel_chapters.id')
             ->whereNotNull('read_at')
             ->where('read_at', '>=', $since)
-            ->selectRaw('DATE(read_at) as d, COUNT(*) as chapters, SUM(LENGTH(chapter_texts.content)) as chars')
+            ->selectRaw('DATE(read_at) as d, COUNT(*) as chapters, ' . self::WORDS_SQL)
             ->groupBy('d')
             ->orderBy('d')
             ->get()
@@ -47,7 +53,7 @@ class StatsController extends Controller
                 'date' => $date,
                 'label' => now()->subDays($i)->format('j M'),
                 'chapters' => (int) ($row->chapters ?? 0),
-                'words' => (int) round(($row->chars ?? 0) / self::AVG_WORD_LEN),
+                'words' => (int) round($row->words ?? 0),
             ];
         }
 
@@ -70,11 +76,11 @@ class StatsController extends Controller
             $cursor->subDay();
         }
 
-        // Totals. The all-time word sum scans read chapters' text — cached.
+        // Totals (cached with the rest).
         $totals = NovelChapter::query()
             ->leftJoin('chapter_texts', 'chapter_texts.novel_chapter_id', '=', 'novel_chapters.id')
             ->whereNotNull('read_at')
-            ->selectRaw('COUNT(*) as chapters, SUM(LENGTH(chapter_texts.content)) as chars')
+            ->selectRaw('COUNT(*) as chapters, ' . self::WORDS_SQL)
             ->first();
 
         $readToday = NovelChapter::whereNotNull('read_at')
@@ -102,7 +108,7 @@ class StatsController extends Controller
             'read_today' => $readToday,
             'read_week' => $readWeek,
             'read_total' => (int) ($totals->chapters ?? 0),
-            'words_total' => (int) round(($totals->chars ?? 0) / self::AVG_WORD_LEN),
+            'words_total' => (int) round($totals->words ?? 0),
             'top_novels' => $topNovels,
             'window_days' => $days,
             'active_days' => $activeDays,
