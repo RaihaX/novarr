@@ -1,0 +1,35 @@
+# Development overlay: bind-mounts this checkout over the image's code so
+# edits show up without rebuilding. Not loaded automatically:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#   (or: make dev)
+#
+# The image has no Composer or Node, so install dependencies and build assets
+# on the host first (vendor/ and public/build come in through the bind mount):
+#   composer install && yarn install && yarn build
+# storage/ stays on the stack's named volume.
+
+services:
+  init:
+    volumes:
+      - .:/var/www/html
+      - storage:/var/www/html/storage
+
+  app:
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+    volumes:
+      - .:/var/www/html
+      - storage:/var/www/html/storage
+    # --max-requests=1 recycles each worker after a request, so edits show up
+    # on the next page load (--watch would need Node + chokidar).
+    command: sh -c "php artisan storage:link --force >/dev/null 2>&1 || true; exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8000 --max-requests=1"
+
+  scheduler:
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+    volumes:
+      - .:/var/www/html
+      - storage:/var/www/html/storage

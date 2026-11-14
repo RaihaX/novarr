@@ -1,14 +1,22 @@
 name: Publish Docker image
 
-# Builds the Novarr application image and pushes it to the GitHub Container
-# Registry (GHCR) so the one-click stack can pull a prebuilt image instead of
-# building locally. Targets linux/amd64 (Proxmox / typical x86 hosts); the
-# RoadRunner binary in the Dockerfile is amd64.
+# Tests every push and pull request, boots the clone-and-run Docker stack
+# (docker-compose.yml) to prove the image builds and serves, then (pushes to
+# master, version tags and manual runs only) builds the Novarr application
+# image and pushes it to the GitHub Container Registry (GHCR) so the one-click
+# stack can pull a prebuilt image instead of building locally. The image is
+# only published once both jobs have passed. The published image targets
+# linux/amd64 (Proxmox / typical x86 hosts); a local build picks the
+# RoadRunner binary for its own architecture.
 
 on:
   push:
     branches: [master]
     tags: ['v*']
+    paths-ignore:
+      - '**.md'
+  pull_request:
+    branches: [master]
     paths-ignore:
       - '**.md'
   workflow_dispatch:
@@ -17,8 +25,187 @@ concurrency:
   group: docker-publish-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege by default; the build job adds packages: write for GHCR.
+permissions:
+  contents: read
+
 jobs:
+  test:
+    name: Tests (${{ matrix.db }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The suite as developers run it: phpunit.xml's sqlite :memory:.
+          - db: sqlite
+            experimental: false
+          # Same suite against the production engine, so migrations run on
+          # MariaDB. Never run before this workflow existed, so it is allowed
+          # to fail until it has been seen green (drop continue-on-error then).
+          - db: mariadb
+            experimental: true
+    continue-on-error: ${{ matrix.experimental }}
+
+    services:
+      # An empty image name skips the service on the sqlite leg.
+      mariadb:
+        image: ${{ matrix.db == 'mariadb' && 'mariadb:10.11' || '' }}
+        env:
+          MARIADB_ROOT_PASSWORD: novarr_ci
+          MARIADB_DATABASE: novarr_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      # Puppeteer's Chrome download is only needed for live browser scraping,
+      # never by the test suites or the asset build.
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      # config/app.php defaults to Australia/Perth; the suite is written
+      # against UTC (as in .env.example and developers' .env files).
+      APP_TIMEZONE: UTC
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Same extensions as the Dockerfile's final stage, plus sqlite for the
+      # default test connection.
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, xml, curl, zip, gd, intl, bcmath, opcache, pcntl, sockets, redis
+          coverage: none
+          tools: composer:v2
+
+      - name: Install PHP dependencies
+        uses: ramsey/composer-install@v3
+        with:
+          composer-options: --no-interaction --prefer-dist
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: yarn
+
+      # package.json pins yarn@1.22.22 (classic, lockfile v1); the runner's
+      # preinstalled Yarn 1 reads that lockfile as is (no Corepack needed).
+      - name: Install JS dependencies
+        run: yarn install --frozen-lockfile
+
+      # Built before the PHP suite: views rendered by feature tests resolve
+      # their assets through public/build/manifest.json.
+      - name: Build assets
+        run: yarn build
+
+      # No real .env in CI: an empty one keeps `php artisan test` from warning
+      # on every test, and the key comes from the environment.
+      - name: Generate a throwaway APP_KEY
+        run: |
+          touch .env
+          echo "APP_KEY=base64:$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      # phpunit.xml's <env> entries are not forced, so variables already in
+      # the environment win over its sqlite :memory: defaults.
+      - name: Point the suite at MariaDB
+        if: matrix.db == 'mariadb'
+        run: |
+          {
+            echo "DB_CONNECTION=mysql"
+            echo "DB_HOST=127.0.0.1"
+            echo "DB_PORT=3306"
+            echo "DB_DATABASE=novarr_test"
+            echo "DB_USERNAME=root"
+            echo "DB_PASSWORD=novarr_ci"
+          } >> "$GITHUB_ENV"
+
+      # --fail-on-incomplete: GoldenTestCase marks tests incomplete when
+      # GOLDEN_UPDATE regenerates fixtures, so that flag can never pass CI.
+      - name: PHP tests
+        run: php artisan test --fail-on-incomplete
+
+      - name: JS tests
+        if: matrix.db == 'sqlite'
+        run: yarn test:js
+
+      - name: composer audit (advisory)
+        if: matrix.db == 'sqlite'
+        continue-on-error: true
+        run: composer audit --locked
+
+      - name: yarn audit (advisory)
+        if: matrix.db == 'sqlite'
+        continue-on-error: true
+        run: yarn audit --groups dependencies devDependencies
+
+  # What a new user does: clone, `docker compose up -d --build`, open the app.
+  stack:
+    name: Docker stack boots
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and start the stack
+        run: NOVARR_PORT=8080 docker compose up -d --build
+
+      # The one-shot init service migrates first; the app then needs Octane's
+      # start-up time. /api/health answers 200 only when the database, cache
+      # and storage checks pass.
+      - name: Wait for the app to report healthy
+        run: |
+          for i in $(seq 1 60); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/health || true)"
+            if [ "$code" = "200" ]; then echo "healthy after $((i * 5))s"; exit 0; fi
+            sleep 5
+          done
+          echo "::error::app did not become healthy (last status: $code)"
+          exit 1
+
+      - name: Pages render and assets are served
+        run: |
+          set -e
+          for path in / /novels /library /settings /health /opds /sw.js; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8080$path")"
+            echo "$code $path"
+            [ "$code" = "200" ]
+          done
+          # A built, hashed bundle referenced by the page must be served.
+          asset="$(curl -s http://localhost:8080/ | grep -o '/build/assets/app-[A-Za-z0-9_-]*\.js' | head -1)"
+          test -n "$asset"
+          code="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8080$asset")"
+          echo "$code $asset"
+          [ "$code" = "200" ]
+
+      - name: Image has what the app needs at runtime
+        run: |
+          set -e
+          docker compose exec -T app php -m | tr 'A-Z' 'a-z' > /tmp/mods
+          for ext in gd intl zip mbstring redis pdo_mysql sockets pcntl bcmath; do
+            grep -qx "$ext" /tmp/mods || { echo "::error::missing PHP extension $ext"; exit 1; }
+          done
+          docker compose exec -T app php -r 'exit(function_exists("imagecreatefromjpeg") && function_exists("imagettftext") ? 0 : 1);'
+          docker compose exec -T app sh -c 'command -v mysqldump && command -v rr'
+          # The scheduler heartbeat lands within its first minute.
+          sleep 70
+          docker compose exec -T scheduler php artisan queue:health-check --heartbeat=3 --max-age=525600
+          docker compose exec -T app php artisan backup:run --only-db
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose ps -a && docker compose logs --tail=200
+
   build:
+    needs: [test, stack]
+    # Pull requests are tested only; nothing is pushed for them.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read

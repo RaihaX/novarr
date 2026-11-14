@@ -24,13 +24,20 @@ x-app-env: &app-env
   APP_URL: http://localhost          # set to your https://<node>.<tailnet>.ts.net once Serve is on
   APP_TIMEZONE: UTC
   LOG_CHANNEL: stack
+  # Daily files under storage/logs (14 kept) AND stderr, so errors show in
+  # `docker compose logs`.
+  LOG_STACK: daily,stderr
+  LOG_DAILY_DAYS: "14"
   LOG_LEVEL: warning
   DB_CONNECTION: mysql
   DB_HOST: mysql
   DB_PORT: "3306"
   DB_DATABASE: novarr
   DB_USERNAME: novarr
-  DB_PASSWORD: novarr_secret
+  # Internal-only. Override both passwords from the environment / an .env
+  # file next to this compose file; MySQL only applies them when its volume
+  # is first initialised.
+  DB_PASSWORD: ${DB_PASSWORD:-novarr_secret}
   CACHE_STORE: redis
   SESSION_DRIVER: redis
   REDIS_HOST: redis
@@ -89,12 +96,28 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    # Runs inside the sidecar's network namespace, where Octane listens on 8000.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
 
   scheduler:
     image: ghcr.io/raihax/novarr:latest
     environment: *app-env
     command: php artisan schedule:work
+    # Healthy while the every-minute heartbeat (routes/console.php) is under
+    # 3 minutes old. --max-age is set out of reach so a long job backlog does
+    # not count against the scheduler.
+    healthcheck:
+      test: ["CMD", "php", "artisan", "queue:health-check", "--heartbeat=3", "--max-age=525600"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 120s
     volumes:
       - storage:/var/www/html/storage
     depends_on:
@@ -107,12 +130,12 @@ services:
     environment:
       MYSQL_DATABASE: novarr
       MYSQL_USER: novarr
-      MYSQL_PASSWORD: novarr_secret
-      MYSQL_ROOT_PASSWORD: root_secret
+      MYSQL_PASSWORD: ${DB_PASSWORD:-novarr_secret}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_secret}
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_secret"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root_secret}"]
       interval: 10s
       timeout: 5s
       retries: 10

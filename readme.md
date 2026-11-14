@@ -25,10 +25,19 @@ This is fully self-contained — it runs migrations and generates an app key aut
 Open **http://&lt;host&gt;/** and start adding novels.
 
 - **PWA / install-to-home-screen needs HTTPS** — put a reverse proxy (Nginx Proxy Manager, Caddy, Traefik) or **Tailscale Serve** in front, then set `APP_URL` to that origin in the compose file.
-- The image targets **linux/amd64** (typical x86 hosts / Proxmox). MySQL & Redis ports are not exposed; the internal default passwords are safe to leave as-is.
+- The prebuilt image targets **linux/amd64** (typical x86 hosts / Proxmox); on ARM, use the clone-and-build stack below, which builds for your machine. MySQL & Redis ports are not exposed; the internal default passwords are safe to leave as-is.
 - Email (summary / Send-to-Kindle) is off by default (`MAIL_MAILER: log`) — set `MAIL_MAILER`, `RESEND_KEY`, and `MAIL_FROM_ADDRESS` to enable it.
 
-> Prefer to build from source, or want the full production stack with nginx and zero-downtime updates? See [Installation](#installation) and [Deployment](#deployment-docker--unraid).
+**Or clone and build it yourself** — the same stack, built from the source in the checkout (also works on Apple Silicon and ARM boards):
+
+```bash
+git clone https://github.com/RaihaX/novarr.git && cd novarr
+docker compose up -d --build
+```
+
+No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker compose up -d --build` if port 80 is taken.
+
+> Running on bare metal instead? See [Installation](#installation) and [Deployment](#deployment).
 
 ---
 
@@ -46,7 +55,8 @@ Open **http://&lt;host&gt;/** and start adding novels.
 - [OPDS catalog](#opds-catalog)
 - [Offline reading (PWA)](#offline-reading-pwa)
 - [Tailscale](#tailscale)
-- [Deployment (Docker / Unraid)](#deployment-docker--unraid)
+- [Deployment](#deployment)
+- [Backup and restore](#backup-and-restore)
 - [Design & branding](#design--branding)
 - [Project structure](#project-structure)
 - [Development](#development)
@@ -149,7 +159,7 @@ Open **http://&lt;host&gt;/** and start adding novels.
 ```
 
 - **Scraping is abstracted behind source adapters** (`app/Sources`). A `SourceResolver` picks the right adapter for a novel's URL; each adapter knows how to fetch that site's table of contents and metadata and declares where chapter text lives. `app/Scraping` holds the shared machinery: `Fetcher` (the only place that touches the network; fakeable in tests), `ContentExtractor` (per-source selectors, then a density scorer), `ChapterLabelParser` (volume / number / part / title / sort key from a label), `NovelUpdatesMatcher` (identity scoring) and `FailureSnapshot`.
-- **Background work runs through the database queue.** Commands triggered from the web UI are dispatched as jobs and picked up by a persistent `queue:work` worker (a dedicated service in Docker, or a systemd unit on bare metal); a cron-driven `queue:work --stop-when-empty` acts as a fallback drain. The scheduler also runs the recurring TOC/chapter/verify/email tasks.
+- **Background work runs through the database queue.** Commands triggered from the web UI are dispatched as jobs and drained every minute by the scheduler's `queue:work --stop-when-empty` (this is how the Docker stacks run); on bare metal a persistent `queue:work` systemd unit picks them up instantly, with the scheduled drain as a fallback. The scheduler also runs the recurring TOC/chapter/verify/email tasks.
 - **Chapter body text is stored separately** (`chapter_texts`, one row per downloaded chapter with a `FULLTEXT` index). The main `novel_chapters` table holds only metadata, keeping every list/stat query and schema change fast. On the `NovelChapter` model, `description` remains a virtual attribute backed by that table.
 - **Settings are DB-backed** (`app_settings` table) with an `.env` fallback, so most operational config is editable from the Settings page without redeploying. (Runtime code reads env only via `config/` — the app is safe to run with `config:cache`/`route:cache`/`view:cache`.)
 
@@ -288,7 +298,7 @@ Novarr is **scheduler-driven**. Add the single Laravel cron entry and everything
 | Completion verify | daily @ 06:00 | `novel:verify-completion` — mark fully-downloaded series complete |
 | Summary email | daily @ `summary_time` | `novel:email-summary` — recap since the previous summary (`summary_last_sent_at`): continue-reading block, headline figures, one row per updated novel, completed novels, and the attention list when it has changed (`summary_attention_hash`); a table-based brand email with a text part, built to survive Gmail/Outlook |
 
-Jobs queued from the web UI use the **database** queue (`jobs` table); failures land in `failed_jobs` and are inspectable/retryable from the **Health** page. For instant pickup, run a **persistent worker** alongside the cron (the Docker stack ships one as a service; on bare metal use a systemd unit):
+Jobs queued from the web UI use the **database** queue (`jobs` table); failures land in `failed_jobs` and are inspectable/retryable from the **Health** page. For instant pickup, run a **persistent worker** alongside the cron (on bare metal use a systemd unit; the Docker stacks rely on the scheduler's every-minute drain):
 
 ```ini
 # /etc/systemd/system/novarr-worker.service
@@ -299,7 +309,7 @@ ExecStart=/usr/bin/php artisan queue:work --queue=commands,default --sleep=1 --t
 Restart=always
 ```
 
-Run `php artisan queue:restart` after each deploy so the worker reloads new code. Scheduled scrapes hold `withoutOverlapping` locks of 90 min (TOC) and 150 min (chapters) — short enough that a killed run can't block the next day — and UI-triggered scrapes take a per-novel lock so the two never interleave.
+Run `php artisan queue:restart` after each deploy so the worker reloads new code. Scheduled scrapes hold `withoutOverlapping` locks of 90 min (TOC) and 150 min (chapters) — short enough that a killed run can't block the next day — and every `novel:chapter` and `novel:toc` run, scheduled or UI-triggered (the reader's single-chapter download excepted), takes a per-novel lock (`novel-scrape:{id}`, released when the run ends, with a 3-hour expiry that long manual runs renew) before working a novel and skips any novel whose lock another run holds, so two scrapes never work the same novel at once.
 
 ---
 
@@ -379,41 +389,183 @@ After enabling Serve, set `APP_URL` to that HTTPS origin in the compose file.
 
 ---
 
-## Deployment (Docker / Unraid)
+## Deployment
+
+Three supported ways to run Novarr:
+
+| Path | Use it when | Details |
+|---|---|---|
+| **One-click stack** (`docker-compose.oneclick.yml`, or `docker-compose.tailscale.yml` for your tailnet) | Almost always: prebuilt image, nothing to build | [Quick install](#quick-install-one-command), [Tailscale](#tailscale), [DOCKER.md](DOCKER.md) |
+| **Bare metal** (`deploy.sh`) | A plain Linux box with nginx, PHP-FPM and MariaDB/MySQL | Below |
+| **Clone-and-run stack** (`docker-compose.yml`) | You want to build the image from the source yourself, run on ARM, or change the code | Below, [DOCKER.md](DOCKER.md) |
+
+Unraid: [UNRAID_DEPLOYMENT.md](UNRAID_DEPLOYMENT.md).
 
 ### Bare metal (`deploy.sh`)
 
-On a plain Linux box the repo's `deploy.sh` is the whole release process: it re-executes itself from a temp copy (so the pull can't change the running script), **dumps the database first** into `storage/backups/` (five copies kept) and refuses to continue if the dump fails, enters maintenance mode (printing a bypass secret), pulls with `--ff-only`, installs dependencies, builds assets, migrates from a cleared config, rebuilds the config/route/view caches without touching the application cache (so scheduler locks survive), leaves maintenance mode, restarts the queue worker and normalises storage ownership. Put immutable caching on `/build/assets/` and `no-cache` on `/sw.js` and `/build/manifest.json` in your nginx site (see `docker/nginx/nginx.conf` for the blocks).
+On a plain Linux box the repo's `deploy.sh` is the whole release process. It:
 
+1. re-executes itself from a temp copy (so the pull can't change the running script);
+2. **dumps the database** into `storage/backups/` (five copies kept, written through a private credentials file and verified with `gzip -t`) and refuses to continue if the dump fails — nothing has changed yet;
+3. records the current commit and that dump in `storage/backups/last-deploy.state` (the rollback point);
+4. enters maintenance mode, printing a bypass secret;
+5. pulls with `--ff-only`, installs dependencies (`composer install --no-dev`, `yarn install --frozen-lockfile`), builds assets;
+6. migrates from a cleared config, then clears and rebuilds the config/route/view caches one by one, without touching the application cache (so scheduler locks survive);
+7. restarts the queue worker, normalises `storage/` and `bootstrap/cache` ownership to `www-data`, and reloads any active `php*-fpm` service (opcache may hold the old code);
+8. leaves maintenance mode and **probes `/api/health`** (sent to `127.0.0.1` with the `APP_URL` host, or to `NOVARR_HEALTH_URL` if set). An unhealthy answer makes the script exit non-zero with the response; it does not roll back on its own.
 
-This is the **build-from-source** stack with Nginx and zero-downtime updates — for most people the [one-command install](#quick-install-one-command) is easier. A full container stack is included (PHP-FPM app, Nginx, MySQL, Redis, scheduler, and queue worker), driven by a `Makefile`.
-
-> Unlike the one-click stack, this Makefile stack does **not** bundle FlareSolverr — point `FLARESOLVERR_URL` in `.env` at an existing FlareSolverr instance, or add a `flaresolverr` service to the compose file.
+**If a step fails** the script stops (the site stays in maintenance mode if it was) and prints an exact rollback recipe: the commit to reset to, the same `composer`/`yarn` commands, the dump to load (only when migrations had started), the cache rebuild and `php artisan up`. To run that recipe for you:
 
 ```bash
-git clone <repo> novarr && cd novarr
-cp .env.example .env          # edit DB credentials, APP_URL, mail, FlareSolverr
-make deploy                   # initial build + migrate + start
+/var/www/novarr/deploy.sh --rollback          # shows what it will do, asks for "rollback"
+/var/www/novarr/deploy.sh --rollback --yes    # no prompt
 ```
 
-Common targets (run `make help` for the full list):
+`--rollback` resets the code to the recorded commit, reinstalls dependencies, rebuilds assets, **replaces the database with the recorded dump** (anything written since is lost; tables are dropped first with `db:wipe`), rebuilds caches, brings the site up and probes it. It works after a failed deploy and after a successful one, once per deploy. The next `deploy.sh` run pulls `master` again, so fix forward before re-deploying.
+
+The script needs `mysqldump`/`mariadb-dump` and the `mariadb`/`mysql` client (`apt install mariadb-client`), plus `curl` for the health probe. Put immutable caching on `/build/assets/` and `no-cache` on `/sw.js` and `/build/manifest.json` in your nginx site (see `docker/nginx/nginx.conf` for the blocks).
+
+### Clone-and-run stack (`docker-compose.yml`)
+
+The same services as the [one-command install](#quick-install-one-command) (app, one-shot migration, scheduler, MySQL, Redis, FlareSolverr), but the image is built from your checkout instead of pulled:
+
+```bash
+git clone https://github.com/RaihaX/novarr.git && cd novarr
+docker compose up -d --build        # or: make deploy
+```
+
+Open **http://localhost/**. There is nothing to configure: the app key is generated on first start and kept in the `storage` volume, migrations run in the `init` service before the app starts, and all data lives in named volumes (`docker compose down` keeps it, `docker compose down -v` deletes it). The image builds for the machine it is built on, so this also works on Apple Silicon and ARM boards.
+
+Optional settings come from the shell or a `.env` file next to the compose file:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NOVARR_PORT` | `80` | Host port |
+| `APP_URL` | `http://localhost` | The origin you browse to (set it when behind HTTPS) |
+| `APP_TIMEZONE` | `UTC` | Timezone for schedules and dates |
+| `DB_PASSWORD`, `MYSQL_ROOT_PASSWORD` | internal defaults | Only applied when the MySQL volume is first created; the database port is never published |
+| `MAIL_MAILER`, `RESEND_KEY`, `MAIL_FROM_ADDRESS` | mail off | Daily summary and Send-to-Kindle |
+| `NOTIFICATION_WEBHOOK_URL` | none | Failure alerts |
+
+Update with `git pull --ff-only && docker compose up -d --build` (take a backup first: `make backup`). The `Makefile` wraps the common commands (run `make help` for the full list):
 
 | Command | Description |
 |---|---|
-| `make deploy` | Initial deployment (build, migrate, start) |
-| `make update` | Zero-downtime update (pull, build, migrate) |
-| `make rollback` | Roll back the last update |
+| `make deploy` | Build the image and (re)start the stack; migrations run in `init` |
 | `make logs` / `make logs-app` | Tail logs (all, or a single service) |
 | `make shell` / `make tinker` | App container shell / Tinker REPL |
 | `make db-shell` | MySQL shell |
-| `make backup` | Back up database + storage |
+| `make backup` / `make backup-list` | `php artisan backup:run` / `backup:list` in the app container |
+| `make health` / `make smoke-test` | Health endpoints / smoke tests |
 | `make restart` / `make down` / `make up` | Lifecycle control |
+| `make dev` | Adds `docker-compose.dev.yml`, which bind-mounts the checkout for live editing |
+
+The production image has no Composer, Node or dev dependencies: run tests and linting on a development machine (see [Development](#development)).
 
 - **Full Docker guide:** [DOCKER.md](DOCKER.md)
 - **Unraid guide:** [UNRAID_DEPLOYMENT.md](UNRAID_DEPLOYMENT.md)
-- **Migrating dev → prod data:** `make migrate-export`, copy the `migrate/` dir to the server, then `./docker-deploy.sh --migrate` (see [DOCKER.md](DOCKER.md#migrating-from-development-to-production)).
+- **Moving a library to a new install:** take a backup and restore it there (see [Backup and restore](#backup-and-restore)).
 
 For PWA installs you'll want HTTPS in front of the stack — terminate TLS at your reverse proxy (or Tailscale Serve) and point `APP_URL` at the HTTPS origin.
+
+### Continuous integration
+
+`.github/workflows/docker-publish.yml` runs on every push and pull request to `master`. The **test** job installs PHP 8.3 (the image's extensions) and the locked Composer and Yarn dependencies, builds the assets, then runs `php artisan test --fail-on-incomplete` and `yarn test:js`; `composer audit` and `yarn audit` run as advisory steps that never fail the build. A second leg runs the PHP suite against a `mariadb:10.11` service, so migrations run on the production engine; it is allowed to fail for now. Only after the tests pass does the **build** job (pushes and tags only, not pull requests) publish `ghcr.io/raihax/novarr`.
+
+---
+
+## Backup and restore
+
+### What is backed up
+
+`php artisan backup:run` ([spatie/laravel-backup](https://spatie.be/docs/laravel-backup), configured in `config/backup.php`) writes one zip containing:
+
+- `db-dumps/mysql-<database>.sql` — a dump of the database (`mariadb-<database>.sql` for a `mariadb` connection, `sqlite-….sql` for SQLite);
+- `app/…` — `storage/app`: covers (with their thumbnails) and uploads, settings files, and the Docker stacks' `storage/app/.appkey`.
+
+Left out: the backups themselves, `storage/app/backup-temp`, failure snapshots (`storage/app/snapshots`), generated ePubs (`storage/app/ePub`: rebuild them with `php artisan novel:epub`), ePub build scratch directories, framework caches and logs. Code, `vendor/` and `node_modules` come back from git and the lockfiles; **back up `.env` yourself** (it holds `APP_KEY` and passwords).
+
+The scheduler runs `backup:clean` at 03:30 and `backup:run` at 03:45 every day. Retention: one backup a day for 7 days, then one a week for 4 weeks, then one a month for 3 months (the newest is never deleted). Nothing is mailed; a failed run is logged and posted to the notification webhook (Settings, or `NOTIFICATION_WEBHOOK_URL`).
+
+The dump needs the MySQL/MariaDB client tools where the backup runs: `apt install mariadb-client` on bare metal (provides `mysqldump` and `mariadb-dump`); the Docker image already includes them.
+
+`deploy.sh` keeps its own pre-deploy database dumps in `storage/backups/` (last five) for rollbacks; those are separate from these.
+
+### Where backups land
+
+Zips go to the filesystem disk named by `BACKUP_DISK` (default `local`), under `<disk root>/<APP_NAME>/`:
+
+| Install | Default location |
+|---|---|
+| Bare metal | `/var/www/novarr/storage/app/private/Novarr/` |
+| Docker stacks (one-click, Tailscale, clone-and-run) | `storage/app/private/Novarr/` inside the `storage` volume (`docker compose exec scheduler ls storage/app/private/Novarr`) |
+
+```bash
+php artisan backup:run      # back up now
+php artisan backup:list     # list backups, age, size
+# Docker: docker compose -f docker-compose.oneclick.yml exec scheduler php artisan backup:run
+```
+
+### Sending backups to a second disk
+
+The default location is on the same disk as the data. To keep copies elsewhere:
+
+- **Bare metal:** mount the second disk (or a directory on it) over the backup folder, so the zips are written there directly:
+  ```bash
+  mkdir -p /mnt/backup/novarr /var/www/novarr/storage/app/private/Novarr
+  chown www-data:www-data /mnt/backup/novarr
+  echo '/mnt/backup/novarr /var/www/novarr/storage/app/private/Novarr none bind 0 0' >> /etc/fstab
+  mount /var/www/novarr/storage/app/private/Novarr
+  ```
+  Or copy them off after each run, e.g. a root cron line `15 4 * * * rsync -a --delete /var/www/novarr/storage/app/private/Novarr/ /mnt/backup/novarr/`.
+- **Docker:** mount a host directory over the same folder in the `scheduler` service (owned by uid/gid 82, the image's `www-data`) — see [DOCKER.md → Backups](DOCKER.md#backups).
+
+### Restore (bare metal)
+
+```bash
+cd /var/www/novarr
+php artisan down
+mkdir -p /tmp/novarr-restore
+unzip -o storage/app/private/Novarr/<backup>.zip -d /tmp/novarr-restore
+
+# Database: drop every table, then load the dump (the client prompts for DB_PASSWORD).
+php artisan db:wipe --force
+mariadb -h <DB_HOST> -u <DB_USERNAME> -p <DB_DATABASE> < /tmp/novarr-restore/db-dumps/mysql-<DB_DATABASE>.sql
+
+# Files: storage/app as it was.
+rsync -a /tmp/novarr-restore/app/ storage/app/
+chown -R www-data:www-data storage
+
+php artisan migrate --force   # only if the code is newer than the backup
+php artisan up
+rm -rf /tmp/novarr-restore
+```
+
+### Restore (Docker one-click / Tailscale stack)
+
+Run from the directory with the compose file (`-f docker-compose.tailscale.yml` for the Tailscale stack; for the clone-and-run stack leave `F` empty). Copy the zip out of the volume first if that is where it is (`docker compose -f docker-compose.oneclick.yml cp scheduler:/var/www/html/storage/app/private/Novarr/<backup>.zip .`).
+
+```bash
+F="-f docker-compose.oneclick.yml"
+mkdir -p restore && unzip -o <backup>.zip -d restore
+
+docker compose $F stop app scheduler
+
+# Database
+docker compose $F run --rm --no-deps app php artisan db:wipe --force
+docker compose $F exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot "$MYSQL_DATABASE"' \
+  < restore/db-dumps/mysql-novarr.sql
+
+# Files (including storage/app/.appkey, so the restored data keeps its key)
+docker compose $F run --rm --no-deps --user root -v "$PWD/restore:/restore:ro" app \
+  sh -c 'cp -a /restore/app/. /var/www/html/storage/app/ && chown -R www-data:www-data /var/www/html/storage/app'
+
+docker compose $F up -d          # init re-runs migrations first
+docker compose $F exec app php artisan up
+rm -rf restore
+```
+
+If `BACKUP_ARCHIVE_PASSWORD` is set, the zips are AES-encrypted: extract them with `7z x <backup>.zip -orestore` (p7zip) instead of `unzip`.
 
 ---
 
@@ -502,7 +654,7 @@ php artisan test  # PHP suite (golden adapter tests make no network calls)
 yarn test:js      # JS suites: offline queue, service worker, palette, bundle guards
 ```
 
-`GOLDEN_UPDATE=1 php artisan test --filter Golden` regenerates the adapter expectations (and marks those tests incomplete so the flag can never make CI green). Tests flush the cache per test; `phpunit.xml` pins the array cache/session drivers.
+`GOLDEN_UPDATE=1 php artisan test --filter Golden` regenerates the adapter expectations (and marks those tests incomplete; CI runs with `--fail-on-incomplete`, so the flag can never make CI green). Tests flush the cache per test; `phpunit.xml` pins the array cache/session drivers.
 
 For remote/tablet access to the Vite dev server (e.g. over Tailscale), the dev assets must be advertised at the externally-reachable HTTPS origin — set `server.origin`, `server.allowedHosts`, and `server.hmr` in `vite.config.js` from `.env`, and confirm `public/hot` shows the external URL.
 

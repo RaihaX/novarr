@@ -31,9 +31,16 @@ package-lock.json
 *.sql
 rr
 
-# Deployment state files
+# Left behind by the retired docker-deploy.sh / docker-update.sh toolchain
 .deployment-state
 .docker-tag
+
+# OS / download metadata
+.DS_Store
+*Zone.Identifier
+
+# Archives dropped into the repo root (brand packs, exports)
+/*.zip
 
 # Migration data (contains sensitive database dumps)
 /migrate/
