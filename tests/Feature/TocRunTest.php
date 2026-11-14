@@ -45,10 +45,11 @@ class TocRunTest extends TestCase
 
     private function novel(string $name = 'Test Novel', array $attributes = []): Novel
     {
-        $group = Group::first() ?? tap(new Group(), function ($g) {
-            $g->label = 'Novel Arrow';
-            $g->url = 'https://novelping.com';
-            $g->save();
+        // NovelArrowSource only uses the chapter API for group 1, and on
+        // MySQL/MariaDB auto-increment ids keep climbing across tests (a
+        // rolled-back transaction does not reset them), so pin the id.
+        $group = Group::find(1) ?? tap(new Group(), function ($g) {
+            $g->forceFill(['id' => 1, 'label' => 'Novel Arrow', 'url' => 'https://novelping.com'])->save();
         });
 
         $novel = Novel::create([
