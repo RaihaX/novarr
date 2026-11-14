@@ -52,7 +52,8 @@ FROM php:8.3-fpm-alpine
 #   libxml2                         -> xml
 #   libcurl (via curl)              -> curl
 # curl is also the container healthcheck client. mariadb-client provides
-# mysqldump / mariadb-dump for `php artisan backup:run`.
+# mysqldump / mariadb-dump for `php artisan backup:run`; mariadb-connector-c
+# carries the caching_sha2_password plugin MySQL 8 accounts authenticate with.
 RUN apk add --no-cache \
     libzip \
     libpng \
@@ -67,6 +68,7 @@ RUN apk add --no-cache \
     gcompat \
     curl \
     mariadb-client \
+    mariadb-connector-c \
     && (command -v mysqldump >/dev/null || ln -s "$(command -v mariadb-dump)" /usr/local/bin/mysqldump) \
     && mkdir -p /etc/my.cnf.d \
     && printf '%s\n' \

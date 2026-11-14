@@ -36,7 +36,11 @@ class PerHostSweepTest extends TestCase
         parent::setUp();
         Carbon::setTestNow('2026-11-14 12:00:00');
 
+        // A fixed id well away from the real sources: several code paths key
+        // on group ids 1, 3 and 6, and on MySQL/MariaDB auto-increment ids
+        // keep climbing across tests, so one test would otherwise land on 6.
         $this->group = new Group();
+        $this->group->id = 9001;
         $this->group->label = 'Example';
         $this->group->url = 'https://group.test';
         $this->group->save();
@@ -277,7 +281,7 @@ class PerHostSweepTest extends TestCase
 
         Artisan::call('novel:chapter');
 
-        $this->assertCount(3, $this->fetchesOn('a.test'), 'three blocking failures, then the breaker; fetches: ' . json_encode($this->scraper->fetches) . ' output: ' . Artisan::output() . ' novels: ' . Novel::count() . ' pending: ' . NovelChapter::where('status', 0)->count());
+        $this->assertCount(3, $this->fetchesOn('a.test'), 'three blocking failures, then the breaker');
         $this->assertCount(3, $this->fetchesOn('b.test'));
         $this->assertSame(0, NovelChapter::where('novel_id', $fine->id)->where('status', 0)->count());
         $this->assertSame(1, (int) $blocked->fresh()->scrape_failures);
