@@ -175,9 +175,73 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 
 Metadata for all sources is enriched from **NovelUpdates** (description, genres, cover, completion status), with the source's own page as a fallback.
 
-> Adding a new source = implement the `Source` interface (`matches`, `tableOfContents`, `metadata`, `name`) in `app/Sources` and register it in `SourceResolver`. The first adapter whose `matches()` returns true wins; `NovelArrowSource` matches everything as the default.
+### Adding a source
 
-> Content hints live on the adapter too: extend `App\Sources\AbstractSource` and override `contentSelectors()` (where the chapter body is), `removeSelectors()` (ads, nav, notices) and `supportsMultiPage()` (a "next part" link selector, or `null`). All network access goes through `App\Scraping\Fetcher` (`html()` via FlareSolverr, `htmlWithSession()`, `plain()`, `json()`), so adapters can be tested offline: the golden tests in `tests/Feature/Golden*Test.php` run the real adapters against pages saved from each site (`tests/fixtures/{novelfull,novelarrow,empirenovel}/`) through `Tests\Support\FakeFetcher`, which fails any un-faked URL. Refresh expectations with `GOLDEN_UPDATE=1 php artisan test --filter Golden` and review the diff.
+A source is one adapter class plus one config entry; the resolver, the TOC and chapter generators and the Discover page all read the registry, so no other file needs editing.
+
+1. **Write an adapter** in `app/Sources` extending `App\Sources\AbstractSource`. Implement `name()`, `tableOfContents(Novel)` (TOC rows from `generateTocChapterInfo($label, $url)`; the caller runs `finalizeTocResult()`) and `metadata(Novel)` (`description`, `author`, `no_of_chapters`, `image`, `genres`, `cover_candidates`). Override `hosts()` so the default `matches()` / `matchesUrl()` recognise your URLs (a URL containing one of the hosts). Optional overrides, all with defaults in `AbstractSource`:
+   - `contentSelectors()`, `removeSelectors()`, `supportsMultiPage()` — chapter-extraction hints (where the body is, what to strip, a "next part" link selector or `null`).
+   - `chapterContent($url, &$failure)` — an API fast path for chapter text. Return `null` for "no fast path for this URL" (the default: the page is fetched and extracted), or the paragraphs (`[]` plus a `$failure` reason when the API gave nothing; `'rate_limited'` stops the fetch, anything else falls back to the page). `chapterGenerator()` asks the source that claims the chapter URL first, then every other registered source in registry order.
+   - `siteMetadata(Novel)` + a `METADATA_PRECEDENCE` constant to merge your site's metadata with NovelUpdates' (`novelUpdatesMetadata()`) through `App\Sources\MetadataMerger::merge()` — the precedence keys are documented on that class; the three built-in adapters are worked examples.
+   - Discover: `discoverLists()` (any of `search`, `popular`, `completed`; the default `[]` keeps the source off the Discover page), `discover($type, $query)` (result items, or `null` when the site can't be reached), `discoverLabel()`, `discoverHost()`, and `librarySlug()` for "In library" matching by slug. Sources with browse lists are listed first, then search-only ones.
+2. **Register it** in `config/novarr.php` under `sources` (key => class). Order matters: the first adapter whose `matches()` accepts a novel wins, and `NovelArrowSource` accepts everything, so it stays **last** as the catch-all. The key is the source's `?source=` id on the Discover page.
+3. **Add fixtures and a golden test**: save real pages under `tests/fixtures/{yoursource}/` and add a `tests/Feature/Golden{YourSource}Test.php` extending `GoldenTestCase`, which serves them through `Tests\Support\FakeFetcher` (any un-faked URL fails the test). All network access must go through `App\Scraping\Fetcher` (`html()` via FlareSolverr, `sessionPage()`, `page()`, `plain()`, `json()`) for that to work. Refresh expectations with `GOLDEN_UPDATE=1 php artisan test --filter Golden` and review the diff.
+
+```php
+namespace App\Sources;
+
+use App\Novel;
+use App\Scraping\Fetcher;
+use Symfony\Component\DomCrawler\Crawler;
+
+class ExampleSource extends AbstractSource
+{
+    public function name(): string { return 'example'; }
+
+    public function hosts(): array { return ['example-novels.com']; }
+
+    public function tableOfContents(Novel $novel): array
+    {
+        $html = app(Fetcher::class)->html($novel->translator_url);
+        $rows = [];
+        if ($html !== null) {
+            (new Crawler($html))->filter('.chapter-list a')->each(function (Crawler $a) use (&$rows) {
+                $rows[] = generateTocChapterInfo($a->text(), $a->attr('href'));
+            });
+        }
+
+        return $rows;
+    }
+
+    public function metadata(Novel $novel): array
+    {
+        // NovelUpdates only; see MetadataMerger to merge your own page in.
+        $metadata = $this->novelUpdatesMetadata($novel);
+        $metadata['cover_candidates'] = array_values(array_filter([$metadata['image'] ?? null]));
+
+        return $metadata;
+    }
+
+    public function contentSelectors(): array
+    {
+        return ['#chapter-body', ...self::GENERIC_CONTENT_SELECTORS];
+    }
+}
+```
+
+```php
+// config/novarr.php
+'sources' => [
+    'empirenovel' => \App\Sources\EmpireNovelSource::class,
+    'novelfull' => \App\Sources\NovelFullSource::class,
+    'example' => \App\Sources\ExampleSource::class,
+    'novelarrow' => \App\Sources\NovelArrowSource::class, // catch-all, keep last
+],
+```
+
+`tests/Feature/NewSourceDryRunTest.php` registers a fourth adapter through config alone and checks the resolver, TOC generator, chapter fast path and Discover pick it up.
+
+**Install-specific ids.** A few database ids from the original install are config, not code (defaults = the original install; override with comma-separated env lists, empty = none): `alternative_url_group_ids` (`NOVARR_ALTERNATIVE_URL_GROUP_IDS`, `1,3,6`: groups whose novels' `alternative_url` builds chapter URLs), `dotted_chapter_url_novel_ids` (`NOVARR_DOTTED_CHAPTER_URL_NOVEL_IDS`, `72`: novels whose `alternative_url` chapter number is written `12-5` instead of floored), `novelarrow_api_group_ids` (`NOVARR_NOVELARROW_API_GROUP_IDS`, `1`: groups whose NovelPing TOC comes from the JSON API) and `webnovel_unique_id_group_ids` (`NOVARR_WEBNOVEL_UNIQUE_ID_GROUP_IDS`, `6`: webnovel groups whose TOC entries get a `unique_id` from the URL).
 
 ---
 

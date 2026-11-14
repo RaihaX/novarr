@@ -253,12 +253,14 @@ function chapterSourceUrl($data)
         ? $data->url
         : ($data->novel->group->url ?? "") . $data->url;
 
+    // Install-specific ids (config novarr.alternative_url_group_ids /
+    // dotted_chapter_url_novel_ids; defaults [1, 3, 6] and [72]).
     if (
         !empty($data->novel->alternative_url) &&
-        in_array($data->novel->group->id ?? 0, [1, 3, 6])
+        \App\Sources\InstallIds::contains(\App\Sources\InstallIds::alternativeUrlGroupIds(), $data->novel->group->id ?? 0)
     ) {
         $chapter =
-            $data->novel->id == 72
+            \App\Sources\InstallIds::contains(\App\Sources\InstallIds::dottedChapterUrlNovelIds(), $data->novel->id)
                 ? str_replace(".", "-", $data->chapter)
                 : floor($data->chapter);
         $novelUrl = $data->novel->alternative_url . $chapter;
@@ -530,26 +532,41 @@ function chapterGenerator($data, ?string &$failureReason = null)
             usleep(1000 * rand(max(0, $minDelay), max($minDelay, $maxDelay)));
         }
 
-        // Novel Arrow chapters come straight from the JSON API — no browser
-        // fetch or HTML scrape needed. Only an API answer of HTTP 429 ends
-        // the fetch here: the host asked us to slow down, and fetching the
-        // same chapter again through FlareSolverr would ignore that. Every
-        // other API failure (403 from a WAF, 404, 5xx including a 503
-        // challenge, transport error, undecodable body, empty content) falls
-        // through to the page fetch, whose result decides the reason.
+        // API fast path (Source::chapterContent()): the source that claims
+        // the URL is asked first, then every registered source in registry
+        // order; the first non-null answer wins. NovelArrowSource answers
+        // for any NovelPing chapter URL (by URL shape, whatever the novel's
+        // source) straight from its JSON API — no browser fetch or HTML
+        // scrape needed. Only an API answer of HTTP 429 ends the fetch here:
+        // the host asked us to slow down, and fetching the same chapter
+        // again through FlareSolverr would ignore that. Every other API
+        // failure (403 from a WAF, 404, 5xx including a 503 challenge,
+        // transport error, undecodable body, empty content) falls through
+        // to the page fetch, whose result decides the reason.
         $apiFailure = null;
-        $apiResult = novelArrowChapterContent($novelUrl, $apiFailure);
+        $apiResult = [];
+        $apiSource = null;
+        foreach (\App\Sources\SourceResolver::fastPathCandidates($novelUrl) as $candidate) {
+            $candidateFailure = null;
+            $answer = $candidate->chapterContent($novelUrl, $candidateFailure);
+            if ($answer !== null) {
+                $apiResult = $answer;
+                $apiFailure = $candidateFailure;
+                $apiSource = $candidate->name();
+                break;
+            }
+        }
         if (count($apiResult) > 0) {
-            \Log::debug("ChapterGenerator fetched via Novel Arrow API: {$novelUrl} (paragraphs: " . count($apiResult) . ")");
+            \Log::debug("ChapterGenerator fetched via {$apiSource} API: {$novelUrl} (paragraphs: " . count($apiResult) . ")");
             return stripLeadingChapterTitle($apiResult, $data->chapter ?? null, $data->label ?? null);
         }
         if ($apiFailure === 'rate_limited') {
-            \Log::warning("ChapterGenerator: Novel Arrow API answered 429 for {$novelUrl}; not falling back to the page fetch");
+            \Log::warning("ChapterGenerator: {$apiSource} API answered 429 for {$novelUrl}; not falling back to the page fetch");
             $failureReason = $apiFailure;
             return [];
         }
         if ($apiFailure !== null) {
-            \Log::info("ChapterGenerator: Novel Arrow API failed for {$novelUrl} ({$apiFailure}); trying the page fetch");
+            \Log::info("ChapterGenerator: {$apiSource} API failed for {$novelUrl} ({$apiFailure}); trying the page fetch");
         }
 
         // Fetch the page: a plain request with the host's cached Cloudflare
@@ -1197,556 +1214,115 @@ function finalizeTocResult(array $result): array
     return $result;
 }
 
-/**
- * Novel Arrow's canonical host. The site rebranded to novelping.com
- * (novelarrow.com 302-redirects there), so every outgoing URL is built on
- * the configured host (config novarr.novelarrow_host,
- * NOVARR_NOVELARROW_HOST) while both brand hosts are still recognised.
- */
+/** Novel Arrow's canonical host (config novarr.novelarrow_host); see NovelArrowSource::canonicalHost(). */
 function novelArrowHost(): string
 {
-    $host = strtolower(trim((string) config("novarr.novelarrow_host", "novelping.com")));
-    // Tolerate a pasted origin ("https://www.novelping.com/").
-    $host = preg_replace('#^[a-z]+://#', "", $host);
-    $host = preg_replace('#^www\.#', "", rtrim($host, "/"));
-
-    return $host !== "" ? $host : "novelping.com";
+    return \App\Sources\NovelArrowSource::canonicalHost();
 }
 
-/** "https://{canonical host}" — the base for every outgoing Novel Arrow URL. */
+/** "https://{canonical host}"; see NovelArrowSource::canonicalBase(). */
 function novelArrowBase(): string
 {
-    return "https://" . novelArrowHost();
+    return \App\Sources\NovelArrowSource::canonicalBase();
 }
 
-/** Hosts that are the same site: both brands plus the configured one. */
+/** Both brand hosts plus the configured one; see NovelArrowSource::brandHosts(). */
 function novelArrowHosts(): array
 {
-    return array_values(array_unique(["novelarrow.com", "novelping.com", novelArrowHost()]));
+    return \App\Sources\NovelArrowSource::brandHosts();
 }
 
-/**
- * Whether a URL is on Novel Arrow / NovelPing (either brand, with or
- * without "www."). With $legacy, the pre-2026-07 novelbin hosts count too
- * (their slugs carried over, so novelArrowSlug() still resolves them).
- */
+/** Is the URL on Novel Arrow / NovelPing (with $legacy: novelbin too)? See NovelArrowSource::isSiteUrl(). */
 function isNovelArrowUrl(?string $url, bool $legacy = false): bool
 {
-    $host = strtolower((string) parse_url(trim((string) $url), PHP_URL_HOST));
-    if ($host === "") {
-        return false;
-    }
-    $host = preg_replace('#^www\.#', "", $host);
-
-    if (in_array($host, novelArrowHosts(), true)) {
-        return true;
-    }
-
-    return $legacy && str_contains($host, "novelbin");
+    return \App\Sources\NovelArrowSource::isSiteUrl($url, $legacy);
 }
 
-/** Cover image URL for a slug (the image host follows the brand: images.{host}). */
+/** Cover image URL for a slug; see NovelArrowSource::coverUrlFor(). */
 function novelArrowCoverUrl(string $slug): string
 {
-    return "https://images." . novelArrowHost() . "/novel/{$slug}.jpg";
+    return \App\Sources\NovelArrowSource::coverUrlFor($slug);
 }
 
-/**
- * A slug as the API wants it. A trailing "_" or "-" (or whitespace) makes
- * the API answer with an EMPTY list instead of a 404
- * ("i-can-see-your-combat-power_"), so trim them.
- */
+/** A slug as the API wants it; see NovelArrowSource::cleanSlug(). */
 function novelArrowCleanSlug(string $slug): string
 {
-    return rtrim(trim($slug), "_- \t\n\r\0\x0B");
+    return \App\Sources\NovelArrowSource::cleanSlug($slug);
 }
 
-/**
- * Extract the novel slug from any Novel Arrow URL shape — a novel page
- * (…/novel/slug), a chapter page (…/chapter/slug/chapter-…) — or a legacy
- * Novel Bin shape (…/novel-book/slug, …/b/slug,
- * …/ajax/chapter-archive?novelId=slug). Slugs are identical across the
- * rebrands (novelbin → novelarrow → novelping), so old URLs still resolve.
- * Trailing "_"/"-"/whitespace is trimmed (see novelArrowCleanSlug()).
- */
+/** The novel slug from any Novel Arrow / Novel Bin URL shape; see NovelArrowSource::slugFrom(). */
 function novelArrowSlug(string $url): string
 {
-    $url = trim($url);
-    parse_str(parse_url($url, PHP_URL_QUERY) ?: "", $query);
-
-    if (!empty($query["novelId"]) && is_string($query["novelId"])) {
-        return novelArrowCleanSlug($query["novelId"]);
-    }
-
-    $path = trim(parse_url($url, PHP_URL_PATH) ?: "", "/");
-    $parts = $path === "" ? [] : explode("/", $path);
-
-    // Chapter pages carry the slug one segment before the chapter id.
-    if (count($parts) >= 2 && $parts[0] === "chapter") {
-        return novelArrowCleanSlug($parts[1]);
-    }
-
-    return $parts === [] ? "" : novelArrowCleanSlug(end($parts));
+    return \App\Sources\NovelArrowSource::slugFrom($url);
 }
 
-/** Canonical chapter page URL for a slug + chapter id. */
+/** Canonical chapter page URL; see NovelArrowSource::chapterPageUrl(). */
 function novelArrowChapterUrl(string $slug, string $chapterId): string
 {
-    return novelArrowBase() . "/chapter/{$slug}/{$chapterId}";
+    return \App\Sources\NovelArrowSource::chapterPageUrl($slug, $chapterId);
 }
 
-/** Canonical novel page URL for a slug. */
+/** Canonical novel page URL; see NovelArrowSource::novelPageUrl(). */
 function novelArrowNovelUrl(string $slug): string
 {
-    return novelArrowBase() . "/novel/{$slug}";
+    return \App\Sources\NovelArrowSource::novelPageUrl($slug);
 }
 
-/**
- * GET a Novel Arrow (novelping.com) api-web endpoint on the canonical host
- * and return the decoded JSON, or null on any failure (logged).
- */
+/** GET an api-web endpoint (decoded JSON or null); see NovelArrowSource::api(). */
 function novelArrowApi(string $path): ?array
 {
-    $url = novelArrowBase() . "/api-web/" . ltrim($path, "/");
-
-    return app(\App\Scraping\Fetcher::class)->json($url);
+    return \App\Sources\NovelArrowSource::api($path);
 }
 
-/**
- * Fetch the complete chapter list for a Novel Arrow novel via its JSON API
- * (the novel page itself only embeds ~30 chapters).
- */
+/** Complete chapter list via the JSON API; see NovelArrowSource::chapterArchive(). */
 function novelArrowChapterArchive(string $novelUrl): array
 {
-    $slug = novelArrowSlug($novelUrl);
-
-    if ($slug === "") {
-        return [];
-    }
-
-    $json = novelArrowApi("novels/" . rawurlencode($slug) . "/chapters?sort=asc");
-
-    $result = [];
-    foreach (($json["items"] ?? []) as $item) {
-        $chapterId = trim($item["chapter_id"] ?? "");
-        $label = trim(preg_replace('/\s+/', " ", $item["chapter_name"] ?? ""));
-
-        if ($chapterId !== "" && $label !== "") {
-            $result[] = generateTocChapterInfo($label, novelArrowChapterUrl($slug, $chapterId));
-        }
-    }
-
-    $result = array_values(array_filter($result));
-    if ($result === []) {
-        // The API answers an unknown/mangled slug with an empty list, not a 404.
-        \Log::warning("novelArrowChapterArchive: API returned 0 chapters for slug '{$slug}'" . ($json === null ? " (request failed)" : ""));
-    } else {
-        \Log::info("novelArrowChapterArchive: parsed " . count($result) . " chapters for {$slug}");
-    }
-
-    return $result;
+    return \App\Sources\NovelArrowSource::chapterArchive($novelUrl);
 }
 
 /**
- * Fetch chapter content for a Novel Arrow chapter page URL via the JSON API.
- * Returns escaped <p> paragraphs, or [] when the URL isn't a Novel Arrow
- * chapter page or the API yields nothing.
- *
- * $failure says why an API call came back with nothing: 'empty' (the API
- * answered without chapter text), 'rate_limited' (HTTP 429 only — a 503 is
- * as often a Cloudflare challenge as a rate limit), 'not_found' (404) or
- * 'fetch_failed' (anything else). Only 'rate_limited' stops chapterGenerator()
- * from trying the HTML scrape. It stays null when the URL isn't an API
- * chapter URL at all.
+ * Chapter content for a Novel Arrow chapter page URL via the JSON API —
+ * NovelArrowSource::chapterContent(), with "not an API chapter URL" (null
+ * there) as [] and $failure null, as before.
  */
 function novelArrowChapterContent(string $url, ?string &$failure = null): array
 {
-    $failure = null;
-
-    if (!isNovelArrowUrl($url)) {
-        return [];
-    }
-
-    $path = trim(parse_url($url, PHP_URL_PATH) ?: "", "/");
-    $parts = explode("/", $path);
-    if (count($parts) !== 3 || $parts[0] !== "chapter") {
-        return [];
-    }
-    [, $slug, $chapterId] = $parts;
-    $slug = novelArrowCleanSlug($slug);
-
-    // Not novelArrowApi(): the HTTP status is needed to tell a rate limit
-    // from an empty answer.
-    $status = null;
-    $json = app(\App\Scraping\Fetcher::class)->json(
-        novelArrowBase() . "/api-web/novels/" . rawurlencode($slug) . "/chapters/" . rawurlencode($chapterId),
-        [],
-        $status
-    );
-    if ($json === null) {
-        $failure = match (true) {
-            $status === 429 => "rate_limited",
-            $status === 404 => "not_found",
-            default => "fetch_failed",
-        };
-        return [];
-    }
-
-    $content = $json["item"]["chapterInfo"]["chapter_content"] ?? "";
-    if (!is_string($content) || trim($content) === "") {
-        $failure = "empty";
-        return [];
-    }
-
-    $content = str_replace("\u{FEFF}", "", stripChapterNoise($content));
-
-    // Content arrives as <p> blocks (occasionally br-separated inside, with
-    // an <h4> title on top). Walk it as a DOM so the heading becomes its own
-    // paragraph instead of being glued to the first line, and inline
-    // emphasis survives.
-    $root = (new Crawler('<html><body><div id="__novarr_root">' . $content . '</div></body></html>'))->filter('#__novarr_root');
-    if ($root->count() === 0) {
-        return [];
-    }
-
-    $result = [];
-    foreach (chapterNodeParagraphs($root->getNode(0)) as $inner) {
-        $paragraph = finalizeChapterParagraph($inner);
-        if ($paragraph !== null) {
-            $result[] = $paragraph;
-        }
-    }
-
-    return $result;
+    return (new \App\Sources\NovelArrowSource())->chapterContent($url, $failure) ?? [];
 }
 
 /**
- * Full chapter list for an Empire Novel novel. The novel page paginates the
- * chapter list (?page=N, newest first); walk every page and return chapters
- * in ascending order with absolute URLs. All fetches go through FlareSolverr
- * (the site is behind Cloudflare).
- *
- * Incremental mode ($knownUrls, or the resolver tableOfContentGenerator()
- * was given): the walk stops after the first page whose chapter URLs are all
- * stored already, returning the entries read so far and flagging the run
- * with markTocRunIncremental(). A walk that reaches the last page anyway is
- * an ordinary full walk.
+ * Full chapter list for an Empire Novel novel (incremental / partial walk);
+ * see EmpireNovelSource::toc().
  *
  * @param callable|null $knownUrls fn(): array<string, true> of stored chapter URLs
  */
 function empireNovelToc(string $novelUrl, ?callable $knownUrls = null): array
 {
-    $knownUrls ??= tocKnownUrlsResolver();
-    $base = "https://www.empirenovel.com";
-    $novelPath = parse_url($novelUrl, PHP_URL_PATH) ?: "";
-    $novelUrl = $base . $novelPath; // normalise to canonical host/path
-    $result = [];
-    $fetcher = app(\App\Scraping\Fetcher::class);
-
-    // Page 1 with the host's shared clearance (plain, when a cached entry
-    // still gets us in) or via FlareSolverr to clear Cloudflare and grab the
-    // clearance cookie, which lets the remaining pages be fetched with a
-    // plain (fast) client — ~0.4s each vs ~7s through the headless browser.
-    // A solve writes the clearance back to the shared store.
-    $session = $fetcher->sessionPage($novelUrl . "?page=1");
-    if (empty($session['html'])) {
-        \Log::error("empireNovelToc: could not fetch {$novelUrl}");
-        return [];
-    }
-    $firstHtml = $session['html'];
-
-    // Fetch a page: plain client with the clearance cookie, falling back to
-    // FlareSolverr if that fails (cookie expired / not available).
-    $fetchPage = function (int $page) use ($novelUrl, &$session, $fetcher) {
-        $url = $novelUrl . "?page=" . $page;
-        if (!empty($session['cf_clearance']) && !empty($session['user_agent'])) {
-            $status = null;
-            $html = $fetcher->plain($url, ['User-Agent' => $session['user_agent']], ['cf_clearance' => $session['cf_clearance']], $status);
-            if ($html !== null) {
-                return $html;
-            }
-            if ($status === 403 || $status === 503) {
-                $fetcher->forgetClearance($url); // refused: no longer a valid clearance
-            }
-        }
-        $html = $fetcher->html($url);
-        // html() refreshes the shared clearance when its solve carried a
-        // cf_clearance cookie: pick it up so later pages go plain again.
-        if ($html !== null && ($fresh = $fetcher->clearance($url)) !== null) {
-            $session['cf_clearance'] = $fresh['cookies']['cf_clearance'];
-            $session['user_agent'] = $fresh['user_agent'];
-        }
-        return $html;
-    };
-
-    // Highest ?page=N in the pagination is the last page.
-    preg_match_all('/[?&]page=(\d+)/', $firstHtml, $m);
-    $lastPage = $m[1] ? max(array_map('intval', $m[1])) : 1;
-    $lastPage = min($lastPage, 2000); // hard safety cap
-
-    // Returns the chapter URLs found on the page.
-    $parsePage = function (string $html) use (&$result, $novelPath): array {
-        $pageUrls = [];
-        $crawler = new Crawler($html);
-        $crawler->filter('a[href*="' . $novelPath . '/"]')->each(function ($node) use (&$result, &$pageUrls, $novelPath) {
-            $href = $node->attr('href');
-            // Only chapter links: /novel/{slug}/{numericId}
-            if (!preg_match('#' . preg_quote($novelPath, '#') . '/(\d+)$#', $href)) {
-                return;
-            }
-            // Normalise non-breaking spaces (the list renders "Chapter&nbsp;
-            // 7174") before collapsing whitespace.
-            $text = str_replace("\u{a0}", ' ', $node->text());
-            $text = trim(preg_replace('/\s+/u', ' ', $text));
-            // Label is like "First Chapter Chapter 1" / "Chapter 4173" — pull
-            // the chapter number from anywhere in it.
-            if (!preg_match('/chapter\s*([\d.]+)/i', $text, $m)) {
-                return;
-            }
-            $url = str_starts_with($href, 'http') ? $href : 'https://www.empirenovel.com' . $href;
-            $pageUrls[] = $url;
-            $result[] = [
-                'label' => 'Chapter ' . $m[1],
-                'book' => 0,
-                'url' => $url,
-                'chapter' => $m[1],
-            ];
-        });
-
-        return $pageUrls;
-    };
-
-    // Incremental stop test. A page without chapter links proves nothing
-    // (a glitch page), so it never ends the walk. Stored URLs load lazily.
-    $known = null;
-    $allStored = function (array $pageUrls) use (&$known, $knownUrls): bool {
-        if ($knownUrls === null || $pageUrls === []) {
-            return false;
-        }
-        $known ??= $knownUrls();
-        foreach ($pageUrls as $url) {
-            if (!isset($known[$url])) {
-                return false;
-            }
-        }
-
-        return true;
-    };
-
-    $stoppedAt = $allStored($parsePage($firstHtml)) ? 1 : null;
-    $pagesRead = 1;
-    for ($page = 2; $stoppedAt === null && $page <= $lastPage; $page++) {
-        $html = $fetchPage($page);
-        if (empty($html)) {
-            // One retry (same Fetcher path) before giving up on the walk.
-            \Log::info("empireNovelToc: page {$page} failed for {$novelUrl}; retrying once");
-            $html = $fetchPage($page);
-        }
-        if (empty($html)) {
-            // Pages run newest → oldest, so stopping here loses the older
-            // chapters: return what was parsed but flag the run as partial
-            // so the TOC health doesn't take it for a complete list.
-            \Log::warning("empireNovelToc: page {$page} of {$lastPage} failed twice for {$novelUrl}; stopping (partial TOC)");
-            markTocRunPartial();
-            break;
-        }
-        $pagesRead = $page;
-        if ($allStored($parsePage($html))) {
-            $stoppedAt = $page;
-        }
-    }
-
-    if ($stoppedAt !== null && $stoppedAt < $lastPage) {
-        markTocRunIncremental();
-        \Log::info("empireNovelToc: page {$stoppedAt} of {$lastPage} holds only stored chapters for {$novelUrl}; incremental walk stops there");
-    }
-
-    // Dedupe by URL and sort ascending by chapter number.
-    $seen = [];
-    $unique = [];
-    foreach ($result as $row) {
-        if ($row && !isset($seen[$row['url']])) {
-            $seen[$row['url']] = true;
-            $unique[] = $row;
-        }
-    }
-    usort($unique, fn($a, $b) => ($a['chapter'] <=> $b['chapter']));
-
-    if ($unique === []) {
-        \App\Scraping\FailureSnapshot::noteTocHtml($firstHtml);
-    }
-
-    \Log::info("empireNovelToc: parsed " . count($unique) . " chapters across {$pagesRead} of {$lastPage} page(s) for {$novelUrl}");
-
-    return $unique;
+    return (new \App\Sources\EmpireNovelSource())->toc($novelUrl, $knownUrls);
 }
 
-/**
- * Metadata for an Empire Novel novel page (cover, summary, chapter count).
- */
+/** Metadata from an Empire Novel novel page; see EmpireNovelSource::pageMetadata(). */
 function getMetadataFromEmpireNovel(string $novelUrl): array
 {
-    $metadata = ["description" => "", "author" => "", "no_of_chapters" => 0, "image" => "", "genres" => []];
-
-    $html = app(\App\Scraping\Fetcher::class)->html($novelUrl);
-    if (empty($html)) {
-        return $metadata;
-    }
-
-    try {
-        $crawler = new Crawler($html);
-
-        $og = $crawler->filterXPath('//meta[@property="og:image"]');
-        if ($og->count() > 0) {
-            $metadata["image"] = $og->attr("content") ?? "";
-        }
-
-        $desc = $crawler->filterXPath('//meta[@name="description"]');
-        if ($desc->count() > 0) {
-            $metadata["description"] = trim($desc->attr("content") ?? "");
-        }
-
-        // Chapter count: highest ?page=N × ~30, refined by parsing later; use
-        // the largest "Chapter N" label visible as a floor.
-        if (preg_match_all('/Chapter\s+([\d.]+)/i', $html, $m)) {
-            $metadata["no_of_chapters"] = (int) max(array_map('floatval', $m[1]));
-        }
-    } catch (\Throwable $e) {
-        \Log::error("getMetadataFromEmpireNovel error for {$novelUrl}: " . $e->getMessage());
-    }
-
-    return $metadata;
+    return (new \App\Sources\EmpireNovelSource())->pageMetadata($novelUrl);
 }
 
-/**
- * GET a novelfull AJAX URL: plain HTTP with the reused cf_clearance cookie
- * first, then FlareSolverr. Returns the body on a 200, else null with the
- * last seen status (or FlareSolverr reason) in $status.
- */
+/** GET a novelfull AJAX URL (clearance first); see NovelFullSource::fetchAjax(). */
 function novelFullFetchAjax(string $ajaxUrl, array $session, &$status = null): ?string
 {
-    $fetcher = app(\App\Scraping\Fetcher::class);
-
-    if (!empty($session['cf_clearance']) && !empty($session['user_agent'])) {
-        $body = $fetcher->plain($ajaxUrl, ['User-Agent' => $session['user_agent']], ['cf_clearance' => $session['cf_clearance']], $status);
-        if ($body !== null) {
-            return $body;
-        }
-        if ($status === 404) {
-            return null; // FlareSolverr would get the same 404
-        }
-    }
-
-    $reason = null;
-    $html = $fetcher->html($ajaxUrl, $reason);
-    if ($html === null) {
-        $status = $reason ?? $status;
-    }
-
-    return $html ?: null;
+    return (new \App\Sources\NovelFullSource())->fetchAjax($ajaxUrl, $session, $status);
 }
 
-/**
- * Parse novelfull's chapter <option> list into TOC rows. Pure. Only options
- * whose value is a site-relative (or same-origin) chapter path count;
- * returns null when there are none, so the caller can tell an error page
- * from a real list. Deduped by URL (the dropdown is rendered twice).
- */
+/** novelfull's chapter <option> list as TOC rows, or null; see NovelFullSource::parseChapterOptions(). */
 function parseNovelFullChapterOptions(string $html, string $origin): ?array
 {
-    $seen = [];
-    $result = [];
-    $found = false;
-
-    (new Crawler($html))->filter('option')->each(function ($node) use (&$result, &$seen, &$found, $origin) {
-        $href = trim($node->attr('value') ?? '');
-        $label = trim($node->text());
-        if ($href === '' || $label === '') {
-            return;
-        }
-        if (str_starts_with($href, $origin . '/')) {
-            $href = substr($href, strlen($origin));
-        }
-        // A chapter page: /{novel-slug}/{chapter-slug}.html — matched on
-        // shape, not on the word "chapter", so typo'd slugs like
-        // "/shadow-slave/chpater-2812-….html" are kept — or any same-site
-        // path that does mention "chapter".
-        if (!preg_match('#^/[^\s"<>/]+/[^\s"<>/]+\.html?$#i', $href)
-            && !preg_match('#^/[^\s"<>]*chapter[^\s"<>]*$#i', $href)) {
-            return;
-        }
-        $found = true;
-        $url = $origin . $href;
-        if (isset($seen[$url])) {
-            return;
-        }
-        $seen[$url] = true;
-        $row = generateTocChapterInfo($label, $url);
-        if ($row) {
-            $result[] = $row;
-        }
-    });
-
-    return $found ? $result : null;
+    return \App\Sources\NovelFullSource::parseChapterOptions($html, $origin);
 }
 
-/**
- * Full chapter list for a novelfull.com novel. Like Novel Bin it exposes an
- * AJAX chapter-option endpoint that returns every chapter in one request,
- * but keyed by the numeric data-novel-id from the novel page rather than the
- * slug. Cloudflare-protected, so fetched via FlareSolverr (clearance reused
- * for the AJAX call).
- */
+/** Full chapter list for a novelfull.com novel; see NovelFullSource::toc(). */
 function novelFullToc(string $novelUrl): array
 {
-    $host = parse_url($novelUrl, PHP_URL_HOST) ?: 'novelfull.com';
-    $scheme = parse_url($novelUrl, PHP_URL_SCHEME) ?: 'https';
-    $origin = "{$scheme}://{$host}";
-
-    // Shared clearance first (plain), else a FlareSolverr solve that
-    // refreshes it; the session's cookie is reused for the AJAX call.
-    $session = app(\App\Scraping\Fetcher::class)->sessionPage($novelUrl);
-    if (empty($session['html'])) {
-        \Log::error("novelFullToc: could not fetch {$novelUrl}");
-        return [];
-    }
-
-    if (!preg_match('/data-novel-id="(\d+)"/', $session['html'], $m)) {
-        \Log::warning("novelFullToc: no data-novel-id on {$novelUrl}");
-        \App\Scraping\FailureSnapshot::noteTocHtml($session['html']);
-        return [];
-    }
-
-    // novelfull moved the endpoint from /ajax/chapter-option to
-    // /ajax-chapter-option (same params and markup). Try the new path; the
-    // old one only when the new one answers non-200.
-    $html = null;
-    $ajaxUrl = null;
-    foreach (['/ajax-chapter-option', '/ajax/chapter-option'] as $endpoint) {
-        $ajaxUrl = "{$origin}{$endpoint}?novelId=" . $m[1];
-        $status = null;
-        $html = novelFullFetchAjax($ajaxUrl, $session, $status);
-        if ($html !== null) {
-            break;
-        }
-        \Log::warning("novelFullToc: {$ajaxUrl} returned " . ($status ?? 'no response') . ($endpoint === '/ajax-chapter-option' ? '; trying legacy endpoint' : ''));
-    }
-    if (empty($html)) {
-        return [];
-    }
-
-    $result = parseNovelFullChapterOptions($html, $origin);
-    if ($result === null) {
-        // A 200 error/blank page would otherwise yield junk rows like
-        // "https://novelfull.com16px" from unrelated <option>s.
-        \Log::warning("novelFullToc: no chapter <option> entries in {$ajaxUrl} response for {$novelUrl}");
-        \App\Scraping\FailureSnapshot::noteTocHtml($html);
-        return [];
-    }
-
-    \Log::info("novelFullToc: parsed " . count($result) . " chapters for {$novelUrl}");
-
-    return $result;
+    return (new \App\Sources\NovelFullSource())->toc($novelUrl);
 }
 
 /**
@@ -1773,86 +1349,10 @@ function sanitizeSynopsisHtml(?string $html): string
     return trim($html);
 }
 
-/**
- * Metadata for a novelfull.com novel page (cover, description, author,
- * genres). novelfull covers are fetchable with a plain client.
- */
+/** Metadata from a novelfull.com novel page; see NovelFullSource::pageMetadata(). */
 function getMetadataFromNovelFull(string $novelUrl): array
 {
-    $metadata = ["description" => "", "author" => "", "no_of_chapters" => 0, "image" => "", "genres" => []];
-    $host = parse_url($novelUrl, PHP_URL_HOST) ?: 'novelfull.com';
-    $scheme = parse_url($novelUrl, PHP_URL_SCHEME) ?: 'https';
-    $origin = "{$scheme}://{$host}";
-
-    $html = app(\App\Scraping\Fetcher::class)->html($novelUrl);
-    if (empty($html)) {
-        return $metadata;
-    }
-
-    try {
-        $crawler = new Crawler($html);
-
-        $title = $crawler->filter('h3.title');
-        if ($title->count() > 0) {
-            $metadata["title"] = trim($title->first()->text());
-        }
-
-        $desc = $crawler->filter('.desc-text');
-        if ($desc->count() > 0) {
-            $metadata["description"] = sanitizeSynopsisHtml($desc->first()->html());
-        }
-
-        // Chapter count: the "latest chapters" list leads with the newest;
-        // take the highest "Chapter N" there.
-        $latest = $crawler->filter('.l-chapters a');
-        if ($latest->count() > 0) {
-            $numbers = [];
-            $latest->each(function ($node) use (&$numbers) {
-                if (preg_match('/chapter\s*(\d+)/i', $node->attr('title') ?: $node->text(), $mm)) {
-                    $numbers[] = (int) $mm[1];
-                }
-            });
-            if ($numbers) {
-                $metadata["no_of_chapters"] = max($numbers);
-            }
-        }
-
-        // Cover + author + genres live in the .info / .book block.
-        $img = $crawler->filter('.book img, .info img, [itemprop="image"]');
-        if ($img->count() > 0) {
-            $src = $img->first()->attr('src') ?? '';
-            if ($src !== '') {
-                $metadata["image"] = str_starts_with($src, 'http') ? $src : $origin . $src;
-            }
-        }
-
-        $info = $crawler->filter('.info');
-        if ($info->count() > 0) {
-            $author = $info->filter('a[href*="/author/"]');
-            if ($author->count() > 0) {
-                $metadata["author"] = trim($author->first()->text());
-            }
-            $genres = $info->filter('a[href*="/genre/"]');
-            if ($genres->count() > 0) {
-                $metadata["genres"] = normalizeGenres($genres->each(fn($n) => $n->text()));
-            }
-
-            // "Status: Ongoing" / "Status: Completed" — used when
-            // NovelUpdates has no status for the novel.
-            $status = $info->filterXPath('.//div[h3[normalize-space(.)="Status:"]]');
-            if ($status->count() > 0) {
-                $text = trim(preg_replace('/\s+/u', ' ', str_ireplace('Status:', '', $status->first()->text())));
-                if ($text !== '') {
-                    $metadata["status_text"] = $text;
-                    $metadata["completed"] = stripos($text, "complete") !== false;
-                }
-            }
-        }
-    } catch (\Throwable $e) {
-        \Log::error("getMetadataFromNovelFull error for {$novelUrl}: " . $e->getMessage());
-    }
-
-    return $metadata;
+    return (new \App\Sources\NovelFullSource())->pageMetadata($novelUrl);
 }
 
 /**
@@ -2208,109 +1708,16 @@ function normalizeGenres(array $genres): array
         ->all();
 }
 
-/**
- * Novel Arrow's `novel_status` (0 = ongoing, 1 = completed — the API's
- * "completed" browse list only carries 1s) as a status_text, or null when
- * absent / unrecognised. Strings ("Completed", "ONGOING") are accepted too.
- */
+/** Novel Arrow's novel_status as a status_text, or null; see NovelArrowSource::statusText(). */
 function novelArrowStatus($status): ?string
 {
-    if ($status === null || $status === '') {
-        return null;
-    }
-    if (is_numeric($status)) {
-        return match ((int) $status) {
-            0 => "Ongoing",
-            1 => "Completed",
-            default => null,
-        };
-    }
-    $status = strtolower(trim((string) $status));
-    if (str_contains($status, "complete")) {
-        return "Completed";
-    }
-    if (str_contains($status, "ongoing")) {
-        return "Ongoing";
-    }
-
-    return null;
+    return \App\Sources\NovelArrowSource::statusText($status);
 }
 
-/**
- * Fetch novel metadata from novelping.com (formerly novelarrow / novelbin) as a fallback
- * source, via its JSON API. Tries the slug from translator_url first when
- * it's already a Novel Arrow URL, then a slug built from the novel name.
- */
+/** Metadata from the novelping.com JSON API (fallback source); see NovelArrowSource::apiMetadata(). */
 function getMetadataFromNovelArrow($data)
 {
-    $metadata = [
-        "description" => "",
-        "author" => "",
-        "no_of_chapters" => 0,
-        "image" => "",
-        "genres" => [],
-    ];
-
-    $slugs = [];
-
-    if (!empty($data->translator_url) && isNovelArrowUrl($data->translator_url, legacy: true)) {
-        $slug = novelArrowSlug($data->translator_url);
-        if ($slug !== "") {
-            $slugs[] = $slug;
-        }
-    }
-
-    if (!empty($data->name)) {
-        $slugs[] = novelSlug($data->name);
-    }
-
-    $slugs = array_values(array_unique($slugs));
-    $metadata["tried_urls"] = array_map(fn($s) => novelArrowNovelUrl($s), $slugs);
-
-    foreach ($slugs as $slug) {
-        $json = novelArrowApi("novels/" . rawurlencode($slug));
-        $info = $json["item"]["novelInfo"] ?? null;
-
-        if (empty($info)) {
-            \Log::warning("getMetadataFromNovelArrow: no data for slug '{$slug}'");
-            continue;
-        }
-
-        $metadata["description"] = trim($info["novel_desc"] ?? "");
-        $metadata["author"] = trim($info["novel_author"] ?? "");
-        $metadata["no_of_chapters"] = (int) ($info["totalChapter"] ?? 0);
-
-        $status = novelArrowStatus($info["novel_status"] ?? null);
-        if ($status !== null) {
-            $metadata["status_text"] = $status;
-            $metadata["completed"] = $status === "Completed";
-        }
-
-        // Covers live on the image host, keyed by slug (see the site's
-        // og:image tags) — downloadCoverImage() validates it's a real image.
-        $metadata["image"] = novelArrowCoverUrl($slug);
-
-        $genres = $info["novel_genres"] ?? [];
-        if (empty($genres)) {
-            $genres = $info["novel_tags"] ?? [];
-        }
-        if (!empty($genres)) {
-            $metadata["genres"] = normalizeGenres(is_array($genres) ? $genres : explode(",", $genres));
-        }
-
-        \Log::debug("getMetadataFromNovelArrow fetched slug '{$slug}'", [
-            'has_description' => !empty($metadata['description']),
-            'has_author' => !empty($metadata['author']),
-            'no_of_chapters' => $metadata['no_of_chapters'],
-        ]);
-
-        // Stop on the first slug that yields any useful field.
-        if (!empty($metadata['description']) || !empty($metadata['author'])) {
-            break;
-        }
-    }
-
-    return $metadata;
+    return \App\Sources\NovelArrowSource::apiMetadata($data);
 }
 
 /**

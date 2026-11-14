@@ -12,7 +12,71 @@
 |
 */
 
+// "1,3,6" -> [1, 3, 6] for the id-list settings below. Unset -> the
+// default; set but empty -> [] (the behaviour is switched off). Anything
+// that is not a list of whole numbers (a typo, "true") keeps the default
+// rather than silently switching the behaviour off or matching id 0.
+$idList = static function (string $env, array $default): array {
+    $value = env($env);
+    if ($value === null || !is_string($value)) {
+        return $default;
+    }
+
+    $tokens = array_values(array_filter(array_map('trim', explode(',', $value)), fn($id) => $id !== ''));
+    foreach ($tokens as $token) {
+        if (!ctype_digit($token) || (int) $token < 1) {
+            return $default;
+        }
+    }
+
+    return array_map('intval', $tokens);
+};
+
 return [
+    /*
+    |--------------------------------------------------------------------------
+    | Source registry
+    |--------------------------------------------------------------------------
+    |
+    | Ordered map of source key => adapter class (App\Sources\Source). The
+    | first adapter whose matches() / matchesUrl() accepts a novel or URL
+    | wins, so order matters: NovelArrowSource accepts everything and must
+    | stay LAST as the catch-all. The key is the source's id on the Discover
+    | page (?source=…). Add a site by writing an adapter and listing it here.
+    |
+    */
+    'sources' => [
+        'empirenovel' => \App\Sources\EmpireNovelSource::class,
+        'novelfull' => \App\Sources\NovelFullSource::class,
+        'novelarrow' => \App\Sources\NovelArrowSource::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Install-specific database ids
+    |--------------------------------------------------------------------------
+    |
+    | Rows in the original install's database that older code singled out by
+    | id. The defaults match the original install; other installs can
+    | override them (comma-separated ids in the env var; empty = none). Read
+    | through App\Sources\InstallIds.
+    |
+    */
+    // Groups whose novels' alternative_url replaces the chapter URL: the
+    // chapter is fetched from {alternative_url}{chapter number}
+    // (chapterSourceUrl()).
+    'alternative_url_group_ids' => $idList('NOVARR_ALTERNATIVE_URL_GROUP_IDS', [1, 3, 6]),
+    // Novels whose alternative_url chapter number keeps its decimal part,
+    // written with a dash ("12.5" -> "12-5") instead of being floored.
+    'dotted_chapter_url_novel_ids' => $idList('NOVARR_DOTTED_CHAPTER_URL_NOVEL_IDS', [72]),
+    // Groups whose NovelPing novels take their TOC from the chapter-list
+    // JSON API (NovelArrowSource::tableOfContents()); other groups (and a
+    // failed API call) use the novel page's embedded list.
+    'novelarrow_api_group_ids' => $idList('NOVARR_NOVELARROW_API_GROUP_IDS', [1]),
+    // Webnovel.com groups: TOC entries get a unique_id taken from the
+    // webnovel chapter URL (the segment after the book id) — NovelScraper.
+    'webnovel_unique_id_group_ids' => $idList('NOVARR_WEBNOVEL_UNIQUE_ID_GROUP_IDS', [6]),
+
     'flaresolverr_url' => env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'),
     // Verify TLS certificates on every scraper request (App\Scraping\Fetcher).
     // Only turn off for a source with a broken certificate chain.

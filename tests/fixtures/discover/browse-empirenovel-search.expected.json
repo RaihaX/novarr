@@ -1,0 +1,41 @@
+{
+    "status": 200,
+    "json": {
+        "success": true,
+        "items": [
+            {
+                "name": "Shadow Slave",
+                "url": "https://www.empirenovel.com/novel/shadow-slave",
+                "cover": "https://www.empirenovel.com/uploads/novel/shadow-slave/cover/cover_250x350.jpg",
+                "author": "",
+                "description": "Growing up in poverty, Sunny never expected anything good from life. However, even he did not anticipate being chosen by the Nightmare Spell.",
+                "status": "Ongoing",
+                "in_library": false
+            },
+            {
+                "name": "Shadow Hunter",
+                "url": "https://www.empirenovel.com/novel/shadow-hunter",
+                "cover": "https://www.empirenovel.com/uploads/novel/shadow-hunter/cover/cover_250x350.jpg",
+                "author": "",
+                "description": "A hunter & his shadow.",
+                "status": "Completed",
+                "in_library": true
+            },
+            {
+                "name": "No Summary",
+                "url": "https://www.empirenovel.com/novel/no-summary",
+                "cover": "https://www.empirenovel.com/uploads/novel/no-summary/cover/cover_250x350.jpg",
+                "author": "",
+                "description": "",
+                "in_library": false
+            }
+        ],
+        "hidden": 0
+    },
+    "fetches": [
+        {
+            "method": "html",
+            "url": "https://www.empirenovel.com/search-live?q=shadow+slave"
+        }
+    ]
+}

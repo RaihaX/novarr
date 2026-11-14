@@ -248,7 +248,8 @@ class NovelScraper extends Command
                 continue;
             }
 
-            if ($novel->group_id == 6) {
+            // Webnovel groups (config novarr.webnovel_unique_id_group_ids, default [6]).
+            if (\App\Sources\InstallIds::contains(\App\Sources\InstallIds::webnovelUniqueIdGroupIds(), $novel->group_id)) {
                 $item["unique_id"] = $this->extractUniqueId($item["url"]);
             }
 
