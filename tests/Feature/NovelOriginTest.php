@@ -314,9 +314,11 @@ class NovelOriginTest extends TestCase
         $this->novel('Mystery One');
 
         $html = $this->get(route('novels.index', ['view' => 'grid']))->assertOk()->getContent();
-        $this->assertStringContainsString('<span class="cover-chip">TRANSLATED · KO</span>', $html);
-        $this->assertStringContainsString('<span class="cover-chip">ORIGINAL · EN</span>', $html);
-        $this->assertSame(3, substr_count($html, 'class="cover-chip"'));
+        // The origin sits in the tile caption, not on the cover.
+        $this->assertStringContainsString('<span class="lib-tile-origin">Translated · KO</span>', $html);
+        $this->assertStringContainsString('<span class="lib-tile-origin">Original · EN</span>', $html);
+        $this->assertSame(3, substr_count($html, 'class="lib-tile-origin"'));
+        $this->assertStringNotContainsString('cover-chip', $html);
         $this->assertMatchesRegularExpression('#data-chip="translated"[^>]*>\s*Translated\s*<span class="lib-chip-count ">2</span>#', $html);
         $this->assertMatchesRegularExpression('#data-chip="original"[^>]*>\s*Original\s*<span class="lib-chip-count ">1</span>#', $html);
 
@@ -331,17 +333,18 @@ class NovelOriginTest extends TestCase
         $this->assertStringNotContainsString('Korean One', $original);
     }
 
-    public function test_novel_page_shows_the_label_and_cover_chip(): void
+    public function test_novel_page_shows_the_origin_in_the_byline(): void
     {
         $novel = $this->novel('Korean One', ['origin' => 'translated', 'origin_language' => 'ko']);
 
+        // The origin is stated once, in the byline; the cover carries no chip.
         $this->get(route('novels.show', $novel->id))
             ->assertOk()
-            ->assertSee('Translated · Korean')
-            ->assertSee('<span class="cover-chip" aria-hidden="true">TRANSLATED · KO</span>', false);
+            ->assertSee('<span>Translated · Korean</span>', false)
+            ->assertDontSee('cover-chip', false);
 
         $plain = $this->novel('Plain');
-        $this->get(route('novels.show', $plain->id))->assertDontSee('cover-chip', false)->assertDontSee('Origin</span>', false);
+        $this->get(route('novels.show', $plain->id))->assertDontSee('cover-chip', false)->assertDontSee('Translated', false);
     }
 
     public function test_palette_payload_carries_the_origin_label(): void

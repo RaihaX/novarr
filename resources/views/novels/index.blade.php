@@ -111,42 +111,85 @@
     @if($novels->isEmpty())
         @include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter])
     @else
-        <ul class="lib-grid mb-4" id="libGrid" role="list">
-            @foreach($novels as $novel)
-                @php
-                    $r = $reading[$novel->id] ?? ['read' => 0, 'new' => 0, 'total' => 0, 'percent' => 0, 'finished' => false];
-                    // Download figure for the tooltip — same definition as the
-                    // table and the novel page (NovelHealth::downloadProgress).
-                    $prog = \App\Services\NovelHealth::downloadProgress(
-                        (int) ($novel->downloaded_chapters_count ?? 0),
-                        (int) ($novel->source_chapters_count ?? $novel->chapters_count ?? 0),
-                        (int) ($novel->no_of_chapters ?? 0)
-                    );
-                    $attention = isset($attentionIds[$novel->id]);
-                    $flag = match (true) {
-                        $attention && ((int) $novel->scrape_failures >= 3 || (int) $novel->toc_failures >= 2) => \App\Enums\NovelState::Failed,
-                        $attention => \App\Enums\NovelState::Attention,
-                        !$novel->status && (bool) $novel->paused_at => \App\Enums\NovelState::Paused,
-                        default => null,
-                    };
-                    [$sub, $subTone] = match (true) {
-                        $r['new'] > 0 => [number_format($r['new']) . ' NEW', 'tone-pending'],
-                        $r['finished'] => ['FINISHED', 'tone-success'],
-                        $r['read'] === 0 => ['NOT STARTED', 'tone-muted'],
-                        default => [number_format($r['read']) . ' / ' . number_format($r['total']), ''],
-                    };
-                @endphp
-                <li class="lib-tile" data-id="{{ $novel->id }}">
-                    <a href="{{ route('novels.show', $novel->id) }}" class="lib-tile-link"
-                       title="{{ $novel->name }} — {{ number_format($prog['downloaded']) }} of {{ number_format($prog['total']) }} · {{ $prog['percent'] }}% downloaded">
-                        <x-cover :novel="$novel" :progress="$r['percent']" :flag="$flag" :chapters="$prog['total']" :chip="$novel->originChip()" :eager="$loop->index < 6" decorative />
-                        <span class="lib-tile-title">{{ $novel->name }}</span>
-                        <span class="lib-tile-sub {{ $subTone }}" data-reading="{{ $r['read'] }}/{{ $r['total'] }}">{{ $sub }}</span>
-                    </a>
-                    <input type="checkbox" class="form-check-input novel-check lib-tile-check" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}" tabindex="-1">
-                </li>
+        @php
+            $blank = ['read' => 0, 'new' => 0, 'total' => 0, 'percent' => 0, 'finished' => false];
+            // Shelves (default sort, no filter): this page's tiles grouped,
+            // keeping the sort order inside each shelf. Reading = at least one
+            // chapter read with chapters left; Finished = every chapter on the
+            // source read (the "Finished" chip); Not started = nothing read.
+            // Otherwise one flat, untitled list.
+            if ($shelved) {
+                $shelves = ['reading' => [], 'unstarted' => [], 'finished' => []];
+                foreach ($novels as $novel) {
+                    $r = $reading[$novel->id] ?? $blank;
+                    $shelves[$r['finished'] ? 'finished' : ($r['read'] > 0 ? 'reading' : 'unstarted')][] = $novel;
+                }
+                $shelves = array_filter($shelves);
+            } else {
+                $shelves = ['all' => $novels->all()];
+            }
+            $shelfNames = ['reading' => 'Reading', 'unstarted' => 'Not started', 'finished' => 'Finished'];
+            $tileIndex = 0;
+        @endphp
+        <div class="lib-shelves mb-4" id="libGrid">
+            @foreach($shelves as $shelf => $shelfNovels)
+                <section class="lib-shelf" @if($shelved) aria-labelledby="shelf-{{ $shelf }}" @endif>
+                    @if($shelved)
+                        <h2 class="lib-shelf-title" id="shelf-{{ $shelf }}">{{ $shelfNames[$shelf] }} <span class="lib-shelf-count">{{ count($shelfNovels) }}</span></h2>
+                    @endif
+                    <ul class="lib-grid" role="list">
+                        @foreach($shelfNovels as $novel)
+                            @php
+                                $r = $reading[$novel->id] ?? $blank;
+                                // Download figure for the tooltip — same definition as the
+                                // table and the novel page (NovelHealth::downloadProgress).
+                                $prog = \App\Services\NovelHealth::downloadProgress(
+                                    (int) ($novel->downloaded_chapters_count ?? 0),
+                                    (int) ($novel->source_chapters_count ?? $novel->chapters_count ?? 0),
+                                    (int) ($novel->no_of_chapters ?? 0)
+                                );
+                                $attention = isset($attentionIds[$novel->id]);
+                                $flag = match (true) {
+                                    $attention && ((int) $novel->scrape_failures >= 3 || (int) $novel->toc_failures >= 2) => \App\Enums\NovelState::Failed,
+                                    $attention => \App\Enums\NovelState::Attention,
+                                    !$novel->status && (bool) $novel->paused_at => \App\Enums\NovelState::Paused,
+                                    default => null,
+                                };
+                                [$sub, $subTone] = match (true) {
+                                    $r['new'] > 0 => [number_format($r['new']) . ' NEW', 'tone-pending'],
+                                    $r['finished'] => ['FINISHED', 'tone-success'],
+                                    $r['read'] === 0 => ['NOT STARTED', 'tone-muted'],
+                                    default => [number_format($r['read']) . ' / ' . number_format($r['total']), ''],
+                                };
+                                // The origin moves off the cover into the caption:
+                                // "TRANSLATED · ZH" becomes "Translated · ZH".
+                                // First screenful across all shelves loads eagerly.
+                                $eager = $tileIndex++ < 6;
+                                $originChip = $novel->originChip();
+                                $origin = null;
+                                if ($originChip) {
+                                    $parts = explode(' · ', $originChip);
+                                    $parts[0] = ucfirst(strtolower($parts[0]));
+                                    $origin = implode(' · ', $parts);
+                                }
+                            @endphp
+                            <li class="lib-tile" data-id="{{ $novel->id }}">
+                                <a href="{{ route('novels.show', $novel->id) }}" class="lib-tile-link"
+                                   title="{{ $novel->name }} — {{ number_format($prog['downloaded']) }} of {{ number_format($prog['total']) }} · {{ $prog['percent'] }}% downloaded">
+                                    <x-cover :novel="$novel" :progress="$r['percent']" :flag="$flag" :chapters="$prog['total']" :eager="$eager" decorative />
+                                    <span class="lib-tile-title">{{ $novel->name }}</span>
+                                    <span class="lib-tile-sub {{ $subTone }}" data-reading="{{ $r['read'] }}/{{ $r['total'] }}">{{ $sub }}</span>
+                                    @if($origin)
+                                        <span class="lib-tile-origin">{{ $origin }}</span>
+                                    @endif
+                                </a>
+                                <input type="checkbox" class="form-check-input novel-check lib-tile-check" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}" tabindex="-1">
+                            </li>
+                        @endforeach
+                    </ul>
+                </section>
             @endforeach
-        </ul>
+        </div>
     @endif
     @if($novels->hasPages())
         {{ $novels->appends(request()->query())->links() }}
@@ -171,6 +214,8 @@
                 $isPaused = !$isCompleted && $novel->paused_at;
                 $progState = \App\Services\NovelHealth::progressState($pct, $isCompleted, (bool) $isPaused, isset($attentionIds[$novel->id]));
                 $barClass = \App\Enums\NovelState::from($progState)->barClass();
+                // Reading progress, from the same cached index as the grid.
+                $r = $reading[$novel->id] ?? ['read' => 0, 'total' => 0, 'percent' => 0];
             @endphp
             <div class="novel-row">
                 <input type="checkbox" class="form-check-input novel-check flex-shrink-0" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}">
@@ -183,7 +228,9 @@
                     <div class="novel-row-body">
                         <div class="novel-row-title">{{ $novel->name }}</div>
                         <div class="novel-row-meta">{{ $novel->author ?? 'Unknown author' }}</div>
-                        <div class="novel-row-counts">{{ number_format($downloaded) }} of {{ number_format($total) }} on source · {{ $pct }}%</div>
+                        <div class="novel-row-counts">Read {{ number_format($r['read']) }} of {{ number_format($r['total']) }} · {{ $r['percent'] }}%</div>
+                        <div class="novel-row-progress" aria-hidden="true"><span class="bar-reading" style="width: {{ $r['percent'] }}%"></span></div>
+                        <div class="novel-row-counts">Downloaded {{ number_format($downloaded) }} of {{ number_format($total) }} on source · {{ $pct }}%</div>
                         <div class="novel-row-progress" aria-hidden="true"><span class="{{ $barClass }}" style="width: {{ $pct }}%"></span></div>
                     </div>
                     <x-status :state="\App\Enums\NovelState::forNovel($novel)" />
@@ -197,6 +244,7 @@
     {{-- 900px and up: the full table (handoff §4 column recipe) --}}
     <div class="table-responsive novels-table">
         <table class="table table-hover table-novels align-middle">
+            <caption class="visually-hidden">Novels in the library</caption>
             <thead>
                 <tr>
                     <th class="col-select"><input type="checkbox" id="selectAll" class="form-check-input" aria-label="Select all novels"></th>
@@ -204,7 +252,8 @@
                     <th>Name</th>
                     <th class="col-author">Author</th>
                     <th class="col-status">Status</th>
-                    <th class="col-progress">Progress</th>
+                    <th class="col-read">Read</th>
+                    <th class="col-progress">Downloaded</th>
                     <th class="col-chapters">Chapters</th>
                     <th class="col-actions"><span class="visually-hidden">Actions</span></th>
                 </tr>
@@ -226,6 +275,7 @@
                         $isPaused = !$isCompleted && $novel->paused_at;
                         $progState = \App\Services\NovelHealth::progressState($pct, $isCompleted, (bool) $isPaused, isset($attentionIds[$novel->id]));
                         $barClass = \App\Enums\NovelState::from($progState)->barClass();
+                        $r = $reading[$novel->id] ?? ['read' => 0, 'total' => 0, 'percent' => 0];
                     @endphp
                     <tr>
                         <td class="col-select"><input type="checkbox" class="form-check-input novel-check" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}"></td>
@@ -243,7 +293,15 @@
                         <td class="col-status">
                             <x-status :state="\App\Enums\NovelState::forNovel($novel)" />
                         </td>
-                        <td class="col-progress">
+                        <td class="col-read" title="{{ number_format($r['read']) }} of {{ number_format($r['total']) }} chapters read">
+                            <div class="progress-inline">
+                                <div class="progress progress-reading" role="progressbar" aria-label="Chapters read" aria-valuenow="{{ $r['percent'] }}" aria-valuemin="0" aria-valuemax="100" aria-valuetext="{{ number_format($r['read']) }} of {{ number_format($r['total']) }} read">
+                                    <div class="progress-bar" style="width: {{ $r['percent'] }}%"></div>
+                                </div>
+                                <span class="progress-value" data-read-percent>{{ $r['percent'] }}%</span>
+                            </div>
+                        </td>
+                        <td class="col-progress" title="{{ number_format($downloaded) }} of {{ number_format($total) }} on source downloaded">
                             <div class="progress-inline">
                                 <div class="progress" role="progressbar" aria-label="Downloaded chapters" aria-valuenow="{{ $pct }}" aria-valuemin="0" aria-valuemax="100">
                                     <div class="progress-bar {{ $barClass }}" style="width: {{ $pct }}%"></div>
@@ -265,7 +323,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8">@include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter])</td>
+                        <td colspan="9">@include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter])</td>
                     </tr>
                 @endforelse
             </tbody>

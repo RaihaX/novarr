@@ -144,3 +144,15 @@
         overflow-wrap: anywhere;
     }
 }
+
+// ---------------------------------------------------------------------------
+// Library table (novels.index, view=table): READ (reading progress, amber,
+// the grid's figure) beside DOWNLOADED (download progress, status colour).
+// The other column widths live with .table-novels in _dashboard.scss.
+// ---------------------------------------------------------------------------
+.table-novels {
+    th.col-read, td.col-read { width: 130px; }
+    th.col-progress, td.col-progress { width: 130px; }
+
+    td.col-read .progress-value { color: var(--nv-amber-ink); }
+}

@@ -13,7 +13,8 @@ class CacheHelper
     public static function novelStatsKey(int $novelId): string
     {
         // v2: counts instead of chapter-number arrays.
-        return "novel_stats_v2_{$novelId}";
+        // v3: failed / needs-review counts and the continue chapter's position.
+        return "novel_stats_v3_{$novelId}";
     }
 
     /**

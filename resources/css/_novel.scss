@@ -1,0 +1,715 @@
+// ---------------------------------------------------------------------------
+// Novel page (novels/show) — hero, progress card, chapter list
+//
+// Moved out of _views.scss with the redesign (Novel.dc / NovelPhone.dc
+// mock-ups). Tokens only: after _components.scss the colour tokens resolve
+// to the runtime --nv-* properties, so light and dark both follow.
+//
+//   desktop ≥ 1200   cover | identity, about, actions | progress card
+//   768 – 1199       cover | identity, about, actions, progress card
+//   phone < 768      cover + identity side by side, everything below it
+//                    (actions, progress, about) runs the full width
+// ---------------------------------------------------------------------------
+
+// Amber *text* (light theme needs the darker ink; marks use $brand-amber).
+$amber-text: var(--nv-amber-ink);
+
+// ===========================================================================
+// Hero
+// ===========================================================================
+.nv-hero {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr) minmax(280px, 340px);
+    // The last row is flexible, so a tall cover never spreads the text rows.
+    grid-template-rows: auto auto auto 1fr;
+    grid-template-areas:
+        "cover head    side"
+        "cover about   side"
+        "cover actions side"
+        "cover .       side";
+    column-gap: $s-8;
+    row-gap: $s-5;
+    margin-bottom: $s-8;
+}
+
+.nv-cover   { grid-area: cover; min-width: 0; }
+.nv-head    { grid-area: head; min-width: 0; display: flex; flex-direction: column; gap: $s-3; }
+.nv-about   { grid-area: about; min-width: 0; display: flex; flex-direction: column; gap: $s-4; }
+.nv-actions { grid-area: actions; min-width: 0; }
+.nv-side    { grid-area: side; min-width: 0; display: flex; flex-direction: column; gap: $s-4; }
+
+.nv-title {
+    margin: 0;
+    font-family: $font-read;
+    font-size: $fs-chapter-title;
+    font-weight: 600;
+    line-height: $lh-chapter;
+    letter-spacing: $ls-chapter;
+    color: $text;
+    overflow-wrap: anywhere;
+}
+
+.nv-byline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px $s-2;
+    margin: 0;
+    font-size: $fs-body;
+    color: $text-muted;
+
+    .nv-author { color: $text; }
+    .nv-sep { color: $btn-secondary-border; user-select: none; }
+
+    .nv-meta-link {
+        color: $text-muted;
+        text-decoration: underline;
+        text-decoration-color: $btn-secondary-border;
+        text-underline-offset: 3px;
+
+        &:hover { color: $link-hover; text-decoration-color: currentColor; }
+    }
+}
+
+// Tags: a quiet dotted line ("Action · Fantasy · …  Edit tags").
+.nv-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: $s-1 $s-4;
+    font-size: 13px;
+    color: $text-muted;
+}
+
+.nv-tag-list {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 2px 0;
+}
+
+.nv-tag {
+    color: $text-muted;
+
+    &:hover { color: $link-hover; }
+
+    + .nv-tag::before {
+        content: '·';
+        margin: 0 $s-2;
+        color: $btn-secondary-border;
+    }
+}
+
+.nv-tags .tag-empty { color: $muted; }
+
+// A text-styled button (Edit tags, Show, Remove duplicates): link colour,
+// 24px tall so it stays an easy target inside a line of text.
+.nv-link-btn {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 0;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: $link;
+    background: none;
+    border: 0;
+
+    &:hover { color: $link-hover; }
+    &:disabled { color: $btn-disabled-fg; }
+}
+
+.detail-synopsis {
+    max-width: 75ch;
+
+    .synopsis-body {
+        font-size: $fs-body;
+        line-height: 1.65;
+        color: $text-soft;
+    }
+
+    .synopsis-toggle {
+        padding: 0;
+        font-size: 13px;
+        font-weight: 500;
+        color: $link;
+        background: none;
+        border: 0;
+
+        &:hover { color: $link-hover; background: none; }
+    }
+}
+
+.detail-no-synopsis {
+    display: flex;
+    align-items: center;
+    gap: $s-4;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: $text-muted;
+}
+
+// ---- Actions ----------------------------------------------------------
+.nv-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2;
+    padding-top: $s-1;
+
+    .btn { min-height: 40px; padding: 9px 16px; font-size: 13px; }
+    .btn-primary { font-weight: 600; }
+    .btn-icon { padding-inline: 11px !important; }
+}
+
+.nv-offline { display: inline-flex; }
+
+#offlineBtn {
+    .caret { opacity: 0.7; margin-left: -2px; }
+
+    .offline-btn-count {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        padding: 1px 6px;
+        @include status($success);
+    }
+}
+
+.download-menu { min-width: 270px; }
+
+.download-range {
+    padding: 4px 12px 8px;
+
+    .form-control { width: 78px; }
+}
+
+// ===========================================================================
+// Progress card — reading and downloads, each stated once
+// ===========================================================================
+.nv-progress {
+    display: flex;
+    flex-direction: column;
+    background: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+}
+
+.nv-progress-part {
+    display: flex;
+    flex-direction: column;
+    gap: $s-2;
+    padding: $s-5 $s-6;
+
+    + .nv-progress-part { border-top: $hairline solid $border; }
+
+    .progress { margin: 2px 0; }
+}
+
+.nv-progress-key {
+    margin: 0;
+    font-size: $fs-micro;
+    font-weight: $fw-micro;
+    letter-spacing: $ls-micro;
+    text-transform: uppercase;
+    color: $text-muted;
+}
+
+.nv-progress-figure {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: $s-2;
+    margin: 0;
+}
+
+.nv-progress-pct {
+    font-family: $font-mono;
+    font-size: 24px;
+    line-height: 1.1;
+    color: $amber-text;
+}
+
+.nv-progress-of,
+.nv-progress-note {
+    margin: 0;
+    font-size: 13px;
+    color: $text-muted;
+}
+
+.nv-dl-line {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    margin: 0;
+    color: $text;
+}
+
+// Square status dot (the bar-* fill of the novel's download state).
+.nv-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+}
+
+.nv-issues {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 13px;
+    color: $text-muted;
+
+    li {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0 $s-2;
+        min-height: 24px;
+    }
+
+    .nv-issue-num { font-family: $font-mono; font-size: $fs-mono; }
+}
+
+.nv-progress-action { align-self: flex-start; margin-top: $s-1; }
+
+// Hourly checks switch (inside the Downloads part).
+.detail-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: $s-3;
+    padding: $s-1 0 0;
+    min-height: 0;
+    font-size: 13px;
+    color: $text-muted;
+
+    .form-check-input {
+        float: none;
+        margin: 0;
+        cursor: pointer;
+    }
+
+    .form-check-label { cursor: pointer; }
+}
+
+// ===========================================================================
+// Chapters
+// ===========================================================================
+.nv-ch-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-3 $s-4;
+    padding: 14px $s-6;
+    border-bottom: $hairline solid $border;
+
+    .panel-title {
+        display: flex;
+        align-items: center;
+        gap: $s-3;
+        margin: 0 $s-2 0 0;
+        font-size: $fs-card-title;
+        font-weight: $fw-card-title;
+        color: $text;
+    }
+}
+
+.nv-ch-spacer { flex: 1 1 0; }
+
+.nv-ch-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2;
+
+    .btn { min-height: 34px; padding: 0 12px; font-size: 13px; }
+}
+
+// State chips: one segmented group of real toggle buttons.
+.nv-chips {
+    display: inline-flex;
+    max-width: 100%;
+    overflow-x: auto;
+    border: $hairline solid $btn-secondary-border;
+    border-radius: $radius;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar { display: none; }
+}
+
+.nv-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: 0 12px;
+    font: inherit;
+    font-size: 13px;
+    white-space: nowrap;
+    color: $text-muted;
+    background: transparent;
+    border: 0;
+    transition: color $transition, background-color $transition;
+
+    + .nv-chip { border-left: $hairline solid $btn-secondary-border; }
+
+    &:hover { color: $text; background: $surface-alt; }
+
+    &[aria-pressed="true"] {
+        color: $text;
+        background: $surface-alt;
+        box-shadow: inset 0 -2px 0 $accent;
+    }
+
+    // The focus ring sits inside the group so overflow cannot clip it.
+    &:focus-visible { outline-offset: -2px; }
+}
+
+.nv-chip-count {
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    color: $text-muted;
+}
+
+.nv-jump {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.nv-filter {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 240px;
+    margin: 0;
+
+    > .icon {
+        position: absolute;
+        left: 10px;
+        color: $text-muted;
+        pointer-events: none;
+    }
+
+    .form-control {
+        height: 34px;
+        padding-left: 30px;
+        font-size: 13px;
+        background-color: $bg;
+    }
+}
+
+.nv-filter-status {
+    margin: 0;
+    padding: $s-2 $s-6;
+    font-size: $fs-caption;
+    color: $text-muted;
+    border-bottom: $hairline solid $border;
+
+    &:empty { display: none; }
+}
+
+.nv-filter-more {
+    display: flex;
+    justify-content: center;
+    padding: $s-4;
+    border-top: $hairline solid $border;
+}
+
+.chapter-table {
+    margin: 0;
+
+    > :not(caption) > * > * { padding: 11px $s-4; }
+    > thead > tr > th {
+        font-size: $fs-micro;
+        font-weight: $fw-micro;
+        letter-spacing: $ls-micro;
+        text-transform: uppercase;
+        color: $text-muted;
+        background: $surface-alt;
+    }
+    > :not(caption) > * > *:first-child { padding-left: $s-6; }
+    > :not(caption) > * > *:last-child { padding-right: $s-6; }
+
+    .ch-date-head,
+    .ch-date { text-align: right; }
+
+    // Exception rule: a 2px inset bar only on rows that are not the normal
+    // case (queued, failed) and on the current chapter.
+    .chapter-row > td:first-child { box-shadow: inset 2px 0 0 transparent; }
+    .chapter-row.is-queued > td:first-child { box-shadow: inset 2px 0 0 $pending; }
+    .chapter-row.is-failed > td:first-child { box-shadow: inset 2px 0 0 $danger; }
+    .chapter-row.is-current > td:first-child { box-shadow: inset 2px 0 0 $accent; }
+
+    .chapter-row:hover > td { background-color: $surface-alt; }
+    .chapter-row.is-current > td { background-color: rgba($accent, 0.08); }
+
+    .ch-num {
+        font-family: $font-mono;
+        font-size: $fs-mono;
+        color: $text-muted;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .ch-book {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $muted;
+    }
+
+    .ch-date {
+        font-family: $font-mono;
+        font-size: $fs-mono;
+        color: $text-muted;
+        white-space: nowrap;
+    }
+
+    .chapter-link {
+        color: $link;
+        font-weight: 500;
+
+        &:hover { color: $link-hover; }
+    }
+
+    .chapter-label { color: $text-muted; }
+
+    // Read rows recede; the amber tick in the State column carries the signal.
+    .chapter-row.is-read {
+        .chapter-link { color: $text-muted; font-weight: 400; &:hover { color: $link-hover; } }
+        .ch-num { color: $muted; }
+    }
+
+    // Failure reason: plain words under the label.
+    .ch-reason {
+        display: block;
+        margin-top: 2px;
+        font-size: $fs-caption;
+        color: $danger;
+    }
+
+    .ch-status {
+        font-size: $fs-caption;
+        color: $text-muted;
+        white-space: nowrap;
+
+        > * + * { margin-left: $s-2; }
+    }
+
+    .ch-read {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: $text-muted;
+
+        .icon { color: $brand-amber; }
+    }
+
+    .ch-current {
+        font-size: $fs-micro;
+        font-weight: $fw-micro;
+        letter-spacing: $ls-micro;
+        text-transform: uppercase;
+        color: var(--nv-accent-ink);
+    }
+
+    .form-check-input {
+        margin: 0;
+        vertical-align: middle;
+    }
+}
+
+// Mono "Ch. " / "Book " prefixes only appear in the stacked phone layout.
+.chapter-table .ch-num-prefix { display: none; }
+.ch-select-toggle { display: none; }
+
+.bulk-bar {
+    display: none;
+    align-items: center;
+    gap: $s-2;
+    padding: 4px $s-3;
+    background: rgba($accent, 0.12);
+    border: $hairline solid rgba($accent, 0.35);
+    border-radius: $radius;
+
+    &.d-flex { display: flex !important; }
+
+    .bulk-count {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $link;
+    }
+}
+
+// Maintenance: a card-shaped <details>; the summary is the panel head.
+.maintenance-panel {
+    > .maintenance-summary {
+        cursor: pointer;
+        list-style: none;
+        border-bottom: 0;
+
+        &::-webkit-details-marker { display: none; }
+
+        .panel-note { margin-left: auto; }
+
+        .maintenance-caret {
+            flex-shrink: 0;
+            color: $text-muted;
+            transition: transform $transition;
+        }
+
+        &:hover .panel-title { color: $link; }
+    }
+
+    &[open] > .maintenance-summary {
+        border-bottom: $hairline solid $border;
+        .maintenance-caret { transform: rotate(180deg); }
+    }
+}
+
+// ===========================================================================
+// Tablet: the progress card drops under the actions, beside the cover.
+// ===========================================================================
+@media (max-width: 1199.98px) {
+    .nv-hero {
+        grid-template-columns: 168px minmax(0, 1fr);
+        grid-template-rows: auto auto auto auto 1fr;
+        grid-template-areas:
+            "cover head"
+            "cover about"
+            "cover actions"
+            "cover side"
+            "cover .";
+        column-gap: $s-7;
+    }
+
+    .nv-side { max-width: 560px; }
+    .nv-title { font-size: 28px; }
+}
+
+// ===========================================================================
+// Phone: a small cover beside the title; everything else full width.
+// ===========================================================================
+@include media-breakpoint-down(md) {
+    .nv-hero {
+        grid-template-columns: 88px minmax(0, 1fr);
+        grid-template-rows: auto;
+        grid-template-areas:
+            "cover   head"
+            "actions actions"
+            "side    side"
+            "about   about";
+        column-gap: 14px;
+        row-gap: 18px;
+        margin-bottom: $s-7;
+    }
+
+    .nv-side { max-width: none; }
+
+    .nv-head { gap: 6px; }
+
+    .nv-title {
+        font-size: 20px;
+        line-height: 1.22;
+        letter-spacing: -0.01em;
+    }
+
+    .nv-byline { font-size: 13px; }
+
+    .nv-actions {
+        flex-wrap: nowrap;
+        padding-top: 0;
+
+        .btn { min-height: 48px; }
+        .nv-continue { flex: 1 1 auto; justify-content: center; min-width: 0; }
+
+        // Download becomes a square icon button (its aria-label names it).
+        #offlineBtn {
+            width: 48px;
+            justify-content: center;
+            padding-inline: 0;
+
+            .offline-btn-label,
+            .caret { display: none; }
+        }
+
+        .btn-icon { width: 48px; }
+    }
+
+    .nv-progress-part { padding: 14px $s-5; }
+    .nv-progress-pct { font-size: 20px; }
+
+    .detail-synopsis .synopsis-body { font-size: 13px; }
+
+    .maintenance-panel > .maintenance-summary .panel-note { display: none; }
+
+    // ---- Chapter list: two-line rows, 44px controls --------------------
+    .nv-ch-head {
+        padding: $s-4 $s-5;
+        gap: $s-3;
+
+        .panel-title { flex: 1 1 auto; }
+    }
+
+    .nv-ch-spacer { display: none; }
+    .nv-chips { order: 2; flex: 1 1 100%; }
+    .nv-chip { min-height: 44px; flex: 1 0 auto; justify-content: center; }
+    .nv-jump { order: 3; }
+    .nv-filter { order: 4; width: 100%; .form-control { height: 44px; } }
+    .nv-ch-tools { order: 5; width: 100%; .btn { min-height: 44px; } }
+    .nv-filter-status { padding-inline: $s-5; }
+
+    .ch-select-toggle { display: inline-flex; }
+
+    .chapter-table {
+        > thead { display: none; }
+
+        > tbody > .chapter-row {
+            display: grid;
+            grid-template-columns: auto auto auto auto minmax(0, 1fr);
+            align-items: center;
+            column-gap: $s-3;
+            row-gap: $s-1;
+            padding: $s-3 $s-5;
+            min-height: 52px;
+            border-top: $hairline solid $border;
+            box-shadow: inset 2px 0 0 transparent;
+
+            &.is-queued  { box-shadow: inset 2px 0 0 $pending; }
+            &.is-failed  { box-shadow: inset 2px 0 0 $danger; }
+            &.is-current { box-shadow: inset 2px 0 0 $accent; background-color: rgba($accent, 0.08); }
+
+            > td {
+                padding: 0 !important;
+                border: 0;
+                background: transparent !important;
+                box-shadow: none !important;
+            }
+
+            > .ch-select { grid-column: 1; grid-row: 1 / span 2; display: none; padding-right: $s-2 !important; }
+            > .ch-title  { grid-column: 2 / -1; grid-row: 1; font-size: $fs-body; min-width: 0; overflow-wrap: anywhere; }
+            > .ch-num    { grid-column: 2; grid-row: 2; font-size: $fs-micro; }
+            > .ch-book   { grid-column: 3; grid-row: 2; }
+            > .ch-status { grid-column: 4; grid-row: 2; .badge { font-size: 10px; padding: 1px 6px; } }
+            > .ch-date   { grid-column: 5; grid-row: 2; justify-self: end; font-size: $fs-micro; }
+        }
+
+        .ch-num-prefix { display: inline; color: $muted; }
+    }
+
+    .chapter-panel.is-selecting .chapter-table > tbody > .chapter-row > .ch-select { display: block; }
+
+    // A stacked table no longer needs the horizontal scroller.
+    .chapter-panel > .table-responsive { overflow-x: visible; }
+}
+
+// Phone, nothing to continue yet: Download keeps its label instead of
+// shrinking to the icon square beside a Continue button that isn't there.
+@include media-breakpoint-down(md) {
+    .nv-actions:not(:has(.nv-continue)) #offlineBtn {
+        width: auto;
+        padding-inline: 16px;
+
+        .offline-btn-label { display: inline; }
+    }
+}
