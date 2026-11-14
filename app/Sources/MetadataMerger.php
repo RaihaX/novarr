@@ -27,6 +27,11 @@ namespace App\Sources;
  *   gate       Fields of the base; when given, the OTHER side contributes to
  *              `fields` and `covers` only if at least one of them is empty()
  *              on the base. Omitted: always.
+ *   ungated    Fields of `fields` the gate does not apply to: the other side
+ *              still fills them when the gate shuts it out of the rest. The
+ *              other side is only fetched for one when the rule needs its
+ *              value (for a base-preferred field: the base value is empty()),
+ *              so with `lazy` a complete base still costs no second fetch.
  *   status     null: status_text / completed are the base's. Otherwise
  *              ['mode' => …, 'prefer' => side]:
  *                'fill'    (prefer = base) — when the base's status_text is
@@ -39,7 +44,8 @@ namespace App\Sources;
  *   copy       field => side: always set to that side's value (null when
  *              absent).
  *   covers     Sides in order; cover_candidates = their non-empty 'image'
- *              values (list, duplicates kept).
+ *              values (list, de-duplicated by trimmed URL, first seen kept;
+ *              see uniqueCovers()).
  */
 final class MetadataMerger
 {
@@ -89,10 +95,16 @@ final class MetadataMerger
         foreach ($precedence['steps'] as $step) {
             switch ($step) {
                 case 'fields':
-                    if (!$otherContributes) {
-                        break;
-                    }
+                    $ungated = (array) ($precedence['ungated'] ?? []);
                     foreach ($precedence['fields'] ?? [] as $field => $preferred) {
+                        if (!$otherContributes) {
+                            // Gate shut: only ungated fields, and only when
+                            // the rule can use the other side's value.
+                            if (!in_array($field, $ungated, true)
+                                || ($preferred === $base && !empty($result[$field]))) {
+                                continue;
+                            }
+                        }
                         $theirs = $get($other);
                         if ($preferred === $base) {
                             if (empty($result[$field]) && !empty($theirs[$field])) {
@@ -141,11 +153,40 @@ final class MetadataMerger
                         }
                         $images[] = $get($side)['image'] ?? null;
                     }
-                    $result['cover_candidates'] = array_values(array_filter($images));
+                    $result['cover_candidates'] = self::uniqueCovers(array_filter($images));
                     break;
             }
         }
 
         return $result;
+    }
+
+    /**
+     * Cover URLs without duplicates, in first-seen order. URLs are compared
+     * after trim() and otherwise as-is (no case or scheme folding); the
+     * first occurrence is kept unchanged.
+     *
+     * @param iterable<mixed> $urls
+     * @return list<mixed>
+     */
+    public static function uniqueCovers(iterable $urls): array
+    {
+        $seen = [];
+        $unique = [];
+        foreach ($urls as $url) {
+            $key = is_string($url) ? trim($url) : $url;
+            if (!is_scalar($key)) {
+                $unique[] = $url; // not a URL string: leave it alone
+                continue;
+            }
+            $key = (string) $key;
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $unique[] = $url;
+        }
+
+        return $unique;
     }
 }

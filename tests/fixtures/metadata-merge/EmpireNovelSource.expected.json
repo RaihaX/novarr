@@ -23,7 +23,6 @@
             "original_language": "Chinese",
             "extra_a": "only on A",
             "cover_candidates": [
-                "https://a.test/a.jpg",
                 "https://a.test/a.jpg"
             ]
         }
@@ -196,7 +195,6 @@
             "original_language": "Chinese",
             "extra_a": "only on A",
             "cover_candidates": [
-                "https://a.test/a.jpg",
                 "https://a.test/a.jpg"
             ]
         }
@@ -276,7 +274,6 @@
                 "https://novelping.com/novel/b"
             ],
             "cover_candidates": [
-                "https://b.test/b.jpg",
                 "https://b.test/b.jpg"
             ]
         }
@@ -1468,7 +1465,6 @@
             "original_language": "Chinese",
             "extra_a": "only on A",
             "cover_candidates": [
-                "https://a.test/a.jpg",
                 "https://a.test/a.jpg"
             ]
         }
@@ -1641,7 +1637,6 @@
             "original_language": "Chinese",
             "extra_a": "only on A",
             "cover_candidates": [
-                "https://a.test/a.jpg",
                 "https://a.test/a.jpg"
             ]
         }
@@ -1883,7 +1878,6 @@
             "status_text": "Ongoing",
             "completed": "yes",
             "cover_candidates": [
-                "https://m.test/m.png",
                 "https://m.test/m.png"
             ]
         }
