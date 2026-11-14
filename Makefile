@@ -1,29 +1,30 @@
 # =============================================================================
 # Novarr Docker Management Makefile
 # =============================================================================
+# Drives the clone-and-run stack in docker-compose.yml (Octane app, one-shot
+# migration, scheduler, MySQL, Redis, FlareSolverr). The one-click stacks
+# (docker-compose.oneclick.yml / docker-compose.tailscale.yml) need none of it.
+#
 # Usage: make [command]
 # Run 'make help' to see all available commands
 # =============================================================================
 
-.PHONY: help build build-no-cache build-dev deploy update restart stop down \
-        up dev logs logs-app logs-mysql logs-nginx logs-redis logs-scheduler logs-worker \
-        shell tinker migrate migrate-fresh migrate-status seed \
-        seed-menus voyager-install voyager-admin \
-        cache-clear cache-rebuild optimize \
-        ps health status backup restore clean prune \
-        artisan composer npm test lint \
-        db-shell redis-cli nginx-reload \
+.PHONY: help build build-no-cache deploy restart restart-app stop down down-volumes \
+        up dev logs logs-app logs-mysql logs-redis logs-scheduler \
+        shell tinker db-shell redis-cli \
+        migrate migrate-force migrate-fresh migrate-fresh-seed migrate-status migrate-rollback seed \
+        cache-clear cache-rebuild optimize optimize-clear \
+        ps status health smoke-test smoke-test-verbose backup backup-list restore clean prune \
+        artisan \
         queue-work queue-restart queue-failed queue-retry queue-clear queue-health \
-        supervisor-status supervisor-restart supervisor-restart-workers \
-        supervisor-restart-scheduler supervisor-restart-octane \
-        supervisor-logs supervisor-logs-workers supervisor-logs-scheduler supervisor-logs-octane \
-        up-supervisor down-supervisor
+        maintenance-on maintenance-off storage-link storage-permissions key-generate
 
-# Default shell
-SHELL := /bin/zsh
+# POSIX shell: the servers this runs on (Debian, Unraid) have no zsh.
+SHELL := /bin/sh
 
 # Docker Compose command detection
 COMPOSE_CMD := $(shell docker compose version > /dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
+
 
 # Colors
 CYAN := \033[0;36m
@@ -40,85 +41,50 @@ help: ## Show this help message
 	@echo "$(CYAN)Novarr Docker Management$(NC)"
 	@echo "$(CYAN)========================$(NC)"
 	@echo ""
-	@echo "$(GREEN)Build Commands:$(NC)"
-	@grep -E '^(build|build-no-cache|build-dev):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
-	@echo ""
-	@echo "$(GREEN)Deployment Commands:$(NC)"
-	@grep -E '^(deploy|update|restart|stop|down):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
+	@echo "$(GREEN)Build & Deployment Commands:$(NC)"
+	@grep -E '^(build|build-no-cache|deploy|restart|restart-app|stop|down|down-volumes):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(GREEN)Development Commands:$(NC)"
-	@grep -E '^(up|dev|logs|logs-app|logs-mysql|logs-nginx|logs-redis):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
+	@grep -E '^(up|dev|logs|logs-app|logs-mysql|logs-redis|logs-scheduler):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(GREEN)Shell Commands:$(NC)"
 	@grep -E '^(shell|tinker|db-shell|redis-cli):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(GREEN)Database Commands:$(NC)"
-	@grep -E '^(migrate|migrate-fresh|migrate-status|seed):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
-	@echo ""
-	@echo "$(GREEN)Voyager Commands:$(NC)"
-	@grep -E '^(seed-menus|voyager-install|voyager-admin):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
+	@grep -E '^(migrate|migrate-force|migrate-fresh|migrate-fresh-seed|migrate-status|migrate-rollback|seed):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(GREEN)Cache Commands:$(NC)"
-	@grep -E '^(cache-clear|cache-rebuild|optimize):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
+	@grep -E '^(cache-clear|cache-rebuild|optimize|optimize-clear):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(GREEN)Utility Commands:$(NC)"
-	@grep -E '^(ps|health|status|backup|restore|clean|prune|migrate-export):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
+	@grep -E '^(ps|status|health|smoke-test|smoke-test-verbose|backup|backup-list|restore|clean|prune):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
-	@echo "$(GREEN)Artisan/Composer/NPM:$(NC)"
-	@grep -E '^(artisan|composer|npm|test|lint):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
+	@echo "$(GREEN)Artisan, Queue & Maintenance:$(NC)"
+	@grep -E '^(artisan|queue-[a-z]+|maintenance-on|maintenance-off|storage-link|storage-permissions|key-generate):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)Examples:$(NC)"
-	@echo "  make up                          # Start services"
+	@echo "  make deploy                      # Build the image, start, migrate"
 	@echo "  make logs                        # View all logs"
 	@echo "  make shell                       # Open app shell"
 	@echo "  make artisan CMD=\"migrate\"       # Run artisan command"
-	@echo "  make composer CMD=\"require pkg\"  # Run composer command"
+	@echo ""
+	@echo "Tests, linting, composer and yarn run on the host, not in the"
+	@echo "production image (it has no dev dependencies, composer or Node)."
 	@echo ""
 
 # =============================================================================
-# Build Commands
+# Build & Deployment Commands
 # =============================================================================
 
-build: ## Build Docker images
-	@chmod +x docker-build.sh && ./docker-build.sh
-
-build-no-cache: ## Build Docker images without cache
-	@chmod +x docker-build.sh && ./docker-build.sh --no-cache
-
-build-dev: ## Build Docker images for development
+build: ## Build the Docker image from this checkout (novarr:local)
 	@$(COMPOSE_CMD) build
 
-# =============================================================================
-# Deployment Commands
-# =============================================================================
+build-no-cache: ## Build the Docker image without cache
+	@$(COMPOSE_CMD) build --no-cache
 
-deploy: ## Initial deployment (first-time setup)
-	@chmod +x docker-deploy.sh && ./docker-deploy.sh
-
-update: ## Update deployment (zero-downtime blue-green)
-	@chmod +x docker-update.sh && ./docker-update.sh
-
-update-dry-run: ## Preview update without making changes
-	@chmod +x docker-update.sh && ./docker-update.sh --dry-run
-
-update-verbose: ## Update with verbose output
-	@chmod +x docker-update.sh && ./docker-update.sh --verbose
-
-update-force: ## Force update (skip git checks)
-	@chmod +x docker-update.sh && ./docker-update.sh --force --skip-confirm
-
-rollback: ## Rollback to previous deployment
-	@chmod +x docker-update.sh && ./docker-update.sh --rollback
-
-deployment-status: ## Show current deployment state
-	@echo "$(CYAN)Deployment State:$(NC)"
-	@cat .deployment-state 2>/dev/null || echo "  No deployment state found"
-	@echo ""
-	@echo "$(CYAN)Running App Containers:$(NC)"
-	@docker ps --filter "name=novarr-app" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
-	@echo ""
-	@echo "$(CYAN)Nginx Upstream:$(NC)"
-	@grep -E "^upstream roadrunner" docker/nginx/upstream.conf 2>/dev/null || echo "  Not configured"
+deploy: ## Build the image and (re)start the stack; the init service runs migrations
+	@$(COMPOSE_CMD) up -d --build
+	@echo "$(GREEN)Deployed. Open http://localhost/ (NOVARR_PORT changes the port).$(NC)"
 
 restart: ## Restart all services
 	@$(COMPOSE_CMD) restart
@@ -142,11 +108,8 @@ down-volumes: ## Stop and remove containers with volumes
 up: ## Start all services in background
 	@$(COMPOSE_CMD) up -d
 
-dev: ## Start services with development overrides (hot-reloading)
-	@$(COMPOSE_CMD) -f docker-compose.yml -f docker-compose.override.yml up -d
-
-up-build: ## Start services and rebuild images
-	@$(COMPOSE_CMD) up -d --build
+dev: ## Start services with the development overlay (code bind-mounted)
+	@$(COMPOSE_CMD) -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 
 logs: ## Tail logs from all services
 	@$(COMPOSE_CMD) logs -f
@@ -157,17 +120,11 @@ logs-app: ## Tail logs from app service
 logs-mysql: ## Tail logs from MySQL service
 	@$(COMPOSE_CMD) logs -f mysql
 
-logs-nginx: ## Tail logs from Nginx service
-	@$(COMPOSE_CMD) logs -f nginx
-
 logs-redis: ## Tail logs from Redis service
 	@$(COMPOSE_CMD) logs -f redis
 
 logs-scheduler: ## Tail logs from scheduler service
 	@$(COMPOSE_CMD) logs -f scheduler
-
-logs-worker: ## Tail logs from worker service
-	@$(COMPOSE_CMD) logs -f worker
 
 # =============================================================================
 # Shell Commands
@@ -176,14 +133,13 @@ logs-worker: ## Tail logs from worker service
 shell: ## Open shell in app container
 	@$(COMPOSE_CMD) exec app sh
 
-bash: ## Open bash in app container
-	@$(COMPOSE_CMD) exec app bash
-
 tinker: ## Open Laravel Tinker REPL
 	@$(COMPOSE_CMD) exec app php artisan tinker
 
+# Credentials come from the mysql container's own environment, through
+# MYSQL_PWD rather than argv.
 db-shell: ## Open MySQL shell
-	@$(COMPOSE_CMD) exec mysql mysql -u$$(grep DB_USERNAME .env | cut -d '=' -f2) -p$$(grep DB_PASSWORD .env | cut -d '=' -f2) $$(grep DB_DATABASE .env | cut -d '=' -f2)
+	@$(COMPOSE_CMD) exec mysql sh -c 'MYSQL_PWD="$$MYSQL_PASSWORD" exec mysql -u"$$MYSQL_USER" "$$MYSQL_DATABASE"'
 
 redis-cli: ## Open Redis CLI
 	@$(COMPOSE_CMD) exec redis redis-cli
@@ -212,29 +168,6 @@ migrate-rollback: ## Rollback last migration batch
 
 seed: ## Run database seeders
 	@$(COMPOSE_CMD) exec app php artisan db:seed
-
-# =============================================================================
-# Voyager Commands
-# =============================================================================
-
-seed-menus: ## Seed Voyager menu items (idempotent)
-	@$(COMPOSE_CMD) exec app php artisan db:seed --class=MenuItemsTableSeeder --force
-	@echo "$(GREEN)Voyager menu items seeded$(NC)"
-
-voyager-install: ## Install Voyager and seed menus
-	@$(COMPOSE_CMD) exec app php artisan voyager:install
-	@$(MAKE) seed-menus
-	@echo "$(GREEN)Voyager installed and menus seeded$(NC)"
-
-voyager-admin: ## Create Voyager admin user (use EMAIL=your@email.com)
-	@if [ -z "$(EMAIL)" ]; then \
-		echo "$(YELLOW)Usage: make voyager-admin EMAIL=\"your@email.com\"$(NC)"; \
-		echo ""; \
-		echo "This will create an admin user for Voyager."; \
-	else \
-		$(COMPOSE_CMD) exec app php artisan voyager:admin $(EMAIL) --create; \
-		echo "$(GREEN)Voyager admin user created$(NC)"; \
-	fi
 
 # =============================================================================
 # Cache Commands
@@ -284,36 +217,31 @@ health: ## Check health endpoints
 	@curl -s http://localhost:8000/api/ping 2>/dev/null || curl -s http://localhost/api/ping 2>/dev/null || echo "  $(YELLOW)Not responding$(NC)"
 	@echo ""
 
-smoke-test: ## Run smoke tests against current deployment
-	@chmod +x docker/scripts/smoke-test.sh && ./docker/scripts/smoke-test.sh
+smoke-test: ## Run smoke tests against the running stack
+	@bash docker/scripts/smoke-test.sh
 
 smoke-test-verbose: ## Run smoke tests with verbose output
-	@chmod +x docker/scripts/smoke-test.sh && ./docker/scripts/smoke-test.sh --verbose
+	@bash docker/scripts/smoke-test.sh novarr-app-1 --verbose
 
-smoke-test-blue: ## Run smoke tests against blue container
-	@chmod +x docker/scripts/smoke-test.sh && ./docker/scripts/smoke-test.sh novarr-app-blue
+backup: ## Back up database + storage/app (php artisan backup:run in the app container)
+	@echo "$(CYAN)Running backup:run...$(NC)"
+	@$(COMPOSE_CMD) exec app php artisan backup:run
+	@echo "$(GREEN)Backup zip written to the BACKUP_DISK disk (default: storage/app/private/Novarr/)$(NC)"
 
-smoke-test-green: ## Run smoke tests against green container
-	@chmod +x docker/scripts/smoke-test.sh && ./docker/scripts/smoke-test.sh novarr-app-green
+backup-list: ## List backups and their health
+	@$(COMPOSE_CMD) exec app php artisan backup:list
 
-backup: ## Backup database and storage
-	@mkdir -p backups
-	@echo "$(CYAN)Backing up database...$(NC)"
-	@$(COMPOSE_CMD) exec -T mysql mysqldump -u$$(grep DB_USERNAME .env | cut -d '=' -f2) -p$$(grep DB_PASSWORD .env | cut -d '=' -f2) $$(grep DB_DATABASE .env | cut -d '=' -f2) > backups/db-backup-$$(date +%Y%m%d-%H%M%S).sql
-	@echo "$(GREEN)Database backed up to backups/$(NC)"
-	@echo "$(CYAN)Backing up .env...$(NC)"
-	@cp .env backups/env-backup-$$(date +%Y%m%d-%H%M%S)
-	@echo "$(GREEN)Backup complete$(NC)"
-
-restore: ## Restore database from backup (use BACKUP=filename)
+restore: ## Load a plain .sql dump into MySQL (use BACKUP=file.sql; see readme "Backup and restore")
 	@if [ -z "$(BACKUP)" ]; then \
-		echo "$(YELLOW)Usage: make restore BACKUP=backups/db-backup-YYYYMMDD-HHMMSS.sql$(NC)"; \
+		echo "$(YELLOW)Usage: make restore BACKUP=path/to/dump.sql$(NC)"; \
+		echo ""; \
+		echo "Unzip a backup first: unzip <backup>.zip 'db-dumps/*' -d /tmp/novarr-restore"; \
 		echo ""; \
 		echo "Available backups:"; \
-		ls -la backups/*.sql 2>/dev/null || echo "  No backups found"; \
+		ls -la storage/app/private/Novarr/*.zip 2>/dev/null || echo "  No backups found"; \
 	else \
 		echo "$(CYAN)Restoring from $(BACKUP)...$(NC)"; \
-		$(COMPOSE_CMD) exec -T mysql mysql -u$$(grep DB_USERNAME .env | cut -d '=' -f2) -p$$(grep DB_PASSWORD .env | cut -d '=' -f2) $$(grep DB_DATABASE .env | cut -d '=' -f2) < $(BACKUP); \
+		$(COMPOSE_CMD) exec -T mysql sh -c 'MYSQL_PWD="$$MYSQL_PASSWORD" exec mysql -u"$$MYSQL_USER" "$$MYSQL_DATABASE"' < "$(BACKUP)" && \
 		echo "$(GREEN)Database restored$(NC)"; \
 	fi
 
@@ -324,13 +252,10 @@ clean: ## Remove unused Docker images
 
 prune: ## Remove all unused Docker resources (careful!)
 	@echo "$(YELLOW)This will remove all unused containers, networks, images, and volumes$(NC)"
-	@read -p "Are you sure? (y/n) " confirm && [ "$$confirm" = "y" ] && docker system prune -af --volumes || echo "Cancelled"
-
-migrate-export: ## Export dev database and storage for migration to production
-	@chmod +x scripts/migrate-from-dev.sh && ./scripts/migrate-from-dev.sh
+	@printf "Are you sure? (y/n) "; read confirm; [ "$$confirm" = "y" ] && docker system prune -af --volumes || echo "Cancelled"
 
 # =============================================================================
-# Artisan/Composer/NPM Commands
+# Artisan Commands
 # =============================================================================
 
 artisan: ## Run artisan command (use CMD="command")
@@ -338,71 +263,12 @@ artisan: ## Run artisan command (use CMD="command")
 		echo "$(YELLOW)Usage: make artisan CMD=\"your:command\"$(NC)"; \
 		echo ""; \
 		echo "Examples:"; \
-		echo "  make artisan CMD=\"migrate\""; \
-		echo "  make artisan CMD=\"make:model User\""; \
-		echo "  make artisan CMD=\"queue:work\""; \
+		echo "  make artisan CMD=\"migrate:status\""; \
+		echo "  make artisan CMD=\"novel:toc\""; \
+		echo "  make artisan CMD=\"queue:failed\""; \
 	else \
 		$(COMPOSE_CMD) exec app php artisan $(CMD); \
 	fi
-
-composer: ## Run composer command (use CMD="command")
-	@if [ -z "$(CMD)" ]; then \
-		echo "$(YELLOW)Usage: make composer CMD=\"your command\"$(NC)"; \
-		echo ""; \
-		echo "Examples:"; \
-		echo "  make composer CMD=\"install\""; \
-		echo "  make composer CMD=\"require package/name\""; \
-		echo "  make composer CMD=\"update\""; \
-	else \
-		$(COMPOSE_CMD) exec app composer $(CMD); \
-	fi
-
-npm: ## Run npm command (use CMD="command")
-	@if [ -z "$(CMD)" ]; then \
-		echo "$(YELLOW)Usage: make npm CMD=\"your command\"$(NC)"; \
-		echo ""; \
-		echo "Examples:"; \
-		echo "  make npm CMD=\"install\""; \
-		echo "  make npm CMD=\"run dev\""; \
-		echo "  make npm CMD=\"run build\""; \
-	else \
-		$(COMPOSE_CMD) exec app npm $(CMD); \
-	fi
-
-yarn: ## Run yarn command (use CMD="command")
-	@if [ -z "$(CMD)" ]; then \
-		echo "$(YELLOW)Usage: make yarn CMD=\"your command\"$(NC)"; \
-		echo ""; \
-		echo "Examples:"; \
-		echo "  make yarn CMD=\"install\""; \
-		echo "  make yarn CMD=\"dev\""; \
-		echo "  make yarn CMD=\"build\""; \
-	else \
-		$(COMPOSE_CMD) exec app yarn $(CMD); \
-	fi
-
-test: ## Run PHPUnit tests
-	@$(COMPOSE_CMD) exec app php artisan test
-
-test-coverage: ## Run tests with coverage
-	@$(COMPOSE_CMD) exec app php artisan test --coverage
-
-lint: ## Run PHP linting
-	@$(COMPOSE_CMD) exec app ./vendor/bin/pint --test || true
-
-lint-fix: ## Fix PHP linting issues
-	@$(COMPOSE_CMD) exec app ./vendor/bin/pint || true
-
-# =============================================================================
-# Nginx Commands
-# =============================================================================
-
-nginx-reload: ## Reload Nginx configuration
-	@$(COMPOSE_CMD) exec nginx nginx -s reload
-	@echo "$(GREEN)Nginx configuration reloaded$(NC)"
-
-nginx-test: ## Test Nginx configuration
-	@$(COMPOSE_CMD) exec nginx nginx -t
 
 # =============================================================================
 # Queue Commands
@@ -426,50 +292,6 @@ queue-clear: ## Clear all queued jobs
 
 queue-health: ## Check queue health status
 	@$(COMPOSE_CMD) exec app php artisan queue:health-check
-
-# =============================================================================
-# Supervisor Commands (for supervisor variant)
-# =============================================================================
-
-supervisor-status: ## Show supervisor process status
-	@$(COMPOSE_CMD) exec app-supervisor supervisorctl status
-
-supervisor-restart: ## Restart all supervisor processes
-	@$(COMPOSE_CMD) exec app-supervisor supervisorctl restart all
-	@echo "$(GREEN)All supervisor processes restarted$(NC)"
-
-supervisor-restart-workers: ## Restart only queue workers
-	@$(COMPOSE_CMD) exec app-supervisor supervisorctl restart laravel-worker:*
-	@echo "$(GREEN)Queue workers restarted$(NC)"
-
-supervisor-restart-scheduler: ## Restart only scheduler
-	@$(COMPOSE_CMD) exec app-supervisor supervisorctl restart laravel-scheduler
-	@echo "$(GREEN)Scheduler restarted$(NC)"
-
-supervisor-restart-octane: ## Restart only Octane server
-	@$(COMPOSE_CMD) exec app-supervisor supervisorctl restart laravel-octane
-	@echo "$(GREEN)Octane server restarted$(NC)"
-
-supervisor-logs: ## Tail supervisor main logs
-	@$(COMPOSE_CMD) exec app-supervisor tail -f /var/log/supervisor/supervisord.log
-
-supervisor-logs-workers: ## Tail worker logs
-	@$(COMPOSE_CMD) exec app-supervisor tail -f /var/log/supervisor/laravel-worker.log
-
-supervisor-logs-scheduler: ## Tail scheduler logs
-	@$(COMPOSE_CMD) exec app-supervisor tail -f /var/log/supervisor/laravel-scheduler.log
-
-supervisor-logs-octane: ## Tail Octane logs
-	@$(COMPOSE_CMD) exec app-supervisor tail -f /var/log/supervisor/laravel-octane.log
-
-# Supervisor variant startup
-up-supervisor: ## Start services using supervisor variant (single container for app+workers+scheduler)
-	@$(COMPOSE_CMD) -f docker-compose.yml -f docker-compose.supervisor.yml up -d mysql redis nginx app-supervisor
-	@echo "$(GREEN)Supervisor variant started$(NC)"
-
-down-supervisor: ## Stop supervisor variant services
-	@$(COMPOSE_CMD) -f docker-compose.yml -f docker-compose.supervisor.yml down
-	@echo "$(GREEN)Supervisor variant stopped$(NC)"
 
 # =============================================================================
 # Maintenance Mode
@@ -499,6 +321,5 @@ storage-permissions: ## Fix storage permissions
 # Key Generation
 # =============================================================================
 
-key-generate: ## Generate application key
-	@$(COMPOSE_CMD) exec app php artisan key:generate
-	@echo "$(GREEN)Application key generated$(NC)"
+key-generate: ## Print a new APP_KEY (put it in .env; the image has no .env to write)
+	@$(COMPOSE_CMD) exec app php artisan key:generate --show

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Novel;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -14,7 +13,7 @@ class OpdsController extends Controller
 {
     public function index()
     {
-        $novels = Novel::with(['file' => fn($q) => $q->orderBy('id', 'desc')])
+        $novels = Novel::with('file')
             ->whereNotNull('epub_generated')
             ->orderBy('name')
             ->get(['id', 'name', 'author', 'description', 'epub_generated', 'updated_at']);
@@ -55,10 +54,12 @@ class OpdsController extends Controller
             }
 
             $this->link($xml, 'http://opds-spec.org/acquisition', route('novels.download_epub', $novel->id), 'application/epub+zip');
-            if ($novel->file) {
-                $cover = url(Storage::url($novel->file->file_path));
-                $this->link($xml, 'http://opds-spec.org/image', $cover, 'image/jpeg');
-                $this->link($xml, 'http://opds-spec.org/image/thumbnail', $cover, 'image/jpeg');
+            if ($original = $novel->originalCoverUrl()) {
+                $type = $this->imageType($novel->file->file_path);
+                $this->link($xml, 'http://opds-spec.org/image', url($original), $type);
+
+                $thumb = $novel->coverThumbnailUrl('sm');
+                $this->link($xml, 'http://opds-spec.org/image/thumbnail', url($thumb ?? $original), $thumb ? 'image/jpeg' : $type);
             }
 
             $xml->endElement();
@@ -70,6 +71,17 @@ class OpdsController extends Controller
         return response($xml->outputMemory(), 200, [
             'Content-Type' => 'application/atom+xml;profile=opds-catalog;kind=acquisition;charset=utf-8',
         ]);
+    }
+
+    /** MIME type of a stored cover, from its extension (uploads keep the real one). */
+    private function imageType(string $path): string
+    {
+        return match (strtolower(pathinfo($path, PATHINFO_EXTENSION))) {
+            'png' => 'image/png',
+            'gif' => 'image/gif',
+            'webp' => 'image/webp',
+            default => 'image/jpeg',
+        };
     }
 
     private function link(\XMLWriter $xml, string $rel, string $href, string $type): void

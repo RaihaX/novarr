@@ -9,15 +9,19 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use App\Novel;
 use App\Mail\NewChapters;
+use App\Scraping\Fetcher;
 use Carbon\Carbon;
 
 class ChapterScraper extends Command
 {
-    /** Consecutive blocking failures (cloudflare / fetch_failed) that stop a novel for the run. */
+    /** Consecutive blocking failures (cloudflare / fetch_failed / rate_limited) that stop a novel for the run. */
     public const CIRCUIT_BREAKER_THRESHOLD = 3;
 
-    /** How long a host stays skipped after it answered with a Cloudflare challenge. */
+    /** How long a host stays skipped after a Cloudflare challenge (or a rate limit without Retry-After). */
     public const HOST_COOLDOWN_MINUTES = 15;
+
+    /** Consecutive fetch_failed results on one host (across novels and runs) that put it on cooldown. */
+    public const HOST_FAILURE_THRESHOLD = 3;
 
     /** Upper bound on the pause after a failed fetch. */
     public const FAILURE_DELAY_CAP = 10;
@@ -28,14 +32,27 @@ class ChapterScraper extends Command
     /** Longest per-chapter retry delay (3 days). */
     public const BACKOFF_CAP_SECONDS = 259200;
 
-    /** Flat retry delay for transient / site-wide failures (cloudflare, fetch_failed). */
+    /** Flat retry delay for transient / site-wide failures (cloudflare, fetch_failed, rate_limited). */
     public const BLOCKING_BACKOFF_SECONDS = 1800;
 
     /** Failed attempts after which a chapter is "needs review". */
     public const NEEDS_REVIEW_ATTEMPTS = \App\NovelChapter::REVIEW_ATTEMPTS;
 
+    /** Seconds the per-novel scrape lock is held at most (a killed run frees it after this). */
+    // Longer than the 150-minute scheduler lock, so the sweep (bounded by
+    // max_run_minutes) never outlives it; the lock is released in a finally.
+    // An explicit run has no deadline and can take longer than the TTL
+    // (~180 chapters at a 60 s delay), so it renews the lock once half the
+    // TTL has passed (renewNovelLock()) and stops if someone else took it.
+    // A killed process frees it after the TTL; a timed-out queued job frees
+    // it in RunNovelCommand::failed().
+    public const NOVEL_LOCK_SECONDS = 10800;
+
     /** Unix time after which the sweep starts no more chapters (null = unbounded). */
     private ?float $deadlineAt = null;
+
+    /** The sweep's max_run_minutes, for the deadline message. */
+    private int $maxRunMinutes = 0;
 
     /** Cached Schema::hasColumn('novel_chapters', 'sort_key'). */
     private static ?bool $hasSortKey = null;
@@ -46,6 +63,17 @@ class ChapterScraper extends Command
     public function __construct()
     {
         parent::__construct();
+    }
+
+    /**
+     * The one per-novel exclusion shared by the scheduled sweep, UI-queued
+     * runs (they execute this same command) and the TOC scraper, so a TOC
+     * refresh and a chapter download of the same novel never interleave.
+     * Callers take it with a non-blocking get() and release it in a finally.
+     */
+    public static function novelLock(int $novelId): \Illuminate\Contracts\Cache\Lock
+    {
+        return Cache::lock("novel-scrape:{$novelId}", self::NOVEL_LOCK_SECONDS);
     }
 
     public function handle()
@@ -111,6 +139,7 @@ class ChapterScraper extends Command
         $hint = match ($failureReason) {
             "fetch_failed" => "The chapter page could not be fetched.",
             "cloudflare" => "The source is answering with a Cloudflare challenge.",
+            "rate_limited" => "The source is rate-limiting requests (HTTP 429/503) — try again later.",
             "no_content" => "The page loaded but contains no chapter text.",
             "not_found" => "The source answers 404 for this chapter — it may have been removed or renumbered there.",
             "exception" => "The scraper hit an error while parsing the page (see the log).",
@@ -162,86 +191,307 @@ class ChapterScraper extends Command
             ->orderBy("id")
             ->pluck("id");
 
+        if ($novelId != 0) {
+            // An explicitly requested novel is neither capped nor cut short,
+            // and keeps the plain sequential fetch-then-wait loop.
+            foreach ($ids as $id) {
+                if ($novel = Novel::find($id)) {
+                    $this->processNovel($novel, $newChapters);
+                }
+            }
+
+            return $newChapters;
+        }
+
         // Per-novel cap for the sweep so one huge backlog can't hog a run.
-        // An explicitly requested novel is not capped. <= 0 disables the cap.
-        $cap = $novelId != 0 ? 0 : (int) setting("max_chapters_per_novel_per_run", 25);
+        // <= 0 disables the cap.
+        $cap = (int) setting("max_chapters_per_novel_per_run", 25);
 
         // Bound the sweep so it always finishes inside the scheduler mutex
-        // (150 min; the check runs between novels and one capped novel can
-        // take ~40 min): what's left goes to the next run, which starts from the
-        // novels that have waited longest. Sweep only; an explicit novel run
-        // is never cut short.
-        $startedAt = microtime(true);
-        $maxMinutes = $novelId != 0 ? 0 : max(0, (int) setting("max_run_minutes", 100));
-        // Also checked between chapters (see processNovel): one capped novel
-        // can take ~40 min, which alone would blow the scheduler lock.
-        $this->deadlineAt = $maxMinutes > 0 ? $startedAt + $maxMinutes * 60 : null;
+        // (150 min): what's left goes to the next run, which starts from the
+        // novels that have waited longest. Checked before every chapter.
+        $this->maxRunMinutes = max(0, (int) setting("max_run_minutes", 100));
+        $this->deadlineAt = $this->maxRunMinutes > 0 ? $this->clock() + $this->maxRunMinutes * 60 : null;
 
-        foreach ($ids as $id) {
-            if ($maxMinutes > 0 && (microtime(true) - $startedAt) > $maxMinutes * 60) {
-                $this->warn("Run time limit of {$maxMinutes} minutes reached; remaining novels wait for the next run.");
-                Log::info("novel:chapter stopped at the {$maxMinutes}-minute limit; remaining novels deferred to the next run.");
-                break;
-            }
-
-            $novel = Novel::find($id);
-            if (!$novel) {
-                continue;
-            }
-
-            // Loaded per novel (not up front) so chapters another process
-            // downloaded meanwhile aren't fetched again.
-            $novel->setRelation(
-                "chapters",
-                $novel->chapters()
-                    ->where("status", 0)
-                    ->where("blacklist", 0)
-                    // Chapters still backing off after a failure wait — but an
-                    // explicit run (the novel page's Download button) is the
-                    // user asking for them now, so it ignores the schedule.
-                    ->when($novelId == 0, fn($q) => $q->where(fn($d) => self::whereDue($d)))
-                    // Never-tried chapters first, then the ones that have
-                    // waited longest since their last attempt, so a few dead
-                    // or stub chapters at the front can't fill the cap on
-                    // every run and starve the rest. Portable NULLS FIRST.
-                    ->orderByRaw("last_attempt_at IS NOT NULL")
-                    ->orderBy("last_attempt_at")
-                    ->orderBy("book")
-                    ->when(self::hasSortKey(), fn($q) => $q->orderBy("sort_key"))
-                    ->orderBy("chapter")
-                    ->when($cap > 0, fn($q) => $q->limit($cap))
-                    ->get()
-            );
-
-            Log::info("Processing novel: {$novel->name}");
-            $this->processNovel($novel, $newChapters);
-        }
+        $this->sweep($ids, $cap, $newChapters);
 
         return $newChapters;
     }
 
+    /**
+     * The scheduled sweep. The politeness delay is per host: each host has a
+     * nextAllowedAt, and the loop always works the novel whose host is
+     * ready soonest, so while one host waits out its 30–90 s the others are
+     * fetched. Within a host novels run one after another in the
+     * oldest-download-first order of $ids, so per novel every rule of the
+     * sequential loop still holds (cap, backoff, rotation, circuit breaker,
+     * host cooldown at novel start). Single process: it only ever sleeps
+     * until the earliest host is ready.
+     */
+    private function sweep($ids, int $cap, array &$newChapters): void
+    {
+        // host => novel ids still to start, in the run's order.
+        $queues = [];
+        foreach ($ids as $id) {
+            $novel = Novel::find($id);
+            if (!$novel) {
+                continue;
+            }
+            $first = $this->pendingChapters($novel, true, 1)->first();
+            if (!$first) {
+                continue;
+            }
+            $queues[self::chapterHost($first, $novel) ?? ""][] = $id;
+        }
+
+        $min = max(1, (int) setting("scrape_min_delay", 30));
+        $max = max($min, (int) setting("scrape_max_delay", 90));
+        $failureDelay = self::failureDelaySeconds((int) setting("scrape_min_delay", 30));
+
+        $current = [];       // host => run state of the novel being worked
+        $nextAllowedAt = []; // host => earliest time of its next request
+        $notBefore = 0.0;    // the failure pause, across hosts
+
+        try {
+            while (true) {
+                $host = null;
+                $readyAt = INF;
+                foreach ($queues as $h => $queue) {
+                    if (!isset($current[$h]) && $queue === []) {
+                        continue;
+                    }
+                    $at = max($nextAllowedAt[$h] ?? 0.0, $notBefore);
+                    if ($at < $readyAt) {
+                        $host = $h;
+                        $readyAt = $at;
+                    }
+                }
+                if ($host === null) {
+                    break;
+                }
+
+                if ($this->pastDeadline()) {
+                    $this->stopAtDeadline($current);
+                    break;
+                }
+
+                // Starting (or skipping) a novel makes no request: no wait.
+                if (!isset($current[$host])) {
+                    $novel = Novel::find(array_shift($queues[$host]));
+                    if ($novel && ($run = $this->startNovel($novel, true, $cap))) {
+                        $current[$host] = $run;
+                    }
+                    continue;
+                }
+
+                $run = $current[$host];
+
+                // The host went on cooldown while this novel was being worked
+                // (a 429 with Retry-After, a Cloudflare wall): end the novel
+                // for this run without another request. Novels not started
+                // yet are skipped by startNovel()'s own cooldown check.
+                if ($this->hostCooledDownMidRun($run)) {
+                    $this->finishNovel($run);
+                    unset($current[$host]);
+                    continue;
+                }
+
+                if (!$this->hasNextChapter($run)) {
+                    $this->step($run, $newChapters); // records circuit_open
+                    $this->finishNovel($run);
+                    unset($current[$host]);
+                    continue;
+                }
+
+                $now = $this->clock();
+                if ($readyAt > $now) {
+                    if ($this->deadlineAt !== null && $readyAt > $this->deadlineAt) {
+                        $this->stopAtDeadline($current);
+                        break;
+                    }
+                    $wait = (int) ceil($readyAt - $now);
+                    Log::info("Waiting {$wait} seconds before the next chapter" . ($host !== "" ? " ({$host})" : "") . "...");
+                    $this->info("  Waiting {$wait} seconds before next chapter...");
+                    $this->pause($wait);
+
+                    if ($this->pastDeadline()) {
+                        $this->stopAtDeadline($current);
+                        break;
+                    }
+                }
+
+                try {
+                    $result = $this->step($run, $newChapters);
+                } catch (\Throwable $e) {
+                    $this->handleNovelException($run, $e);
+                    $result = null;
+                    // The throw may have come after the request was sent:
+                    // the host still gets its politeness delay.
+                    $nextAllowedAt[$host] = $this->clock() + rand($min, $max);
+                }
+
+                if ($result === null) {
+                    $this->finishNovel($run);
+                    unset($current[$host]);
+                    continue;
+                }
+
+                if ($result["fetched"]) {
+                    $nextAllowedAt[$host] = $this->clock() + rand($min, $max);
+                    if (!$result["ok"] && $failureDelay > 0 && !self::circuitOpen($run->consecutiveBlocked)) {
+                        $notBefore = $this->clock() + $failureDelay;
+                    }
+                }
+            }
+        } finally {
+            foreach ($current as $run) {
+                $this->finishNovel($run);
+            }
+        }
+    }
+
+    /** Explicit single-novel run: fetch, wait, fetch… with no deadline. */
     private function processNovel($novel, &$newChapters)
     {
-        // Another novel on this host just hit a Cloudflare wall — don't keep
-        // hammering it. Not counted as a failed run (nothing was attempted).
-        $host = self::novelHost($novel);
-        if ($host !== null && self::hostCoolingDown($host)) {
-            $this->warn("Skipping {$novel->name}: {$host} is cooling down after a Cloudflare challenge");
-            Log::warning("Skipping {$novel->name}: host {$host} is in a Cloudflare cooldown");
+        $run = $this->startNovel($novel, false, 0);
+        if ($run === null) {
             return;
         }
 
-        $succeeded = 0;
-        $failed = 0;
+        try {
+            while (true) {
+                // Same host-cooldown rule as at the start of the run.
+                if ($this->hostCooledDownMidRun($run) || !$this->renewNovelLock($run)) {
+                    break;
+                }
+                if (($result = $this->step($run, $newChapters)) === null) {
+                    break;
+                }
+                if (!$result["fetched"]) {
+                    continue;
+                }
 
-        // Why the failures happened, so the health report can name the actual
-        // cause instead of guessing "the source site may have changed".
-        $stats = [
+                if ($result["ok"]) {
+                    // Polite, human-like delay between chapters. Range is
+                    // configurable from Settings (defaults 30–90s).
+                    $min = max(1, (int) setting('scrape_min_delay', 30));
+                    $max = max($min, (int) setting('scrape_max_delay', 90));
+                    $readingDelay = rand($min, $max);
+                    Log::info("Waiting {$readingDelay} seconds before next chapter...");
+                    $this->info("  Waiting {$readingDelay} seconds before next chapter...");
+                    $this->pause($readingDelay);
+                } else {
+                    // Failures used to loop with no pause at all — a blocked
+                    // source got hammered. Short back-off before the next try.
+                    $failureDelay = self::failureDelaySeconds((int) setting('scrape_min_delay', 30));
+                    if ($failureDelay > 0 && !self::circuitOpen($run->consecutiveBlocked)) {
+                        $this->info("  Waiting {$failureDelay} seconds after failure...");
+                        $this->pause($failureDelay);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->handleNovelException($run, $e);
+        } finally {
+            $this->finishNovel($run);
+        }
+    }
+
+    /**
+     * Take the novel's lock, load its pending chapters and check the host
+     * cooldown. Returns the run state, or null when the novel is skipped
+     * this run (lock held elsewhere, host cooling down, or an error).
+     */
+    private function startNovel(Novel $novel, bool $sweep, int $cap): ?object
+    {
+        $lock = self::novelLock((int) $novel->id);
+        if (!$lock->get()) {
+            $this->warn("Skipping {$novel->name}: another scrape of this novel is running");
+            Log::info("Skipping {$novel->name} (ID {$novel->id}): its scrape lock is held by another run.");
+            return null;
+        }
+
+        try {
+            // Loaded per novel (not up front) so chapters another process
+            // downloaded meanwhile aren't fetched again.
+            $novel->setRelation("chapters", $this->pendingChapters($novel, $sweep, $cap));
+
+            // Another novel on this host just hit a Cloudflare wall or a rate
+            // limit — don't keep hammering it. Not counted as a failed run
+            // (nothing was attempted).
+            $host = self::novelHost($novel);
+            if ($host !== null && self::hostCoolingDown($host)) {
+                $this->warn("Skipping {$novel->name}: {$host} is cooling down after a Cloudflare challenge, rate limit or repeated failed fetches");
+                Log::warning("Skipping {$novel->name}: host {$host} is in a cooldown");
+                $lock->release();
+                return null;
+            }
+
+            Log::info("Processing novel: {$novel->name}");
+        } catch (\Throwable $e) {
+            $lock->release();
+            $this->error("  ✗ Error while preparing {$novel->name}: {$e->getMessage()}");
+            Log::error("novel:chapter could not start {$novel->name} (ID {$novel->id}): " . $e->getMessage());
+            return null;
+        }
+
+        return (object) [
+            "novel" => $novel,
+            "host" => $host,
+            "lock" => $lock,
+            "chapters" => $novel->chapters->values()->all(),
+            "index" => 0,
+            "pendingTotal" => count($novel->chapters),
+            "attempted" => 0,
+            "succeeded" => 0,
+            "failed" => 0,
+            // Consecutive blocking results for this novel.
+            "consecutiveBlocked" => 0,
+            "stats" => self::emptyStats(),
+            // Resolved once per novel — the acceptance helper stays pure.
+            "minWords" => (int) setting("min_chapter_words", 250),
+            // The chapter being worked, for the exception handler.
+            "current" => null,
+            // When the lock was (re)acquired, for renewNovelLock().
+            "lockAcquiredAt" => $this->clock(),
+            "done" => false,
+            "finished" => false,
+        ];
+    }
+
+    /** Pending chapters of a novel in fetch order. */
+    private function pendingChapters(Novel $novel, bool $sweep, int $cap)
+    {
+        return $novel->chapters()
+            ->where("status", 0)
+            ->where("blacklist", 0)
+            // Chapters still backing off after a failure wait — but an
+            // explicit run (the novel page's Download button) is the user
+            // asking for them now, so it ignores the schedule.
+            ->when($sweep, fn($q) => $q->where(fn($d) => self::whereDue($d)))
+            // Never-tried chapters first, then the ones that have waited
+            // longest since their last attempt, so a few dead or stub
+            // chapters at the front can't fill the cap on every run and
+            // starve the rest. Portable NULLS FIRST.
+            ->orderByRaw("last_attempt_at IS NOT NULL")
+            ->orderBy("last_attempt_at")
+            ->orderBy("book")
+            ->when(self::hasSortKey(), fn($q) => $q->orderBy("sort_key"))
+            ->orderBy("chapter")
+            ->when($cap > 0, fn($q) => $q->limit($cap))
+            ->get();
+    }
+
+    /** Per-run failure breakdown, so the health report can name the actual cause. */
+    private static function emptyStats(): array
+    {
+        return [
             "bad_url" => 0,
             "fetch_failed" => 0,
             "not_found" => 0,   // source answers 404: the chapter is gone there
             "exception" => 0,   // parser/DOM error while reading the page
             "cloudflare" => 0,
+            "rate_limited" => 0, // source answered 429/503
             "no_content" => 0,
             "short_content" => 0,
             // Not a failure: numbered chapters accepted because their body is
@@ -258,152 +508,311 @@ class ChapterScraper extends Command
             "short_min" => null,
             "short_max" => null,
         ];
+    }
 
-        // Resolved once per run — the acceptance helper stays pure.
-        $minWords = (int) setting("min_chapter_words", 250);
+    /** Would step() work another chapter (rather than end the novel)? */
+    private function hasNextChapter(object $run): bool
+    {
+        return !$run->done
+            && $run->index < count($run->chapters)
+            && !self::circuitOpen($run->consecutiveBlocked);
+    }
 
-        // Consecutive cloudflare / fetch_failed results for this novel.
-        $consecutiveBlocked = 0;
-        $pendingTotal = count($novel->chapters);
-        $attempted = 0;
+    /**
+     * Work the novel's next pending chapter. Returns null when the novel is
+     * done for this run (no chapters left, or the circuit breaker opened),
+     * else whether a fetch was made and whether it succeeded.
+     *
+     * @return ?array{fetched: bool, ok: bool}
+     */
+    private function step(object $run, array &$newChapters): ?array
+    {
+        $novel = $run->novel;
 
-        if ($pendingTotal > 0) {
-            foreach ($novel->chapters as $item) {
-                if ($this->deadlineAt !== null && microtime(true) > $this->deadlineAt) {
-                    $this->warn("  Run time limit reached mid-novel; remaining chapters wait for the next run.");
-                    Log::info("novel:chapter stopped mid-novel at the run-time limit ({$novel->name}); remaining chapters deferred.");
-                    break;
-                }
+        if ($run->done || $run->index >= count($run->chapters)) {
+            $run->done = true;
+            return null;
+        }
 
-                // chapterGenerator reads $chapter->novel; share the loaded
-                // model instead of lazy-loading it once per chapter.
-                $item->setRelation("novel", $novel);
-                if (self::circuitOpen($consecutiveBlocked)) {
-                    $stats["circuit_open"] = $pendingTotal - $attempted;
-                    $this->error("  ✗ {$consecutiveBlocked} fetches in a row failed — stopping {$novel->name} for this run");
-                    Log::warning(
-                        "Circuit breaker opened for {$novel->name} after {$consecutiveBlocked} consecutive failed fetches; "
-                        . "{$stats["circuit_open"]} pending chapter(s) left for the next run."
-                    );
-                    break;
-                }
-                $attempted++;
+        if (self::circuitOpen($run->consecutiveBlocked)) {
+            $run->stats["circuit_open"] = $run->pendingTotal - $run->attempted;
+            $this->error("  ✗ {$run->consecutiveBlocked} fetches in a row failed — stopping {$novel->name} for this run");
+            Log::warning(
+                "Circuit breaker opened for {$novel->name} after {$run->consecutiveBlocked} consecutive failed fetches; "
+                . "{$run->stats["circuit_open"]} pending chapter(s) left for the next run."
+            );
+            $run->done = true;
+            return null;
+        }
 
-                Log::debug("Processing chapter: {$item->label}");
-                $this->info("Processing: {$novel->name} - {$item->label}");
+        $item = $run->chapters[$run->index++];
+        $run->attempted++;
+        $run->current = $item;
+        $stats = &$run->stats;
+        $minWords = $run->minWords;
+        $host = $run->host;
 
-                // A bad TOC parse can leave junk pending rows behind (label
-                // "Arial", url "https://novelfull.comArial, sans-serif") —
-                // those are never worth a fetch.
-                $url = (string) chapterSourceUrl($item);
-                if (!preg_match('~^https?://[^\s,]+$~', $url)) {
-                    if (self::isNeedsReview(self::recordFailure($item, "bad_url"))) {
-                        $stats["needs_review"]++;
-                        $this->error("  ✗ Skipped (needs review): invalid source URL \"{$url}\"");
-                        continue;
-                    }
-                    $failed++;
-                    $stats["bad_url"]++;
-                    self::recordAttempt($item);
-                    $stats["example_bad_url"] = $stats["example_bad_url"] ?? $url;
-                    $this->error("  ✗ Skipped: invalid source URL \"{$url}\"");
-                    Log::warning(
-                        "Chapter skipped due to invalid source URL: {$item->label} (\"{$url}\")"
-                    );
-                    continue;
-                }
+        // chapterGenerator reads $chapter->novel; share the loaded model
+        // instead of lazy-loading it once per chapter.
+        $item->setRelation("novel", $novel);
 
-                $failureReason = null;
-                self::recordAttempt($item);
-                $description = $this->generateChapterDescription($item, $failureReason);
+        Log::debug("Processing chapter: {$item->label}");
+        $this->info("Processing: {$novel->name} - {$item->label}");
 
-                $wordCount = self::countChapterWords($description);
-                $this->line("  → Fetched {$wordCount} words");
+        // A bad TOC parse can leave junk pending rows behind (label "Arial",
+        // url "https://novelfull.comArial, sans-serif") — those are never
+        // worth a fetch.
+        $url = (string) chapterSourceUrl($item);
+        if (!preg_match('~^https?://[^\s,]+$~', $url)) {
+            $run->current = null;
+            if (self::isNeedsReview(self::recordFailure($item, "bad_url"))) {
+                $stats["needs_review"]++;
+                $this->error("  ✗ Skipped (needs review): invalid source URL \"{$url}\"");
+                return ["fetched" => false, "ok" => false];
+            }
+            $run->failed++;
+            $stats["bad_url"]++;
+            self::recordAttempt($item);
+            $stats["example_bad_url"] = $stats["example_bad_url"] ?? $url;
+            $this->error("  ✗ Skipped: invalid source URL \"{$url}\"");
+            Log::warning(
+                "Chapter skipped due to invalid source URL: {$item->label} (\"{$url}\")"
+            );
+            return ["fetched" => false, "ok" => false];
+        }
 
-                if (self::acceptableWordCount($item->label, $wordCount, $minWords, $description)) {
-                    if ($wordCount <= $minWords) {
-                        if (self::specialLabelMatches($item->label, $wordCount)) {
-                            $this->info("Accepted short special chapter: {$item->label} ({$wordCount} words)");
-                            Log::info("Accepted short special chapter: {$item->label} ({$wordCount} words)");
-                        } else {
-                            $stats["author_note"]++;
-                            $this->info("Accepted author message: {$item->label} ({$wordCount} words)");
-                            Log::info("Accepted author message: {$item->label} ({$wordCount} words)");
-                        }
-                    }
+        $failureReason = null;
+        self::recordAttempt($item);
+        $description = $this->generateChapterDescription($item, $failureReason);
 
-                    Log::debug("Chapter description valid for: {$item->label}");
-                    Log::info("Successfully downloaded chapter: {$item->label} ({$wordCount} words)");
-                    $this->info("  ✓ Downloaded: {$item->label} ({$wordCount} words)");
+        $wordCount = self::countChapterWords($description);
+        $this->line("  → Fetched {$wordCount} words");
 
-                    $succeeded++;
-                    $consecutiveBlocked = 0;
-                    $this->updateChapter(
-                        $item,
-                        $description,
-                        self::chapterKind($item->label, $wordCount, $minWords, $description)
-                    );
-                    $this->addChapterToArray($novel, $item, $newChapters);
-
-                    // Polite, human-like delay between chapters. Range is
-                    // configurable from Settings (defaults 30–90s).
-                    $min = max(1, (int) setting('scrape_min_delay', 30));
-                    $max = max($min, (int) setting('scrape_max_delay', 90));
-                    $readingDelay = rand($min, $max);
-                    Log::info("Waiting {$readingDelay} seconds before next chapter...");
-                    $this->info("  Waiting {$readingDelay} seconds before next chapter...");
-                    $this->pause($readingDelay);
+        if (self::acceptableWordCount($item->label, $wordCount, $minWords, $description)) {
+            if ($wordCount <= $minWords) {
+                if (self::specialLabelMatches($item->label, $wordCount)) {
+                    $this->info("Accepted short special chapter: {$item->label} ({$wordCount} words)");
+                    Log::info("Accepted short special chapter: {$item->label} ({$wordCount} words)");
                 } else {
-                    // Anything the fetcher didn't already explain is judged on
-                    // word count: nothing at all vs. a stub chapter.
-                    $category = $failureReason ?: ($wordCount == 0 ? "no_content" : "short_content");
-
-                    $attempts = self::recordFailure($item, $category);
-                    $consecutiveBlocked = self::isBlockingFailure($category) ? $consecutiveBlocked + 1 : 0;
-
-                    if (self::isNeedsReview($attempts)) {
-                        // A long-dead chapter: retried on the slow cadence but
-                        // kept out of the failure streak and the issue summary.
-                        $stats["needs_review"]++;
-                    } else {
-                        $failed++;
-                        // Tolerate a reason this table doesn't know yet: an
-                        // undefined key here used to abort the whole sweep.
-                        $stats[$category] = ($stats[$category] ?? 0) + 1;
-                    }
-
-                    if ($category === "cloudflare" && $host !== null) {
-                        Cache::put(self::hostCooldownKey($host), true, now()->addMinutes(self::HOST_COOLDOWN_MINUTES));
-                        Log::warning("Cloudflare challenge from {$host}; skipping novels on it for " . self::HOST_COOLDOWN_MINUTES . " minutes.");
-                    }
-
-                    if ($category === "short_content") {
-                        $stats["short_min"] = $stats["short_min"] === null
-                            ? $wordCount
-                            : min($stats["short_min"], $wordCount);
-                        $stats["short_max"] = $stats["short_max"] === null
-                            ? $wordCount
-                            : max($stats["short_max"], $wordCount);
-                    }
-
-                    $this->error("  ✗ Skipped: Only {$wordCount} words (need >{$minWords})");
-                    $this->warn("    Cause: {$category}" . (self::isNeedsReview($attempts) ? " (needs review after {$attempts} attempts)" : ""));
-                    Log::warning(
-                        "Chapter skipped due to insufficient description: {$item->label} ({$wordCount} words, cause: {$category})"
-                    );
-
-                    // Failures used to loop with no pause at all — a blocked
-                    // source got hammered. Short back-off before the next try.
-                    $failureDelay = self::failureDelaySeconds((int) setting('scrape_min_delay', 30));
-                    if ($failureDelay > 0 && !self::circuitOpen($consecutiveBlocked)) {
-                        $this->info("  Waiting {$failureDelay} seconds after failure...");
-                        $this->pause($failureDelay);
-                    }
+                    $stats["author_note"]++;
+                    $this->info("Accepted author message: {$item->label} ({$wordCount} words)");
+                    Log::info("Accepted author message: {$item->label} ({$wordCount} words)");
                 }
+            }
+
+            Log::debug("Chapter description valid for: {$item->label}");
+            Log::info("Successfully downloaded chapter: {$item->label} ({$wordCount} words)");
+            $this->info("  ✓ Downloaded: {$item->label} ({$wordCount} words)");
+
+            $run->succeeded++;
+            $run->consecutiveBlocked = 0;
+            $this->updateChapter(
+                $item,
+                $description,
+                self::chapterKind($item->label, $wordCount, $minWords, $description)
+            );
+            $run->current = null;
+            if ($host !== null) {
+                Cache::forget(self::hostFailuresKey($host));
+            }
+            $this->addChapterToArray($novel, $item, $newChapters);
+
+            return ["fetched" => true, "ok" => true];
+        }
+
+        // Anything the fetcher didn't already explain is judged on word
+        // count: nothing at all vs. a stub chapter.
+        $category = $failureReason ?: ($wordCount == 0 ? "no_content" : "short_content");
+
+        $attempts = self::recordFailure($item, $category);
+        $run->current = null;
+        $run->consecutiveBlocked = self::isBlockingFailure($category) ? $run->consecutiveBlocked + 1 : 0;
+
+        if (self::isNeedsReview($attempts)) {
+            // A long-dead chapter: retried on the slow cadence but kept out
+            // of the failure streak and the issue summary.
+            $stats["needs_review"]++;
+        } else {
+            $run->failed++;
+            // Tolerate a reason this table doesn't know yet: an undefined
+            // key here used to abort the whole sweep.
+            $stats[$category] = ($stats[$category] ?? 0) + 1;
+        }
+
+        if ($host !== null) {
+            $this->noteHostFailure($host, $category);
+        }
+
+        if ($category === "short_content") {
+            $stats["short_min"] = $stats["short_min"] === null
+                ? $wordCount
+                : min($stats["short_min"], $wordCount);
+            $stats["short_max"] = $stats["short_max"] === null
+                ? $wordCount
+                : max($stats["short_max"], $wordCount);
+        }
+
+        $this->error("  ✗ Skipped: Only {$wordCount} words (need >{$minWords})");
+        $this->warn("    Cause: {$category}" . (self::isNeedsReview($attempts) ? " (needs review after {$attempts} attempts)" : ""));
+        Log::warning(
+            "Chapter skipped due to insufficient description: {$item->label} ({$wordCount} words, cause: {$category})"
+        );
+
+        return ["fetched" => true, "ok" => false];
+    }
+
+    /**
+     * Host-wide failure handling: a Cloudflare challenge or a rate limit
+     * cools the host down at once (a rate limit for its Retry-After, when
+     * given); fetch_failed does so after HOST_FAILURE_THRESHOLD in a row on
+     * that host, counted across novels and runs.
+     */
+    private function noteHostFailure(string $host, string $category): void
+    {
+        if ($category === "cloudflare") {
+            self::coolDownHost($host, self::HOST_COOLDOWN_MINUTES * 60, "Cloudflare challenge");
+            return;
+        }
+
+        if ($category === "rate_limited") {
+            $seconds = Fetcher::pullRetryAfter($host) ?? self::HOST_COOLDOWN_MINUTES * 60;
+            self::coolDownHost($host, $seconds, "rate limit (HTTP 429/503)");
+            return;
+        }
+
+        if ($category === "fetch_failed") {
+            $key = self::hostFailuresKey($host);
+            $count = (int) Cache::get($key, 0) + 1;
+            if ($count >= self::HOST_FAILURE_THRESHOLD) {
+                Cache::forget($key);
+                self::coolDownHost($host, self::HOST_COOLDOWN_MINUTES * 60, "{$count} failed fetches in a row");
+            } else {
+                Cache::put($key, $count, now()->addDay());
+            }
+        }
+    }
+
+    private static function coolDownHost(string $host, int $seconds, string $why): void
+    {
+        if ($seconds <= 0) {
+            return;
+        }
+
+        Cache::put(self::hostCooldownKey($host), true, now()->addSeconds($seconds));
+        $minutes = (int) ceil($seconds / 60);
+        Log::warning("{$why} from {$host}; skipping novels on it for {$minutes} minute(s).");
+    }
+
+    /**
+     * An error escaped while working a novel: log it, charge it to the
+     * chapter being worked (so its backoff applies and it doesn't lead the
+     * next run) and end the novel for this run. The sweep goes on.
+     */
+    private function handleNovelException(object $run, \Throwable $e): void
+    {
+        $novel = $run->novel;
+        $item = $run->current;
+        $run->current = null;
+        $run->done = true;
+
+        $this->error("  ✗ Error while scraping {$novel->name}: {$e->getMessage()}");
+        Log::error(
+            "novel:chapter error on {$novel->name} (ID {$novel->id})"
+            . ($item ? ", chapter {$item->id}" : "") . ": " . $e->getMessage(),
+            ["exception" => $e]
+        );
+
+        if ($item instanceof \App\NovelChapter) {
+            try {
+                if (!self::isNeedsReview(self::recordFailure($item, "exception"))) {
+                    $run->failed++;
+                    $run->stats["exception"]++;
+                } else {
+                    $run->stats["needs_review"]++;
+                }
+            } catch (\Throwable $inner) {
+                Log::error("novel:chapter could not record the failure of chapter {$item->id}: " . $inner->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Did the novel's host go on cooldown while the novel was in progress?
+     * Only asked while chapters remain, so a novel that is done anyway ends
+     * the usual way.
+     */
+    private function hostCooledDownMidRun(object $run): bool
+    {
+        if ($run->host === null || !$this->hasNextChapter($run) || !self::hostCoolingDown($run->host)) {
+            return false;
+        }
+
+        $this->warn("  {$run->host} is cooling down — stopping {$run->novel->name} for this run");
+        Log::warning("Stopping {$run->novel->name} mid-run: host {$run->host} went into a cooldown; remaining chapters wait for the next run.");
+        $run->done = true;
+
+        return true;
+    }
+
+    /**
+     * Keep an explicit run's novel lock from lapsing: once half the TTL has
+     * passed since it was taken, release it and take it straight back. False
+     * when the re-take fails — another run got the lock in the gap (or after
+     * it expired) — and the run must stop.
+     */
+    private function renewNovelLock(object $run): bool
+    {
+        if ($this->clock() - $run->lockAcquiredAt <= self::NOVEL_LOCK_SECONDS / 2) {
+            return true;
+        }
+
+        $run->lock->release();
+        if ($run->lock->get()) {
+            $run->lockAcquiredAt = $this->clock();
+            return true;
+        }
+
+        $this->warn("  Lost the scrape lock of {$run->novel->name} to another run — stopping this run");
+        Log::warning("novel:chapter stopped the explicit run of {$run->novel->name} (ID {$run->novel->id}): could not renew its scrape lock, another run holds it.");
+        $run->done = true;
+
+        return false;
+    }
+
+    /** Record the novel's health and release its lock (once). */
+    private function finishNovel(object $run): void
+    {
+        if ($run->finished) {
+            return;
+        }
+        $run->finished = true;
+
+        try {
+            $this->trackScrapeHealth($run->novel, $run->succeeded, $run->failed, $run->stats, $run->minWords);
+        } catch (\Throwable $e) {
+            Log::error("novel:chapter could not record scrape health for {$run->novel->name}: " . $e->getMessage());
+        } finally {
+            $run->lock->release();
+        }
+    }
+
+    private function pastDeadline(): bool
+    {
+        return $this->deadlineAt !== null && $this->clock() > $this->deadlineAt;
+    }
+
+    /** @param array<string, object> $current novels in progress */
+    private function stopAtDeadline(array $current): void
+    {
+        foreach ($current as $run) {
+            if ($this->hasNextChapter($run)) {
+                $this->warn("  Run time limit reached mid-novel; remaining chapters wait for the next run.");
+                Log::info("novel:chapter stopped mid-novel at the run-time limit ({$run->novel->name}); remaining chapters deferred.");
             }
         }
 
-        $this->trackScrapeHealth($novel, $succeeded, $failed, $stats, $minWords);
+        $this->warn("Run time limit of {$this->maxRunMinutes} minutes reached; remaining novels wait for the next run.");
+        Log::info("novel:chapter stopped at the {$this->maxRunMinutes}-minute limit; remaining novels deferred to the next run.");
     }
 
     /**
@@ -440,7 +849,7 @@ class ChapterScraper extends Command
     /**
      * Seconds until a chapter that just failed is due again. $attempts is the
      * failure count INCLUDING this one. Transient / site-wide failures
-     * (cloudflare, fetch_failed) wait a flat 30 minutes — the circuit breaker
+     * (cloudflare, fetch_failed, rate_limited) wait a flat 30 minutes — the circuit breaker
      * and host cooldown deal with those. Everything else doubles from 10
      * minutes (10m, 20m, 40m, ...) capped at 3 days. Pure.
      */
@@ -502,7 +911,7 @@ class ChapterScraper extends Command
     /** Failures that mean the source is blocking/unreachable (feed the circuit breaker). */
     public static function isBlockingFailure(?string $category): bool
     {
-        return $category === "cloudflare" || $category === "fetch_failed";
+        return $category === "cloudflare" || $category === "fetch_failed" || $category === "rate_limited";
     }
 
     /** Has the per-novel circuit breaker tripped? */
@@ -527,14 +936,25 @@ class ChapterScraper extends Command
         return (bool) Cache::get(self::hostCooldownKey($host), false);
     }
 
+    /** Consecutive fetch_failed results on a host (see noteHostFailure()). */
+    public static function hostFailuresKey(string $host): string
+    {
+        return "scrape:host-fetch-failures:" . strtolower($host);
+    }
+
     /**
      * The host a novel's chapters are fetched from: the first pending
      * chapter's resolved source URL, else the group's URL.
      */
     private static function novelHost($novel): ?string
     {
-        $first = $novel->chapters->first();
-        $url = $first ? (string) chapterSourceUrl($first) : (string) ($novel->group->url ?? "");
+        return self::chapterHost($novel->chapters->first(), $novel);
+    }
+
+    /** Host of a chapter's resolved source URL (the novel's group URL without one). */
+    private static function chapterHost($chapter, $novel): ?string
+    {
+        $url = $chapter ? (string) chapterSourceUrl($chapter) : (string) ($novel->group->url ?? "");
         $host = parse_url($url, PHP_URL_HOST);
 
         return is_string($host) && $host !== "" ? strtolower($host) : null;
@@ -770,7 +1190,7 @@ class ChapterScraper extends Command
      * `needs_review` (long-dead chapters that failed again) is ignored too:
      * those are counted apart so they don't keep the novel flagged.
      *
-     * @param array{bad_url?: int, fetch_failed?: int, cloudflare?: int, no_content?: int, short_content?: int, author_note?: int, circuit_open?: int, example_bad_url?: ?string, short_min?: ?int, short_max?: ?int} $stats
+     * @param array{bad_url?: int, fetch_failed?: int, cloudflare?: int, rate_limited?: int, no_content?: int, short_content?: int, author_note?: int, circuit_open?: int, example_bad_url?: ?string, short_min?: ?int, short_max?: ?int} $stats
      * @param ?int $minWords The configured minimum word count (null = 250).
      */
     public static function summarizeScrapeIssue(array $stats, ?int $minWords = null): ?string
@@ -780,10 +1200,11 @@ class ChapterScraper extends Command
         $notFound = (int) ($stats["not_found"] ?? 0);
         $exception = (int) ($stats["exception"] ?? 0);
         $cloudflare = (int) ($stats["cloudflare"] ?? 0);
+        $rateLimited = (int) ($stats["rate_limited"] ?? 0);
         $noContent = (int) ($stats["no_content"] ?? 0);
         $shortContent = (int) ($stats["short_content"] ?? 0);
 
-        $total = $badUrl + $fetchFailed + $notFound + $exception + $cloudflare + $noContent + $shortContent;
+        $total = $badUrl + $fetchFailed + $notFound + $exception + $cloudflare + $rateLimited + $noContent + $shortContent;
         if ($total === 0) {
             return null;
         }
@@ -796,6 +1217,10 @@ class ChapterScraper extends Command
 
         if ($cloudflare > 0) {
             return "the source site is blocking fetches with a Cloudflare challenge";
+        }
+
+        if ($rateLimited > 0) {
+            return "the source site is rate-limiting fetches (HTTP 429/503)";
         }
 
         if ($notFound === $total) {
@@ -880,6 +1305,12 @@ class ChapterScraper extends Command
     protected function pause(int $seconds): void
     {
         sleep($seconds);
+    }
+
+    /** Current time (Unix seconds) for the sweep's delays and deadline. Overridable for a fake clock. */
+    protected function clock(): float
+    {
+        return microtime(true);
     }
 
     /** Fetch a chapter's text. Protected so tests can stub the network. */

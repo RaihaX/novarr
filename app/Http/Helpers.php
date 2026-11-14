@@ -1,6 +1,5 @@
 <?php
 
-use Spatie\Browsershot\Browsershot;
 use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
@@ -493,8 +492,9 @@ function chapterHeadingIsOwn(string $text, int $number, $chapterNumber, ?string 
 /**
  * Fetch and parse a chapter into paragraphs. $failureReason is an optional
  * out-param telling the caller *why* an empty result came back —
- * 'fetch_failed', 'not_found', 'cloudflare', 'no_content' or 'exception' — so failures can be reported
- * with their actual cause instead of a generic "the source may have changed".
+ * 'fetch_failed', 'not_found', 'cloudflare', 'rate_limited', 'no_content' or
+ * 'exception' — so failures can be reported with their actual cause instead
+ * of a generic "the source may have changed".
  */
 function chapterGenerator($data, ?string &$failureReason = null)
 {
@@ -531,11 +531,25 @@ function chapterGenerator($data, ?string &$failureReason = null)
         }
 
         // Novel Arrow chapters come straight from the JSON API — no browser
-        // fetch or HTML scrape needed. Falls through on failure.
-        $apiResult = novelArrowChapterContent($novelUrl);
+        // fetch or HTML scrape needed. Only an API answer of HTTP 429 ends
+        // the fetch here: the host asked us to slow down, and fetching the
+        // same chapter again through FlareSolverr would ignore that. Every
+        // other API failure (403 from a WAF, 404, 5xx including a 503
+        // challenge, transport error, undecodable body, empty content) falls
+        // through to the page fetch, whose result decides the reason.
+        $apiFailure = null;
+        $apiResult = novelArrowChapterContent($novelUrl, $apiFailure);
         if (count($apiResult) > 0) {
             \Log::debug("ChapterGenerator fetched via Novel Arrow API: {$novelUrl} (paragraphs: " . count($apiResult) . ")");
             return stripLeadingChapterTitle($apiResult, $data->chapter ?? null, $data->label ?? null);
+        }
+        if ($apiFailure === 'rate_limited') {
+            \Log::warning("ChapterGenerator: Novel Arrow API answered 429 for {$novelUrl}; not falling back to the page fetch");
+            $failureReason = $apiFailure;
+            return [];
+        }
+        if ($apiFailure !== null) {
+            \Log::info("ChapterGenerator: Novel Arrow API failed for {$novelUrl} ({$apiFailure}); trying the page fetch");
         }
 
         // Fetch page using headless browser (bypasses Cloudflare)
@@ -547,14 +561,15 @@ function chapterGenerator($data, ?string &$failureReason = null)
             \Log::warning("ChapterGenerator failed to fetch URL: {$novelUrl} (" . ($fetchReason ?? 'unknown') . ")");
             // A 404 means the chapter page isn't there (yet) — reported
             // separately from transport/Cloudflare failures.
-            $failureReason = $fetchReason === 'http_404' ? 'not_found' : 'fetch_failed';
+            $failureReason = match ($fetchReason) {
+                'http_404' => 'not_found',
+                'rate_limited' => 'rate_limited',
+                default => 'fetch_failed',
+            };
             return [];
         }
 
-        // Check for Cloudflare challenge page (not just any mention of cloudflare)
-        if (stripos($html, '<title>Just a moment...</title>') !== false ||
-            stripos($html, 'cf-challenge-running') !== false ||
-            stripos($html, 'Verifying you are human') !== false) {
+        if (\App\Scraping\Fetcher::isCloudflareChallenge($html)) {
             \Log::error("ChapterGenerator detected Cloudflare challenge page for URL: {$novelUrl}");
             $failureReason = 'cloudflare';
             $snapshot('cloudflare');
@@ -577,7 +592,7 @@ function chapterGenerator($data, ?string &$failureReason = null)
         }
 
         return $result;
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         \Log::error("ChapterGenerator exception for URL {$novelUrl}: " . $e->getMessage());
         $failureReason = 'exception';
         $snapshot('exception');
@@ -1048,10 +1063,62 @@ function tocRunWasPartial(): bool
     return tocRunPartialState();
 }
 
-function tableOfContentGenerator($data)
+/**
+ * Last-run incremental flag, like the partial flag above: a paginated TOC
+ * walk that stopped early because it reached a page whose chapters are all
+ * stored already returns only the newest entries and calls
+ * markTocRunIncremental(). NovelScraper then syncs those entries without
+ * treating the short list as the whole TOC (no shrink check, no parking, no
+ * fingerprint). tableOfContentGenerator() resets it.
+ */
+function tocRunIncrementalState(?bool $set = null): bool
+{
+    static $incremental = false;
+    if ($set !== null) {
+        $incremental = $set;
+    }
+
+    return $incremental;
+}
+
+function markTocRunIncremental(bool $incremental = true): void
+{
+    tocRunIncrementalState($incremental);
+}
+
+function tocRunWasIncremental(): bool
+{
+    return tocRunIncrementalState();
+}
+
+/**
+ * The "stored chapter URLs" callback for the TOC run in progress (set by
+ * tableOfContentGenerator() for the duration of one call). A source that can
+ * walk incrementally (empireNovelToc) reads it; null means a full walk.
+ */
+function tocKnownUrlsResolver(?callable $set = null, bool $reset = false): ?callable
+{
+    static $resolver = null;
+    if ($reset) {
+        $resolver = null;
+    } elseif ($set !== null) {
+        $resolver = $set;
+    }
+
+    return $resolver;
+}
+
+/**
+ * @param callable|null $knownUrls fn(): array<string, true> of the novel's
+ *        stored chapter URLs; given, a paginated source may stop at the first
+ *        page that holds nothing new (see tocRunWasIncremental()).
+ */
+function tableOfContentGenerator($data, ?callable $knownUrls = null)
 {
     $result = [];
     markTocRunPartial(false);
+    markTocRunIncremental(false);
+    tocKnownUrlsResolver($knownUrls, reset: $knownUrls === null);
     \App\Scraping\FailureSnapshot::takeTocHtml(); // clear any stale note
 
     try {
@@ -1060,8 +1127,10 @@ function tableOfContentGenerator($data)
         $result = finalizeTocResult(
             \App\Sources\SourceResolver::for($data)->tableOfContents($data)
         );
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         \Log::error("tableOfContentGenerator error: " . $e->getMessage());
+    } finally {
+        tocKnownUrlsResolver(reset: true);
     }
 
     // A page was fetched but parsed to no chapters: keep it for diagnosis.
@@ -1249,11 +1318,19 @@ function novelArrowChapterArchive(string $novelUrl): array
 /**
  * Fetch chapter content for a Novel Arrow chapter page URL via the JSON API.
  * Returns escaped <p> paragraphs, or [] when the URL isn't a Novel Arrow
- * chapter page or the API yields nothing — the caller then falls back to the
- * generic HTML scrape.
+ * chapter page or the API yields nothing.
+ *
+ * $failure says why an API call came back with nothing: 'empty' (the API
+ * answered without chapter text), 'rate_limited' (HTTP 429 only — a 503 is
+ * as often a Cloudflare challenge as a rate limit), 'not_found' (404) or
+ * 'fetch_failed' (anything else). Only 'rate_limited' stops chapterGenerator()
+ * from trying the HTML scrape. It stays null when the URL isn't an API
+ * chapter URL at all.
  */
-function novelArrowChapterContent(string $url): array
+function novelArrowChapterContent(string $url, ?string &$failure = null): array
 {
+    $failure = null;
+
     if (!isNovelArrowUrl($url)) {
         return [];
     }
@@ -1266,11 +1343,26 @@ function novelArrowChapterContent(string $url): array
     [, $slug, $chapterId] = $parts;
     $slug = novelArrowCleanSlug($slug);
 
-    $json = novelArrowApi(
-        "novels/" . rawurlencode($slug) . "/chapters/" . rawurlencode($chapterId)
+    // Not novelArrowApi(): the HTTP status is needed to tell a rate limit
+    // from an empty answer.
+    $status = null;
+    $json = app(\App\Scraping\Fetcher::class)->json(
+        novelArrowBase() . "/api-web/novels/" . rawurlencode($slug) . "/chapters/" . rawurlencode($chapterId),
+        [],
+        $status
     );
+    if ($json === null) {
+        $failure = match (true) {
+            $status === 429 => "rate_limited",
+            $status === 404 => "not_found",
+            default => "fetch_failed",
+        };
+        return [];
+    }
+
     $content = $json["item"]["chapterInfo"]["chapter_content"] ?? "";
-    if (trim($content) === "") {
+    if (!is_string($content) || trim($content) === "") {
+        $failure = "empty";
         return [];
     }
 
@@ -1301,9 +1393,18 @@ function novelArrowChapterContent(string $url): array
  * chapter list (?page=N, newest first); walk every page and return chapters
  * in ascending order with absolute URLs. All fetches go through FlareSolverr
  * (the site is behind Cloudflare).
+ *
+ * Incremental mode ($knownUrls, or the resolver tableOfContentGenerator()
+ * was given): the walk stops after the first page whose chapter URLs are all
+ * stored already, returning the entries read so far and flagging the run
+ * with markTocRunIncremental(). A walk that reaches the last page anyway is
+ * an ordinary full walk.
+ *
+ * @param callable|null $knownUrls fn(): array<string, true> of stored chapter URLs
  */
-function empireNovelToc(string $novelUrl): array
+function empireNovelToc(string $novelUrl, ?callable $knownUrls = null): array
 {
+    $knownUrls ??= tocKnownUrlsResolver();
     $base = "https://www.empirenovel.com";
     $novelPath = parse_url($novelUrl, PHP_URL_PATH) ?: "";
     $novelUrl = $base . $novelPath; // normalise to canonical host/path
@@ -1339,9 +1440,11 @@ function empireNovelToc(string $novelUrl): array
     $lastPage = $m[1] ? max(array_map('intval', $m[1])) : 1;
     $lastPage = min($lastPage, 2000); // hard safety cap
 
-    $parsePage = function (string $html) use (&$result, $novelPath) {
+    // Returns the chapter URLs found on the page.
+    $parsePage = function (string $html) use (&$result, $novelPath): array {
+        $pageUrls = [];
         $crawler = new Crawler($html);
-        $crawler->filter('a[href*="' . $novelPath . '/"]')->each(function ($node) use (&$result, $novelPath) {
+        $crawler->filter('a[href*="' . $novelPath . '/"]')->each(function ($node) use (&$result, &$pageUrls, $novelPath) {
             $href = $node->attr('href');
             // Only chapter links: /novel/{slug}/{numericId}
             if (!preg_match('#' . preg_quote($novelPath, '#') . '/(\d+)$#', $href)) {
@@ -1357,6 +1460,7 @@ function empireNovelToc(string $novelUrl): array
                 return;
             }
             $url = str_starts_with($href, 'http') ? $href : 'https://www.empirenovel.com' . $href;
+            $pageUrls[] = $url;
             $result[] = [
                 'label' => 'Chapter ' . $m[1],
                 'book' => 0,
@@ -1364,10 +1468,30 @@ function empireNovelToc(string $novelUrl): array
                 'chapter' => $m[1],
             ];
         });
+
+        return $pageUrls;
     };
 
-    $parsePage($firstHtml);
-    for ($page = 2; $page <= $lastPage; $page++) {
+    // Incremental stop test. A page without chapter links proves nothing
+    // (a glitch page), so it never ends the walk. Stored URLs load lazily.
+    $known = null;
+    $allStored = function (array $pageUrls) use (&$known, $knownUrls): bool {
+        if ($knownUrls === null || $pageUrls === []) {
+            return false;
+        }
+        $known ??= $knownUrls();
+        foreach ($pageUrls as $url) {
+            if (!isset($known[$url])) {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    $stoppedAt = $allStored($parsePage($firstHtml)) ? 1 : null;
+    $pagesRead = 1;
+    for ($page = 2; $stoppedAt === null && $page <= $lastPage; $page++) {
         $html = $fetchPage($page);
         if (empty($html)) {
             // One retry (same Fetcher path) before giving up on the walk.
@@ -1382,7 +1506,15 @@ function empireNovelToc(string $novelUrl): array
             markTocRunPartial();
             break;
         }
-        $parsePage($html);
+        $pagesRead = $page;
+        if ($allStored($parsePage($html))) {
+            $stoppedAt = $page;
+        }
+    }
+
+    if ($stoppedAt !== null && $stoppedAt < $lastPage) {
+        markTocRunIncremental();
+        \Log::info("empireNovelToc: page {$stoppedAt} of {$lastPage} holds only stored chapters for {$novelUrl}; incremental walk stops there");
     }
 
     // Dedupe by URL and sort ascending by chapter number.
@@ -1400,7 +1532,7 @@ function empireNovelToc(string $novelUrl): array
         \App\Scraping\FailureSnapshot::noteTocHtml($firstHtml);
     }
 
-    \Log::info("empireNovelToc: parsed " . count($unique) . " chapters across {$lastPage} page(s) for {$novelUrl}");
+    \Log::info("empireNovelToc: parsed " . count($unique) . " chapters across {$pagesRead} of {$lastPage} page(s) for {$novelUrl}");
 
     return $unique;
 }
@@ -1691,17 +1823,35 @@ function getMetadataFromNovelFull(string $novelUrl): array
  *
  * $report receives ['score' => ?float (best score), 'candidates' => ranked
  * candidates with 'score', 'metadata' => ?array (the best candidate's series
- * page when it was fetched, so callers needn't fetch it again)].
+ * page when it was fetched, so callers needn't fetch it again), 'failed' =>
+ * ?string (why the search gave no real answer: the search request failed or
+ * was a Cloudflare challenge, or the re-score page fetch failed; null when
+ * the answer — possibly "no results" — is real)].
  */
 function resolveNovelUpdatesUrl(string $name, ?string $author = null, ?array &$report = null): ?string
 {
-    $report = ['score' => null, 'candidates' => [], 'metadata' => null];
+    $report = ['score' => null, 'candidates' => [], 'metadata' => null, 'failed' => null];
     $flareSolverrUrl = setting('flaresolverr_url', config('novarr.flaresolverr_url'));
 
     try {
         // NovelUpdates' search requires %20-encoded spaces (rawurlencode).
-        $candidates = \App\Scraping\NovelUpdatesMatcher::parseSearchResults((string) app(\App\Scraping\Fetcher::class)->post('https://www.novelupdates.com/wp-admin/admin-ajax.php', 'action=nd_ajaxsearchmain&strType=desktop&strOne=' . rawurlencode($name)));
+        $searchReason = null;
+        $body = app(\App\Scraping\Fetcher::class)->post('https://www.novelupdates.com/wp-admin/admin-ajax.php', 'action=nd_ajaxsearchmain&strType=desktop&strOne=' . rawurlencode($name), $searchReason);
+        // An empty 200 body is an answer (no results); anything else
+        // without a body is a failed request.
+        if ($body === null && $searchReason !== 'empty_response') {
+            $report['failed'] = $searchReason ?? 'fetch_failed';
+            \Log::warning("resolveNovelUpdatesUrl: NovelUpdates search failed for '{$name}' ({$report['failed']})");
+            return null;
+        }
+        if (\App\Scraping\Fetcher::isCloudflareChallenge($body)) {
+            $report['failed'] = 'cloudflare';
+            \Log::warning("resolveNovelUpdatesUrl: Cloudflare challenge on the NovelUpdates search for '{$name}'");
+            return null;
+        }
+        $candidates = \App\Scraping\NovelUpdatesMatcher::parseSearchResults((string) $body);
     } catch (\Throwable $e) {
+        $report['failed'] = 'exception';
         \Log::warning("resolveNovelUpdatesUrl failed for '{$name}': " . $e->getMessage());
         return null;
     }
@@ -1716,7 +1866,10 @@ function resolveNovelUpdatesUrl(string $name, ?string $author = null, ?array &$r
     $best = $ranked[0];
 
     if ($best['score'] < $threshold && ($best['score'] >= 0.6 || count($ranked) === 1)) {
-        $page = fetchNovelUpdatesMetadata($best['url']);
+        $pageFailure = null;
+        $page = fetchNovelUpdatesMetadata($best['url'], $pageFailure);
+        // The candidate couldn't be re-scored: the answer is incomplete.
+        $report['failed'] = $pageFailure;
         if (!empty($page['title']) || !empty($page['associated'])) {
             $best['associated'] = $page['associated'];
             $best['author'] = $page['author'] !== '' ? $page['author'] : null;
@@ -1744,14 +1897,10 @@ function resolveNovelUpdatesUrl(string $name, ?string $author = null, ?array &$r
     return null;
 }
 
-/**
- * Fetch and parse a single NovelUpdates series page into the metadata array.
- * Also returns the page's own 'title' and 'associated' names (used to score
- * the page against a local novel — see NovelUpdatesMatcher).
- */
-function fetchNovelUpdatesMetadata(string $url): array
+/** The NovelUpdates metadata shape with nothing found. */
+function emptyNovelUpdatesMetadata(): array
 {
-    $metadata = [
+    return [
         "description" => "", "author" => "", "no_of_chapters" => 0, "image" => "",
         "status_text" => "", "completed" => false, "fully_translated" => null, "genres" => [],
         "title" => "", "associated" => [],
@@ -1759,18 +1908,45 @@ function fetchNovelUpdatesMetadata(string $url): array
         // #showtype verbatim ("Web Novel (KR)") and #showlang ("Korean").
         "type" => "", "original_language" => "",
     ];
+}
+
+/**
+ * Fetch and parse a single NovelUpdates series page into the metadata array.
+ * Also returns the page's own 'title' and 'associated' names (used to score
+ * the page against a local novel — see NovelUpdatesMatcher).
+ *
+ * $failure is null when there is a real answer — the page was fetched, or
+ * NovelUpdates answered 404 (no such series) — else why there is none:
+ * the fetch reason ('http_4xx', 'rate_limited', 'flaresolverr_error'…),
+ * 'cloudflare' or 'exception'.
+ */
+function fetchNovelUpdatesMetadata(string $url, ?string &$failure = null): array
+{
+    $metadata = emptyNovelUpdatesMetadata();
+    $failure = null;
+    $fetched = false;
 
     try {
         // NovelUpdates sits behind Cloudflare — use FlareSolverr, falling back
-        // to a direct request.
-        $html = fetchWithBrowser($url);
+        // to a direct request. Not after a 4xx: the page is missing (or
+        // refused), and a direct GET would only get the same answer.
+        $reason = null;
+        $html = fetchWithBrowser($url, null, 3, $reason);
         if (empty($html)) {
+            if (in_array($reason, ['http_404', 'http_4xx'], true)) {
+                $failure = $reason === 'http_404' ? null : $reason;
+                return $metadata;
+            }
+            $failure = $reason ?? 'fetch_failed'; // until the direct GET succeeds
             $html = createHttpClient()->request("GET", $url)->getContent();
+            $failure = null;
         }
+        $fetched = true;
 
         if (stripos($html, '<title>Just a moment...</title>') !== false ||
             stripos($html, 'Verifying you are human') !== false) {
             \Log::error("fetchNovelUpdatesMetadata: Cloudflare challenge for {$url}");
+            $failure = 'cloudflare';
             return $metadata;
         }
 
@@ -1828,6 +2004,11 @@ function fetchNovelUpdatesMetadata(string $url): array
             $metadata["genres"] = normalizeGenres($genres->each(fn($n) => $n->text()));
         }
     } catch (\Throwable $e) {
+        // A parse error on a fetched page is still an answer; an error
+        // before that (the direct GET threw) is a failed fetch.
+        if (!$fetched) {
+            $failure ??= 'exception';
+        }
         \Log::error("fetchNovelUpdatesMetadata error for {$url}: " . $e->getMessage());
     }
 
@@ -1849,9 +2030,17 @@ function fetchNovelUpdatesMetadata(string $url): array
  * Nothing confident: the slug page's metadata (possibly empty) is returned
  * as before, but only the best score is stored — never the URL — so
  * novel:verify-completion won't trust it.
+ *
+ * Steps 2 and 3 stamp novelupdates_checked_at once they have a real answer
+ * (pages fetched and scored, a 404 slug, an empty search result) — not when
+ * a fetch failed, hit a Cloudflare challenge or a rate limit, so an outage
+ * isn't remembered as a 7-day "no match". While a novel has no saved URL
+ * and was looked up within the last 7 days, they are skipped (negative
+ * cache): empty metadata is returned and the source's own fills in.
  */
 function getMetadata($data)
 {
+    $recheckDays = 7;
     $threshold = \App\Scraping\NovelUpdatesMatcher::threshold();
     $persist = function (array $attributes) use ($data) {
         if (($data->exists ?? false)) {
@@ -1882,15 +2071,24 @@ function getMetadata($data)
         return $metadata;
     }
 
+    // Negative cache: a recent lookup found no confident match.
+    $checkedAt = $data->novelupdates_checked_at ?? null;
+    if ($checkedAt !== null
+        && \Illuminate\Support\Carbon::parse($checkedAt)->gt(now()->subDays($recheckDays))) {
+        \Log::info("getMetadata: no NovelUpdates match for '{$data->name}' on {$checkedAt}; not searching again for {$recheckDays} days");
+        return emptyNovelUpdatesMetadata();
+    }
+
     // 2. Direct slug guess.
     $url = "https://www.novelupdates.com/series/" . novelSlug($data->name) . "/";
-    $metadata = fetchNovelUpdatesMetadata($url);
+    $slugFailure = null;
+    $metadata = fetchNovelUpdatesMetadata($url, $slugFailure);
     $slugScore = null;
 
     if (!empty($metadata["description"])) {
         $slugScore = \App\Scraping\NovelUpdatesMatcher::score($data->name, $data->author, $metadata);
         if ($slugScore >= $threshold) {
-            $persist(["novelupdates_url" => $url, "novelupdates_match_score" => $slugScore]);
+            $persist(["novelupdates_url" => $url, "novelupdates_match_score" => $slugScore, "novelupdates_checked_at" => now()]);
             $origin($metadata);
             return $metadata;
         }
@@ -1904,7 +2102,7 @@ function getMetadata($data)
     if ($resolved) {
         $found = $report["metadata"] ?? fetchNovelUpdatesMetadata($resolved);
         if (!empty($found["description"])) {
-            $persist(["novelupdates_url" => $resolved, "novelupdates_match_score" => $report["score"]]);
+            $persist(["novelupdates_url" => $resolved, "novelupdates_match_score" => $report["score"], "novelupdates_checked_at" => now()]);
             \Log::info("getMetadata: resolved '{$data->name}' -> {$resolved} (score {$report["score"]})");
             $origin($found);
             return $found;
@@ -1916,6 +2114,15 @@ function getMetadata($data)
     $score = $slugScore ?? ($report["score"] ?? null);
     if ($score !== null) {
         $persist(["novelupdates_match_score" => $score]);
+    }
+
+    // Negative cache only for a real "no match": a failed slug fetch or
+    // search is tried again on the next run.
+    $searchFailure = $report["failed"] ?? null;
+    if ($slugFailure === null && $searchFailure === null) {
+        $persist(["novelupdates_checked_at" => now()]);
+    } else {
+        \Log::info("getMetadata: NovelUpdates lookup for '{$data->name}' did not complete (" . ($slugFailure ?? $searchFailure) . "); not caching the miss");
     }
 
     return $metadata;

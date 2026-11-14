@@ -7,6 +7,7 @@ use App\Novel;
 use App\NovelChapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\TestCase;
@@ -141,7 +142,7 @@ class EpubValidityTest extends TestCase
         ];
     }
 
-    /** @dataProvider bodies */
+    #[DataProvider('bodies')]
     public function test_chapter_bodies_are_well_formed_xhtml(string $body): void
     {
         $xhtml = $this->stubCommand()->sanitize($body);

@@ -2,87 +2,30 @@
 
 namespace App\Http\Helpers;
 
-use App\Group;
-use App\Language;
 use Illuminate\Support\Facades\Cache;
 
 class CacheHelper
 {
-    /**
-     * Get cached groups ordered by label.
-     * Cache expires after 1 hour.
-     *
-     * @return \Illuminate\Database\Eloquent\Collection
-     */
-    public static function getCachedGroups()
+    /** Cache key for NovelController::novelStats(). */
+    public static function novelStatsKey(int $novelId): string
     {
-        return Cache::remember('groups_all', 3600, function () {
-            return Group::orderBy('label')->get();
-        });
+        // v2: counts instead of chapter-number arrays.
+        return "novel_stats_v2_{$novelId}";
     }
 
     /**
-     * Get cached languages ordered by label.
-     * Cache expires after 1 hour.
-     *
-     * @return \Illuminate\Database\Eloquent\Collection
-     */
-    public static function getCachedLanguages()
-    {
-        return Cache::remember('languages_all', 3600, function () {
-            return Language::orderBy('label')->get();
-        });
-    }
-
-    /**
-     * Clear all reference data caches.
-     *
-     * @return void
-     */
-    public static function clearReferenceDataCache()
-    {
-        Cache::forget('groups_all');
-        Cache::forget('languages_all');
-    }
-
-    /**
-     * Clear novel-specific cache.
-     * Clears the stable cache key used by NovelController::get_novel() and show().
+     * Clear novel-specific cache: the novel page's stats, plus library-wide
+     * aggregates that depend on this novel's read/download state.
      *
      * @param int $novelId
      * @return void
      */
     public static function clearNovelCache(int $novelId)
     {
-        Cache::forget("novel_stats_{$novelId}");
+        Cache::forget(static::novelStatsKey($novelId));
         // Library-wide aggregates (grid sublines, chip counts) and the home
         // Continue row depend on this novel's read/download state.
         Cache::forget('library_reading_v1');
         Cache::forget('dashboard_continue');
-    }
-
-    /**
-     * Clear all DataTables caches.
-     * Call this when novel/chapter data changes.
-     *
-     * @return void
-     */
-    public static function clearDataTablesCaches()
-    {
-        Cache::forget('datatables_novels');
-        Cache::forget('datatables_latest_chapters');
-        Cache::forget('datatables_missing_chapters');
-    }
-
-    /**
-     * Clear novel-related DataTables caches.
-     *
-     * @return void
-     */
-    public static function clearNovelDataTablesCache()
-    {
-        Cache::forget('datatables_novels');
-        Cache::forget('datatables_latest_chapters');
-        Cache::forget('datatables_missing_chapters');
     }
 }

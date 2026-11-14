@@ -25,12 +25,11 @@ logs:
   encoding: json
   output: stdout
 
-reload:
-  interval: 1s
-  patterns: [".php"]
-  services:
-    http:
-      dirs: ["app", "config", "routes"]
+# No `reload:` file watcher here: `php artisan octane:start` passes this file
+# to rr with -c, so a watcher would poll app/, config/ and routes/ every
+# second in production too. For live reload in development run
+# `php artisan octane:start --watch` (Octane's own watcher; needs Node and
+# chokidar).
 
 # Health check endpoint
 status:

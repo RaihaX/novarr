@@ -1697,60 +1697,13 @@ body.reader-focus:not(.chrome-peek) {
     }
 }
 
-// Thin reading-progress rail pinned to the top of the viewport.
-#readProgressBar {
-    position: fixed;
-    top: env(safe-area-inset-top, 0);
-    left: 0;
-    right: 0;
-    height: $progress-rail;
-    z-index: 2000;
-    pointer-events: none;
-    background: $surface-alt;
-
-    #readProgressFill {
-        height: 100%;
-        width: 0;
-        background: $brand-amber;
-        transition: width $transition-bar;
-    }
-}
-
 // In-reader chapter list: pending chapters are visually secondary.
 #tocList .toc-pending { opacity: 0.55; }
 
-// Reader colour themes. Applied to <body> (not just the card) so the whole
-// viewport recolours — otherwise sepia/light left a dark page around a light
-// card, most visibly in focus mode. Driven by JS in chapters/show.blade.php.
-body.reader-theme-sepia,
-body.reader-theme-light {
-    .reader-card,
-    .reader-card .card-header,
-    .reader-card .card-body {
-        background-color: var(--reader-bg) !important;
-        color: var(--reader-fg) !important;
-        border-color: var(--reader-border) !important;
-    }
-
-    .reader-card a:not(.btn) { color: var(--reader-link); }
-    .reader-card .chapter-content { color: var(--reader-fg); }
-}
-
-body.reader-theme-sepia {
-    --reader-bg: #f4ecd8;
-    --reader-fg: #5b4636;
-    --reader-border: #e0d3b8;
-    --reader-link: #8a5a2b;
-    background-color: #ece3cf;
-}
-
-body.reader-theme-light {
-    --reader-bg: #{$surface-light};
-    --reader-fg: #{$text-light};
-    --reader-border: #{$border-light};
-    --reader-link: #{$link-light};
-    background-color: $bg-light;
-}
+// Reader colour themes recolour the whole viewport, not just the reader
+// column (its tokens live in _reader.scss). Classes set by resources/js/reader.
+body.reader-theme-sepia { background-color: #ece3cf; }
+body.reader-theme-light { background-color: $bg-light; }
 
 // --- Log viewer -----------------------------------------------------------
 .log-pre {

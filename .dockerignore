@@ -75,6 +75,15 @@ Dockerfile*
 .php_cs.cache
 .phpcs.xml
 
+# Local-only data and artifacts that must never be baked into an image
+database/*.sqlite
+database/*.sqlite-*
+public/build
+public/hot
+public/storage
+design_handoff_novarr_brand
+*.zip
+
 # Misc
 *.bak
 *.tmp

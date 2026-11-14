@@ -56,6 +56,20 @@ class VerifyCompletion extends Command
                 continue;
             }
 
+            // Local stats alone already rule completion out: skip the
+            // NovelUpdates fetch (and the polite pause after it).
+            if ($localReasons = self::localReasons($local)) {
+                $this->line(sprintf(
+                    "  NU: not checked | latest local: %s | downloaded: %d | pending: %d | missing: %d",
+                    $local["latest_chapter"],
+                    $local["downloaded"],
+                    $local["pending"],
+                    $local["missing"]
+                ));
+                $this->warn("  Not complete: " . implode("; ", $localReasons));
+                continue;
+            }
+
             // getMetadata() also records how confidently novelupdates_url
             // identifies this novel (novelupdates_match_score).
             $metadata = $this->fetchMetadata($novel);
@@ -88,7 +102,7 @@ class VerifyCompletion extends Command
 
             // Be polite to NovelUpdates when sweeping all novels
             if ($novels->count() > 1) {
-                sleep(rand(2, 5));
+                $this->pause(rand(2, 5));
             }
         }
 
@@ -100,6 +114,12 @@ class VerifyCompletion extends Command
     protected function fetchMetadata(Novel $novel): array
     {
         return getMetadata($novel);
+    }
+
+    /** Pause between NovelUpdates fetches. Overridable so tests don't wait. */
+    protected function pause(int $seconds): void
+    {
+        sleep($seconds);
     }
 
     /**
@@ -187,6 +207,14 @@ class VerifyCompletion extends Command
         } elseif ($local["latest_chapter"] < $nuChapters) {
             $reasons[] = "latest local chapter ({$local["latest_chapter"]}) is below the NovelUpdates count ({$nuChapters})";
         }
+
+        return array_merge($reasons, self::localReasons($local));
+    }
+
+    /** Reasons from local chapter stats alone (pending / missing chapters). Pure. */
+    public static function localReasons(array $local): array
+    {
+        $reasons = [];
 
         if ($local["pending"] > 0) {
             $reasons[] = "{$local["pending"]} chapter(s) still pending download";

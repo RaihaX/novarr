@@ -75,8 +75,8 @@
         <section class="home-hero" aria-labelledby="nowReadingTitle" id="nowReading">
             <a href="{{ $resumeUrl }}" class="home-hero-cover" tabindex="-1" aria-hidden="true">
                 <div class="home-cover home-cover-lg">
-                    @if($novel->file)
-                        <img src="{{ Storage::url($novel->file->file_path) }}" alt="" loading="eager">
+                    @if($cover = $novel->coverUrl('md'))
+                        <img src="{{ $cover }}" alt="" loading="eager" fetchpriority="high" decoding="async">
                     @else
                         <span class="home-cover-title">{{ $novel->name }}</span>
                     @endif
@@ -142,8 +142,11 @@
                     @php $n = $item['novel']; @endphp
                     <a href="{{ route('chapters.show', $item['next']->id) }}" class="home-tile" title="Continue {{ $n->name }} — chapter {{ $ch($item['next']->chapter) }}">
                         <div class="home-cover">
-                            @if($n->file)
-                                <img src="{{ Storage::url($n->file->file_path) }}" alt="" loading="lazy">
+                            {{-- The shelf is a single row, all of it in the first screenful. --}}
+                            @if($cover = $n->coverUrl('sm'))
+                                {{-- Tiles show at about 170 CSS px: offer md to 2x screens. --}}
+                                @php $cover2x = $n->coverThumbnailUrl('md'); @endphp
+                                <img src="{{ $cover }}"{!! $cover2x ? ' srcset="' . e($cover) . ' 1x, ' . e($cover2x) . ' 2x"' : '' !!} alt="" loading="eager" decoding="async">
                             @else
                                 <span class="home-cover-title">{{ $n->name }}</span>
                             @endif

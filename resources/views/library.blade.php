@@ -25,6 +25,16 @@
         <x-icon name="refresh-cw" :size="12" />
         <span><span class="mono-num" id="dlQueueCount">0</span> <span id="dlQueueWord">reading updates</span> waiting to sync</span>
     </span>
+    {{-- Browser storage used by Novarr on this device, and whether the
+         browser agreed to keep it when space runs low. --}}
+    <span class="dl-note" id="dlStorageNote" hidden>
+        <x-icon name="download" :size="12" />
+        <span><span class="mono-num" id="dlStorageUsed"></span> used of <span id="dlStorageQuota"></span> browser storage</span>
+    </span>
+    <span class="dl-note" id="dlPersistNote" hidden>
+        <x-icon name="triangle-alert" :size="12" />
+        <span id="dlPersistText"></span>
+    </span>
 </div>
 
 <ul class="lib-grid" id="libGrid" role="list">
@@ -118,8 +128,41 @@
             return el;
         }
 
+        const PERSIST_WARNINGS = {
+            denied: 'The browser may clear downloads when space runs low — it declined to keep them.',
+            unsupported: 'This browser can’t protect downloads from being cleared when space runs low.',
+        };
+
+        function formatBytes(n) {
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let i = 0;
+            while (n >= 1024 && i < units.length - 1) { n /= 1024; i += 1; }
+            return `${n.toLocaleString(undefined, { maximumFractionDigits: n < 10 && i > 0 ? 1 : 0 })} ${units[i]}`;
+        }
+
+        // Storage used/quota (navigator.storage.estimate) and a warning when
+        // the downloads are not protected from eviction.
+        function refreshStorage() {
+            window.Novarr?.storageStatus?.().then(({ usage, quota, persistence }) => {
+                const note = document.getElementById('dlStorageNote');
+                const warn = document.getElementById('dlPersistNote');
+                if (!note || !warn) return;
+                const known = usage !== null && quota;
+                note.hidden = !known;
+                if (known) {
+                    document.getElementById('dlStorageUsed').textContent = formatBytes(usage);
+                    document.getElementById('dlStorageQuota').textContent = formatBytes(quota);
+                }
+                const message = PERSIST_WARNINGS[persistence];
+                warn.hidden = !message;
+                document.getElementById('dlPersistText').textContent = message || '';
+            }).catch(() => {});
+        }
+
         function render() {
             if (!window.Novarr?.getLibrary || !document.body.contains(grid)) return;
+
+            refreshStorage();
 
             document.getElementById('offlineBadge')?.classList.toggle('d-none', navigator.onLine);
 

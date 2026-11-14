@@ -209,24 +209,27 @@
         if (item.chapters) count.textContent = `${Number(item.chapters).toLocaleString()} CH`;
         else count.remove();
 
-        if (item.cover) {
+        if (item.cover_thumb || item.cover) {
             const img = document.createElement('img');
             img.alt = '';
             img.width = 180;
             img.height = 270;
             img.loading = 'lazy';
             img.decoding = 'async';
+            // The source's list thumbnail first (a fraction of the bytes);
+            // if it is missing, retry the full-size cover once, then fall
+            // back to the typographic cover.
+            const first = item.cover_thumb || item.cover;
             img.addEventListener('error', () => {
-                // Full-size cover missing? Retry the list thumbnail once, then
-                // fall back to the typographic cover.
-                if (item.cover_thumb && img.src !== item.cover_thumb) {
-                    img.src = item.cover_thumb;
+                if (item.cover && first !== item.cover && img.dataset.retried !== '1') {
+                    img.dataset.retried = '1';
+                    img.src = item.cover;
                     return;
                 }
                 img.remove();
                 cover.classList.remove('has-image');
             });
-            img.src = item.cover;
+            img.src = first;
             cover.classList.add('has-image');
             cover.insertBefore(img, cover.querySelector('.cover-type').nextSibling);
         }

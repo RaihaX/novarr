@@ -16,6 +16,7 @@
 // its variables are still defined, so nothing else needs to change.
 // ---------------------------------------------------------------------------
 
+@use 'sass:list';
 @use 'sass:map';
 
 // Configuration
@@ -26,10 +27,12 @@
 @import 'bootstrap/scss/mixins';
 @import 'bootstrap/scss/utilities';
 
-// Utilities API trim. Every group below had zero uses in views, resources/js
-// and app/ PHP (several also run against the brand rules, e.g. "links carry
-// colour, never decoration"). Remove a key from these lists to bring the
-// classes back; no other change needed.
+// Utilities API trim. Every group below had zero uses in views, resources/js,
+// app/ PHP, config/ and the vendor Bootstrap 5 pagination views Laravel's
+// paginator renders (several also run against the brand rules, e.g. "links
+// carry colour, never decoration"). Checked by compiling before/after and
+// grepping every removed class name. Remove a key from these lists to bring
+// the classes back; no other change needed.
 $utilities: map.remove(
     $utilities,
     'focus-ring', 'gradient', 'translate-middle',
@@ -37,17 +40,33 @@ $utilities: map.remove(
     'subtle-border-color', 'subtle-background-color',
     'text-opacity', 'bg-opacity', 'border-opacity',
     'rounded-top', 'rounded-end', 'rounded-bottom', 'rounded-start',
-    'viewport-width', 'min-viewport-width', 'viewport-height', 'min-viewport-height'
+    'viewport-width', 'min-viewport-width', 'viewport-height', 'min-viewport-height',
+    // Nov 2026 audit:
+    'float', 'object-fit', 'opacity', 'overflow-x', 'overflow-y', 'shadow',
+    'top', 'start', 'border-end', 'border-start',
+    'width', 'max-width', 'height', 'max-height',
+    'align-content', 'align-self', 'order',
+    'margin-x', 'margin-y',
+    'negative-margin', 'negative-margin-x', 'negative-margin-y', 'negative-margin-top',
+    'negative-margin-end', 'negative-margin-bottom', 'negative-margin-start',
+    'padding-top', 'padding-end', 'row-gap', 'column-gap',
+    'font-family', 'font-size', 'line-height', 'text-decoration', 'text-transform',
+    'word-wrap', 'text-color', 'background-color', 'user-select', 'pointer-events',
+    'rounded', 'z-index'
 );
-// Keep these groups, but without the 5 breakpoint copies (-sm … -xxl):
-// nothing uses them, and the responsive copies are most of their weight.
-// The heavily used groups (display, flex, spacing, gap, text-align) keep
-// their responsive variants so new views can still use e.g. .mb-md-0.
-@each $key in ('float', 'order', 'align-self', 'align-content', 'column-gap') {
-    $utilities: map.merge(
-        $utilities,
-        ($key: map.merge(map.get($utilities, $key), (responsive: false)))
-    );
+// No breakpoint copies (-sm … -xxl) except for the groups the paginator's
+// bootstrap-5 view uses responsively (d-sm-flex, d-sm-none, flex-sm-fill,
+// justify-content-sm-between, align-items-sm-center). Nothing in the app
+// uses a responsive utility, and the copies are most of the utilities' weight.
+// To use e.g. .mb-md-0 in a view, add 'margin-bottom' to this list.
+$utilities-responsive-kept: ('display', 'flex', 'justify-content', 'align-items');
+@each $key, $utility in $utilities {
+    @if map.get($utility, responsive) and not list.index($utilities-responsive-kept, $key) {
+        $utilities: map.merge(
+            $utilities,
+            ($key: map.merge($utility, (responsive: false)))
+        );
+    }
 }
 
 // Layout & components

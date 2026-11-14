@@ -17,7 +17,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Configuration
-CONTAINER_NAME="${1:-novarr-app}"
+CONTAINER_NAME="${1:-novarr-app-1}"
 VERBOSE=false
 TESTS_PASSED=0
 TESTS_FAILED=0

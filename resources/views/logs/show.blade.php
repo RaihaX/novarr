@@ -176,13 +176,32 @@
         }
     }
 
+    // Leaving the page (Turbo visit, snapshot for the back button, or a
+    // real unload) must stop the polling, or it runs on forever in the
+    // background. The listeners only exist while live tail is on.
+    let liveLeave = null;
+    function stopLive() {
+        clearInterval(liveTimer);
+        liveTimer = null;
+        liveLeave?.abort();
+        liveLeave = null;
+        // The cached snapshot must not come back showing live tail as on.
+        liveToggle.checked = false;
+    }
+
     liveToggle.addEventListener('change', () => {
         if (liveToggle.checked) {
             refreshTail();
+            clearInterval(liveTimer);
             liveTimer = setInterval(refreshTail, 3000);
+            liveLeave = new AbortController();
+            const opts = { signal: liveLeave.signal, once: true };
+            document.addEventListener('turbo:before-render', stopLive, opts);
+            document.addEventListener('turbo:before-cache', stopLive, opts);
+            window.addEventListener('pagehide', stopLive, opts);
             Novarr.showToast('Live tail on — showing the latest 100 entries, refreshed every 3s.', 'info');
         } else {
-            clearInterval(liveTimer);
+            stopLive();
             location.reload();
         }
     });

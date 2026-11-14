@@ -144,7 +144,9 @@ abstract class GoldenTestCase extends TestCase
 
         return [
             'paragraphs' => count($paragraphs),
-            'words' => ['min' => (int) floor($words * 0.97), 'max' => (int) ceil($words * 1.03)],
+            // str_word_count() follows the C library's idea of a letter, so the
+            // same text counts a few words differently on Linux and macOS.
+            'words' => ['min' => (int) floor($words * 0.95), 'max' => (int) ceil($words * 1.05)],
             'first' => $paragraphs ? self::plain($paragraphs[0]) : null,
             'last' => $paragraphs ? self::plain(end($paragraphs)) : null,
         ];

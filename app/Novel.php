@@ -4,12 +4,14 @@ namespace App;
 
 use App\Scraping\NovelUpdatesMatcher;
 use App\Scraping\OriginInference;
+use App\Services\CoverThumbnails;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
 class Novel extends Model
 {
@@ -55,6 +57,8 @@ class Novel extends Model
         'last_toc_at' => 'datetime',
         'last_toc_count' => 'integer',
         'toc_failures' => 'integer',
+        'toc_full_walk_at' => 'datetime',
+        'novelupdates_checked_at' => 'datetime',
         'origin' => 'string',
         'origin_language' => 'string',
         'origin_source' => 'string',
@@ -68,7 +72,8 @@ class Novel extends Model
 
     public function file(): MorphOne
     {
-        return $this->morphOne(File::class, "file");
+        // The newest upload is the cover; older rows are history.
+        return $this->morphOne(File::class, "file")->latestOfMany();
     }
 
     public function group(): BelongsTo
@@ -91,9 +96,7 @@ class Novel extends Model
      */
     public function scopeWithRelations($query)
     {
-        return $query->with(['file' => function($q) {
-            $q->orderBy('id', 'desc');
-        }, 'group', 'language']);
+        return $query->with(['file', 'group', 'language']);
     }
 
     /**
@@ -102,6 +105,96 @@ class Novel extends Model
     public function scopeOrdered($query)
     {
         return $query->orderBy('name');
+    }
+
+    // ---------------------------------------------------------------------
+    // Cover
+    // ---------------------------------------------------------------------
+
+    /**
+     * Make an image already on the public disk this novel's cover: a new File
+     * row, both thumbnails, and the previous cover (row, image, thumbnails)
+     * removed unless something still points at its image.
+     *
+     * @param  string  $storedPath  path on the public disk ("abc.jpg"); a
+     *                              "public/abc.jpg" file_path is accepted too
+     */
+    public function attachCover(string $storedPath, ?string $originalName = null): File
+    {
+        $relative = CoverThumbnails::relative($storedPath);
+        $previous = $this->file()->first();
+
+        $file = $this->file()->save(new File([
+            'file_name' => $originalName ?? basename($relative),
+            'file_path' => 'public/' . $relative,
+        ]));
+        $this->setRelation('file', $file);
+
+        $thumbnails = app(CoverThumbnails::class);
+        $thumbnails->generate($file->file_path);
+
+        if ($previous) {
+            $previousRelative = CoverThumbnails::relative((string) $previous->file_path);
+            $shared = File::whereKeyNot($previous->getKey())
+                ->whereIn('file_path', [$previousRelative, 'public/' . $previousRelative])
+                ->exists();
+
+            if ($previousRelative !== '' && $previousRelative !== $relative && !$shared) {
+                $thumbnails->delete($previous->file_path);
+                Storage::disk('public')->delete($previousRelative);
+                $previous->delete();
+            }
+        }
+
+        return $file;
+    }
+
+    /**
+     * Cover URL for display: the thumbnail when it exists, else the original,
+     * else null. Never lazy-loads `file` (views render many novels at once):
+     * an unloaded relation reads as no cover.
+     *
+     * @param  string  $size  CoverThumbnails size: sm | md
+     */
+    public function coverUrl(string $size = 'md'): ?string
+    {
+        return $this->coverThumbnailUrl($size) ?? $this->originalCoverUrl();
+    }
+
+    /** The thumbnail URL only, or null when it has not been generated. */
+    public function coverThumbnailUrl(string $size): ?string
+    {
+        $path = $this->loadedCoverPath();
+        if ($path === null) {
+            return null;
+        }
+
+        $thumbnails = app(CoverThumbnails::class);
+        if (!$thumbnails->exists($path, $size)) {
+            return null;
+        }
+
+        // Built the same way as the original's URL so both resolve alike.
+        $prefix = str_starts_with(ltrim($path, '/'), 'public/') ? 'public/' : '';
+
+        return Storage::url($prefix . $thumbnails->path($path, $size));
+    }
+
+    /** The uploaded cover, full size (ePubs, OPDS image, links). */
+    public function originalCoverUrl(): ?string
+    {
+        $path = $this->loadedCoverPath();
+
+        return $path === null ? null : Storage::url($path);
+    }
+
+    private function loadedCoverPath(): ?string
+    {
+        if (!$this->relationLoaded('file') || !$this->file || !$this->file->file_path) {
+            return null;
+        }
+
+        return $this->file->file_path;
     }
 
     // ---------------------------------------------------------------------

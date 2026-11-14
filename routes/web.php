@@ -17,6 +17,11 @@ use App\Http\Controllers\LogController;
 |--------------------------------------------------------------------------
 */
 
+// Read-only JSON/XML endpoints the PWA and ereaders poll: an ETag of the body
+// lets a repeat fetch come back 304. Never on chapters.show — a GET there
+// marks the chapter read, so it must always reach the controller.
+$conditionalGet = 'cache.headers:private;max_age=0;etag';
+
 // Dashboard
 Route::get('/', [HomeController::class, 'index'])->name('home');
 Route::get('/continue', [HomeController::class, 'continue'])->name('continue');
@@ -46,8 +51,8 @@ Route::delete('/novels/{id}', [NovelController::class, 'destroy'])->name('novels
 Route::get('/novels/{id}/epub', [NovelController::class, 'download_epub'])->name('novels.download_epub');
 Route::get('/novels/{id}/metadata/candidates', [\App\Http\Controllers\MetadataController::class, 'candidates'])->name('novels.metadata_candidates');
 Route::post('/novels/{id}/metadata/choose', [\App\Http\Controllers\MetadataController::class, 'choose'])->name('novels.metadata_choose');
-Route::get('/novels/{id}/offline-manifest', [NovelController::class, 'offlineManifest'])->name('novels.offline_manifest');
-Route::get('/novels/{id}/chapters-json', [NovelController::class, 'chaptersJson'])->name('novels.chapters_json');
+Route::get('/novels/{id}/offline-manifest', [NovelController::class, 'offlineManifest'])->middleware($conditionalGet)->name('novels.offline_manifest');
+Route::get('/novels/{id}/chapters-json', [NovelController::class, 'chaptersJson'])->middleware($conditionalGet)->name('novels.chapters_json');
 Route::get('/novels/{id}/snapshots/{file?}', [\App\Http\Controllers\SnapshotController::class, 'show'])->where('file', '[0-9]+-[a-z_]+-[0-9_]+\.html\.gz')->name('novels.snapshots');
 
 // Chapters
@@ -66,7 +71,7 @@ Route::get('/commands/{command}', [CommandController::class, 'showForm'])->name(
 
 // Search
 Route::get('/search', [SearchController::class, 'index'])->name('search.index');
-Route::get('/palette', [SearchController::class, 'palette'])->name('palette');
+Route::get('/palette', [SearchController::class, 'palette'])->middleware($conditionalGet)->name('palette');
 
 // Reading stats + bookmarks
 Route::get('/stats', [\App\Http\Controllers\StatsController::class, 'index'])->name('stats.index');
@@ -75,7 +80,7 @@ Route::post('/bookmarks', [\App\Http\Controllers\BookmarkController::class, 'sto
 Route::delete('/bookmarks/{id}', [\App\Http\Controllers\BookmarkController::class, 'destroy'])->name('bookmarks.destroy');
 
 // OPDS catalog for ereader apps
-Route::get('/opds', [\App\Http\Controllers\OpdsController::class, 'index'])->name('opds.index');
+Route::get('/opds', [\App\Http\Controllers\OpdsController::class, 'index'])->middleware($conditionalGet)->name('opds.index');
 
 Route::get('/health', [SystemHealthController::class, 'index'])->name('health.index');
 Route::get('/health/job/{uuid}', [SystemHealthController::class, 'failedJob'])->name('health.job');

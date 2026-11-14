@@ -1,203 +1,164 @@
-version: '3.8'
+# =============================================================================
+# Novarr — clone-and-run stack
+# =============================================================================
+# Builds the image from this checkout and runs everything Novarr needs: the
+# app (Octane serves PHP *and* static assets), a one-shot migration, the
+# scheduler (which also drains the command queue), MySQL, Redis, and
+# FlareSolverr for Cloudflare-protected scraping. No .env and no host
+# dependencies beyond Docker:
+#
+#   git clone https://github.com/RaihaX/novarr.git && cd novarr
+#   docker compose up -d --build
+#
+# Then open http://localhost/ (or http://<host>/). An APP_KEY is generated on
+# first start and kept in the storage volume. All data lives in named volumes,
+# so `docker compose down` keeps it and `docker compose down -v` deletes it.
+#
+# Optional settings, read from the shell or from a `.env` file next to this
+# one (all have working defaults):
+#   NOVARR_PORT          host port (default 80)
+#   APP_URL              the origin you browse to, e.g. https://novarr.example
+#   APP_TIMEZONE         default UTC
+#   DB_PASSWORD, MYSQL_ROOT_PASSWORD   only applied when the MySQL volume is
+#                        first created; the database port is never published
+#   MAIL_MAILER, RESEND_KEY, MAIL_FROM_ADDRESS   daily summary / Send-to-Kindle
+#   NOTIFICATION_WEBHOOK_URL
+#
+# Don't want to build? docker-compose.oneclick.yml runs the same stack from
+# the prebuilt image, without cloning.
+# =============================================================================
+
+name: novarr
+
+x-novarr-image: &novarr-image
+  image: novarr:local
+  build:
+    context: .
+
+x-app-env: &app-env
+  APP_NAME: Novarr
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_URL: ${APP_URL:-http://localhost}
+  APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+  LOG_CHANNEL: stack
+  # Daily files under storage/logs (14 kept) AND stderr, so errors show in
+  # `docker compose logs`.
+  LOG_STACK: daily,stderr
+  LOG_DAILY_DAYS: "14"
+  LOG_LEVEL: warning
+  DB_CONNECTION: mysql
+  DB_HOST: mysql
+  DB_PORT: "3306"
+  DB_DATABASE: novarr
+  DB_USERNAME: novarr
+  DB_PASSWORD: ${DB_PASSWORD:-novarr_secret}
+  CACHE_STORE: redis
+  SESSION_DRIVER: redis
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  QUEUE_CONNECTION: database
+  QUEUE_FAILED_DRIVER: database-uuids
+  OCTANE_SERVER: roadrunner
+  FLARESOLVERR_URL: http://flaresolverr:8191/v1
+  MAIL_MAILER: ${MAIL_MAILER:-log}
+  RESEND_KEY: ${RESEND_KEY:-}
+  MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-novarr@example.com}
+  NOTIFICATION_WEBHOOK_URL: ${NOTIFICATION_WEBHOOK_URL:-}
 
 services:
-  app:
-    image: ${NOVARR_IMAGE:-novarr}:${NOVARR_TAG:-latest}
-    container_name: novarr-app
-    deploy:
-      replicas: 1
-      update_config:
-        parallelism: 1
-        delay: 10s
-        order: start-first
-        failure_action: rollback
-      rollback_config:
-        parallelism: 1
-        delay: 10s
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    environment:
-      - APP_ENV=production
-      - APP_DEBUG=false
-      - DB_HOST=mysql
-      - DB_PORT=3306
-      - DB_DATABASE=novarr
-      - DB_USERNAME=novarr_user
-      - DB_PASSWORD=${DB_PASSWORD}
-      - REDIS_HOST=redis
-      - REDIS_CLIENT=phpredis
-      - REDIS_CACHE_DB=1
-      - REDIS_SESSION_DB=2
-      - CACHE_STORE=redis
-      - SESSION_DRIVER=redis
-      - SESSION_SAME_SITE=lax
-      - QUEUE_CONNECTION=redis
-      - LOG_CHANNEL=stack
-      - LOG_LEVEL=warning
-      - BROADCAST_CONNECTION=log
-      - OCTANE_SERVER=roadrunner
+  # One-shot: wait for MySQL, run migrations, then exit. Everything else waits
+  # for this to finish so the schema is ready before the app/scheduler start.
+  init:
+    <<: *novarr-image
+    environment: *app-env
+    command: php artisan migrate --force
     volumes:
-      - ./storage:/var/www/html/storage
-      - ./storage/app:/var/www/html/storage/app
-      - ./storage/framework:/var/www/html/storage/framework
-      - ./storage/logs:/var/www/html/storage/logs
-      - ./bootstrap/cache:/var/www/html/bootstrap/cache
-      - ./public/storage:/var/www/html/public/storage
-      - ./public/vendor:/var/www/html/public/vendor
+      - storage:/var/www/html/storage
     depends_on:
       mysql:
         condition: service_healthy
+    restart: "no"
+
+  app:
+    <<: *novarr-image
+    environment: *app-env
+    # Ensure the public/storage symlink exists in this container, then serve.
+    command: sh -c "php artisan storage:link --force >/dev/null 2>&1 || true; exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8000"
+    ports:
+      - "${NOVARR_PORT:-80}:8000"
+    volumes:
+      - storage:/var/www/html/storage
+    depends_on:
+      init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
-    networks:
-      - novarr-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    restart: unless-stopped
+
+  # schedule:work runs the cron tasks (TOC refresh, chapter downloads,
+  # completion verify, summary email, backups) AND drains the command queue
+  # each minute.
+  scheduler:
+    <<: *novarr-image
+    environment: *app-env
+    command: php artisan schedule:work
+    # Healthy while the every-minute heartbeat (routes/console.php) is under
+    # 3 minutes old. --max-age is set out of reach so a long job backlog does
+    # not count against the scheduler.
+    healthcheck:
+      test: ["CMD", "php", "artisan", "queue:health-check", "--heartbeat=3", "--max-age=525600"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 120s
+    volumes:
+      - storage:/var/www/html/storage
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
   mysql:
     image: mysql:8.0
-    container_name: novarr-mysql
-    restart: unless-stopped
     environment:
-      - MYSQL_DATABASE=novarr
-      - MYSQL_USER=novarr_user
-      - MYSQL_PASSWORD=${DB_PASSWORD}
-      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: novarr
+      MYSQL_USER: novarr
+      MYSQL_PASSWORD: ${DB_PASSWORD:-novarr_secret}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_secret}
     volumes:
-      - mysql-data:/var/lib/mysql
-    ports:
-      - "3306:3306"
-    networks:
-      - novarr-network
+      - mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root_secret}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
-    container_name: novarr-redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes
     volumes:
-      - redis-data:/data
-    ports:
-      - "6379:6379"
-    networks:
-      - novarr-network
+      - redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 3s
-      retries: 5
-
-  nginx:
-    image: nginx:alpine
-    container_name: novarr-nginx
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./docker/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
-      - ./public:/var/www/html/public:ro
-      - ./public/vendor:/var/www/html/public/vendor:ro
-      - ./storage/app/public:/var/www/html/storage/app/public:ro
-    networks:
-      - novarr-network
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
-  scheduler:
-    image: ${NOVARR_IMAGE:-novarr}:${NOVARR_TAG:-latest}
-    container_name: novarr-scheduler
-    restart: unless-stopped
-    command: ["php", "artisan", "schedule:work"]
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
     environment:
-      - APP_ENV=production
-      - APP_DEBUG=false
-      - DB_HOST=mysql
-      - DB_PORT=3306
-      - DB_DATABASE=novarr
-      - DB_USERNAME=novarr_user
-      - DB_PASSWORD=${DB_PASSWORD}
-      - REDIS_HOST=redis
-      - REDIS_CLIENT=phpredis
-      - REDIS_CACHE_DB=1
-      - REDIS_SESSION_DB=2
-      - CACHE_STORE=redis
-      - QUEUE_CONNECTION=redis
-      - LOG_CHANNEL=stack
-      - LOG_LEVEL=warning
-    volumes:
-      - ./storage:/var/www/html/storage
-      - ./storage/app:/var/www/html/storage/app
-      - ./storage/framework:/var/www/html/storage/framework
-      - ./storage/logs:/var/www/html/storage/logs
-      - ./bootstrap/cache:/var/www/html/bootstrap/cache
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - novarr-network
-
-  worker:
-    image: ${NOVARR_IMAGE:-novarr}:${NOVARR_TAG:-latest}
-    container_name: novarr-worker
+      LOG_LEVEL: info
     restart: unless-stopped
-    command: ["php", "artisan", "queue:work", "redis", "--queue=commands,default", "--sleep=3", "--tries=3", "--max-time=3600"]
-    environment:
-      - APP_ENV=production
-      - APP_DEBUG=false
-      - DB_HOST=mysql
-      - DB_PORT=3306
-      - DB_DATABASE=novarr
-      - DB_USERNAME=novarr_user
-      - DB_PASSWORD=${DB_PASSWORD}
-      - REDIS_HOST=redis
-      - REDIS_CLIENT=phpredis
-      - REDIS_CACHE_DB=1
-      - REDIS_SESSION_DB=2
-      - CACHE_STORE=redis
-      - QUEUE_CONNECTION=redis
-      - LOG_CHANNEL=stack
-      - LOG_LEVEL=warning
-    volumes:
-      - ./storage:/var/www/html/storage
-      - ./storage/app:/var/www/html/storage/app
-      - ./storage/framework:/var/www/html/storage/framework
-      - ./storage/logs:/var/www/html/storage/logs
-      - ./bootstrap/cache:/var/www/html/bootstrap/cache
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - novarr-network
-    healthcheck:
-      test: ["CMD", "php", "artisan", "queue:health-check"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
-networks:
-  novarr-network:
-    driver: bridge
 
 volumes:
-  mysql-data:
-  redis-data:
+  mysql:
+  redis:
+  storage:

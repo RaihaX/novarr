@@ -41,6 +41,11 @@ class RunNovelCommand implements ShouldQueue
      * ends with an explanation instead of spinning forever. The lock
      * expires a little after the job timeout so a killed worker can't
      * leave it held.
+     *
+     * This only dedupes queued UI jobs. Exclusion against the scheduler is
+     * ChapterScraper::novelLock(), taken inside the command itself; its key
+     * ("novel-scrape:{id}") must stay different from this middleware's
+     * ("laravel-queue-overlap:…:novel:{id}") or a job would block itself.
      */
     public function middleware(): array
     {
@@ -128,9 +133,23 @@ class RunNovelCommand implements ShouldQueue
     /**
      * Record the failure for the polling status endpoint when the job is
      * abandoned (e.g. timeout) so the UI doesn't poll forever.
+     *
+     * A job killed at its $timeout never reaches the command's finally, so
+     * the novel lock it took (ChapterScraper::novelLock) would stay held for
+     * its whole TTL and the sweep and novel:toc would skip the novel. The
+     * worker calls this from its timeout handler before exiting ($tries = 1),
+     * so the lock is force-released here. Only for the single-novel scrapes
+     * that take that lock; a full sweep's per-novel locks can't be named
+     * from here and lapse at their TTL.
      */
     public function failed(\Throwable $e): void
     {
+        $novelId = (int) ($this->params['novel'] ?? 0);
+        if ($novelId > 0 && empty($this->params['--chapter'])
+            && in_array($this->artisanCommand, ['novel:toc', 'novel:chapter'], true)) {
+            \App\Console\Commands\ChapterScraper::novelLock($novelId)->forceRelease();
+        }
+
         $this->store([
             'success' => false,
             'exit_code' => 1,

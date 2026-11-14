@@ -67,10 +67,12 @@ class FakeFetcher extends Fetcher
         return $hit;
     }
 
-    public function htmlWithSession(string $url): array
+    public function htmlWithSession(string $url, ?string &$reason = null): array
     {
+        $reason = null;
         $hit = $this->resolve('session', $url);
         if (is_array($hit)) {
+            $reason = $hit['reason'];
             return ['html' => null, 'cf_clearance' => null, 'user_agent' => null];
         }
 
@@ -103,12 +105,14 @@ class FakeFetcher extends Fetcher
         return $hit;
     }
 
-    public function json(string $url, array $headers = []): ?array
+    public function json(string $url, array $headers = [], &$status = null): ?array
     {
         $hit = $this->resolve('json', $url);
         if (is_array($hit)) {
+            $status = $hit['status'] ?? $hit['reason'];
             return null;
         }
+        $status = 200;
         $json = json_decode($hit, true);
         return is_array($json) ? $json : null;
     }

@@ -19,10 +19,23 @@ class NovelScraper extends Command
     /** Days a pending row may go unlisted by the TOC before it is parked. */
     public const STALE_DAYS = 3;
 
+    /**
+     * Part of every TOC fingerprint (tocFingerprint()). MAINTAINERS: bump it
+     * whenever ChapterLabelParser or the row-building logic of
+     * syncTableOfContents() changes how a TOC entry becomes
+     * number/part/title/sort_key — otherwise novels whose source TOC never
+     * changes keep their old fingerprint and are never re-synced with the
+     * new parsing. Bumping invalidates every stored fingerprint at once.
+     */
+    public const TOC_SYNC_VERSION = 1;
+
     public function __construct()
     {
         parent::__construct();
     }
+
+    /** Days between full walks of a TOC that can be walked incrementally. */
+    public const FULL_WALK_DAYS = 7;
 
     public function handle()
     {
@@ -42,25 +55,207 @@ class NovelScraper extends Command
             ->get();
 
         foreach ($novels as $novel) {
-            $this->info("Processing: {$novel->name}");
-            $toc = tableOfContentGenerator($novel);
-            $toc = is_array($toc) ? $toc : [];
-            $partial = tocRunWasPartial();
-            $counts = $this->syncTableOfContents($novel, $toc);
+            // Shared with novel:chapter, so a TOC sync never rewrites rows a
+            // chapter scrape of the same novel is working through.
+            $lock = ChapterScraper::novelLock($novel->id);
+            if (!$lock->get()) {
+                $this->warn("Skipping {$novel->name}: another scrape of this novel is running");
+                \Log::info("novel:toc skipped {$novel->name} (#{$novel->id}): novel lock held");
+                continue;
+            }
+
+            try {
+                $this->processNovel($novel, $novelId != 0);
+            } catch (\Throwable $e) {
+                // One novel's failure must not end the sweep.
+                $this->error("  TOC run failed for {$novel->name}: {$e->getMessage()}");
+                \Log::error("novel:toc failed for {$novel->name} (#{$novel->id}): {$e->getMessage()}", ["exception" => $e]);
+            } finally {
+                $lock->release();
+            }
+        }
+    }
+
+    /**
+     * One novel's TOC run: fetch, sync (or, when the TOC is unchanged since
+     * the last full sync, only stamp the rows it lists), record TOC health,
+     * park stale rows and self-heal unnumbered chapters.
+     */
+    public function processNovel(Novel $novel, bool $explicit = false): void
+    {
+        $this->info("Processing: {$novel->name}");
+
+        $incrementalAllowed = $this->allowsIncrementalWalk($novel, $explicit);
+        $toc = tableOfContentGenerator($novel, $incrementalAllowed ? fn() => $this->storedUrls($novel) : null);
+        $toc = is_array($toc) ? $toc : [];
+        $partial = tocRunWasPartial();
+
+        if ($incrementalAllowed && tocRunWasIncremental()) {
+            $this->info("  Incremental walk: " . count($toc) . " entries from the newest pages");
+            $counts = $this->syncTableOfContents($novel, $toc, true);
+            $this->recordIncrementalRun($novel, $counts);
+        } else {
+            $fingerprint = self::tocFingerprint($toc);
+            $counts = null;
+            if (!$partial && $toc !== [] && $novel->toc_fingerprint !== null
+                && hash_equals((string) $novel->toc_fingerprint, $fingerprint)) {
+                $counts = $this->stampUnchangedToc($novel, $toc);
+            }
+
+            if ($counts === null) {
+                // Cleared first: a sync that dies halfway must not leave the
+                // old fingerprint vouching for half-updated rows.
+                if ($novel->toc_fingerprint !== null) {
+                    $novel->toc_fingerprint = null;
+                    $novel->saveQuietly();
+                }
+                $counts = $this->syncTableOfContents($novel, $toc);
+            }
 
             // TOC health: valid entries only (skipped junk doesn't count).
             $healthy = $this->recordTocHealth($novel, count($toc) - $counts["skipped"], $partial);
             if ($healthy) {
                 $this->markStaleRows($novel);
+                $novel->toc_fingerprint = $fingerprint;
+                $novel->toc_full_walk_at = now();
+                $novel->saveQuietly();
+            }
+        }
+
+        // Self-heal any chapter the parser couldn't number (e.g. labels
+        // carrying two numbers) via elimination against the sequence.
+        [$fixed] = \App\Services\ChapterNumberResolver::fixUnnumbered(
+            $novel->id,
+            fn($msg) => $this->info("  {$msg}")
+        );
+    }
+
+    /** sha256 over TOC_SYNC_VERSION and the TOC's ordered url + "\n" + label lines. */
+    public static function tocFingerprint(array $toc): string
+    {
+        $lines = array_map(
+            fn($item) => (string) ($item["url"] ?? "") . "\n" . (string) ($item["label"] ?? ""),
+            array_values($toc)
+        );
+
+        return hash("sha256", "toc-sync-v" . static::TOC_SYNC_VERSION . "\n" . implode("\n", $lines));
+    }
+
+    /**
+     * May this run walk the TOC incrementally (only a paginated source acts
+     * on it)? Not for an explicitly requested novel, a novel never fully
+     * walked, one whose last full walk is FULL_WALK_DAYS old, one whose last
+     * run failed, or one whose advertised chapter count exceeds the last full
+     * TOC count by more than the 10% recordTocHealth() tolerates.
+     */
+    public function allowsIncrementalWalk(Novel $novel, bool $explicit = false): bool
+    {
+        if ($explicit || $novel->toc_full_walk_at === null
+            || $novel->toc_full_walk_at->lte(now()->subDays(self::FULL_WALK_DAYS))) {
+            return false;
+        }
+
+        if ((int) $novel->toc_failures > 0 || $novel->last_toc_count === null) {
+            return false;
+        }
+
+        return (int) $novel->no_of_chapters <= (int) $novel->last_toc_count * 1.1;
+    }
+
+    /** @return array<string, true> the novel's stored chapter URLs */
+    private function storedUrls(Novel $novel): array
+    {
+        return NovelChapter::where("novel_id", $novel->id)
+            ->whereNotNull("url")
+            ->pluck("url")
+            ->mapWithKeys(fn($url) => [(string) $url => true])
+            ->all();
+    }
+
+    /**
+     * An incremental run only lists the newest pages, so it says nothing
+     * about the TOC's size: last_toc_at is stamped, the count, failures and
+     * issue are left as the last full walk set them, and nothing is parked.
+     * Rows it changed invalidate the full-TOC fingerprint.
+     */
+    private function recordIncrementalRun(Novel $novel, array $counts): void
+    {
+        $novel->last_toc_at = now();
+        if ($counts["created"] > 0 || $counts["updated"] > 0) {
+            $novel->toc_fingerprint = null;
+        }
+        $novel->saveQuietly();
+    }
+
+    /**
+     * TOC identical to the last full sync: stamp the rows the sync would
+     * have matched (each listed URL's first row by id, as the url map in
+     * syncTableOfContents picks) instead of re-syncing row by row. Returns
+     * the sync's counts, or null when a listed URL has no row any more (a
+     * row was deleted since) so the caller runs the full sync after all.
+     */
+    private function stampUnchangedToc(Novel $novel, array $toc): ?array
+    {
+        [$entries, $skipped] = $this->validEntries($novel, $toc);
+
+        $listed = [];
+        foreach ($entries as $item) {
+            $listed[(string) $item["url"]] = true;
+        }
+
+        $ids = [];
+        $seen = [];
+        $rows = NovelChapter::where("novel_id", $novel->id)->orderBy("id")->toBase()->get(["id", "url"]);
+        foreach ($rows as $row) {
+            $url = (string) $row->url;
+            if ($url === "" || isset($seen[$url])) {
+                continue;
+            }
+            $seen[$url] = true;
+            if (isset($listed[$url])) {
+                $ids[] = $row->id;
+            }
+        }
+
+        if (count($ids) !== count($listed)) {
+            return null;
+        }
+
+        $this->info("  TOC unchanged since the last full sync; " . count($ids) . " row(s) stamped, no row sync");
+        $this->stampSeenInToc($ids);
+
+        return ["created" => 0, "updated" => 0, "skipped" => $skipped, "relocated_mass" => 0];
+    }
+
+    /**
+     * Valid TOC entries (clean chapter URL; webnovel ids filled in) and the
+     * number skipped.
+     *
+     * @return array{0: array<int, array>, 1: int}
+     */
+    private function validEntries(Novel $novel, array $toc): array
+    {
+        $groupUrl = $novel->group->url ?? "";
+        $entries = [];
+        $skipped = 0;
+        foreach ($toc as $item) {
+            if (!self::validTocUrl($item["url"] ?? null, $groupUrl)) {
+                $skipped++;
+                $this->warn("  Skipped TOC entry with invalid URL: \"" . ($item["label"] ?? "") . "\" (\"" . ($item["url"] ?? "") . "\")");
+                \Log::warning(
+                    "TOC entry skipped for {$novel->name}: invalid chapter URL \"" . ($item["url"] ?? "") . "\""
+                );
+                continue;
             }
 
-            // Self-heal any chapter the parser couldn't number (e.g. labels
-            // carrying two numbers) via elimination against the sequence.
-            [$fixed] = \App\Services\ChapterNumberResolver::fixUnnumbered(
-                $novel->id,
-                fn($msg) => $this->info("  {$msg}")
-            );
+            if ($novel->group_id == 6) {
+                $item["unique_id"] = $this->extractUniqueId($item["url"]);
+            }
+
+            $entries[] = $item;
         }
+
+        return [$entries, $skipped];
     }
 
     /**
@@ -88,31 +283,18 @@ class NovelScraper extends Command
      * In that case no status is reset and the count is returned as
      * `relocated_mass`, so a migration can't trigger a library re-download.
      *
+     * $incremental: $toc is only the newest part of the TOC (see
+     * empireNovelToc), so a stored row missing from it has not vanished from
+     * the source — no row is adopted by number.
+     *
      * @return array{created: int, updated: int, skipped: int, relocated_mass: int}
      */
-    public function syncTableOfContents($novel, array $toc): array
+    public function syncTableOfContents($novel, array $toc, bool $incremental = false): array
     {
-        $groupUrl = $novel->group->url ?? "";
         $counts = ["created" => 0, "updated" => 0, "skipped" => 0, "relocated_mass" => 0];
 
         // Validate first so the set of "URLs still in the TOC" is exact.
-        $entries = [];
-        foreach ($toc as $item) {
-            if (!self::validTocUrl($item["url"] ?? null, $groupUrl)) {
-                $counts["skipped"]++;
-                $this->warn("  Skipped TOC entry with invalid URL: \"" . ($item["label"] ?? "") . "\" (\"" . ($item["url"] ?? "") . "\")");
-                \Log::warning(
-                    "TOC entry skipped for {$novel->name}: invalid chapter URL \"" . ($item["url"] ?? "") . "\""
-                );
-                continue;
-            }
-
-            if ($novel->group_id == 6) {
-                $item["unique_id"] = $this->extractUniqueId($item["url"]);
-            }
-
-            $entries[] = $item;
-        }
+        [$entries, $counts["skipped"]] = $this->validEntries($novel, $toc);
 
         $tocUrls = [];
         foreach ($entries as $item) {
@@ -123,11 +305,21 @@ class NovelScraper extends Command
         $rows = NovelChapter::where("novel_id", $novel->id)->orderBy("id")->get();
         $byUrl = [];
         $byNumber = [];
+        // Rows a new chapter can collide with (see below): unnumbered end
+        // matter (no digit in the label) the resolver gave a real number, by
+        // book, in id order.
+        $endMatterCandidates = [];
         foreach ($rows as $row) {
             if ((string) $row->url !== "" && !isset($byUrl[(string) $row->url])) {
                 $byUrl[(string) $row->url] = $row;
             }
             $byNumber[self::numberKey($row->chapter)][] = $row;
+            if (!preg_match('/\d/', (string) $row->label) && (float) $row->chapter > 0) {
+                $endMatterCandidates[(int) $row->book][] = $row;
+            }
+            if ($incremental && (string) $row->url !== "") {
+                $tocUrls[(string) $row->url] = true;
+            }
         }
 
         $claimed = [];   // row id => true, rows already matched this run
@@ -167,11 +359,7 @@ class NovelScraper extends Command
             $value = (float) $pending[$url]["chapter"];
             $newKey = $pending[$url]["sort_key"];
             if ($value > 0) {
-                foreach ($rows as $other) {
-                    if ((int) $other->book !== $pending[$url]["book"] || preg_match('/\d/', (string) $other->label)
-                        || (float) $other->chapter <= 0) {
-                        continue;
-                    }
+                foreach ($endMatterCandidates[$pending[$url]["book"]] ?? [] as $other) {
                     $collides = self::numberKey($other->chapter) === self::numberKey($value)
                         || ($newKey !== null && ChapterNumberResolver::isEndMatterSortKey($other->sort_key)
                             && $newKey > $other->sort_key);

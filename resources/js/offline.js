@@ -86,6 +86,11 @@ function sendUrlsToSw(type, urls, onProgress) {
  * Downloads merge into any existing offline copy (union by chapter id).
  */
 export async function downloadNovel(id, opts = {}, onProgress) {
+    // Started before the first await, while the click's user activation is
+    // still live (Firefox asks the reader). Not awaited: a pending prompt
+    // must not hold up the download.
+    requestPersistence().catch(() => {});
+
     const params = new URLSearchParams();
     if (opts.scope === 'unread' || opts.scope === 'unread-next') params.set('unread', '1');
     if (opts.scope === 'unread-next') params.set('limit', String(opts.limit || 100));
@@ -140,6 +145,75 @@ export async function removeNovel(id) {
     await idbDelete('novels', id);
 }
 
+// ---- Public: storage persistence / quota ----
+
+/** localStorage key holding the outcome of our persist() request. */
+export const PERSIST_KEY = 'novarr:storage-persist';
+
+function rememberPersist(result) {
+    try {
+        localStorage.setItem(PERSIST_KEY, result);
+    } catch (e) {
+        // Private mode / blocked storage: the Downloads page re-checks live.
+    }
+    return result;
+}
+
+function rememberedPersist() {
+    try {
+        return localStorage.getItem(PERSIST_KEY);
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Ask the browser to exempt this origin's storage from eviction, so
+ * downloads survive storage pressure. Asked once (the first download);
+ * resolves to 'granted' | 'denied' | 'unsupported' and remembers it.
+ */
+export async function requestPersistence() {
+    const storage = typeof navigator !== 'undefined' ? navigator.storage : undefined;
+    if (!storage?.persist) return rememberPersist('unsupported');
+    if (storage.persisted && await storage.persisted()) return rememberPersist('granted');
+    const asked = rememberedPersist();
+    if (asked === 'denied' || asked === 'granted') return asked;
+    return rememberPersist((await storage.persist()) ? 'granted' : 'denied');
+}
+
+/**
+ * Storage used/quota and persistence state for the Downloads page.
+ * `persistence` is 'granted' | 'denied' | 'unsupported' | 'unknown' (not
+ * asked yet); usage/quota are bytes, or null when estimate() is missing.
+ */
+export async function storageStatus() {
+    const storage = typeof navigator !== 'undefined' ? navigator.storage : undefined;
+    let usage = null;
+    let quota = null;
+    if (storage?.estimate) {
+        try {
+            ({ usage = null, quota = null } = await storage.estimate());
+        } catch (e) {
+            // Leave unknown.
+        }
+    }
+
+    let persistence;
+    if (!storage?.persist || !storage?.persisted) {
+        persistence = 'unsupported';
+    } else {
+        let granted = false;
+        try {
+            granted = await storage.persisted();
+        } catch (e) {
+            granted = false;
+        }
+        // A grant can be withdrawn (site data cleared): the live answer wins.
+        persistence = granted ? 'granted' : (rememberedPersist() === 'denied' ? 'denied' : 'unknown');
+    }
+    return { usage, quota, persistence };
+}
+
 export const getLibrary = () => idbGetAll('novels');
 export const getNovel = (id) => idbGet('novels', id);
 export const isDownloaded = (id) => idbGet('novels', id).then((r) => !!r);
@@ -169,10 +243,93 @@ async function emitQueueSize() {
     window.dispatchEvent(new CustomEvent(QUEUE_EVENT, { detail: { size } }));
 }
 
-async function enqueue(url, method, body) {
-    await idbAdd('queue', { url, method, body, ts: Date.now() });
-    emitQueueSize();
-    return { success: true, queued: true };
+const pathOf = (url) => {
+    try {
+        return new URL(url, 'http://localhost').pathname;
+    } catch (e) {
+        return String(url);
+    }
+};
+
+const PROGRESS_PATH = /^\/chapters\/(\d+)\/progress$/;
+const CHAPTER_PATH = /^\/chapters\/(\d+)\//;
+const BULK_READ_PATH = '/chapters/bulk-read';
+/** Read-state endpoints whose replayed writes carry their `age`. */
+const READ_STATE_PATH = /^\/chapters\/(\d+\/(progress|toggle-read|read-through)|bulk-read)$/;
+
+/** A scroll-position save: only `progress`, no read mark. */
+function isProgressWrite(url, body) {
+    return PROGRESS_PATH.test(pathOf(url))
+        && body != null && body.progress !== undefined && !body.read;
+}
+
+/** An idempotent "mark read" (progress endpoint or bulk-read with read:true). */
+function isReadMark(url, body) {
+    const path = pathOf(url);
+    return body?.read === true && (PROGRESS_PATH.test(path) || path === BULK_READ_PATH);
+}
+
+/** Chapter ids a queued write touches (from the path, or bulk-read ids). */
+function chaptersOf(item) {
+    const path = pathOf(item.url);
+    if (path === BULK_READ_PATH) return (item.body?.ids || []).map(String);
+    const m = path.match(CHAPTER_PATH);
+    return m ? [m[1]] : [];
+}
+
+const sameRequest = (item, url, method, body) => pathOf(item.url) === pathOf(url)
+    && item.method === method
+    && JSON.stringify(item.body ?? null) === JSON.stringify(body ?? null);
+
+let enqueueChain = Promise.resolve();
+
+/**
+ * Park a write. A newer scroll position for the same chapter replaces the
+ * queued one (removed, then appended, so it still replays after anything
+ * queued in between); a read mark identical to one already queued, with
+ * nothing touching that chapter queued after it, is not added twice.
+ * Everything else keeps plain queue order. Serialised so two quick saves
+ * can't both miss each other.
+ */
+function enqueue(url, method, body) {
+    const run = enqueueChain.then(async () => {
+        const items = await idbGetAll('queue');
+        if (isProgressWrite(url, body)) {
+            for (const item of items) {
+                if (item.method === method && pathOf(item.url) === pathOf(url) && isProgressWrite(item.url, item.body)) {
+                    await idbDelete('queue', item.id);
+                }
+            }
+        } else if (isReadMark(url, body)) {
+            const target = { url, body };
+            const idx = items.findIndex((item) => sameRequest(item, url, method, body));
+            if (idx !== -1) {
+                const touched = new Set(chaptersOf(target));
+                const changedSince = items.slice(idx + 1).some((item) => !isProgressWrite(item.url, item.body)
+                    && chaptersOf(item).some((c) => touched.has(c)));
+                if (!changedSince) return;
+            }
+        }
+        await idbAdd('queue', { url, method, body, ts: Date.now() });
+    });
+    enqueueChain = run.catch(() => {});
+    return run.then(() => {
+        emitQueueSize();
+        return { success: true, queued: true };
+    });
+}
+
+/**
+ * The body to replay. Read-state writes (progress, toggle-read, read-through,
+ * bulk-read) carry `age`: whole milliseconds since they were queued. The
+ * server dates the write now - age, so its order against other writes holds
+ * whatever this device's clock says (a relative age needs no clock sync).
+ */
+export function replayBody(item, now = Date.now()) {
+    if (READ_STATE_PATH.test(pathOf(item.url)) && item.ts) {
+        return { ...(item.body || {}), age: Math.max(0, Math.round(now - item.ts)) };
+    }
+    return item.body;
 }
 
 /**
@@ -226,11 +383,12 @@ async function replayQueue() {
         let res;
         try {
             const headers = { Accept: 'application/json' };
-            if (item.body) headers['Content-Type'] = 'application/json';
+            const body = replayBody(item);
+            if (body) headers['Content-Type'] = 'application/json';
             res = await fetch(item.url, {
                 method: item.method,
                 headers,
-                body: item.body ? JSON.stringify(item.body) : undefined,
+                body: body ? JSON.stringify(body) : undefined,
             });
         } catch (err) {
             break; // network gone again — keep the rest for the next flush
@@ -286,6 +444,7 @@ export function initOffline() {
     // broadcast as the `novarr:offline-queue` window event.
     window.Novarr = window.Novarr || {};
     window.Novarr.offlineQueueSize = offlineQueueSize;
+    window.Novarr.storageStatus = storageStatus;
     flushQueue();
     window.addEventListener('online', () => flushQueue());
 }

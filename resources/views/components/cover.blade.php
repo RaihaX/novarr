@@ -28,6 +28,11 @@
                     null/empty renders nothing.
         decorative  true when the novel's title is printed next to the cover
                     (tiles): the image gets alt="" so it isn't read twice.
+        eager       true for covers in the first screenful: loading="eager"
+                    fetchpriority="high" instead of loading="lazy".
+
+    A Novel's image is its CoverThumbnails copy (sm for the sm slot, md for
+    md/lg), falling back to the original upload when none exists yet.
 --}}
 @props([
     'novel',
@@ -38,6 +43,7 @@
     'chapters' => null,
     'chip' => null,
     'decorative' => false,
+    'eager' => false,
 ])
 
 @php
@@ -47,10 +53,16 @@
     $author = trim((string) $get('author'));
 
     // Cover URL: explicit override, an array/object `cover`, or the Novel's
-    // file relation (only when it is already loaded — never lazy-load here).
+    // file relation (only when it is already loaded — never lazy-load here;
+    // coverUrl() itself treats an unloaded relation as no cover).
     $url = $src ?: $get('cover');
-    if (!$url && $novel instanceof \Illuminate\Database\Eloquent\Model && $novel->relationLoaded('file') && $novel->file) {
-        $url = \Illuminate\Support\Facades\Storage::url($novel->file->file_path);
+    $srcset = null;
+    if (!$url && $novel instanceof \App\Novel) {
+        $url = $novel->coverUrl($size === 'sm' ? 'sm' : 'md');
+        // The 72px slot: sm covers 1x, md anything denser.
+        if ($size === 'sm' && ($sm = $novel->coverThumbnailUrl('sm')) && ($md = $novel->coverThumbnailUrl('md'))) {
+            $srcset = "{$sm} 1x, {$md} 2x";
+        }
     }
 
     $count = $chapters ?? $get('chapters') ?? $get('no_of_chapters');
@@ -97,8 +109,8 @@
         @endif
     </div>
     @if($url)
-        <img src="{{ $url }}" alt="{{ $decorative ? '' : 'Cover of ' . $name }}" width="{{ $w }}" height="{{ $h }}"
-             loading="lazy" decoding="async" onerror="this.parentNode.classList.remove('has-image');this.remove()">
+        <img src="{{ $url }}"@if($srcset) srcset="{{ $srcset }}"@endif alt="{{ $decorative ? '' : 'Cover of ' . $name }}" width="{{ $w }}" height="{{ $h }}"
+             @if($eager)loading="eager" fetchpriority="high"@else loading="lazy"@endif decoding="async" onerror="this.parentNode.classList.remove('has-image');this.remove()">
     @elseif(!$decorative)
         <span class="visually-hidden">Cover of {{ $name }}</span>
     @endif

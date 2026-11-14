@@ -1,954 +1,209 @@
 # Novarr Unraid Deployment Guide
 
-A comprehensive guide for deploying Novarr on an Unraid server.
+Novarr runs on Unraid as the **one-click compose stack**: a prebuilt image from GHCR, nothing to clone or build. This guide covers the Unraid-specific parts; [DOCKER.md](DOCKER.md) is the full reference for the stacks, health checks, logs and troubleshooting.
 
 ## Table of Contents
 
-- [Introduction](#introduction)
-- [Architecture Overview](#architecture-overview)
-- [Pre-Installation Checklist](#pre-installation-checklist)
-- [Installation Methods](#installation-methods)
-- [Initial Setup](#initial-setup)
-- [Deployment Steps](#deployment-steps)
-- [Migrating Existing Data](#migrating-existing-data)
-- [Configuration](#configuration)
-- [Updating Novarr](#updating-novarr)
-- [Monitoring & Maintenance](#monitoring--maintenance)
-- [Troubleshooting](#troubleshooting)
-- [Advanced Configuration](#advanced-configuration)
-- [Backup & Disaster Recovery](#backup--disaster-recovery)
-- [Performance Optimization](#performance-optimization)
-- [Security Best Practices](#security-best-practices)
-
-## Introduction
-
-### What is Novarr?
-
-Novarr is a web novel management application that allows you to:
-- Scrape and download web novels from various sources
-- Organize novels with metadata and cover images
-- Generate ePub files for offline reading
-- Manage your novel library through a web-based admin panel (Voyager)
-
-### Why Deploy on Unraid?
-
-Unraid provides an excellent platform for self-hosted applications:
-- **Easy Container Management**: Docker integration with a user-friendly UI
-- **Flexible Storage**: Mix and match drives with parity protection
-- **Community Support**: Large library of container templates
-- **Always On**: Ideal for applications that need to run scheduled tasks
-
-### Benefits of Containerized Deployment
-
-- **Isolation**: Novarr runs independently of other applications
-- **Reproducibility**: Consistent environment across different systems
-- **Easy Updates**: Zero-downtime updates with blue-green deployment
-- **Resource Control**: Set memory and CPU limits as needed
-
-## Architecture Overview
-
-### Container Architecture on Unraid
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         UNRAID SERVER                                │
-│  ┌───────────────────────────────────────────────────────────────┐  │
-│  │                      Docker Engine                             │  │
-│  │  ┌─────────────────────────────────────────────────────────┐  │  │
-│  │  │              Novarr Docker Network (Bridge)              │  │  │
-│  │  │                                                          │  │  │
-│  │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐              │  │  │
-│  │  │  │  Nginx   │  │App Blue  │  │App Green │              │  │  │
-│  │  │  │  :80/443 │  │  :8000   │  │  :8000   │              │  │  │
-│  │  │  └────┬─────┘  └────┬─────┘  └────┬─────┘              │  │  │
-│  │  │       │             │             │                     │  │  │
-│  │  │       └─────────────┴─────────────┘                     │  │  │
-│  │  │                     │                                   │  │  │
-│  │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐ │  │  │
-│  │  │  │  MySQL   │  │  Redis   │  │Scheduler │  │ Worker │ │  │  │
-│  │  │  │  :3306   │  │  :6379   │  │          │  │        │ │  │  │
-│  │  │  └──────────┘  └──────────┘  └──────────┘  └────────┘ │  │  │
-│  │  └─────────────────────────────────────────────────────────┘  │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-│                                                                      │
-│  ┌───────────────────────────────────────────────────────────────┐  │
-│  │                    Storage Mounts                              │  │
-│  │  /mnt/user/appdata/novarr/ ──► Container Volumes               │  │
-│  │    ├── storage/                                                │  │
-│  │    ├── .env                                                    │  │
-│  │    └── docker-compose.yml                                      │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### Blue-Green Deployment Flow
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                    Zero-Downtime Update Flow                      │
-└──────────────────────────────────────────────────────────────────┘
-
-   CURRENT STATE            UPDATE PROCESS           NEW STATE
-   ┌─────────────┐          ┌─────────────┐         ┌─────────────┐
-   │  App BLUE   │ ────────►│  App GREEN  │────────►│  App GREEN  │
-   │  (Active)   │  Build   │  (Starting) │ Switch  │  (Active)   │
-   └─────────────┘   New    └─────────────┘ Traffic └─────────────┘
-         │          Image          │                       │
-         │                         │                       │
-   ┌─────────────┐          ┌─────────────┐         ┌─────────────┐
-   │   Nginx     │          │   Nginx     │         │   Nginx     │
-   │  ──► BLUE   │          │  ──► GREEN  │         │  ──► GREEN  │
-   └─────────────┘          └─────────────┘         └─────────────┘
-```
-
-### Network and Storage Considerations
-
-**Network:**
-- All containers communicate via Docker's bridge network
-- Only Nginx exposes ports to the host (80/443)
-- Internal services (MySQL, Redis) are not directly accessible
-
-**Storage:**
-- Data is persisted in `/mnt/user/appdata/novarr/`
-- MySQL data uses a named Docker volume for performance
-- Storage directory contains novels, EPUBs, and uploads
-
-## Pre-Installation Checklist
-
-### Unraid Version Requirements
-
-- **Minimum**: Unraid 6.9.0
-- **Recommended**: Unraid 6.12.0 or later
-
-Check your version:
-```bash
-cat /etc/unraid-version
-```
-
-### Required Plugins
-
-Install these from Community Applications:
-
-1. **Docker Compose Manager** (Recommended)
-   - Enables native docker-compose support
-   - Search: "Docker Compose Manager" in Community Apps
-
-2. **Community Applications** (Required)
-   - Already installed if you can access App Store
-   - Search: "Community Applications" if not installed
-
-### Port Availability Check
-
-Ensure these ports are not in use:
-
-| Port | Service | Required |
-|------|---------|----------|
-| 80 | HTTP | Yes (or custom) |
-| 443 | HTTPS | Optional |
-| 8000 | App Direct | Optional (debugging) |
-
-Check ports:
-```bash
-# List containers using ports
-docker ps --format "table {{.Names}}\t{{.Ports}}"
-
-# Check specific port
-lsof -i :80
-```
-
-### Disk Space Requirements
-
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| Application | 2 GB | 5 GB |
-| Database | 1 GB | 10 GB |
-| Novel Storage | 5 GB | 50+ GB |
-| **Total** | **10 GB** | **50+ GB** |
-
-Check available space:
-```bash
-df -h /mnt/user/appdata/
-```
-
-## Installation Methods
-
-### Method 1: Docker Compose Manager (Recommended)
-
-This is the easiest method using the Docker Compose Manager plugin.
-
-1. **Install Docker Compose Manager**
-   - Go to Apps (Community Applications)
-   - Search for "Docker Compose Manager"
-   - Install the plugin
-
-2. **Create Project Directory**
-   ```bash
-   mkdir -p /mnt/user/appdata/novarr
-   cd /mnt/user/appdata/novarr
-   ```
-
-3. **Clone or Copy Project Files**
-   ```bash
-   # Option A: Clone repository
-   git clone https://github.com/your-repo/novarr.git .
-
-   # Option B: Upload files via Unraid share
-   # Copy files to \\unraid\appdata\novarr\
-   ```
-
-4. **Configure via UI**
-   - Navigate to Docker > Compose
-   - Click "Add New Stack"
-   - Name: `novarr`
-   - Path: `/mnt/user/appdata/novarr`
-   - Compose Up
-
-### Method 2: Command Line via SSH
-
-For advanced users who prefer SSH access.
-
-1. **SSH into Unraid**
-   ```bash
-   ssh root@your-unraid-ip
-   ```
-
-2. **Create Directory Structure**
-   ```bash
-   mkdir -p /mnt/user/appdata/novarr
-   cd /mnt/user/appdata/novarr
-   ```
-
-3. **Clone Repository**
-   ```bash
-   git clone https://github.com/your-repo/novarr.git .
-   ```
-
-4. **Configure Environment**
-   ```bash
-   cp .env.example .env
-   nano .env  # Edit configuration
-   ```
-
-5. **Deploy**
-   ```bash
-   make deploy
-   # Or: ./docker-deploy.sh
-   ```
-
-### Method 3: Unraid Templates (Future)
-
-Community template support may be added in future releases.
-
-## Initial Setup
-
-### Creating the Appdata Directory Structure
-
-```bash
-# Create main directory
-mkdir -p /mnt/user/appdata/novarr
-
-# Create subdirectories
-mkdir -p /mnt/user/appdata/novarr/storage/app/public
-mkdir -p /mnt/user/appdata/novarr/storage/framework/{cache,sessions,views}
-mkdir -p /mnt/user/appdata/novarr/storage/logs
-mkdir -p /mnt/user/appdata/novarr/bootstrap/cache
-
-# Set permissions
-chmod -R 775 /mnt/user/appdata/novarr/storage
-chmod -R 775 /mnt/user/appdata/novarr/bootstrap/cache
-```
-
-### Configuring the .env File
-
-Create your environment configuration:
-
-```bash
-cd /mnt/user/appdata/novarr
-cp .env.example .env
-```
-
-**Essential settings for Unraid:**
-
-```env
-# Application
-APP_NAME=Novarr
-APP_ENV=production
-APP_DEBUG=false
-APP_URL=http://your-unraid-ip
-
-# Database (use strong passwords!)
-DB_CONNECTION=mysql
-DB_HOST=mysql
-DB_PORT=3306
-DB_DATABASE=novarr
-DB_USERNAME=novarr_user
-DB_PASSWORD=your_secure_password_here
-DB_ROOT_PASSWORD=your_root_password_here
-
-# Cache & Queue
-CACHE_DRIVER=redis
-SESSION_DRIVER=redis
-QUEUE_CONNECTION=redis
-REDIS_HOST=redis
-REDIS_PORT=6379
-
-# Logging
-LOG_CHANNEL=stack
-LOG_LEVEL=warning
-```
-
-### Setting Up Reverse Proxy
-
-#### Option A: Nginx Proxy Manager (Recommended)
-
-If using Nginx Proxy Manager on Unraid:
-
-1. Add a new Proxy Host
-2. **Domain**: `novarr.yourdomain.com`
-3. **Forward Hostname/IP**: `novarr-nginx`
-4. **Forward Port**: `80`
-5. Enable SSL if desired (Let's Encrypt)
-
-#### Option B: Swag/LSIO
-
-Add to your Swag nginx config:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name novarr.yourdomain.com;
-
-    location / {
-        proxy_pass http://novarr-nginx:80;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-#### Option C: Direct Access
-
-Access directly via IP and port:
-```
-http://your-unraid-ip:80
-```
-
-## Deployment Steps
-
-### First-Time Deployment
-
-1. **Navigate to Project Directory**
-   ```bash
-   cd /mnt/user/appdata/novarr
-   ```
-
-2. **Run Deployment Script**
-   ```bash
-   make deploy
-   # Or: ./docker-deploy.sh
-   ```
-
-3. **Monitor Deployment Progress**
-   The script will display progress including:
-   - Docker image building
-   - Container startup
-   - Database migrations
-   - Health checks
-
-4. **Access the Application**
-   - **Web Interface**: `http://your-unraid-ip/`
-   - **Admin Panel**: `http://your-unraid-ip/admin`
-
-5. **Create Admin User**
-   ```bash
-   make voyager-admin EMAIL="your@email.com"
-   ```
-
-### Monitoring Progress in Unraid Dashboard
-
-1. Go to **Docker** tab in Unraid UI
-2. You should see containers:
-   - `novarr-app-blue` (or green)
-   - `novarr-mysql`
-   - `novarr-redis`
-   - `novarr-nginx`
-   - `novarr-scheduler-blue`
-
-Click on any container to view logs or access shell.
-
-## Migrating Existing Data
-
-If you have an existing Novarr installation (local development), follow these steps to migrate your data.
-
-### Export from Development
-
-On your development machine:
-
-```bash
-cd /path/to/novarr
-./scripts/migrate-from-dev.sh
-```
-
-This creates:
-- `./migrate/dump.sql` - Database backup
-- `./migrate/storage.tar.gz` - Storage files
-- `./migrate/.env.backup` - Environment reference
-
-### Transfer to Unraid
-
-```bash
-# Using scp
-scp -r ./migrate/ root@your-unraid-ip:/mnt/user/appdata/novarr/
-
-# Using rsync (for large files)
-rsync -avz --progress ./migrate/ root@your-unraid-ip:/mnt/user/appdata/novarr/migrate/
-```
-
-### Import on Unraid
-
-The migration files are automatically detected during deployment:
-
-```bash
-cd /mnt/user/appdata/novarr
-./docker-deploy.sh --migrate
-```
-
-Or for automatic detection:
-```bash
-./docker-deploy.sh
-```
-
-### Unraid-Specific Considerations
-
-**File Permissions:**
-Unraid runs as root, but containers run as www-data. After migration:
-
-```bash
-# Inside container
-docker exec novarr-app-blue chown -R www-data:www-data /var/www/html/storage
-```
-
-**Using Unraid File Browser:**
-You can also upload migration files via Unraid's web file browser:
-1. Go to Shares > appdata
-2. Navigate to novarr/migrate/
-3. Upload dump.sql and storage.tar.gz
-
-For detailed migration instructions, see [DOCKER.md - Migrating from Development](DOCKER.md#migrating-from-development-to-production).
-
-## Configuration
-
-### Unraid-Specific Environment Variables
-
-```env
-# Unraid paths
-APP_URL=http://your-unraid-ip
-
-# Or with reverse proxy
-APP_URL=https://novarr.yourdomain.com
-
-# Timezone (match Unraid's timezone)
-APP_TIMEZONE=America/New_York
-
-# Logging (reduce for production)
-LOG_LEVEL=warning
-```
-
-### Custom Domain with Reverse Proxy
-
-1. **Update .env**
+1. [What you get](#what-you-get)
+2. [Before you start](#before-you-start)
+3. [Install with Docker Compose Manager](#install-with-docker-compose-manager)
+4. [Install over SSH](#install-over-ssh)
+5. [Keeping data in appdata](#keeping-data-in-appdata)
+6. [Reverse proxy and HTTPS](#reverse-proxy-and-https)
+7. [Updating](#updating)
+8. [Backups](#backups)
+9. [Monitoring](#monitoring)
+10. [Troubleshooting](#troubleshooting)
+11. [Performance](#performance)
+12. [Security](#security)
+13. [Quick reference](#quick-reference)
+
+## What you get
+
+`docker-compose.oneclick.yml` runs:
+
+| Container | Purpose |
+|---|---|
+| `init` | Runs database migrations, then exits |
+| `app` | Novarr (Laravel Octane), port 80 on the host |
+| `scheduler` | Cron tasks (TOC checks, chapter downloads, summary email, daily backups) and the command queue |
+| `mysql` | Database (port not published) |
+| `redis` | Cache and sessions (port not published) |
+| `flaresolverr` | Cloudflare challenge solver for the scrapers |
+
+Prefer Novarr on your tailnet with HTTPS and no reverse proxy? Use `docker-compose.tailscale.yml` the same way (it needs `TS_AUTHKEY`); see the readme's Tailscale section.
+
+## Before you start
+
+- Unraid 6.12 or later.
+- **Docker Compose Manager** plugin (Community Applications → search "Docker Compose Manager"), or SSH access.
+- Port 80 free on the host, or pick another (see [Troubleshooting](#port-80-is-taken)).
+- Disk: a few GB for the image and database; the novel library (ePubs, covers) grows with use, and the daily backups add roughly the size of the library again.
+
+## Install with Docker Compose Manager
+
+1. **Docker → Compose → Add New Stack**, name it `novarr`.
+2. **Edit Stack → Compose File**: paste the contents of [`docker-compose.oneclick.yml`](https://raw.githubusercontent.com/RaihaX/novarr/master/docker-compose.oneclick.yml).
+3. In the `x-app-env` block at the top, set `APP_URL` (e.g. `http://192.168.1.50` or your proxied `https://novarr.example.com`) and `APP_TIMEZONE` (match Unraid's).
+4. **Edit Stack → Env File**: set the database passwords (they are only applied when the MySQL volume is first created):
    ```env
-   APP_URL=https://novarr.yourdomain.com
+   DB_PASSWORD=change-me
+   MYSQL_ROOT_PASSWORD=change-me-too
    ```
+5. **Compose Up**. Open `http://<unraid-ip>/` once `app` shows healthy.
 
-2. **Configure Nginx Proxy Manager**
-   - Add proxy host
-   - Enable SSL with Let's Encrypt
-   - Forward to `novarr-nginx:80`
-
-3. **Rebuild Config Cache**
-   ```bash
-   make cache-rebuild
-   ```
-
-### SSL Certificate Setup
-
-#### With Nginx Proxy Manager
-
-1. Add new Proxy Host
-2. Go to SSL tab
-3. Select "Request a new SSL Certificate"
-4. Enable "Force SSL"
-5. Check "HTTP/2 Support"
-
-#### With Let's Encrypt (Direct)
+## Install over SSH
 
 ```bash
-# Install certbot on Unraid
-docker run -it --rm \
-  -v /mnt/user/appdata/novarr/certs:/etc/letsencrypt \
-  certbot/certbot certonly --standalone \
-  -d novarr.yourdomain.com
+mkdir -p /mnt/user/appdata/novarr && cd /mnt/user/appdata/novarr
+curl -O https://raw.githubusercontent.com/RaihaX/novarr/master/docker-compose.oneclick.yml
+printf 'DB_PASSWORD=%s\nMYSQL_ROOT_PASSWORD=%s\n' "$(openssl rand -hex 16)" "$(openssl rand -hex 16)" > .env
+chmod 600 .env
+nano docker-compose.oneclick.yml        # APP_URL, APP_TIMEZONE
+docker compose -f docker-compose.oneclick.yml up -d
 ```
 
-### Backup Configuration
+## Keeping data in appdata
 
-Add to Unraid's Appdata Backup schedule or create a custom script:
+By default the stack keeps its data in named Docker volumes (inside Unraid's Docker image/directory). To keep the library and backups in appdata instead, replace the `storage:` named volume with a bind mount in the `init`, `app` and `scheduler` services:
+
+```yaml
+    volumes:
+      - /mnt/user/appdata/novarr/storage:/var/www/html/storage
+```
+
+Create it owned by the image's `www-data` user (uid/gid 82) before the first start:
 
 ```bash
-#!/bin/bash
-# /mnt/user/scripts/backup-novarr.sh
-
-BACKUP_DIR="/mnt/user/backups/novarr/$(date +%Y%m%d)"
-mkdir -p "$BACKUP_DIR"
-
-cd /mnt/user/appdata/novarr
-make backup
-
-cp backups/*.sql "$BACKUP_DIR/"
-tar czf "$BACKUP_DIR/storage.tar.gz" storage/
-cp .env "$BACKUP_DIR/"
-
-echo "Backup completed: $BACKUP_DIR"
+mkdir -p /mnt/user/appdata/novarr/storage && chown -R 82:82 /mnt/user/appdata/novarr/storage
 ```
 
-## Updating Novarr
+The database stays in the `mysql` volume; it is captured by Novarr's own backups (below).
 
-### Zero-Downtime Updates
+## Reverse proxy and HTTPS
 
-Novarr uses blue-green deployment for seamless updates:
+HTTPS is needed to install Novarr as a PWA. Novarr has **no login**: put an authenticating proxy (Authelia, Authentik, …) in front of anything reachable from outside your LAN.
+
+- **Nginx Proxy Manager:** new Proxy Host → your domain → forward to `<unraid-ip>` port `80` (or the port you mapped) → enable SSL. Then set `APP_URL` to the `https://` origin and recreate the stack.
+- **SWAG:**
+  ```nginx
+  server {
+      listen 443 ssl;
+      server_name novarr.yourdomain.com;
+      location / {
+          proxy_pass http://<unraid-ip>:80;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+      }
+  }
+  ```
+- **Tailscale:** use `docker-compose.tailscale.yml` and turn on Serve from Settings → Tailscale.
+
+## Updating
+
+Back up, then pull and recreate (Compose Manager: **Update Stack**, which does the same):
 
 ```bash
 cd /mnt/user/appdata/novarr
-make update
+docker compose -f docker-compose.oneclick.yml exec scheduler php artisan backup:run
+docker compose -f docker-compose.oneclick.yml pull
+docker compose -f docker-compose.oneclick.yml up -d
+docker image prune -f
 ```
 
-This will:
-1. Pull latest code changes
-2. Build new Docker image
-3. Start new container (green if blue is active)
-4. Run health checks
-5. Switch traffic to new container
-6. Stop old container
+`init` applies new migrations before the app and scheduler start.
 
-### Monitoring Update Progress
+## Backups
+
+The scheduler runs `php artisan backup:run` every day at 03:45 (and `backup:clean` at 03:30): a zip with a dump of the database plus `storage/app` (ePubs, covers, the generated `.appkey`), kept as one a day for 7 days, one a week for 4 weeks and one a month for 3 months. Zips land in `storage/app/private/Novarr/` — in appdata if you bind-mounted storage as above. Failures go to the log and to the notification webhook (Settings).
+
+To put them on the array or another pool instead of the cache drive, mount a share over the backup folder in the `scheduler` service:
+
+```yaml
+  scheduler:
+    volumes:
+      - storage:/var/www/html/storage
+      - /mnt/user/backups/novarr:/var/www/html/storage/app/private/Novarr
+```
 
 ```bash
-# Watch deployment status
-make deployment-status
-
-# View logs during update
-make logs
+mkdir -p /mnt/user/backups/novarr && chown 82:82 /mnt/user/backups/novarr
 ```
 
-### Rollback if Needed
-
-If something goes wrong:
+Run one now / list them:
 
 ```bash
-make rollback
+docker compose -f docker-compose.oneclick.yml exec scheduler php artisan backup:run
+docker compose -f docker-compose.oneclick.yml exec scheduler php artisan backup:list
 ```
 
-This switches back to the previous container.
+The **Appdata Backup** plugin can additionally capture `/mnt/user/appdata/novarr/` (stop the stack during its run for a consistent copy). To restore, or to move to a new Unraid server, follow the Docker steps in the readme's [Backup and restore](readme.md#backup-and-restore) section.
 
-### Update Commands Reference
+## Monitoring
 
-| Command | Description |
-|---------|-------------|
-| `make update` | Standard zero-downtime update |
-| `make update-dry-run` | Preview changes |
-| `make update-force` | Skip confirmations |
-| `make rollback` | Revert to previous |
-| `make deployment-status` | Show current state |
-
-## Monitoring & Maintenance
-
-### Viewing Logs via Unraid Docker UI
-
-1. Go to **Docker** tab
-2. Click on container icon (e.g., `novarr-app-blue`)
-3. Select **Logs**
-
-### Using Make Commands
-
-```bash
-# All logs
-make logs
-
-# Specific service logs
-make logs-app
-make logs-mysql
-make logs-nginx
-make logs-scheduler
-make logs-worker
-```
-
-### Health Check Endpoints
-
-```bash
-# Check health
-make health
-
-# Or via curl
-curl http://your-unraid-ip/api/health
-curl http://your-unraid-ip/api/ping
-```
-
-### Disk Space Monitoring
-
-```bash
-# Check storage usage
-du -sh /mnt/user/appdata/novarr/storage/*
-
-# Check container volumes
-docker system df
-```
-
-### Queue Monitoring
-
-```bash
-# Check queue health
-make queue-health
-
-# View failed jobs
-make queue-failed
-
-# Retry failed jobs
-make queue-retry
-```
+- **Docker tab:** each container shows healthy/unhealthy. `app` probes `/api/health` (database, cache, storage); `scheduler` checks its once-a-minute heartbeat.
+- **Logs:** Laravel logs to stderr as well as `storage/logs/laravel-YYYY-MM-DD.log` (14 days), so the container log icon shows application errors.
+- **In the app:** the `/health` page shows the scheduler heartbeat, queue depth and failed jobs (with retry).
+- **User Scripts** health check with an Unraid notification:
+  ```bash
+  #!/bin/bash
+  if ! curl -fsS http://localhost/api/health > /dev/null; then
+      /usr/local/emhttp/webGui/scripts/notify -s "Novarr" -d "Health check failed" -i "warning"
+  fi
+  ```
 
 ## Troubleshooting
 
-### Common Unraid Issues
+#### Permission errors
 
-#### Permission Errors
+The containers write as uid 82. For bind-mounted storage: `chown -R 82:82 /mnt/user/appdata/novarr/storage`.
 
-**Symptom**: "Permission denied" errors in logs
+#### Port 80 is taken
 
-**Solution**:
-```bash
-# Fix permissions on host
-chmod -R 775 /mnt/user/appdata/novarr/storage
+Change the app's mapping, e.g. `"8080:8000"`, and use that port in `APP_URL` and your proxy.
 
-# Fix inside container
-docker exec novarr-app-blue chown -R www-data:www-data /var/www/html/storage
-```
-
-#### Port Conflicts
-
-**Symptom**: Container won't start, port already in use
-
-**Solution**:
-```bash
-# Find what's using port 80
-docker ps | grep ":80->"
-lsof -i :80
-
-# Change port in docker-compose.yml
-# nginx:
-#   ports:
-#     - "8080:80"  # Use 8080 instead
-```
-
-#### Container Keeps Restarting
-
-**Symptom**: Container status shows "Restarting"
-
-**Solution**:
-```bash
-# Check logs
-docker logs novarr-app-blue --tail 100
-
-# Check container health
-docker inspect novarr-app-blue | grep -A 10 Health
-```
-
-#### Appdata Path Issues
-
-**Symptom**: Data not persisting after restart
-
-**Solution**:
-Ensure docker-compose.yml uses absolute paths:
-```yaml
-volumes:
-  - /mnt/user/appdata/novarr/storage:/var/www/html/storage
-```
-
-### Docker Network Issues on Unraid
-
-**Symptom**: Containers can't communicate
-
-**Solution**:
-```bash
-# Recreate network
-docker network rm novarr_default
-docker-compose up -d
-```
-
-### Resolving Conflicts with Other Containers
-
-**Check for conflicts**:
-```bash
-# List all container networks
-docker network ls
-
-# Inspect network
-docker network inspect novarr_default
-```
-
-### Accessing Container Shell for Debugging
+#### A container keeps restarting or stays unhealthy
 
 ```bash
-# Interactive shell
-docker exec -it novarr-app-blue sh
-
-# Run commands directly
-docker exec novarr-app-blue php artisan tinker
+docker compose -f docker-compose.oneclick.yml logs --tail 100 app
+docker compose -f docker-compose.oneclick.yml exec scheduler php artisan queue:health-check
 ```
 
-## Advanced Configuration
+`init` failing means migrations failed: its log has the error, and the app will not start until it succeeds.
 
-### Scaling Queue Workers
+#### Appdata on the cache drive vanished after the mover ran
 
-For heavy workloads, scale workers:
+Set the `appdata` share to stay on the cache pool (Unraid 6.12: primary storage = cache, secondary = none), or use `/mnt/cache/appdata/novarr` paths directly.
 
-```bash
-# Scale to 3 workers
-docker-compose up -d --scale worker=3
-```
+## Performance
 
-Or modify docker-compose.yml:
-```yaml
-worker:
-  deploy:
-    replicas: 3
-```
+- Keep `appdata` (and Docker's image/directory) on an SSD cache pool.
+- Optional limits per container: Docker Compose Manager honours `mem_limit` / `cpus` in the compose file, e.g. `mem_limit: 2g` on `app`.
 
-### Using Supervisor Variant
+## Security
 
-For resource-constrained systems, use the single-container supervisor variant:
+- Keep MySQL and Redis unpublished (the stack does not publish them).
+- Set real `DB_PASSWORD` / `MYSQL_ROOT_PASSWORD` before the first start.
+- No built-in authentication: LAN, Tailscale, or an authenticating proxy only.
+- Update regularly (see [Updating](#updating)).
 
-```bash
-make up-supervisor
-```
+## Quick reference
 
-This runs Octane, workers, and scheduler in one container.
-
-### Custom Unraid User Scripts
-
-Create automation scripts at `/mnt/user/scripts/`:
-
-**Daily Backup Script**:
-```bash
-#!/bin/bash
-# /mnt/user/scripts/novarr-daily-backup.sh
-
-cd /mnt/user/appdata/novarr
-make backup
-```
-
-Add to User Scripts plugin for scheduled execution.
-
-**Health Check Script**:
-```bash
-#!/bin/bash
-# /mnt/user/scripts/novarr-health-check.sh
-
-HEALTH=$(curl -s http://localhost/api/health | grep -o '"status":"[^"]*"')
-
-if [[ "$HEALTH" != *"healthy"* ]]; then
-    echo "Novarr health check failed!"
-    # Add notification command here
-fi
-```
-
-### Integration with Unraid Notifications
-
-Add to your scripts:
-```bash
-# Send Unraid notification
-/usr/local/emhttp/webGui/scripts/notify \
-    -s "Novarr" \
-    -d "Deployment completed successfully" \
-    -i "normal"
-```
-
-## Backup & Disaster Recovery
-
-### Using Unraid's Appdata Backup Plugin
-
-1. Install "Appdata Backup" from Community Applications
-2. Configure backup schedule
-3. Include `/mnt/user/appdata/novarr/` in backup set
-
-### Manual Backup Procedures
-
-```bash
-cd /mnt/user/appdata/novarr
-
-# Full backup
-make backup
-
-# Database only
-docker exec novarr-mysql mysqldump -u root -p$DB_ROOT_PASSWORD novarr > backup.sql
-
-# Storage only
-tar czf storage-backup.tar.gz storage/
-```
-
-### Restoring from Backup
-
-```bash
-# Restore database
-docker exec -i novarr-mysql mysql -u root -p$DB_ROOT_PASSWORD novarr < backup.sql
-
-# Restore storage
-tar xzf storage-backup.tar.gz -C .
-
-# Fix permissions
-docker exec novarr-app-blue chown -R www-data:www-data /var/www/html/storage
-```
-
-### Migrating to a New Unraid Server
-
-1. **Backup on old server**:
-   ```bash
-   cd /mnt/user/appdata/novarr
-   ./scripts/migrate-from-dev.sh
-   ```
-
-2. **Copy to new server**:
-   ```bash
-   rsync -avz /mnt/user/appdata/novarr/ root@new-server:/mnt/user/appdata/novarr/
-   ```
-
-3. **Deploy on new server**:
-   ```bash
-   cd /mnt/user/appdata/novarr
-   ./docker-deploy.sh --migrate
-   ```
-
-## Performance Optimization
-
-### Recommended Unraid Share Settings
-
-For `/mnt/user/appdata/novarr/`:
-- **Use cache**: Yes (Prefer)
-- **Share floor**: 0
-- **Split level**: Automatic
-
-### Cache Drive Configuration
-
-Store appdata on cache for better performance:
-```
-/mnt/cache/appdata/novarr/
-```
-
-Symlink if needed:
-```bash
-ln -s /mnt/cache/appdata/novarr /mnt/user/appdata/novarr
-```
-
-### Docker Image Storage Location
-
-Store Docker images on cache:
-- Settings > Docker > Docker storage location
-- Use: `/mnt/cache/docker.img`
-
-### Resource Limits and Allocation
-
-In docker-compose.yml:
-```yaml
-services:
-  app-blue:
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          memory: 512M
-```
-
-Or via Unraid Docker UI:
-- Edit container
-- Set CPU and memory limits
-
-## Security Best Practices
-
-### Securing the Admin Panel
-
-1. **Use strong passwords**
-2. **Enable 2FA** (if supported)
-3. **Restrict access** via reverse proxy authentication
-
-### Using Authelia or Authentik for SSO
-
-Configure your reverse proxy with Authelia:
-
-```nginx
-# In Nginx Proxy Manager advanced config
-location / {
-    auth_request /authelia;
-    # ... rest of config
-}
-```
-
-### Firewall Rules
-
-Only expose necessary ports:
-- 80/443 for web access
-- Block 3306, 6379, 8000 from external access
-
-### Regular Security Updates
-
-```bash
-# Update containers
-make update
-
-# Update base images
-docker-compose pull
-docker-compose up -d
-```
-
----
-
-## Quick Reference
-
-### Essential Commands
-
-| Task | Command |
-|------|---------|
-| Deploy | `make deploy` |
-| Update | `make update` |
-| Logs | `make logs` |
-| Status | `make ps` |
-| Shell | `make shell` |
-| Backup | `make backup` |
-| Health | `make health` |
-
-### Important Paths
-
-| Path | Purpose |
-|------|---------|
-| `/mnt/user/appdata/novarr/` | Application root |
-| `/mnt/user/appdata/novarr/storage/` | Novels and uploads |
-| `/mnt/user/appdata/novarr/.env` | Configuration |
-| `/mnt/user/appdata/novarr/migrate/` | Migration files |
-
-### Useful URLs
+| Task | Command (from `/mnt/user/appdata/novarr`, with `-f docker-compose.oneclick.yml`) |
+|---|---|
+| Start / stop | `docker compose up -d` / `docker compose down` |
+| Update | `docker compose pull && docker compose up -d` |
+| Logs | `docker compose logs -f app` |
+| Shell | `docker compose exec app sh` |
+| Artisan | `docker compose exec app php artisan <command>` |
+| Backup now | `docker compose exec scheduler php artisan backup:run` |
+| Health | `curl http://localhost/api/health` |
 
 | URL | Purpose |
-|-----|---------|
-| `http://ip/` | Web interface |
-| `http://ip/admin` | Admin panel |
-| `http://ip/api/health` | Health check |
-| `http://ip/api/ping` | Liveness probe |
-
----
-
-For more detailed documentation, see:
-- [DOCKER.md](DOCKER.md) - Complete Docker deployment guide
-- [VOYAGER.md](VOYAGER.md) - Admin panel documentation
+|---|---|
+| `http://<ip>/` | Novarr |
+| `http://<ip>/health` | System health page |
+| `http://<ip>/api/health` | Health JSON (503 when unhealthy) |
+| `http://<ip>/api/ping` | Liveness probe |
