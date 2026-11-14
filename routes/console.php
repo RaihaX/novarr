@@ -70,41 +70,85 @@ Schedule::call(fn() => cache()->put(
 // minute and it exits as soon as the queue is empty. withoutOverlapping
 // prevents pile-up while a long command (e.g. a full chapter scrape) runs;
 // the mutex expires just past the worker's 60-minute job timeout.
+//
+// The long-running tasks run in the background so one of them can't hold up
+// the other tasks due in the same minute (schedule:run runs foreground tasks
+// one after another).
 Schedule::command('queue:work --queue=commands,default --stop-when-empty --timeout=3600')
     ->everyMinute()
     ->name('drain_queue')
-    ->withoutOverlapping(65);
+    ->withoutOverlapping(65)
+    ->runInBackground();
 
 // Refresh the table of contents for all active (non-complete) novels once a day.
-$oneServer(Schedule::command('novel:toc')
+$dailyToc = Schedule::command('novel:toc')
     ->dailyAt('01:00')
     ->name('daily_toc_check')
-    ->withoutOverlapping(90));
+    ->withoutOverlapping(90)
+    ->runInBackground();
+$oneServer($dailyToc);
 
 // Novels flagged "check hourly" (frequent_toc) get their TOC re-checked every
 // hour so actively-updating series surface new chapters quickly. The 01:00
-// full sweep already covers that hour.
+// full sweep already covers that hour. The two have different mutexes, so
+// the hourly run also skips while the daily one still holds its mutex (a
+// long daily run can outlast the 00:30–01:30 window).
 $oneServer(Schedule::command('novel:toc --frequent-only')
     ->hourly()
     ->unlessBetween('00:30', '01:30')
+    ->skip(fn() => $dailyToc->mutex->exists($dailyToc))
     ->name('frequent_toc_check')
-    ->withoutOverlapping(90));
+    ->withoutOverlapping(90)
+    ->runInBackground());
 
 // Download any pending chapters found by the TOC check.
 $oneServer(Schedule::command('novel:chapter')
     ->everyTenMinutes()
     ->name('download_new_chapters')
-    ->withoutOverlapping(150));
+    ->withoutOverlapping(150)
+    ->runInBackground());
 
 // Verify novels against NovelUpdates and mark fully-downloaded completed series.
 Schedule::command('novel:verify-completion')
     ->dailyAt('06:00')
     ->name('verify_novel_completion')
-    ->withoutOverlapping();
+    ->withoutOverlapping(120);
 
 // Email a summary of the last 24 hours of downloads and completions.
 // Send time is configurable from Settings (falls back to 08:00).
 Schedule::command('novel:email-summary')
     ->dailyAt(setting('summary_time', '08:00'))
     ->name('email_chapter_summary')
-    ->withoutOverlapping();
+    ->withoutOverlapping(30);
+
+// Backups (config/backup.php): database dump + storage/app, zipped to the
+// BACKUP_DISK disk. Clean first so the run never counts against a full disk.
+// The package sends no notifications itself; a failed run is logged (the
+// command also report()s the exception) and posted to the notification
+// webhook, when one is set.
+$backupFailed = fn (string $task) => function () use ($task) {
+    \Illuminate\Support\Facades\Log::error("Scheduled {$task} failed; see the log above for the cause.");
+    notify_webhook("Novarr: scheduled {$task} failed. Check storage/logs on the server.");
+};
+
+$oneServer(Schedule::command('backup:clean')
+    ->dailyAt('03:30')
+    ->name('backup_clean')
+    ->withoutOverlapping(120)
+    ->runInBackground()
+    ->onFailure($backupFailed('backup:clean')));
+
+$oneServer(Schedule::command('backup:run')
+    ->dailyAt('03:45')
+    ->name('backup_run')
+    ->withoutOverlapping(120)
+    ->runInBackground()
+    ->onFailure($backupFailed('backup:run')));
+
+// Self-heal cover thumbnails (covers/sm, covers/md): generates any that are
+// missing, e.g. after a restore or a cover written by an older release.
+Schedule::command('covers:thumbs')
+    ->dailyAt('04:15')
+    ->name('cover_thumbnails')
+    ->withoutOverlapping(30)
+    ->runInBackground();

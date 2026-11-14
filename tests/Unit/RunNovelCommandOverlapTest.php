@@ -60,4 +60,40 @@ class RunNovelCommandOverlapTest extends TestCase
         $this->assertGreaterThan($timeout, config('queue.connections.database.retry_after'));
         $this->assertGreaterThan($timeout, config('queue.connections.redis.retry_after'));
     }
+
+    /** A job killed at its timeout never reaches the command's finally: failed() frees the novel lock. */
+    public function testFailedReleasesTheNovelLockOfANovelScrape()
+    {
+        foreach (['novel:chapter', 'novel:toc'] as $command) {
+            $held = \App\Console\Commands\ChapterScraper::novelLock(5);
+            $this->assertTrue($held->get());
+
+            (new RunNovelCommand($command, ['novel' => 5], 'job-timeout'))
+                ->failed(new \Illuminate\Queue\TimeoutExceededException('timed out'));
+
+            $again = \App\Console\Commands\ChapterScraper::novelLock(5);
+            $this->assertTrue($again->get(), "{$command}: lock released");
+            $again->release();
+            $this->assertFalse(Cache::get('command_result_job-timeout')['success']);
+        }
+    }
+
+    /** Commands that never take the novel lock leave it alone. */
+    public function testFailedLeavesTheNovelLockAloneForOtherCommands()
+    {
+        $held = \App\Console\Commands\ChapterScraper::novelLock(5);
+        $this->assertTrue($held->get());
+
+        foreach ([
+            ['novel:metadata', ['novel' => 5]],
+            ['novel:chapter', ['--chapter' => 5]],
+            ['novel:chapter', ['novel' => 0]],
+            ['novel:info', ['name' => 'x']],
+        ] as [$command, $params]) {
+            (new RunNovelCommand($command, $params, 'job-other'))->failed(new \RuntimeException('x'));
+            $this->assertFalse(\App\Console\Commands\ChapterScraper::novelLock(5)->get(), "{$command} left the lock held");
+        }
+
+        $held->release();
+    }
 }

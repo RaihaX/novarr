@@ -114,6 +114,14 @@ class NormalizeChapterLabels extends Command
             $this->removeDuplicateChapters($novelId, $dryRun);
         }
 
+        // Labels changed outside a TOC run: the next run must do a full sync
+        // rather than trust the unchanged-TOC fingerprint.
+        if (!$dryRun) {
+            Novel::query()
+                ->when($novelId !== 0, fn($q) => $q->whereKey($novelId))
+                ->update(['toc_fingerprint' => null]);
+        }
+
         return 0;
     }
 

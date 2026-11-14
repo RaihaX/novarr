@@ -4,7 +4,6 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 
-use App\File;
 use App\Novel;
 
 class CreateNovel extends Command
@@ -110,11 +109,7 @@ class CreateNovel extends Command
             $downloaded = downloadCoverImage($imageUrl, $object->id);
 
             if ($downloaded) {
-                $file_object = new File([
-                    "file_name" => $downloaded["basename"],
-                    "file_path" => "public/" . $downloaded["filename"],
-                ]);
-                $object->file()->save($file_object);
+                $object->attachCover($downloaded["filename"], $downloaded["basename"]);
                 $this->info("  Cover saved: {$downloaded['filename']}");
                 break;
             }

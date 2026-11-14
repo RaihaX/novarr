@@ -4,7 +4,6 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 
-use App\File;
 use App\Novel;
 
 class UpdateMetadata extends Command
@@ -15,7 +14,11 @@ class UpdateMetadata extends Command
      * @var string
      */
     protected $signature = "novel:metadata {novel?}
-        {--novelupdates-url= : Force this NovelUpdates series URL for the novel (match score 1.0; requires a novel ID)}";
+        {--novelupdates-url= : Force this NovelUpdates series URL for the novel (match score 1.0; requires a novel ID)}
+        {--all : Include completed novels (default without a novel ID: active novels only)}";
+
+    /** Seconds between novels in a multi-novel run (each one hits the network). */
+    public const DELAY_SECONDS = 2;
 
     /**
      * The console command description.
@@ -61,6 +64,8 @@ class UpdateMetadata extends Command
             $target->forceFill([
                 "novelupdates_url" => rtrim($forced, "/") . "/",
                 "novelupdates_match_score" => 1.0,
+                // A forced URL supersedes any remembered "no match".
+                "novelupdates_checked_at" => null,
             ])->saveQuietly();
             $this->info("NovelUpdates URL set to {$target->novelupdates_url} (score 1.0)");
         }
@@ -68,9 +73,18 @@ class UpdateMetadata extends Command
         $query = Novel::with("file");
         if ($novelId) {
             $query->where("id", $novelId);
+        } elseif (!$this->option("all")) {
+            $query->where("status", 0);
         }
 
+        $previousFetched = false;
         foreach ($query->get() as $item) {
+            // Be gentle with the sources (and NovelUpdates) across a long run.
+            if ($previousFetched) {
+                $this->pause(self::DELAY_SECONDS);
+            }
+            $previousFetched = false;
+
             $this->info($item->name);
 
             // Detect invalid/missing cover on disk; drop the stale File record so fallback runs.
@@ -92,6 +106,7 @@ class UpdateMetadata extends Command
 
             $source = \App\Sources\SourceResolver::for($item);
             $this->line("  Source: {$source->name()}");
+            $previousFetched = true; // every source's metadata() fetches its novel page or API
             $metadata = $source->metadata($item);
             $coverCandidates = $metadata["cover_candidates"] ?? array_filter([$metadata["image"] ?? null]);
             $this->reportFetch($metadata);
@@ -107,6 +122,11 @@ class UpdateMetadata extends Command
             }
 
             if (!empty($metadata["author"])) {
+                // No novelupdates_checked_at reset here: on a weak slug match
+                // the NovelUpdates and source authors alternate between runs,
+                // and a reset on every change made the weekly lookup run
+                // every other run. A human edit (NovelController) or
+                // --novelupdates-url clears the stamp instead.
                 $novel->author = $metadata["author"];
             }
 
@@ -130,11 +150,7 @@ class UpdateMetadata extends Command
                     $downloaded = downloadCoverImage($imageUrl, $novel->id);
 
                     if ($downloaded) {
-                        $file_object = new File([
-                            "file_name" => $downloaded["basename"],
-                            "file_path" => "public/" . $downloaded["filename"],
-                        ]);
-                        $novel->file()->save($file_object);
+                        $novel->attachCover($downloaded["filename"], $downloaded["basename"]);
                         $this->info("  Cover saved: {$downloaded['filename']}");
                         $saved = true;
                         break;
@@ -148,6 +164,12 @@ class UpdateMetadata extends Command
                 }
             }
         }
+    }
+
+    /** Wait between novels; overridden in tests. */
+    protected function pause(int $seconds): void
+    {
+        sleep($seconds);
     }
 
     /**
