@@ -178,6 +178,31 @@ class NovelPageRedesignTest extends TestCase
             ->assertSee('<span class="nv-progress-pct">20%</span>', false);
     }
 
+    public function test_mark_all_read_accepts_the_request_the_page_sends(): void
+    {
+        $novel = $this->novel('Mark All Novel');
+        $this->chapter($novel, 1);
+        $this->chapter($novel, 2);
+
+        // The page used to send anchor_id: null with scope=all, which the
+        // validator rejected (422), so "Mark all chapters read" did nothing.
+        foreach ([['anchor_id' => null], []] as $extra) {
+            NovelChapter::where('novel_id', $novel->id)->update(['read_at' => null]);
+            $this->postJson(route('chapters.bulk_read'), ['read' => true, 'scope' => 'all', 'novel_id' => $novel->id] + $extra)
+                ->assertOk()
+                ->assertJson(['success' => true, 'count' => 2]);
+            $this->assertSame(2, NovelChapter::where('novel_id', $novel->id)->whereNotNull('read_at')->count());
+        }
+
+        $this->postJson(route('chapters.bulk_read'), ['read' => false, 'scope' => 'all', 'novel_id' => $novel->id, 'anchor_id' => null])
+            ->assertOk();
+        $this->assertSame(0, NovelChapter::where('novel_id', $novel->id)->whereNotNull('read_at')->count());
+
+        // An anchored scope still needs its anchor.
+        $this->postJson(route('chapters.bulk_read'), ['read' => true, 'scope' => 'up_to', 'novel_id' => $novel->id, 'anchor_id' => null])
+            ->assertStatus(422);
+    }
+
     public function test_jump_link_points_at_the_list_page_holding_the_next_chapter(): void
     {
         $novel = $this->novel();

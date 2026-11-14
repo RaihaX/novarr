@@ -228,8 +228,9 @@ class NovelChapterController extends Controller
             'scope' => 'nullable|in:ids,all,up_to,from',
             'ids' => 'required_if:scope,ids|required_without:scope|array',
             'ids.*' => 'integer',
-            'novel_id' => 'required_if:scope,all|integer',
-            'anchor_id' => 'required_if:scope,up_to,from|integer',
+            'novel_id' => 'nullable|required_if:scope,all|integer',
+            // nullable: the page sends anchor_id: null for scope=all.
+            'anchor_id' => 'nullable|required_if:scope,up_to,from|integer',
         ]);
         $recordedAt = $this->recordedAt($request);
 

@@ -404,7 +404,10 @@ class ChapterList {
         }
 
         try {
-            const data = await this.post({ read, scope, novel_id: this.novelId, anchor_id: anchorId });
+            // Only send the anchor when there is one.
+            const body = { read, scope, novel_id: this.novelId };
+            if (anchorId !== null) body.anchor_id = anchorId;
+            const data = await this.post(body);
             if (!data.success) {
                 showToast(data.message || 'Failed to update chapters.', 'danger');
                 return;
