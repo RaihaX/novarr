@@ -209,7 +209,10 @@ class UiP2Test extends TestCase
         $html = $this->get(route('novels.index'))->assertOk()->getContent();
 
         $this->assertMatchesRegularExpression('#href="' . preg_quote(route('novels.index'), '#') . '">Library</a>#', $html);
-        $this->assertStringContainsString('>Downloads</a>', $html);
+        // Offline copies are "Offline" in the nav; "Downloads" is what the
+        // scraper does (Activity). Same route and URL as before.
+        $this->assertMatchesRegularExpression('#href="' . preg_quote(route('library'), '#') . '" title="[^"]*">Offline</a>#', $html);
+        $this->assertStringNotContainsString('>Downloads</a>', $html);
         $this->assertMatchesRegularExpression('#href="' . preg_quote(route('bookmarks.index'), '#') . '">Highlights</a>#', $html);
         $this->assertStringContainsString('<title>Library · ', $html);
         $this->assertSame('/library', parse_url(route('library'), PHP_URL_PATH));
@@ -217,6 +220,54 @@ class UiP2Test extends TestCase
 
         $this->get(route('bookmarks.index'))->assertOk()->assertSee('<title>Highlights · ', false);
         $this->get(route('library'))->assertOk()->assertSee('<title>Downloads · ', false);
+    }
+
+    public function test_offline_copies_are_called_offline_in_the_tab_bar_and_palette(): void
+    {
+        $html = $this->get(route('stats.index'))->assertOk()->getContent();
+
+        // Tab bar "More" sheet.
+        $this->assertMatchesRegularExpression('#href="' . preg_quote(route('library'), '#') . '" class="nv-sheet-item[^"]*" data-sheet-close\s*>.*?<span>Offline</span>#s', $html);
+        // Command palette entry (JSON payload).
+        preg_match('#<script type="application/json" id="paletteNav">(.*?)</script>#s', $html, $m);
+        $nav = collect(json_decode($m[1], true)['nav']);
+        $this->assertSame(route('library'), $nav->firstWhere('title', 'Offline')['url']);
+        $this->assertNull($nav->firstWhere('title', 'Downloads'));
+        $this->assertStringContainsString('data-icon="wifi-off"', $html);
+    }
+
+    public function test_stats_zeros_are_muted_not_amber(): void
+    {
+        $html = $this->get(route('stats.index'))->assertOk()->getContent();
+        $this->assertStringNotContainsString('value-amber', $html);
+        $this->assertSame(4, substr_count($html, 'class="dash-stat-value text-muted"'));
+
+        $novel = $this->novel();
+        $c = $this->chapter($novel, 1);
+        $c->read_at = now();
+        $c->save();
+        \Illuminate\Support\Facades\Cache::flush();
+
+        $html = $this->get(route('stats.index'))->assertOk()->getContent();
+        $this->assertMatchesRegularExpression('#class="dash-stat-value value-amber">1</div>\s*<div class="dash-stat-label">Chapters today#', $html);
+    }
+
+    public function test_pending_chapter_kicker_has_no_dangling_separator(): void
+    {
+        $novel = $this->novel();
+        $this->chapter($novel, 1);
+        $pending = $this->chapter($novel, 2, false);
+
+        $html = $this->get(route('chapters.show', $pending->id))->assertOk()->getContent();
+        preg_match('#<p class="reader-kicker">(.*?)</p>#s', $html, $kicker);
+        $this->assertNotEmpty($kicker);
+        $this->assertStringContainsString('Pending', $kicker[1]);
+        $this->assertStringNotContainsString('data-mins', $kicker[1]);
+        $this->assertMatchesRegularExpression('#Pending</span>\s*$#', $kicker[1]);
+
+        // A downloaded chapter still gets its minutes-left slot.
+        $done = NovelChapter::where('novel_id', $novel->id)->where('chapter', 1)->first();
+        $this->get(route('chapters.show', $done->id))->assertSee('data-mins', false);
     }
 
     public function test_system_pages_show_a_breadcrumb_and_mark_the_active_child(): void
@@ -248,7 +299,8 @@ class UiP2Test extends TestCase
         $this->get(route('home'))
             ->assertOk()
             ->assertSee('id="attentionSummary"', false)
-            ->assertSee('1 novel</strong> needs attention', false)
+            ->assertSee('Needs attention')
+            ->assertSee('1 novel needs attention')
             ->assertSee(route('health.index') . '#attentionPanel', false)
             ->assertDontSee('id="attentionPanel"', false);
 

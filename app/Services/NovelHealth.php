@@ -200,12 +200,14 @@ class NovelHealth
      * matching chapter of every novel first (150-550 ms on production).
      *
      * $perNovel adds the filters, columns and ORDER BY to a builder already
-     * scoped to one novel (soft-delete scope included). The grammar wraps
+     * scoped to one novel (soft-delete scope included); it also receives that
+     * novel's id, so members may differ per novel (Home's "Start" vs
+     * "Continue" targets share one statement this way). The grammar wraps
      * each member so its ORDER BY/LIMIT stays its own: `(select ...)` on
      * MySQL/MariaDB, `select * from (select ...)` on SQLite.
      *
      * @param  int[]  $novelIds
-     * @param  \Closure(\Illuminate\Database\Eloquent\Builder): mixed  $perNovel
+     * @param  \Closure(\Illuminate\Database\Eloquent\Builder, int): mixed  $perNovel
      * @return \Illuminate\Support\Collection<int, NovelChapter>  keyed by novel_id
      */
     public static function firstPerNovel(array $novelIds, \Closure $perNovel)
@@ -217,7 +219,7 @@ class NovelHealth
 
         $member = function (int $novelId) use ($perNovel) {
             $query = NovelChapter::where('novel_id', $novelId);
-            $perNovel($query);
+            $perNovel($query, $novelId);
 
             return $query->limit(1);
         };

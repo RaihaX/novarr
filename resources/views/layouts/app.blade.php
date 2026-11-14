@@ -70,6 +70,11 @@
                 <span class="brand-wordmark">NOVARR<span class="brand-dot">.</span></span>
                 <span class="visually-hidden">Novarr home</span>
             </a>
+            {{-- Phones only (the tab-bar layout): a page may put one short
+                 status line at the right of the bar (Home: today · queued). --}}
+            @hasSection('nav-status')
+                <div class="navbar-status">@yield('nav-status')</div>
+            @endif
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Menu">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -82,7 +87,7 @@
                         <a class="nav-link {{ request()->routeIs('novels.*') ? 'active' : '' }}" @if(request()->routeIs('novels.*')) aria-current="page" @endif href="{{ route('novels.index') }}">Library</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('library') ? 'active' : '' }}" @if(request()->routeIs('library')) aria-current="page" @endif href="{{ route('library') }}" title="Novels saved on this device for offline reading">Downloads</a>
+                        <a class="nav-link {{ request()->routeIs('library') ? 'active' : '' }}" @if(request()->routeIs('library')) aria-current="page" @endif href="{{ route('library') }}" title="Novels saved on this device for offline reading">Offline</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('stats.*') ? 'active' : '' }}" @if(request()->routeIs('stats.*')) aria-current="page" @endif href="{{ route('stats.index') }}">Stats</a>

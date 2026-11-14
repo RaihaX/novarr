@@ -10,7 +10,7 @@
     $tabLibrary = request()->routeIs('novels.*') && !$tabDiscover;
     $tabSearch = request()->routeIs('search.*');
     $moreLinks = [
-        ['route' => 'library', 'match' => 'library', 'label' => 'Downloads', 'icon' => 'download', 'meta' => 'Offline'],
+        ['route' => 'library', 'match' => 'library', 'label' => 'Offline', 'icon' => 'wifi-off', 'meta' => 'Saved on this device'],
         ['route' => 'bookmarks.index', 'match' => 'bookmarks.*', 'label' => 'Highlights', 'icon' => 'highlighter'],
         ['route' => 'stats.index', 'match' => 'stats.*', 'label' => 'Stats', 'icon' => 'chart-column'],
     ];
