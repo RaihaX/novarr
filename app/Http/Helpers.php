@@ -552,10 +552,13 @@ function chapterGenerator($data, ?string &$failureReason = null)
             \Log::info("ChapterGenerator: Novel Arrow API failed for {$novelUrl} ({$apiFailure}); trying the page fetch");
         }
 
-        // Fetch page using headless browser (bypasses Cloudflare)
+        // Fetch the page: a plain request with the host's cached Cloudflare
+        // clearance when there is one, else FlareSolverr (see Fetcher::page()).
         $fetcher = app(\App\Scraping\Fetcher::class);
         $fetchReason = null;
-        $html = $fetcher->html($novelUrl, $fetchReason);
+        $fetchVia = null;
+        $html = $fetcher->page($novelUrl, $fetchReason, $fetchVia);
+        \Log::debug("ChapterGenerator fetched {$novelUrl} via " . ($fetchVia ?? 'unknown') . ($html === null ? ' (failed)' : ''));
 
         if ($html === null) {
             \Log::warning("ChapterGenerator failed to fetch URL: {$novelUrl} (" . ($fetchReason ?? 'unknown') . ")");
@@ -576,10 +579,39 @@ function chapterGenerator($data, ?string &$failureReason = null)
             return [];
         }
 
-        $result = \App\Scraping\ContentExtractor::make()->extractMultiPage($html, $source, $novelUrl, $fetcher);
+        $extract = function (string $page) use ($source, $novelUrl, $fetcher, $data): array {
+            $paragraphs = \App\Scraping\ContentExtractor::make()->extractMultiPage($page, $source, $novelUrl, $fetcher);
+            $paragraphs = array_filter($paragraphs, "strlen");
 
-        $result = array_filter($result, "strlen");
-        $result = stripLeadingChapterTitle(array_values($result), $data->chapter ?? null, $data->label ?? null);
+            return stripLeadingChapterTitle(array_values($paragraphs), $data->chapter ?? null, $data->label ?? null);
+        };
+
+        $result = $extract($html);
+
+        // A plain (cached-clearance) fetch that parses to nothing or to a
+        // thin page may have been served something other than the real
+        // chapter. Retry this one chapter once through FlareSolverr (a
+        // second request to the host for the same chapter) before reporting
+        // it; if that yields a complete chapter, the plain path was being
+        // fed different content, so the host's clearance is dropped.
+        if ($fetchVia === 'plain' && !chapterParagraphsLookComplete($result)) {
+            \Log::info("ChapterGenerator: plain fetch of {$novelUrl} gave " . (count($result) === 0 ? 'no' : 'short') . " content; retrying once via FlareSolverr");
+            $retryReason = null;
+            $retryHtml = $fetcher->html($novelUrl, $retryReason);
+            if ($retryHtml !== null && !\App\Scraping\Fetcher::isCloudflareChallenge($retryHtml)) {
+                $retryResult = $extract($retryHtml);
+                if (chapterParagraphsLookComplete($retryResult)) {
+                    \Log::warning("ChapterGenerator: FlareSolverr served a complete {$novelUrl} where the plain fetch did not; forgetting the host's clearance");
+                    $fetcher->forgetClearance($novelUrl);
+                }
+                if (count($retryResult) > 0) {
+                    $html = $retryHtml;
+                    $result = $retryResult;
+                }
+            } else {
+                \Log::info("ChapterGenerator: FlareSolverr retry of {$novelUrl} failed (" . ($retryReason ?? 'cloudflare') . "); keeping the plain result");
+            }
+        }
 
         // Fetched fine, parsed to nothing: the chapter body is empty on the
         // source or the layout changed. Anything non-empty is left for the
@@ -1411,28 +1443,40 @@ function empireNovelToc(string $novelUrl, ?callable $knownUrls = null): array
     $result = [];
     $fetcher = app(\App\Scraping\Fetcher::class);
 
-    // Page 1 via FlareSolverr to clear Cloudflare and grab the clearance
-    // cookie, which lets the remaining pages be fetched with a plain (fast)
-    // client — ~0.4s each vs ~7s through the headless browser.
-    $session = $fetcher->htmlWithSession($novelUrl . "?page=1");
+    // Page 1 with the host's shared clearance (plain, when a cached entry
+    // still gets us in) or via FlareSolverr to clear Cloudflare and grab the
+    // clearance cookie, which lets the remaining pages be fetched with a
+    // plain (fast) client — ~0.4s each vs ~7s through the headless browser.
+    // A solve writes the clearance back to the shared store.
+    $session = $fetcher->sessionPage($novelUrl . "?page=1");
     if (empty($session['html'])) {
         \Log::error("empireNovelToc: could not fetch {$novelUrl}");
         return [];
     }
     $firstHtml = $session['html'];
-    $useCookie = !empty($session['cf_clearance']) && !empty($session['user_agent']);
 
     // Fetch a page: plain client with the clearance cookie, falling back to
     // FlareSolverr if that fails (cookie expired / not available).
-    $fetchPage = function (int $page) use ($novelUrl, $session, $useCookie, $fetcher) {
+    $fetchPage = function (int $page) use ($novelUrl, &$session, $fetcher) {
         $url = $novelUrl . "?page=" . $page;
-        if ($useCookie) {
-            $html = $fetcher->plain($url, ['User-Agent' => $session['user_agent']], ['cf_clearance' => $session['cf_clearance']]);
+        if (!empty($session['cf_clearance']) && !empty($session['user_agent'])) {
+            $status = null;
+            $html = $fetcher->plain($url, ['User-Agent' => $session['user_agent']], ['cf_clearance' => $session['cf_clearance']], $status);
             if ($html !== null) {
                 return $html;
             }
+            if ($status === 403 || $status === 503) {
+                $fetcher->forgetClearance($url); // refused: no longer a valid clearance
+            }
         }
-        return $fetcher->html($url);
+        $html = $fetcher->html($url);
+        // html() refreshes the shared clearance when its solve carried a
+        // cf_clearance cookie: pick it up so later pages go plain again.
+        if ($html !== null && ($fresh = $fetcher->clearance($url)) !== null) {
+            $session['cf_clearance'] = $fresh['cookies']['cf_clearance'];
+            $session['user_agent'] = $fresh['user_agent'];
+        }
+        return $html;
     };
 
     // Highest ?page=N in the pagination is the last page.
@@ -1659,7 +1703,9 @@ function novelFullToc(string $novelUrl): array
     $scheme = parse_url($novelUrl, PHP_URL_SCHEME) ?: 'https';
     $origin = "{$scheme}://{$host}";
 
-    $session = app(\App\Scraping\Fetcher::class)->htmlWithSession($novelUrl);
+    // Shared clearance first (plain), else a FlareSolverr solve that
+    // refreshes it; the session's cookie is reused for the AJAX call.
+    $session = app(\App\Scraping\Fetcher::class)->sessionPage($novelUrl);
     if (empty($session['html'])) {
         \Log::error("novelFullToc: could not fetch {$novelUrl}");
         return [];

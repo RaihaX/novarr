@@ -63,6 +63,15 @@ class Fetcher
      */
     private static array $retryAfter = [];
 
+    /** Cache key prefix of the per-host clearance store (see clearance()). */
+    public const CLEARANCE_CACHE_PREFIX = 'novarr:clearance:';
+
+    /**
+     * Cookies kept in a clearance entry and sent on the plain request: the
+     * same set the TOC helpers have always sent (just cf_clearance).
+     */
+    public const CLEARANCE_COOKIES = ['cf_clearance'];
+
     /**
      * Fetch page HTML through FlareSolverr (bypasses Cloudflare).
      *
@@ -77,8 +86,247 @@ class Fetcher
     public function html(string $url, ?string &$reason = null, ?string $waitForSelector = null, int $maxAttempts = 3): ?string
     {
         $solution = $this->solve($url, $reason, $maxAttempts);
+        if ($solution === null) {
+            return null;
+        }
+        $this->rememberSolution($url, $solution);
 
-        return $solution === null ? null : $solution['response'];
+        return $solution['response'];
+    }
+
+    /**
+     * A page, as cheaply as the host allows: a plain GET carrying the host's
+     * cached Cloudflare clearance (~0.4 s) when there is one, else (or when
+     * that is refused) html() through FlareSolverr (~7 s), whose solve
+     * stores/refreshes the clearance for the next page.
+     *
+     * Plain answer handling:
+     *   200 with real content    -> returned ($via 'plain')
+     *   404                      -> null, reason 'http_404', no fallback, entry kept
+     *   429                      -> null, reason 'rate_limited' (Retry-After recorded
+     *                               by plain()), no fallback, entry kept
+     *   anything else (403, 503, a challenge body, empty body, transport
+     *   error, other statuses)   -> entry forgotten, FlareSolverr fallback
+     *
+     * With novarr.clearance_minutes = 0 this is exactly html().
+     * $via reports which path produced the result: 'plain' or 'flaresolverr'.
+     */
+    public function page(string $url, ?string &$reason = null, ?string &$via = null): ?string
+    {
+        $reason = null;
+        $via = null;
+
+        $entry = $this->clearance($url);
+        if ($entry !== null) {
+            $plain = $this->plainWithClearance($url, $entry);
+            if (!$plain['fallback']) {
+                $via = 'plain';
+                $reason = $plain['reason'];
+                return $plain['html'];
+            }
+        }
+
+        $via = 'flaresolverr';
+
+        return $this->html($url, $reason);
+    }
+
+    /**
+     * htmlWithSession() through the clearance store: with a cached entry for
+     * the host, the page is tried plain first and the entry's cookie and
+     * user agent are handed back as the session; otherwise (or when the
+     * plain request is refused, as for page()) a FlareSolverr solve, which
+     * refreshes the entry. Same return shape as htmlWithSession(). With
+     * novarr.clearance_minutes = 0 this is exactly htmlWithSession().
+     *
+     * @return array{html: ?string, cf_clearance: ?string, user_agent: ?string}
+     */
+    public function sessionPage(string $url, ?string &$reason = null, ?string &$via = null): array
+    {
+        $reason = null;
+        $via = null;
+
+        $entry = $this->clearance($url);
+        if ($entry !== null) {
+            $plain = $this->plainWithClearance($url, $entry);
+            if (!$plain['fallback']) {
+                $via = 'plain';
+                $reason = $plain['reason'];
+                if ($plain['html'] === null) {
+                    return ['html' => null, 'cf_clearance' => null, 'user_agent' => null];
+                }
+
+                return [
+                    'html' => $plain['html'],
+                    'cf_clearance' => $entry['cookies']['cf_clearance'] ?? null,
+                    'user_agent' => $entry['user_agent'],
+                ];
+            }
+        }
+
+        $via = 'flaresolverr';
+
+        return $this->htmlWithSession($url, $reason);
+    }
+
+    /**
+     * The cached clearance for the URL's host (or a bare host), or null when
+     * there is none, it expired, or the feature is off.
+     *
+     * Cloudflare ties cf_clearance to the user agent AND the client IP it
+     * was issued to. The plain request therefore sends exactly the stored
+     * user agent, and the whole scheme only works while FlareSolverr and
+     * Novarr reach the site from the same public IP. If they ever leave from
+     * different IPs, every plain request is refused (403/challenge), the
+     * entry is forgotten and the FlareSolverr fallback serves the page:
+     * correct, just one wasted ~0.4 s request per page.
+     *
+     * @return array{cookies: array<string,string>, user_agent: string}|null
+     */
+    public function clearance(string $urlOrHost): ?array
+    {
+        $key = $this->clearanceKey($urlOrHost);
+        if ($key === null) {
+            return null;
+        }
+
+        try {
+            $entry = \Cache::get($key);
+        } catch (\Throwable $e) {
+            \Log::debug("Fetcher: clearance cache read failed: " . $e->getMessage());
+            return null;
+        }
+
+        if (!is_array($entry) || empty($entry['cookies']['cf_clearance']) || empty($entry['user_agent'])) {
+            return null;
+        }
+
+        return ['cookies' => (array) $entry['cookies'], 'user_agent' => (string) $entry['user_agent']];
+    }
+
+    /**
+     * Store (replace) the host's clearance for novarr.clearance_minutes.
+     * Nothing is stored without a cf_clearance cookie and a user agent, or
+     * when the feature is off.
+     *
+     * @param array<string,string> $cookies name => value (only CLEARANCE_COOKIES are kept)
+     */
+    public function rememberClearance(string $urlOrHost, array $cookies, ?string $userAgent): void
+    {
+        $key = $this->clearanceKey($urlOrHost);
+        $cookies = array_intersect_key($cookies, array_flip(self::CLEARANCE_COOKIES));
+        if ($key === null || empty($cookies['cf_clearance']) || $userAgent === null || $userAgent === '') {
+            return;
+        }
+
+        try {
+            \Cache::put($key, ['cookies' => $cookies, 'user_agent' => $userAgent], now()->addMinutes($this->clearanceMinutes()));
+        } catch (\Throwable $e) {
+            \Log::debug("Fetcher: clearance cache write failed: " . $e->getMessage());
+        }
+    }
+
+    /** Drop the host's clearance (the next page() goes through FlareSolverr). */
+    public function forgetClearance(string $urlOrHost): void
+    {
+        $key = $this->clearanceKey($urlOrHost);
+        if ($key === null) {
+            return;
+        }
+
+        try {
+            \Cache::forget($key);
+        } catch (\Throwable $e) {
+            \Log::debug("Fetcher: clearance cache forget failed: " . $e->getMessage());
+        }
+    }
+
+    /** Minutes a clearance entry lives; 0 turns the whole store off. */
+    public function clearanceMinutes(): int
+    {
+        return max(0, (int) config('novarr.clearance_minutes', 25));
+    }
+
+    /**
+     * One plain GET with a clearance entry, judged for page()/sessionPage().
+     * 'fallback' true means the entry has been forgotten and FlareSolverr
+     * should serve the page; otherwise html/reason are the final answer.
+     *
+     * @param array{cookies: array<string,string>, user_agent: string} $entry
+     * @return array{html: ?string, reason: ?string, fallback: bool}
+     */
+    private function plainWithClearance(string $url, array $entry): array
+    {
+        $status = null;
+        // Same headers the TOC helpers' plain path has always sent: the
+        // client's DEFAULT_HEADERS with the clearance's own User-Agent, plus
+        // the Cookie header.
+        $body = $this->plain($url, ['User-Agent' => $entry['user_agent']], $entry['cookies'], $status);
+
+        if ($body !== null && !self::isCloudflareChallenge($body)) {
+            return ['html' => $body, 'reason' => null, 'fallback' => false];
+        }
+        if ($status === 404) {
+            // Exactly what FlareSolverr would report for the same page.
+            return ['html' => null, 'reason' => 'http_404', 'fallback' => false];
+        }
+        if ($status === 429) {
+            // The host asked us to slow down: plain() has recorded its
+            // Retry-After; going round through FlareSolverr would ignore it.
+            return ['html' => null, 'reason' => 'rate_limited', 'fallback' => false];
+        }
+
+        // 403 / 503 / challenge body / empty body / transport error / other:
+        // the clearance no longer gets us in. A 503 here is a Cloudflare
+        // refusal, not a rate limit: drop the Retry-After plain() recorded
+        // for it so it can't leak into a later rate-limited answer.
+        $what = $body !== null ? 'a challenge page' : ($status === 200 ? 'an empty body' : (string) ($status ?? 'no response'));
+        \Log::debug("Fetcher: plain request with clearance got {$what} for {$url}; forgetting the clearance, using FlareSolverr");
+        if ($status === 503) {
+            self::recordRetryAfter($url, null);
+        }
+        $this->forgetClearance($url);
+
+        return ['html' => null, 'reason' => null, 'fallback' => true];
+    }
+
+    /** Store the clearance a FlareSolverr solve carried (if any) for the URL's host. */
+    private function rememberSolution(string $url, array $solution): void
+    {
+        if ($this->clearanceMinutes() <= 0) {
+            return;
+        }
+
+        $cookies = [];
+        foreach ($solution['cookies'] ?? [] as $cookie) {
+            $name = $cookie['name'] ?? null;
+            if (is_string($name) && in_array($name, self::CLEARANCE_COOKIES, true) && isset($cookie['value'])) {
+                $cookies[$name] = (string) $cookie['value'];
+            }
+        }
+
+        // No cf_clearance: the site isn't challenging right now. Store
+        // nothing (an existing entry is left to expire or be refused).
+        if (empty($cookies['cf_clearance'])) {
+            return;
+        }
+
+        $this->rememberClearance($url, $cookies, is_string($solution['userAgent'] ?? null) ? $solution['userAgent'] : null);
+    }
+
+    /** Cache key for the URL's (or bare host's) clearance; null when off or host-less. */
+    private function clearanceKey(string $urlOrHost): ?string
+    {
+        if ($this->clearanceMinutes() <= 0) {
+            return null;
+        }
+
+        $host = str_contains($urlOrHost, '://') ? parse_url($urlOrHost, PHP_URL_HOST) : $urlOrHost;
+        if (!is_string($host) || $host === '') {
+            return null;
+        }
+
+        return self::CLEARANCE_CACHE_PREFIX . strtolower($host);
     }
 
     /**
@@ -95,6 +343,7 @@ class Fetcher
         if ($solution === null) {
             return ['html' => null, 'cf_clearance' => null, 'user_agent' => null];
         }
+        $this->rememberSolution($url, $solution);
 
         $cf = null;
         foreach ($solution['cookies'] ?? [] as $cookie) {
