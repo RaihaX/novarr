@@ -27,10 +27,11 @@ class NovelArrowSource extends AbstractSource
 {
     /**
      * Merge precedence (see MetadataMerger): NovelUpdates first; the site
-     * fills description/author/chapter count/cover/genres only when
-     * NovelUpdates lacks one of cover/description/author/chapter count, and
-     * the status when NovelUpdates has none. The site is fetched only when
-     * one of those is needed.
+     * fills description/author/chapter count/cover only when NovelUpdates
+     * lacks one of cover/description/author/chapter count, its genres
+     * whenever NovelUpdates has none (like the other adapters), and the
+     * status when NovelUpdates has none. The site is fetched only when one
+     * of those is needed.
      */
     public const METADATA_PRECEDENCE = [
         'fetch' => ['novelupdates', 'site'],
@@ -45,6 +46,9 @@ class NovelArrowSource extends AbstractSource
             'image' => 'novelupdates',
             'genres' => 'novelupdates',
         ],
+        // NovelUpdates genres win; the site's fill in when it has none,
+        // whatever the gate says about the other fields.
+        'ungated' => ['genres'],
         'status' => ['mode' => 'fill', 'prefer' => 'novelupdates'],
         'covers' => ['novelupdates', 'site'],
     ];
@@ -212,7 +216,7 @@ class NovelArrowSource extends AbstractSource
         if ($slug = $this->coverSlug($novel)) {
             $metadata['cover_candidates'][] = self::coverUrlFor($slug);
         }
-        $metadata['cover_candidates'] = array_values(array_unique($metadata['cover_candidates']));
+        $metadata['cover_candidates'] = MetadataMerger::uniqueCovers($metadata['cover_candidates']);
 
         return $metadata;
     }
