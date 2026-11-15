@@ -156,6 +156,13 @@ return [
     ],
 
     /*
+    | The KOReader plugin folder the server offers for "update over Wi-Fi"
+    | (GET /api/v1/koreader/plugin). Missing folder = the endpoints answer
+    | 404 and the plugin says this server doesn't offer updates.
+    */
+    'koreader_plugin_path' => env('NOVARR_KOREADER_PLUGIN_PATH', base_path('koreader/novarr.koplugin')),
+
+    /*
     | Random politeness delay (milliseconds, [min, max]) before each chapter
     | fetch in chapterGenerator(). Tests set it to [0, 0].
     */

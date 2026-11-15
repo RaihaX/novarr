@@ -144,7 +144,32 @@ through Novarr is the way that stays up to date and in sync.
 
 Server address, how many chapters to save ahead while reading, remove chapters after
 reading, mark a chapter read at its end, show reading info in the status bar, show the
-clock while reading, show covers, how much space Novarr uses, and the plugin version.
+clock while reading, show covers, how much space Novarr uses, whether to check for
+plugin updates by itself, and the plugin version.
+
+### Updating the plugin over Wi-Fi
+
+Your Novarr server carries the latest plugin, so after the first install you don't
+need the USB cable again. In Novarr ▸ **Settings**, tap the last row,
+**Novarr plugin 1.1.0 — check for update**. Novarr asks the server and either says
+"Novarr is up to date" or shows the new version with **Install update**. A window shows
+the download ("Downloading update… 12 of 27") with a Cancel button. When it is done,
+choose **Restart now** (or **Later**: the new version is used the next time KOReader
+starts).
+
+The update is safe to interrupt: it is downloaded next to the plugin and checked file by
+file first, and the plugin is only replaced once everything has arrived intact. If
+anything goes wrong (Wi-Fi drops, the server has a problem, you tap Cancel) you see "Nothing
+was changed" and the plugin you have keeps working.
+
+Novarr also looks for an update by itself, at most once a day, when Home loads and the
+device is already on Wi-Fi (it never turns Wi-Fi on for this and never interrupts you).
+When there is one, Home's button reads **Settings •** and the last Settings row reads
+**Update available (1.2.0) — tap to install**. Switch this off with *Check for plugin
+updates automatically* in Settings.
+
+If the server says it "doesn't offer plugin updates", it is an older Novarr (update the
+server) or a setup without the plugin folder; copy the plugin over USB as in **Install**.
 
 ## Where things are kept, and removing everything
 
@@ -172,5 +197,7 @@ there too). To remove the plugin completely, delete `koreader/plugins/novarr.kop
 - **The status bar doesn't show the reading info**: the status bar may be switched
   off (Settings ▸ Status bar), or you tapped it over to another item: keep tapping the
   bottom of the page until the Novarr line comes round again.
+- **"linked from a development folder and can't update itself"**: the plugin folder on
+  the device is a link to another folder (a developer setup). Copy the real folder instead.
 - **KOReader's log**: on a Kindle it is `koreader/crash.log`. Novarr's lines start
   with `Novarr`.

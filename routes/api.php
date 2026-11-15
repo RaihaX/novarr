@@ -59,4 +59,8 @@ Route::prefix('v1')
         Route::get('/chapters/{id}', [ApiV1\ChapterController::class, 'show'])->whereNumber('id')->name('chapters.show');
         Route::post('/chapters/{id}/progress', [NovelChapterController::class, 'progress'])->whereNumber('id')->name('chapters.progress');
         Route::post('/chapters/{id}/read', [NovelChapterController::class, 'setRead'])->whereNumber('id')->name('chapters.read');
+
+        // The KOReader plugin's "update over Wi-Fi".
+        Route::get('/koreader/plugin', [ApiV1\KoreaderPluginController::class, 'manifest'])->name('koreader.plugin');
+        Route::get('/koreader/plugin/files/{path}', [ApiV1\KoreaderPluginController::class, 'file'])->where('path', '.*')->name('koreader.plugin.file');
     });

@@ -108,7 +108,9 @@ function Home:items()
     button(pending > 0 and T(_("Sync (%1)"), pending) or _("Sync"), function()
         s:syncNow(function() self:refresh(true) end)
     end)
-    button(_("Settings"), function() require("novarr.ui_settings").show(s) end)
+    -- A quiet dot when the daily check found a plugin update (no popup).
+    local update = require("novarr.ui_update").available(s)
+    button(update and _("Settings •") or _("Settings"), function() require("novarr.ui_settings").show(s) end)
     return items
 end
 
@@ -137,11 +139,32 @@ function Home:refresh(quiet)
             UI.info(s:errorText(e))
         end
         self:rebuild()
+        if not e then self:scheduleUpdateCheck() end
     end
     s:whenConnected(run, function()
         s.last_errors.novels = s.last_errors.novels or { time = Session.nowMs(), kind = "offline" }
         self:rebuild()
     end)
+end
+
+--[[--
+The quiet daily plugin update check, a few seconds after Home has loaded
+its data online (it never runs before the screen has painted, and the
+check itself never turns Wi-Fi on).
+]]
+function Home:scheduleUpdateCheck()
+    local s = self.session
+    if not self.update_task then
+        self.update_task = Session.wrap(function()
+            require("novarr.ui_update").autoCheck(s, function() s:refreshScreens() end)
+        end)
+    end
+    UIManager:unschedule(self.update_task)
+    UIManager:scheduleIn(3, self.update_task)
+end
+
+function Home:onClose()
+    if self.update_task then UIManager:unschedule(self.update_task) end
 end
 
 function Home.show(session)

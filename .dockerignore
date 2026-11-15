@@ -89,4 +89,7 @@ design_handoff_novarr_brand
 *.tmp
 *.temp
 ios
-koreader
+# The KOReader plugin folder is served by /api/v1/koreader/plugin (update
+# over Wi-Fi); the rest of koreader/ (tests, dist, docs) stays out.
+koreader/*
+!koreader/novarr.koplugin
