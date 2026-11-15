@@ -80,6 +80,12 @@ from the length of the chapters (about 250 words a minute) and, once you have fi
 three chapters, uses how long you actually take (pauses longer than 5 minutes and
 time asleep don't count). Both items can be switched off in Novarr's settings.
 
+When the device sleeps, the screen shows the cover of the novel you are reading, the
+way a Kindle does with its own books. The plugin gives each chapter the novel's cover
+and, the first time, switches KOReader's sleep screen from the "Sleeping" message to
+the book cover (this applies to your other books too). Turn it off with
+*Sleep screen shows the book cover* in Novarr ▸ Settings.
+
 The menu (tools tab ▸ Novarr) also has *Next chapter*, *Previous chapter*,
 *Chapter list* and *Novarr home* while you read a Novarr chapter.
 

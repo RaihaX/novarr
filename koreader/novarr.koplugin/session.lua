@@ -47,6 +47,8 @@ local DEFAULTS = {
     show_reading_info = true,
     show_clock = true,
     show_covers = true,
+    open_on_start = true,
+    keep_style = true,
 }
 
 local function nowMs()
@@ -577,7 +579,75 @@ function Session:downloadChapter(chapter_id)
     return path, nil, ch
 end
 
+-- ---------------------------------------------------------------- reading style
+
+-- KOReader keeps font, size, margins, line spacing... per document. Novarr
+-- chapters are separate documents, so without help a change made in one
+-- chapter would be gone in the next. These settings are carried over.
+local STYLE_KEYS = {
+    font_face = true, hyph_alg = true, style_tweaks = true, embedded_css = true,
+    embedded_fonts = true, smooth_scaling = true, floating_punctuation = true,
+    hyph_trust_soft_hyphens = true, hyph_soft_hyphens_only = true,
+    hyph_force_algorithmic = true, nightmode_images = true,
+}
+
+local function isStyleKey(k)
+    return type(k) == "string" and (STYLE_KEYS[k] or k:sub(1, 5) == "copt_")
+end
+
+--- Remembers the look of the Novarr chapter open in the reader, if any.
+function Session:captureStyle()
+    if self:get("keep_style") == false then return end
+    local ReaderUI = require("apps/reader/readerui")
+    local inst = ReaderUI.instance
+    local file = inst and inst.document and inst.document.file
+    if not file or not inst.doc_settings then return end
+    local is_chapter = ChapterDoc.idsFromPath(file, self.root)
+    if not is_chapter then
+        local ok, real = pcall(function() return require("ffi/util").realpath(self.root) end)
+        is_chapter = ok and real and ChapterDoc.idsFromPath(file, real)
+    end
+    if not is_chapter then return end
+    -- Have the reader modules write their current values first.
+    if inst.saveSettings then pcall(inst.saveSettings, inst) end
+    local data = inst.doc_settings.data
+    if type(data) ~= "table" then return end
+    local style, n = {}, 0
+    for k, v in pairs(data) do
+        if isStyleKey(k) then
+            style[k] = v
+            n = n + 1
+        end
+    end
+    if n > 0 then self:set("reading_style", style) end
+end
+
+--- Gives a chapter that KOReader has not opened yet the remembered look.
+function Session:applyStyle(path)
+    if self:get("keep_style") == false then return end
+    local style = self:get("reading_style")
+    if type(style) ~= "table" or not next(style) then return end
+    local DocSettings = require("docsettings")
+    if DocSettings:hasSidecarFile(path) then return end
+    local ds = DocSettings:open(path)
+    for k, v in pairs(style) do
+        ds:saveSetting(k, v)
+    end
+    ds:flush()
+end
+
 function Session:openFile(path)
+    -- Two quick page turns at the end of a chapter ask for the next chapter
+    -- twice; a second document switch while the first is still under way
+    -- confuses KOReader ("ReaderUI instance mismatch"). The first one wins.
+    local now = nowMs()
+    if self.opening_path and self.opening_at and now - self.opening_at < 5000 then
+        log("Novarr: already opening a chapter, ignoring a second request")
+        return
+    end
+    self.opening_at = now
+    self:captureStyle()
+    self:applyStyle(path)
     self:closeAllMenus()
     -- Never let the clean-up of the closing chapter remove the one being opened.
     self.opening_path = path
@@ -873,6 +943,32 @@ function Session:covers()
         })
     end
     return self.cover_cache
+end
+
+--- Whether KOReader's sleep screen is set to the book cover.
+function Session:sleepCoverOn()
+    return G_reader_settings:readSetting("screensaver_type") == "cover"
+end
+
+--[[--
+Switches KOReader's sleep screen to the book cover (and hides the
+"Sleeping" message over it), or puts back what was set before.
+]]
+function Session:setSleepCover(on)
+    if on then
+        if not self:sleepCoverOn() then
+            self:set("sleep_prev_type", G_reader_settings:readSetting("screensaver_type") or "disable")
+            self:set("sleep_prev_message", G_reader_settings:isTrue("screensaver_show_message"))
+        end
+        G_reader_settings:saveSetting("screensaver_type", "cover")
+        G_reader_settings:makeFalse("screensaver_show_message")
+    else
+        G_reader_settings:saveSetting("screensaver_type", self:get("sleep_prev_type") or "disable")
+        if self:get("sleep_prev_message") ~= false then
+            G_reader_settings:makeTrue("screensaver_show_message")
+        end
+    end
+    if G_reader_settings.flush then pcall(G_reader_settings.flush, G_reader_settings) end
 end
 
 function Session:showCovers()

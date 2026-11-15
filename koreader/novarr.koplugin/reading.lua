@@ -127,8 +127,11 @@ function Reading.onReady(plugin)
     r.percent = Reading.currentPercent(plugin)
     r.dirty = false
     r.ready = true
+    r.ready_at = Session.nowMs()
     r.timer = ReadingInfo.newTimer(os.time())
     Session.guard(Reading.addFooter, plugin)
+    Session.guard(Reading.applyCover, plugin, false)
+    Session.guard(Reading.offerSleepCover, plugin)
     UIManager:unschedule(plugin.background_task)
     UIManager:scheduleIn(Reading.BACKGROUND_DELAY, plugin.background_task)
 end
@@ -153,6 +156,76 @@ function Reading.persist(plugin)
     Session:recordProgress(r.novel_id, r.chapter_id, r.percent)
     r.dirty = false
     r.last_saved = Session.nowMs()
+end
+
+-- ---------------------------------------------------------------- sleep screen cover
+
+--[[--
+Gives the open chapter the novel's cover as its KOReader "custom cover" (a
+cover.* file in the chapter's sidecar folder). KOReader's "book cover" sleep
+screen, its history and its file browser then show the novel's cover for
+what is otherwise a cover-less HTML file. Uses a cover already in the cache;
+with `fetch` it may download one (callers pass true only when connected).
+The file goes away with the chapter's sidecar when the chapter is removed.
+]]
+function Reading.applyCover(plugin, fetch)
+    local r = plugin.reading
+    if not r or r.cover_done then return end
+    local doc = plugin.ui and plugin.ui.document
+    local path = doc and doc.file
+    if not path then return end
+    local DocSettings = require("docsettings")
+    if not DocSettings.flushCustomCover or not DocSettings.findCustomCoverFile then
+        r.cover_done = true -- KOReader too old for custom covers
+        return
+    end
+    if DocSettings:findCustomCoverFile(path) then
+        r.cover_done = true
+        r.has_cover = true
+        return
+    end
+    local novel = Session:novelSummary(r.novel_id)
+    if not novel then return end
+    local urls = {}
+    if novel.cover_large_url then table.insert(urls, novel.cover_large_url) end
+    if novel.cover_url then table.insert(urls, novel.cover_url) end
+    if #urls == 0 then r.cover_done = true return end
+    local covers = Session:covers()
+    local image
+    for _i, url in ipairs(urls) do
+        image = covers:cached(url)
+        if image then break end
+    end
+    if not image and fetch then
+        for _i, url in ipairs(urls) do
+            image = covers:download(url)
+            if image then break end
+        end
+        r.cover_done = true -- one attempt per chapter
+    end
+    if not image then return end
+    DocSettings:flushCustomCover(path, image)
+    if plugin.ui.doc_settings and plugin.ui.doc_settings.getCustomCoverFile then
+        plugin.ui.doc_settings:getCustomCoverFile(true) -- reset its cache
+    end
+    r.cover_done = true
+    r.has_cover = true
+end
+
+--[[--
+The first time a Novarr chapter has a cover, switches KOReader's sleep
+screen to the book cover, as a Kindle does with its own books. Done once
+only, without asking (the user's request): after that the switch in
+Novarr ▸ Settings is the user's to leave on or turn off.
+]]
+function Reading.offerSleepCover(plugin)
+    local r = plugin.reading
+    if not r or not r.has_cover or Session:get("sleep_cover_asked") then return end
+    Session:set("sleep_cover_asked", true)
+    if not Session:sleepCoverOn() then
+        Session:setSleepCover(true)
+        logger.info("Novarr: sleep screen set to the book cover")
+    end
 end
 
 -- ---------------------------------------------------------------- status bar
@@ -283,6 +356,9 @@ function Reading.background(plugin)
     if not Session:isConnected() then return end
     local res = Session:quietFlush(20)
     if res and res.stalled then return end
+    -- The novel's cover for the sleep screen, if it was not cached yet.
+    Session.guard(Reading.applyCover, plugin, true)
+    Session.guard(Reading.offerSleepCover, plugin)
     r.prefetch = Reading.prefetchIds(r)
     if #r.prefetch > 0 then
         UIManager:scheduleIn(Reading.PREFETCH_STEP, plugin.prefetch_task)
@@ -377,6 +453,10 @@ on (also used at the end of a chapter).
 function Reading.goNext(plugin)
     local r = plugin.reading
     if not r then return end
+    -- A second request right behind the first (double page turn) is dropped.
+    local now = Session.nowMs()
+    if r.next_at and now - r.next_at < 1500 then return end
+    r.next_at = now
     local id, downloaded = Reading.neighbour(r, 1)
     local stored = id and Session.store:hasChapter(r.novel_id, id)
     local connected = Session:isConnected()
@@ -417,6 +497,10 @@ end
 function Reading.onEnd(plugin)
     local r = plugin.reading
     if not r then return end
+    -- A page turn that was meant for the previous chapter can arrive just
+    -- after this one opened; never let it skip (and mark read) a chapter
+    -- that has been on screen for a moment only.
+    if not r.ready or (r.ready_at and Session.nowMs() - r.ready_at < 1200) then return end
     if not r.ended then
         r.ended = true
         r.percent = 100
@@ -445,6 +529,7 @@ function Reading.onClose(plugin)
     if not r then return end
     Reading.unschedule(plugin)
     Session.guard(Reading.removeFooter, plugin)
+    Session.guard(function() Session:captureStyle() end)
     Reading.persist(plugin)
     Session.guard(function() Session:cleanupRead(r.novel_id, r.chapter_id) end)
     if not Session.switching and Session.opened_from_novarr then

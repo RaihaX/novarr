@@ -123,6 +123,16 @@ function Settings:items()
     toggle("show_reading_info", _("Show reading info in the status bar"))
     toggle("show_clock", _("Show clock while reading"))
     toggle("show_covers", _("Show covers"))
+    toggle("keep_style", _("Keep font and layout from chapter to chapter"))
+    toggle("open_on_start", _("Open Novarr when KOReader starts"))
+    table.insert(items, {
+        text = _("Sleep screen shows the book cover"),
+        mandatory = onOff(s:sleepCoverOn()),
+        callback = function()
+            s:setSleepCover(not s:sleepCoverOn())
+            self:rebuild()
+        end,
+    })
     table.insert(items, {
         text = _("Storage used"),
         mandatory = self.storage_text or _("tap to measure"),
