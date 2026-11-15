@@ -29,8 +29,10 @@ local Session = require("novarr.session")
 local Reading = {}
 
 Reading.SAVE_INTERVAL_MS = 30 * 1000
-Reading.BACKGROUND_DELAY = 3     -- seconds after the chapter opens
-Reading.PREFETCH_STEP = 1.5      -- seconds between two prefetched chapters
+Reading.BACKGROUND_DELAY = 3     -- seconds after the chapter opens (send pending writes)
+Reading.PREFETCH_START_MS = 6000 -- first prefetch not before this, after the chapter is ready
+Reading.PREFETCH_STEP = 3        -- seconds between two prefetched chapters
+Reading.PREFETCH_QUIET_MS = 1500 -- never fetch this soon after a page turn
 
 local function UI() return require("novarr.ui_common") end
 
@@ -65,6 +67,27 @@ function Reading.attach(plugin, novel_id, chapter_id)
                 return true
             end
             return original(st, ...)
+        end
+    end
+
+    -- Paging back on the first page opens the previous chapter at its end.
+    -- KOReader has no "start of book" event, so, like EndOfBook for the
+    -- forward direction, a backward GotoViewRel that does not move is caught
+    -- on this ReaderUI's own rolling/paging module instance.
+    for _i, mod in ipairs({ ui.rolling, ui.paging }) do
+        if mod and mod.onGotoViewRel then
+            local original = mod.onGotoViewRel
+            mod.onGotoViewRel = function(m, diff, ...)
+                if not plugin.reading or not diff or diff >= 0 then
+                    return original(m, diff, ...)
+                end
+                local before = Reading.position(plugin)
+                local res = original(m, diff, ...)
+                if before and before == Reading.position(plugin) then
+                    Session.guard(Reading.onStart, plugin)
+                end
+                return res
+            end
         end
     end
 
@@ -105,6 +128,20 @@ function Reading.currentPercent(plugin)
     return math.max(0, math.min(100, math.floor(frac * 100)))
 end
 
+--- Where the reader is (page in page mode, y position in scroll mode), for "did it move?".
+function Reading.position(plugin)
+    local ui = plugin.ui
+    local doc = ui and ui.document
+    if not doc then return nil end
+    if ui.rolling and ui.view and ui.view.view_mode == "scroll" and doc.getCurrentPos then
+        local ok, pos = pcall(doc.getCurrentPos, doc)
+        if ok then return "pos:" .. tostring(pos) end
+    end
+    local ok, page = pcall(ui.getCurrentPage, ui)
+    if ok and page then return "page:" .. tostring(page) end
+    return nil
+end
+
 --- Local/server progress known for the chapter before opening it.
 function Reading.knownProgress(r)
     local read, progress = Session:chapterState(r.novel_id, r.chapter_id)
@@ -118,15 +155,33 @@ function Reading.onReady(plugin)
     Session.return_to = nil
     Session.opening_path = nil
     local _read, progress = Reading.knownProgress(r)
-    -- A chapter is "part-read" while its progress is between 0 and 100 (the
-    -- server keeps a re-opened read chapter's position too).
-    if not r.had_position and progress and progress > 0 and progress < 100 then
+    if Session.open_at_end and Session.open_at_end == r.path then
+        -- Opened by paging back from the next chapter: show the last page,
+        -- whatever position KOReader had saved. Nothing is marked: progress
+        -- is reported again only once the user turns a page.
+        Session.open_at_end = nil
+        r.at_end_open = true
+        local doc = plugin.ui.document
+        local count = doc and doc.getPageCount and doc:getPageCount()
+        if plugin.ui.view and plugin.ui.view.view_mode == "page" and count then
+            plugin.ui:handleEvent(Event:new("GotoPage", count))
+        else
+            plugin.ui:handleEvent(Event:new("GotoPercent", 100))
+        end
+    elseif not r.had_position and progress and progress > 0 and progress < 100 then
+        -- A chapter is "part-read" while its progress is between 0 and 100 (the
+        -- server keeps a re-opened read chapter's position too).
         logger.info("Novarr: resuming chapter", r.chapter_id, "at", progress, "%")
         plugin.ui:handleEvent(Event:new("GotoPercent", progress))
     end
+    Session.open_at_end = nil
+    Session.leaving_path = nil
+    -- Keep KOReader's History to this chapter only.
+    Session.guard(function() Session:pruneHistory(r.path) end)
     r.percent = Reading.currentPercent(plugin)
     r.dirty = false
     r.ready = true
+    r.last_turn = nil
     r.ready_at = Session.nowMs()
     r.timer = ReadingInfo.newTimer(os.time())
     Session.guard(Reading.addFooter, plugin)
@@ -140,6 +195,7 @@ function Reading.onMove(plugin)
     local r = plugin.reading
     if not r or not r.ready then return end
     local p = Reading.currentPercent(plugin)
+    r.last_turn = Session.nowMs()
     if not p or p == r.percent then return end
     if r.timer then ReadingInfo.tick(r.timer, os.time()) end
     r.percent = p
@@ -248,6 +304,8 @@ function Reading.addFooter(plugin)
     if not footer or not footer.addAdditionalFooterContent then return end
     r.left = Session:novelEstimate(r.novel_id, r.chapter_id, 0)
     r.per_chapter = Session:secondsPerChapter(r.novel_id)
+    local cl = Session:chapterList(r.novel_id)
+    if cl then r.ordinal, r.ordinal_of = Model.ordinal(cl.list, r.chapter_id) end
     plugin.footer_func = function()
         local ok, text = pcall(Reading.footerText, plugin)
         return ok and text or nil
@@ -304,7 +362,34 @@ function Reading.footerText(plugin)
         end
     end
     local secs = ReadingInfo.secondsLeft(r.per_chapter, r.left, r.percent)
-    return ReadingInfo.footerText(clock, r.left, secs)
+    local parts = ReadingInfo.statusParts(clock, r.ordinal, r.ordinal_of, r.left, secs)
+    local measure, budget = Reading.footerMeasure(plugin)
+    return ReadingInfo.fitStatus(parts, measure, budget)
+end
+
+--[[--
+How wide the status line may be: the width ReaderFooter gives its text
+(screen minus the progress bar's minimum share when the bar is alongside),
+halved in "all items at once" mode where KOReader's own items share it.
+Returns measure(text) -> px and the budget, or nil when unknown.
+]]
+function Reading.footerMeasure(plugin)
+    local footer = footerOf(plugin)
+    if not footer or not footer.footer_text_face then return nil end
+    local Screen = require("device").screen
+    local width = footer._saved_screen_width or Screen:getWidth()
+    local st = footer.settings or {}
+    local budget = width - 2 * (footer.horizontal_margin or 0)
+    if not st.disable_progress_bar and st.progress_bar_position == "alongside" then
+        budget = width * (100 - (st.progress_bar_min_width_pct or 20)) / 100 - 2 * (footer.horizontal_margin or 0)
+    end
+    if st.all_at_once then budget = budget / 2 end
+    local RenderText = require("ui/rendertext")
+    local face = footer.footer_text_face
+    return function(text)
+        local ok, size = pcall(RenderText.sizeUtf8Text, RenderText, 0, Screen:getWidth(), face, text, true, false)
+        return ok and size and size.x or 0
+    end, budget
 end
 
 function Reading.pauseTimer(plugin)
@@ -365,10 +450,21 @@ function Reading.background(plugin)
     end
 end
 
+-- Seconds to wait before the next prefetch (0: go now). See Model.prefetchWait.
+function Reading.prefetchWait(r)
+    return Model.prefetchWait(Session.nowMs(), r.ready_at, r.last_turn, Reading.PREFETCH_START_MS, Reading.PREFETCH_QUIET_MS)
+end
+
 function Reading.prefetchStep(plugin)
     local r = plugin.reading
     if not r or not r.prefetch or #r.prefetch == 0 then return end
     if not Session:isConnected() then r.prefetch = nil return end
+    -- Keep page turns smooth: not right after opening, not right after a turn.
+    local wait = Reading.prefetchWait(r)
+    if wait > 0 then
+        UIManager:scheduleIn(wait + 0.1, plugin.prefetch_task)
+        return
+    end
     local free = Session:freeBytes()
     if free and free < Session.MIN_FREE_BYTES then r.prefetch = nil return end
     local id = table.remove(r.prefetch, 1)
@@ -468,28 +564,53 @@ function Reading.goNext(plugin)
         UI().info(_("The next chapter isn't saved on this device, and there's no network connection."))
         return
     end
-    local msg = _("You've reached the last downloaded chapter of this novel.")
-    if connected then
-        UI().confirm({
-            text = msg,
-            ok_text = _("Check for new chapters"),
-            cancel_text = _("Close"),
-            ok = function() Reading.checkNew(plugin) end,
+    -- Caught up with the newest downloaded chapter: a calm full-screen page.
+    local ok = pcall(function()
+        require("novarr.ui_caughtup").show(Session, {
+            novel_id = r.novel_id,
+            chapter_id = r.chapter_id,
+            connected = connected,
+            on_check = function() Reading.checkNew(plugin) end,
         })
-    else
-        UI().info(msg)
+    end)
+    if not ok then
+        UI().info(_("You've reached the last downloaded chapter of this novel."))
     end
 end
 
-function Reading.goPrev(plugin)
+function Reading.goPrev(plugin, opts)
+    opts = opts or {}
     local r = plugin.reading
     if not r then return end
     local id = Reading.neighbour(r, -1)
     if not id then
-        UI().info(_("This is the first chapter."), 2)
+        if not opts.quiet then UI().info(_("This is the first chapter."), 2) end
         return
     end
-    openLater(r.novel_id, id)
+    local stored = Session.store:hasChapter(r.novel_id, id)
+    if not stored and not Session:isConnected() then
+        UI().info(_("The previous chapter isn't saved on this device, and there's no network connection."))
+        return
+    end
+    UIManager:nextTick(Session.wrap(function()
+        Session:openChapter(r.novel_id, id, { from_reader = true, at_end = opts.at_end })
+    end))
+end
+
+--[[--
+Paging back on the first page of a chapter: open the previous chapter at
+its last page. Guarded like the forward direction: not in the first 1.2 s
+after the chapter became ready, and a second request within 1.5 s is
+dropped. The first chapter does nothing.
+]]
+function Reading.onStart(plugin)
+    local r = plugin.reading
+    if not r or not r.ready then return end
+    local now = Session.nowMs()
+    if r.ready_at and now - r.ready_at < 1200 then return end
+    if r.prev_at and now - r.prev_at < 1500 then return end
+    r.prev_at = now
+    Reading.goPrev(plugin, { at_end = true, quiet = true })
 end
 
 -- ---------------------------------------------------------------- end / close

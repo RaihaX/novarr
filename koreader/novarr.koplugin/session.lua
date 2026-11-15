@@ -40,7 +40,7 @@ local Session = {
 Session.VERSION = Api.VERSION
 
 local DEFAULTS = {
-    prefetch = 3,
+    prefetch = 20,
     remove_after_reading = true,
     keep_read = 2,
     mark_read_at_end = true,
@@ -80,7 +80,18 @@ function Session:init()
         now = nowMs,
         log = log,
     })
+    self:migrateSettings()
     self:rebuildApi()
+end
+
+-- The old default of 3 chapters ahead becomes 20, unless the user chose 3.
+function Session:migrateSettings()
+    if self.settings:readSetting("prefetch_migrated") then return end
+    if self.settings:readSetting("prefetch") == 3 and not self.settings:readSetting("prefetch_user_set") then
+        self.settings:delSetting("prefetch")
+    end
+    self.settings:saveSetting("prefetch_migrated", true)
+    self.settings:flush()
 end
 
 function Session:rebuildApi()
@@ -308,44 +319,46 @@ function Session:readDelta(novel_id)
 end
 
 --[[--
-Resume chapter for a novel, with the server's definition ("the next unread
-downloaded chapter after the last read one") applied to local reading the
-cached server data may not include yet: the further of the server's
-resume_chapter_id and the local candidate (the chapter after the furthest
-chapter this device marked read, or the furthest part-read one) wins.
-Marking a chapter unread never moves it.
+Resume chapter for a novel: the server's resume chapter combined with this
+device's own reading (see Model.resolveResume for the rule and its tests).
 ]]
 function Session:resumeChapter(novel_id, summary)
     summary = summary or self:novelSummary(novel_id) or {}
-    local resume = summary.resume_chapter_id
     local cl = self:chapterList(novel_id)
-    if not cl then return resume end
-    local read_pos, part_pos = 0, 0
-    for key, entry in pairs(self.store:getOverlay(novel_id)) do
-        local pos = cl.pos[tonumber(key)]
-        if pos then
-            if entry.read == true then
-                if pos > read_pos then read_pos = pos end
-            elseif entry.read == nil and entry.progress and entry.progress > 0 then
-                if pos > part_pos then part_pos = pos end
-            end
+    if not cl then return summary.resume_chapter_id end
+    return Model.resolveResume(cl.list, summary.resume_chapter_id, self.store:getOverlay(novel_id),
+        function(c) return (self:chapterState(novel_id, c.id)) end)
+end
+
+--- Time (ms) of this device's latest reading in a novel not yet in the server's data, or nil.
+function Session:localLastRead(novel_id)
+    local latest
+    for _k, e in pairs(self.store:getOverlay(novel_id)) do
+        if type(e) == "table" and (e.read == true or (e.progress or 0) > 0) and e.at then
+            if not latest or e.at > latest then latest = e.at end
         end
     end
-    local local_pos = part_pos
-    if read_pos > 0 then
-        for i = read_pos + 1, #cl.list do
-            local c = cl.list[i]
-            if c.downloaded and not self:chapterState(novel_id, c.id) then
-                if i > local_pos then local_pos = i end
-                break
-            end
-        end
+    return latest
+end
+
+--- Read count of a novel including this device's marks the server has not seen yet.
+function Session:readCount(novel)
+    local read = (tonumber(novel.chapters_read) or 0) + self:readDelta(novel.id)
+    local total = tonumber(novel.chapters_total) or 0
+    return math.max(0, math.min(read, total)), total
+end
+
+--[[--
+One tap on a novel (Home, Library): open its resume chapter straight away,
+or the Novel screen when there is nothing to resume.
+]]
+function Session:openNovel(novel_id)
+    local summary = self:novelSummary(novel_id) or { id = novel_id }
+    local action, chapter_id = Model.tapTarget(summary, self:resumeChapter(novel_id, summary))
+    if action == "open" then
+        return self:openChapter(novel_id, chapter_id)
     end
-    local server_pos = resume and cl.pos[resume] or 0
-    if local_pos > server_pos then return cl.list[local_pos].id end
-    if server_pos > 0 then return resume end
-    local idx = Model.resumeIndex(cl.list, nil, function(c) return (self:chapterState(novel_id, c.id)) end)
-    return cl.list[idx] and cl.list[idx].id or resume
+    self:showNovel(novel_id)
 end
 
 -- ---------------------------------------------------------------- estimates
@@ -454,8 +467,8 @@ function Session:syncNow(done)
     local function run()
         local closer = UI.loading(_("Syncing with Novarr…"))
         local r = self:flushQueue()
-        -- Pull fresh lists so the screens show the server's view.
-        self:fetchInto("home", function() return self.api:home() end, false)
+        -- Pull a fresh library so the screens show the server's view.
+        self:fetchInto("novels", function(etag) return self.api:novels(etag) end, true)
         closer()
         if r.remaining > 0 then
             UI.info(T(_("Couldn't send everything: %1 change(s) are still waiting.\n\n%2"), r.remaining, self:errorText(r.error)))
@@ -636,7 +649,14 @@ function Session:applyStyle(path)
     ds:flush()
 end
 
-function Session:openFile(path)
+--[[--
+Opens a document in the reader. opts.seamless: the chapter is already on
+the device, so switch without KOReader's "Opening file" box and with a
+partial refresh (ReaderUI's own `seamless` option; older versions ignore
+the extra argument). opts.at_end: show its last page (paging back).
+]]
+function Session:openFile(path, opts)
+    opts = opts or {}
     -- Two quick page turns at the end of a chapter ask for the next chapter
     -- twice; a second document switch while the first is still under way
     -- confuses KOReader ("ReaderUI instance mismatch"). The first one wins.
@@ -646,17 +666,20 @@ function Session:openFile(path)
         return
     end
     self.opening_at = now
+    self.open_at_end = opts.at_end and path or nil
     self:captureStyle()
     self:applyStyle(path)
     self:closeAllMenus()
     -- Never let the clean-up of the closing chapter remove the one being opened.
     self.opening_path = path
     local ReaderUI = require("apps/reader/readerui")
+    log(string.format("Novarr: opening %s%s", path:match("[^/]*$"), opts.seamless and " (seamless)" or ""))
     if ReaderUI.instance and ReaderUI.instance.document then
         self.switching = true
-        ReaderUI.instance:switchDocument(path)
+        self.leaving_path = ReaderUI.instance.document.file
+        ReaderUI.instance:switchDocument(path, opts.seamless and true or nil)
     else
-        ReaderUI:showReader(path)
+        ReaderUI:showReader(path, nil, opts.seamless and true or nil)
     end
 end
 
@@ -670,7 +693,7 @@ function Session:openChapter(novel_id, chapter_id, opts)
     local path = novel_id and self.store:chapterPath(novel_id, chapter_id)
     if path and lfs.attributes(path, "mode") == "file" then
         self.opened_from_novarr = true
-        self:openFile(path)
+        self:openFile(path, { seamless = opts.from_reader, at_end = opts.at_end })
         return true
     end
     local cl = novel_id and self:chapterList(novel_id)
@@ -685,7 +708,7 @@ function Session:openChapter(novel_id, chapter_id, opts)
         closer()
         if fetched then
             self.opened_from_novarr = true
-            self:openFile(fetched)
+            self:openFile(fetched, { seamless = opts.from_reader, at_end = opts.at_end })
         elseif why == "not_downloaded" then
             UI.info(self:notDownloadedText(row or ch))
         elseif why == "empty" then
@@ -722,6 +745,50 @@ local function purgeSidecar(path)
     end)
 end
 Session.purgeSidecar = purgeSidecar
+
+--- Whether a path is one of Novarr's chapter files.
+function Session:isChapterPath(path)
+    if type(path) ~= "string" then return false end
+    if ChapterDoc.idsFromPath(path, self.root) then return true end
+    if not self.real_root then
+        local ok, real = pcall(function() return require("ffi/util").realpath(self.root) end)
+        self.real_root = ok and real or self.root
+    end
+    return ChapterDoc.idsFromPath(path, self.real_root) ~= nil
+end
+
+--[[--
+Keeps KOReader's History free of Novarr chapters: removes every chapter
+entry except `keep` (the chapter being read, so History and "open last
+file" can still resume it). KOReader's `lastfile` setting is not touched.
+]]
+function Session:pruneHistory(keep)
+    local ok, ReadHistory = pcall(require, "readhistory")
+    if not ok or type(ReadHistory.hist) ~= "table" then return 0 end
+    -- History stores real paths.
+    local okr, realpath = pcall(function() return require("ffi/util").realpath end)
+    if keep and okr and realpath then keep = realpath(keep) or keep end
+    local paths = {}
+    for _i, item in ipairs(ReadHistory.hist) do
+        if type(item) == "table" and item.file then table.insert(paths, item.file) end
+    end
+    local prune = Model.historyToPrune(paths, keep, function(p) return self:isChapterPath(p) end)
+    if #prune == 0 then return 0 end
+    local drop = {}
+    for _i, p in ipairs(prune) do drop[p] = true end
+    -- Remove without flushing each time, then write the history once.
+    for i = #ReadHistory.hist, 1, -1 do
+        local item = ReadHistory.hist[i]
+        if item and drop[item.file] then
+            if not pcall(ReadHistory.removeItem, ReadHistory, item, i, true) then
+                table.remove(ReadHistory.hist, i)
+            end
+        end
+    end
+    if ReadHistory._flush then pcall(ReadHistory._flush, ReadHistory) end
+    log("Novarr: removed " .. #prune .. " chapter(s) from KOReader's history")
+    return #prune
+end
 
 function Session:currentPath()
     local ReaderUI = require("apps/reader/readerui")
@@ -959,13 +1026,30 @@ function Session:setSleepCover(on)
         if not self:sleepCoverOn() then
             self:set("sleep_prev_type", G_reader_settings:readSetting("screensaver_type") or "disable")
             self:set("sleep_prev_message", G_reader_settings:isTrue("screensaver_show_message"))
+            -- Remember the stretch settings exactly (a missing limit is "full stretch").
+            self:set("sleep_prev_stretch", G_reader_settings:isTrue("screensaver_stretch_images"))
+            self:set("sleep_prev_stretch_limit", G_reader_settings:readSetting("screensaver_stretch_limit_percentage") or false)
         end
         G_reader_settings:saveSetting("screensaver_type", "cover")
         G_reader_settings:makeFalse("screensaver_show_message")
+        -- Fill the screen like a Kindle: full stretch, no bars.
+        G_reader_settings:makeTrue("screensaver_stretch_images")
+        G_reader_settings:delSetting("screensaver_stretch_limit_percentage")
     else
         G_reader_settings:saveSetting("screensaver_type", self:get("sleep_prev_type") or "disable")
         if self:get("sleep_prev_message") ~= false then
             G_reader_settings:makeTrue("screensaver_show_message")
+        end
+        if self:get("sleep_prev_stretch") then
+            G_reader_settings:makeTrue("screensaver_stretch_images")
+        else
+            G_reader_settings:makeFalse("screensaver_stretch_images")
+        end
+        local limit = self:get("sleep_prev_stretch_limit")
+        if type(limit) == "number" then
+            G_reader_settings:saveSetting("screensaver_stretch_limit_percentage", limit)
+        else
+            G_reader_settings:delSetting("screensaver_stretch_limit_percentage")
         end
     end
     if G_reader_settings.flush then pcall(G_reader_settings.flush, G_reader_settings) end
@@ -984,7 +1068,9 @@ function Session:dumpState()
         local m = entry.menu
         local items = {}
         local indexes = {}
-        if m.pages then
+        if m.visible then
+            indexes = m.visible
+        elseif m.pages then
             indexes = m.pages[m.page] or {}
         else
             local perpage = m.perpage or 14
@@ -1032,6 +1118,14 @@ function Session:dumpState()
         local okf, footer = pcall(function() return require("novarr.reading").footerText(self.reader) end)
         reading = { novel_id = r.novel_id, chapter_id = r.chapter_id, percent = r.percent, ended = r.ended,
             footer_text = okf and footer or nil, chapters_left = r.left, seconds_per_chapter = r.per_chapter,
+            ordinal = r.ordinal, ordinal_of = r.ordinal_of, at_end_open = r.at_end_open,
+            page = (function()
+                local ReaderUI = require("apps/reader/readerui")
+                local inst = ReaderUI.instance
+                local ok, p = pcall(function() return inst:getCurrentPage() end)
+                local okc, c = pcall(function() return inst.document:getPageCount() end)
+                return ok and okc and (tostring(p) .. "/" .. tostring(c)) or nil
+            end)(),
             active_seconds = r.timer and r.timer.seconds or nil,
             timing_samples = Json.array(self.store:getTiming(r.novel_id)) }
     end
@@ -1041,6 +1135,7 @@ function Session:dumpState()
         simulate_offline = Api.simulate_offline,
         settings = {
             prefetch = self:get("prefetch"),
+            prefetch_migrated = self.settings:readSetting("prefetch_migrated"),
             remove_after_reading = self:get("remove_after_reading"),
             mark_read_at_end = self:get("mark_read_at_end"),
         },
@@ -1051,6 +1146,21 @@ function Session:dumpState()
         reading = reading,
         current_document = self:currentPath(),
         mem_log = self.mem_log and Json.array(self.mem_log) or nil,
+        history = (function()
+            local ok, RH = pcall(require, "readhistory")
+            local out = {}
+            if ok and type(RH.hist) == "table" then
+                for _i, item in ipairs(RH.hist) do table.insert(out, item.file) end
+            end
+            return Json.array(out)
+        end)(),
+        lastfile = G_reader_settings:readSetting("lastfile"),
+        screensaver = {
+            type = G_reader_settings:readSetting("screensaver_type"),
+            stretch = G_reader_settings:readSetting("screensaver_stretch_images"),
+            stretch_limit = G_reader_settings:readSetting("screensaver_stretch_limit_percentage"),
+            show_message = G_reader_settings:readSetting("screensaver_show_message"),
+        },
         current_title = (function()
             local ReaderUI = require("apps/reader/readerui")
             local inst = ReaderUI.instance

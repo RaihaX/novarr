@@ -14,7 +14,7 @@ local UI = require("novarr.ui_common")
 local Settings = {}
 Settings.__index = Settings
 
-local PREFETCH_CHOICES = { 0, 1, 3, 5, 10 }
+local PREFETCH_CHOICES = { 0, 3, 10, 20, 50 }
 
 local function onOff(v)
     return v and _("On") or _("Off")
@@ -102,6 +102,7 @@ function Settings:items()
                 if n == s:get("prefetch") then label = UI.MARK_READ .. " " .. label end
                 table.insert(buttons, { text = label, callback = function()
                     s:set("prefetch", n)
+                    s:set("prefetch_user_set", true)
                     self:rebuild()
                 end })
             end

@@ -1,6 +1,13 @@
 --[[--
-Novarr Home: Continue reading, New chapters, then Library, Downloads,
-Sync now and Settings. Opens instantly from the cached copy, then refreshes.
+Novarr Home: a Kindle-like shelf (see ui_shelf.lua). The novel being read
+as a large "hero" block, then a grid of covers (other novels in progress,
+most recent first; novels with new chapters; the rest of the library), and
+a row of buttons: Library · Downloads · Sync · Settings.
+
+One tap on a novel opens its resume chapter straight away; hold opens the
+Novel screen. Everything shown prefers this device's own reading (marks
+and positions not yet in the server's data) over the cached snapshot.
+Opens instantly from the cached library, then refreshes.
 ]]
 
 local UIManager = require("ui/uimanager")
@@ -15,71 +22,93 @@ local UI = require("novarr.ui_common")
 local Home = {}
 Home.__index = Home
 
-local function shortLabel(ref)
-    if ref and ref.chapter then
-        return T(_("Ch. %1"), ref.chapter)
+--- Lines under the hero's title: author, "Chapter N of M", "X chapters left · about Y".
+function Home:heroLines(novel, started)
+    local s = self.session
+    local lines = {}
+    if novel.author then table.insert(lines, novel.author) end
+    local cl = s:chapterList(novel.id)
+    local resume = s:resumeChapter(novel.id, novel)
+    if cl and resume then
+        local n, m = Model.ordinal(cl.list, resume)
+        if n then
+            local verb = started and _("Chapter %1 of %2") or _("Start reading: chapter %1 of %2")
+            table.insert(lines, T(verb, ReadingInfo.thousands(n), ReadingInfo.thousands(m)))
+        end
+    elseif not started then
+        table.insert(lines, _("Start reading"))
     end
-    return Model.chapterLabel(ref)
+    local left, secs = s:novelEstimate(novel.id)
+    if left and left > 0 then
+        local text = left == 1 and _("1 chapter left") or T(_("%1 chapters left"), ReadingInfo.thousands(left))
+        if secs then text = text .. " · " .. ReadingInfo.formatDurationLong(secs) end
+        table.insert(lines, text)
+    end
+    return lines
+end
+
+function Home:novelItem(novel, kind, started)
+    local s = self.session
+    local read, total = s:readCount(novel)
+    local item = {
+        kind = kind,
+        text = novel.name,
+        title = novel.name,
+        novel_id = novel.id,
+        url = novel.cover_url,
+        badge = tonumber(novel.chapters_new) or 0,
+        progress = total > 0 and read / total or 0,
+        callback = function() s:openNovel(novel.id) end,
+        hold_callback = function() s:showNovel(novel.id) end,
+    }
+    if kind == "hero" then
+        item.url = novel.cover_large_url or novel.cover_url
+        item.lines = self:heroLines(novel, started)
+        -- Text layout (covers off): one row with the chapter.
+        local resume = s:resumeChapter(novel.id, novel)
+        local cl = s:chapterList(novel.id)
+        local n = cl and resume and Model.ordinal(cl.list, resume)
+        item.mandatory = n and T(_("ch %1"), ReadingInfo.thousands(n)) or (started and "" or _("Start"))
+        item.bold = true
+    else
+        item.mandatory = string.format("%d/%d", read, total)
+        if item.badge > 0 then item.mandatory = UI.MARK_NEW .. " " .. item.mandatory end
+    end
+    return item
 end
 
 function Home:items()
     local s = self.session
-    local data, fetched_at = s:cached("home")
+    local data, fetched_at = s:cached("novels")
     local items = {}
-    if s.last_errors.home then
-        table.insert(items, UI.offlineRow(fetched_at))
+    if s.last_errors.novels then
+        table.insert(items, { kind = "note", text = _("Offline — showing saved data from") .. " " .. UI.timeText(fetched_at),
+            select_enabled = false, callback = function() end })
     end
-    if data then
-        if type(data.continue) == "table" and #data.continue > 0 then
-            table.insert(items, UI.headerRow(_("Continue reading")))
-            for _i, row in ipairs(data.continue) do
-                local novel, ref = row.novel, row.chapter
-                if novel and ref then
-                    local right = shortLabel(ref)
-                    -- Chapters left, when the novel's chapter list is saved.
-                    local left = s.store:cacheMeta("chapters_" .. novel.id) and s:novelEstimate(novel.id)
-                    if left then right = T(_("%1 · %2 left"), right, ReadingInfo.thousands(left)) end
-                    table.insert(items, {
-                        text = novel.name,
-                        mandatory = right,
-                        cover = self.cover_list and { url = novel.cover_url, name = novel.name,
-                            author = Model.chapterLabel(ref), info = left and T(_("%1 chapters left"), ReadingInfo.thousands(left)) or nil } or nil,
-                        callback = function() s:openChapter(novel.id, ref.id) end,
-                        hold_callback = function() s:showNovel(novel.id) end,
-                    })
-                end
-            end
-        end
-        if type(data.new_chapters) == "table" and #data.new_chapters > 0 then
-            table.insert(items, UI.headerRow(_("New chapters")))
-            for _i, row in ipairs(data.new_chapters) do
-                local novel, ref = row.novel, row.first_chapter
-                if novel and ref then
-                    table.insert(items, {
-                        text = novel.name,
-                        mandatory = T(_("+%1 new"), row.count or 0),
-                        callback = function() s:openChapter(novel.id, ref.id) end,
-                        hold_callback = function() s:showNovel(novel.id) end,
-                    })
-                end
-            end
-        end
-    elseif not s.last_errors.home then
-        table.insert(items, { text = _("Nothing saved yet: connect to load your library."), dim = true, callback = function() end })
+    local novels = data and data.novels or {}
+    local last_local = {}
+    for _i, n in ipairs(novels) do last_local[n.id] = s:localLastRead(n.id) end
+    local hero, started, rest = Model.shelfOrder(novels, last_local)
+    self.hero_id = hero and hero.id
+    if hero then
+        table.insert(items, self:novelItem(hero, "hero", started))
+    elseif not data then
+        table.insert(items, { kind = "row", text = _("Nothing saved yet: connect to load your library."),
+            dim = true, select_enabled = false, callback = function() end })
     end
-    if #items > 0 then
-        table.insert(items, UI.headerRow(_("Novarr")))
+    for _i, novel in ipairs(rest) do
+        table.insert(items, self:novelItem(novel, "cell"))
     end
-    table.insert(items, { text = _("Library"), callback = function() require("novarr.ui_library").show(s) end })
-    table.insert(items, { text = _("Downloads"), callback = function() require("novarr.ui_downloads").show(s) end })
+    local function button(text, cb)
+        table.insert(items, { kind = "button", text = text, callback = cb })
+    end
+    button(_("Library"), function() require("novarr.ui_library").show(s) end)
+    button(_("Downloads"), function() require("novarr.ui_downloads").show(s) end)
     local pending = s.queue:count()
-    table.insert(items, {
-        text = pending > 0 and T(_("Sync now (%1 pending)"), pending) or _("Sync now"),
-        callback = function()
-            s:syncNow(function() self:refresh(true) end)
-        end,
-    })
-    table.insert(items, { text = _("Settings"), callback = function() require("novarr.ui_settings").show(s) end })
+    button(pending > 0 and T(_("Sync (%1)"), pending) or _("Sync"), function()
+        s:syncNow(function() self:refresh(true) end)
+    end)
+    button(_("Settings"), function() require("novarr.ui_settings").show(s) end)
     return items
 end
 
@@ -87,14 +116,22 @@ function Home:rebuild()
     if self.menu then UI.setItems(self.menu, self:items()) end
 end
 
---- Fetches /home (sending pending writes first) and redraws.
+--- Sends pending writes, fetches the library (ETag) and the hero's chapter list, redraws.
 function Home:refresh(quiet)
     local s = self.session
     local function run()
         local closer = (not quiet) and UI.loading(_("Loading…"))
         -- Our own pending marks go first so the server's answer includes them.
         if s.queue:count() > 0 then s:flushQueue() end
-        local _data, e = s:fetchInto("home", function() return s.api:home() end, false)
+        local _data, e = s:fetchInto("novels", function(etag) return s.api:novels(etag) end, true)
+        if not e then
+            -- The hero shows "Chapter N of M": it needs that novel's chapter list.
+            local data = s:cached("novels")
+            local last_local = {}
+            for _i, n in ipairs(data and data.novels or {}) do last_local[n.id] = s:localLastRead(n.id) end
+            local hero = Model.shelfOrder(data and data.novels or {}, last_local)
+            if hero then s:refreshChapterList(hero.id) end
+        end
         if closer then closer() end
         if e and e.kind ~= "offline" then
             UI.info(s:errorText(e))
@@ -102,16 +139,16 @@ function Home:refresh(quiet)
         self:rebuild()
     end
     s:whenConnected(run, function()
-        s.last_errors.home = s.last_errors.home or { time = Session.nowMs(), kind = "offline" }
+        s.last_errors.novels = s.last_errors.novels or { time = Session.nowMs(), kind = "offline" }
         self:rebuild()
     end)
 end
 
 function Home.show(session)
-    local self = setmetatable({ session = session, kind = "home", cover_list = session:showCovers() }, Home)
+    local self = setmetatable({ session = session, kind = "home" }, Home)
     self.menu = UI.showMenu(session, {
         title = _("Novarr"),
-        cover_list = self.cover_list,
+        shelf = true,
         items = self:items(),
         screen = self,
     })

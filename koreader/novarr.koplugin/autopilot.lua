@@ -16,7 +16,10 @@ pause after each (default 1.5 s; "wait MS" adds more):
     left_button          tap the title bar's left button of the topmost Novarr screen
     reader_next_page     turn a page in the reader
     reader_goto_end      jump to the last page, then turn once more (end of chapter)
+    reader_prev_page     turn a page back (on page 1: previous chapter, at its end)
+    reader_goto_start    jump to the first page
     reader_close         close the reader (back to the file manager)
+    suspend / resume     simulated sleep (sleep screen) and wake
     open_file PATH       open any document in KOReader's reader
     text TEXT            type TEXT into the open input dialog and confirm
     button TEXT          tap the button labelled TEXT in the topmost dialog
@@ -308,6 +311,25 @@ function steps.time_pages(session, arg)
     end
     local ms = (socket.gettime() - t0) * 1000 / n
     say(string.format("PAGETURN %s: %.1f ms per page (%d turns, paint included)", menu.name == "novarr_menu" and (menu.pages and "covers" or "text") or "?", ms, n))
+end
+
+-- Simulated sleep and wake (the emulator's suspend shows the sleep screen).
+function steps.suspend()
+    UIManager:suspend()
+end
+
+function steps.resume()
+    local h = UIManager.event_handlers and UIManager.event_handlers.Resume
+    if h then h() else UIManager:resume() end
+end
+
+-- Turns pages back N times (paging back from the first page opens the previous chapter).
+function steps.reader_prev_page()
+    reader():handleEvent(Event:new("GotoViewRel", -1))
+end
+
+function steps.reader_goto_start()
+    reader():handleEvent(Event:new("GotoPage", 1))
 end
 
 function steps.offline(_, arg)

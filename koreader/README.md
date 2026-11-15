@@ -43,13 +43,22 @@ manager): look for **Novarr**, **Novarr: next chapter** and
 
 ## Using it
 
-- **Home** shows *Continue reading* (tap to carry on where you stopped),
-  *New chapters*, and the way to your **Library**, **Downloads**, **Sync now** and
-  **Settings**.
+- **Home** is a shelf, like a Kindle's. At the top, the novel you are reading: its
+  cover, the chapter you are on ("Chapter 969 of 1,147"), how many chapters are left
+  and roughly how long they will take, and a progress bar. Below, the covers of your
+  other novels: the ones you are reading (most recent first), then those with new
+  chapters (a black badge on the cover shows how many), then the rest. Swipe left or
+  right (or use the page keys / the ‹ › arrows) for more. The buttons at the bottom
+  open the **Library**, **Downloads**, **Sync** (it shows how many changes are waiting,
+  e.g. "Sync (3)") and **Settings**.
+- **Tap a cover to read**: it opens straight at the chapter you are on. **Hold** a
+  cover for the novel's page. A novel with nothing to read yet opens its page.
+- Home, the Library and the novel pages always show where *this device* is, even
+  before the changes have reached the server.
 - **Library** lists every novel with its cover, how many chapters you have read,
-  and a ★ when there are new chapters. Use **Search…** and **Show:** (All, Reading,
-  Unread, New chapters, Completed, Downloaded on this device). Swipe left/right or
-  use the arrows at the bottom to turn pages.
+  and the new-chapters badge. Tap reads, hold opens the novel's page. Use
+  **Search…** and **Show:** (All, Reading, Unread, New chapters, Completed,
+  Downloaded on this device). Swipe left/right or use the arrows to turn pages.
 - **A novel** shows its cover, how many chapters are left and roughly how long
   they will take, and these actions: *Continue / Start reading*, *Chapters*,
   *Download for offline…*, *Remove downloads*, *Mark all as read*,
@@ -64,14 +73,21 @@ manager): look for **Novarr**, **Novarr: next chapter** and
 
 Tap a chapter and it opens in KOReader's normal reader, with all your usual font and
 layout settings. When you reach the end of a chapter it is marked read and **the next
-chapter opens straight away**. You only see a message when the next chapter can't be
-opened: you have reached the last chapter Novarr has downloaded (you can then
-*Check for new chapters*), or the next chapter isn't saved on the device and there is
-no Wi-Fi, or the server has no text for it yet.
+chapter opens straight away** (without the "Opening file" box when it is already on the
+device). Turning back on the first page of a chapter opens the previous chapter at its
+last page, as in one continuous book; that doesn't change what is marked read.
 
-While you read, the status bar at the bottom shows the time, the chapters left in
-the novel and an estimate of the reading time left, for example
-`14:12 · 2,385 ch left · 61 h left`. KOReader's status bar normally shows one item at
+When you finish the newest chapter Novarr has, a quiet "You're up to date" page shows
+the cover and when the server last got a chapter, with *Check for new chapters*
+(when online), *Choose another novel* and *Close*. You only see a message when the
+next chapter can't be opened: it isn't saved on the device and there is no Wi-Fi, or
+the server has no text for it yet.
+
+While you read, the status bar at the bottom shows the time, where you are in the
+novel, the chapters left and the reading time left, for example
+`15:13 · ch 969 of 1,147 · 178 left · 9 h left` ("ch 969" counts the chapters the
+server has, in reading order). On a narrow screen "of 1,147" and then the time are
+left out. KOReader's status bar normally shows one item at
 a time, so in Novarr chapters the plugin makes this line the item shown. Tap the
 bottom of the page to cycle to KOReader's other items; nothing is saved, so other
 books keep your own status bar choice. If you use *Show all selected items at once*,
@@ -83,8 +99,12 @@ time asleep don't count). Both items can be switched off in Novarr's settings.
 When the device sleeps, the screen shows the cover of the novel you are reading, the
 way a Kindle does with its own books. The plugin gives each chapter the novel's cover
 and, the first time, switches KOReader's sleep screen from the "Sleeping" message to
-the book cover (this applies to your other books too). Turn it off with
+the book cover, stretched to fill the screen (this applies to your other books too;
+turning it off puts back your previous sleep screen settings). Turn it off with
 *Sleep screen shows the book cover* in Novarr ▸ Settings.
+
+Novarr chapters don't fill KOReader's History: only the chapter you are reading is
+kept there (so *open last file* still works), the earlier ones are taken out.
 
 The menu (tools tab ▸ Novarr) also has *Next chapter*, *Previous chapter*,
 *Chapter list* and *Novarr home* while you read a Novarr chapter.
@@ -93,13 +113,15 @@ The menu (tools tab ▸ Novarr) also has *Next chapter*, *Previous chapter*,
 
 Use **Download for offline…** on a novel to save the next 10 or 50 unread chapters,
 all unread ones or every chapter. A window shows the progress and has a Cancel
-button. While you read online, Novarr also quietly saves the next few chapters ahead
-(3 by default, see Settings), so you can usually keep reading if the Wi-Fi drops.
+button. While you read online, Novarr also quietly saves the next chapters ahead
+(20 by default, see Settings), one at a time and never right after a page turn, so
+reading stays smooth and you can keep going when the Wi-Fi drops. It stops when less
+than 20 MB of space is left.
 
 Offline, every screen shows what was last loaded (with a small "Offline — showing
 saved data" line), saved chapters open as usual, and what you read is remembered
 and sent to the server the next time there is a connection (or when you tap
-**Sync now**). Novarr never switches Wi-Fi on by itself: when *you* open Novarr or
+**Sync**). Novarr never switches Wi-Fi on by itself: when *you* open Novarr or
 download something, KOReader asks to turn Wi-Fi on as it does for its other tools.
 
 By default chapters you have finished are removed from the device as you read on,
@@ -145,7 +167,7 @@ there too). To remove the plugin completely, delete `koreader/plugins/novarr.kop
 - **"Novarr hasn't downloaded this chapter from its source yet"** or **"has no text on
   the server"**: the server knows the chapter exists but has no text for it yet. Wait
   for Novarr to download it (see the novel's page on the website).
-- **Changes not showing on the website**: tap **Sync now** on the Home screen. The
+- **Changes not showing on the website**: tap **Sync** on the Home screen. The
   number in brackets is how many changes are still waiting.
 - **The status bar doesn't show the reading info**: the status bar may be switched
   off (Settings ▸ Status bar), or you tapped it over to another item: keep tapping the

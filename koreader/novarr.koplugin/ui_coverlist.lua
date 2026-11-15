@@ -195,7 +195,25 @@ function CoverList:freeImages()
 end
 
 -- Cover box: the cached image scaled to fit, or a bordered placeholder with initials.
-function CoverList:coverBox(url, name, w, h)
+function CoverList:coverBox(url, name, w, h, badge)
+    local box = self:plainCoverBox(url, name, w, h)
+    if not badge or badge <= 0 then return box end
+    -- New chapters: a black box with a white bold number (legible on e-ink).
+    local mark = FrameContainer:new{
+        background = Blitbuffer.COLOR_BLACK,
+        bordersize = Size.border.thin,
+        color = Blitbuffer.COLOR_WHITE,
+        padding = math.floor(self.pad / 2),
+        padding_left = self.pad,
+        padding_right = self.pad,
+        margin = 0,
+        TextWidget:new{ text = tostring(badge), face = Font:getFace("cfont", 14), bold = true, fgcolor = Blitbuffer.COLOR_WHITE },
+        overlap_align = "right",
+    }
+    return OverlapGroup:new{ dimen = Geom:new{ w = w, h = h }, box, mark }
+end
+
+function CoverList:plainCoverBox(url, name, w, h)
     local path = self.covers and url and self.covers:cached(url)
     local inner
     if path then
@@ -275,7 +293,7 @@ function CoverList:buildCoverRow(item, width, hero)
     local content = HorizontalGroup:new{
         align = "center",
         HorizontalSpan:new{ width = self.pad },
-        self:coverBox(c.url, c.name or item.text, cw, ch),
+        self:coverBox(c.url, c.name or item.text, cw, ch, c.badge),
         HorizontalSpan:new{ width = self.pad },
         LeftContainer:new{ dimen = Geom:new{ w = text_w, h = ch }, group },
     }
