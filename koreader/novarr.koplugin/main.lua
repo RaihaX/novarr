@@ -20,7 +20,7 @@ local plugin_dir = (debug.getinfo(1, "S").source or ""):match("^@(.*)/[^/]*$") o
 local MODULES = {
     "api", "autopilot", "chapterdoc", "covers", "epub", "epubflow", "json", "model", "queue", "reading", "readinginfo", "session",
     "store", "sync", "ui_caughtup", "ui_chapters", "ui_common", "ui_coverlist", "ui_downloads", "ui_home", "ui_library",
-    "ui_novel", "ui_progress", "ui_settings", "ui_shelf",
+    "ui_novel", "ui_progress", "ui_settings", "ui_shelf", "ui_update", "updater",
 }
 for _i, name in ipairs(MODULES) do
     package.preload["novarr." .. name] = function()
@@ -30,8 +30,16 @@ for _i, name in ipairs(MODULES) do
     end
 end
 
+-- The version shown and sent to the server comes from _meta.lua alone.
+do
+    local Updater = require("novarr.updater")
+    local version = Updater.parseVersion(Updater.readFile(plugin_dir .. "/_meta.lua"))
+    if version then require("novarr.api").VERSION = version end
+end
+
 local ChapterDoc = require("novarr.chapterdoc")
 local Session = require("novarr.session")
+Session.plugin_dir = plugin_dir
 
 local Novarr = WidgetContainer:extend{
     name = "novarr",
@@ -54,6 +62,11 @@ function Novarr:init()
     Session.guard(function()
         Session:init()
         Session.plugin = self
+        if not Session.leftovers_checked then
+            -- Once per KOReader start: remove what an interrupted plugin update left behind.
+            Session.leftovers_checked = true
+            require("novarr.ui_update").cleanupLeftovers(Session)
+        end
         self:onDispatcherRegisterActions()
         if self.ui and self.ui.menu then
             self.ui.menu:registerToMainMenu(self)

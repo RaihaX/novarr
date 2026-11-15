@@ -17,7 +17,8 @@ local Json = require("novarr.json")
 local Api = {}
 Api.__index = Api
 
-Api.VERSION = "1.0.0"
+-- The plugin version: main.lua sets it from _meta.lua (the single source).
+Api.VERSION = "dev"
 Api.MIN_API_VERSION = 1
 Api.BLOCK_TIMEOUT = 10
 Api.TOTAL_TIMEOUT = 30
@@ -296,6 +297,39 @@ function Api:sendWrite(entry, age)
     local data, e = self:request(path, { method = "POST", body = body })
     if not data then return nil, e end
     return true
+end
+
+-- ---------------------------------------------------------------- plugin update
+
+--[[--
+The plugin manifest the server offers (the `plugin` object: version, build,
+size, files). A server without plugin updates answers not_found.
+]]
+function Api:pluginManifest()
+    local data, e = self:request("koreader/plugin")
+    if not data then return nil, e end
+    if type(data.plugin) ~= "table" then return nil, err("server", nil, "bad plugin manifest") end
+    return data.plugin
+end
+
+--- One file of the plugin, as raw bytes. Returns bytes or nil, err.
+function Api:pluginFile(path)
+    if Api.simulate_offline then
+        return nil, err("offline", nil, "simulated offline")
+    end
+    if not self.base_url or self.base_url == "" then
+        return nil, err("bad_url")
+    end
+    local url = self.base_url .. "/api/v1/koreader/plugin/files/" .. path
+    local res, terr = self.transport({ method = "GET", url = url,
+        headers = { ["Accept"] = "application/octet-stream", ["User-Agent"] = self.user_agent } })
+    if not res then
+        self.log("Novarr API: GET plugin file " .. path .. " failed: " .. tostring(terr))
+        return nil, err("offline", nil, terr)
+    end
+    if res.status == 404 then return nil, err("not_found", 404) end
+    if res.status ~= 200 then return nil, err(res.status >= 500 and "server" or "invalid", res.status) end
+    return res.body or ""
 end
 
 return Api

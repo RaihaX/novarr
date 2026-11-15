@@ -49,6 +49,7 @@ local DEFAULTS = {
     show_covers = true,
     open_on_start = true,
     keep_style = true,
+    auto_update_check = true,
 }
 
 local function nowMs()
@@ -106,6 +107,11 @@ end
 
 function Session:set(key, value)
     self.settings:saveSetting(key, value)
+    self.settings:flush()
+end
+
+function Session:unset(key)
+    self.settings:delSetting(key)
     self.settings:flush()
 end
 
@@ -1138,6 +1144,15 @@ function Session:dumpState()
             prefetch_migrated = self.settings:readSetting("prefetch_migrated"),
             remove_after_reading = self:get("remove_after_reading"),
             mark_read_at_end = self:get("mark_read_at_end"),
+            auto_update_check = self:get("auto_update_check"),
+            update_available_build = self:get("update_available_build"),
+            update_available_version = self:get("update_available_version"),
+            update_checked_at = self:get("update_checked_at"),
+        },
+        plugin = {
+            version = Api.VERSION,
+            dir = self.plugin_dir,
+            installed_update = self.update_installed,
         },
         queue = Json.array(self.queue:list()),
         downloads = Json.array(downloads),
@@ -1167,6 +1182,16 @@ function Session:dumpState()
             return inst and inst.doc_props and inst.doc_props.display_title or nil
         end)(),
         storage_root = self.root,
+        -- What is on screen, bottom to top (a dialog's text, else the widget's name).
+        windows = (function()
+            local out = {}
+            for _i, w in ipairs(UIManager._window_stack or {}) do
+                local wd = w.widget or {}
+                local text = type(wd.text) == "string" and wd.text or nil
+                table.insert(out, text or wd.name or "?")
+            end
+            return Json.array(out)
+        end)(),
     }
 end
 

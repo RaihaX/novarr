@@ -30,6 +30,11 @@ pause after each (default 1.5 s; "wait MS" adds more):
     offline on|off       make the plugin's network layer act as if offline
     sync                 "Sync now"
     set KEY VALUE        change a plugin setting (number, true/false or text)
+    unset KEY            remove a plugin setting (back to its default)
+    update_check         Settings' "check for update" (asks the server, offers to install)
+    update_auto          the quiet daily update check, as Home runs it
+    can_restart on|off   pretend KOReader can (or can't) restart itself; a restart
+                         is never performed under the autopilot, only logged
     wait MS              pause
     shot PATH.png        screenshot with KOReader's screen facility
     dump PATH.json       write the plugin's internal state
@@ -347,6 +352,23 @@ function steps.set(session, arg)
     elseif value == "false" then value = false
     elseif tonumber(value) then value = tonumber(value) end
     session:set(key, value)
+end
+
+function steps.unset(session, arg)
+    if not arg then error("unset needs KEY") end
+    session:unset(arg)
+end
+
+function steps.update_check(session)
+    require("novarr.ui_update").check(session, function() session:refreshScreens() end)
+end
+
+function steps.update_auto(session)
+    require("novarr.ui_update").autoCheck(session, function() session:refreshScreens() end)
+end
+
+function steps.can_restart(session, arg)
+    session.autopilot_can_restart = (arg == "on")
 end
 
 function steps.shot(_, arg)

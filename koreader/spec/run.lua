@@ -16,12 +16,13 @@ if not ko or ko == "" then
     os.exit(2)
 end
 
-package.path = spec_dir .. "/?.lua;" .. ko .. "/common/?.lua;" .. package.path
+-- ko/?.lua: KOReader's ffi/ helpers (ffi/sha2 for the updater's checksums).
+package.path = spec_dir .. "/?.lua;" .. ko .. "/common/?.lua;" .. ko .. "/?.lua;" .. package.path
 package.cpath = ko .. "/common/?.so;" .. ko .. "/libs/?.so;" .. package.cpath
 
 -- The plugin requires its own modules as "novarr.<name>" (main.lua sets this
 -- up the same way through package.preload).
-for _, name in ipairs({ "json", "chapterdoc", "queue", "store", "model", "api", "sync", "readinginfo", "epubflow", "covers" }) do
+for _, name in ipairs({ "json", "chapterdoc", "queue", "store", "model", "api", "sync", "readinginfo", "epubflow", "covers", "updater" }) do
     package.preload["novarr." .. name] = function()
         return dofile(plugin_dir .. "/" .. name .. ".lua")
     end
@@ -29,7 +30,7 @@ end
 
 local T = require("testlib")
 
-local files = { "test_api", "test_chapterdoc", "test_queue", "test_store", "test_model", "test_sync", "test_readinginfo", "test_epubflow", "test_covers", "test_dialect" }
+local files = { "test_api", "test_chapterdoc", "test_queue", "test_store", "test_model", "test_sync", "test_readinginfo", "test_epubflow", "test_covers", "test_dialect", "test_updater" }
 for _, f in ipairs(files) do
     T.file(f)
     local fn = assert(loadfile(spec_dir .. "/" .. f .. ".lua"))

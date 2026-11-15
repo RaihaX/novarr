@@ -142,10 +142,23 @@ function Settings:items()
             self:rebuild()
         end,
     })
+    toggle("auto_update_check", _("Check for plugin updates automatically"))
+    local Update = require("novarr.ui_update")
+    local available = Update.available(s)
+    local version_text
+    if s.update_installed then
+        version_text = T(_("Novarr %1 installed — restart KOReader to use it"), s.update_installed)
+    elseif available then
+        version_text = T(_("Update available (%1) — tap to install"), available)
+    else
+        version_text = T(_("Novarr plugin %1 — check for update"), Session.VERSION)
+    end
     table.insert(items, {
-        text = T(_("Novarr plugin %1"), Session.VERSION),
-        dim = true,
-        callback = function() end,
+        text = version_text,
+        bold = available ~= nil or nil,
+        callback = function()
+            Update.check(s, function() s:refreshScreens() end)
+        end,
     })
     return items
 end
