@@ -76,7 +76,13 @@ function Novarr:init()
             UIManager:nextTick(Session.wrap(function()
                 Session:showChapters(target.novel_id)
             end))
+        elseif not file and not Session.started_once and Session:get("open_on_start")
+                and Session:serverUrl() then
+            -- KOReader has just started (or the chapter it resumed was
+            -- closed): go to Novarr's Home instead of the file browser.
+            UIManager:nextTick(Session.wrap(function() Session:showHome() end))
         end
+        if not file then Session.started_once = true end
         local script = os.getenv("NOVARR_AUTOPILOT")
         if script and script ~= "" and not Session.autopilot_started then
             Session.autopilot_started = true

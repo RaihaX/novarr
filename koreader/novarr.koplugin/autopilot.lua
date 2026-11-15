@@ -264,7 +264,13 @@ function steps.main_menu(_, arg)
 end
 
 function steps.dispatch(_, arg)
-    UIManager:sendEvent(Event:new(arg))
+    -- "dispatch SetFontSize 30": an optional numeric argument for the event.
+    local name, value = tostring(arg):match("^(%S+)%s+(%S+)$")
+    if name then
+        UIManager:sendEvent(Event:new(name, tonumber(value) or value))
+    else
+        UIManager:sendEvent(Event:new(arg))
+    end
 end
 
 function steps.broadcast(_, arg)
