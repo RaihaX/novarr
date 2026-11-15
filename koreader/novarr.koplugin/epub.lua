@@ -48,25 +48,16 @@ end
 --- FAT-safe "<name>.epub" from the server's filename (or the novel name).
 Epub.fileName = function(_unused, name) return ChapterDoc.epubFileName(name) end
 
--- Streams url into a file sink with socketutil timeouts. Returns code, headers or nil, err.
-local function fetchTo(url, sink)
-    if Api.simulate_offline then return nil, "simulated offline" end
-    local socketutil = require("socketutil")
-    local socket = require("socket")
-    local requester = url:sub(1, 8) == "https://" and require("ssl.https") or require("socket.http")
-    socketutil:set_timeout(Epub.BLOCK_TIMEOUT, Epub.TOTAL_TIMEOUT)
-    local ok, code, resp_headers, status = pcall(function()
-        return socket.skip(1, requester.request{
-            url = url,
-            method = "GET",
-            headers = { ["User-Agent"] = "NovarrKOReader/" .. Api.VERSION, ["Accept"] = "application/epub+zip" },
-            sink = sink,
-        })
-    end)
-    socketutil:reset_timeout()
-    if not ok then return nil, tostring(code) end
-    if type(code) ~= "number" or resp_headers == nil then return nil, tostring(status or code) end
-    return code, resp_headers
+-- Streams url into a file (make_sink opens it, once per attempt) with the
+-- EPUB timeouts, through the session (address in use, proxy). Returns code, headers or nil, err.
+local function fetchTo(session, url, make_sink)
+    if Api.isOffline() then return nil, "simulated offline" end
+    local res, err = session:fetchUrl(url, {
+        headers = { ["User-Agent"] = "NovarrKOReader/" .. Api.VERSION, ["Accept"] = "application/epub+zip" },
+        block_timeout = Epub.BLOCK_TIMEOUT, total_timeout = Epub.TOTAL_TIMEOUT,
+    }, make_sink)
+    if not res then return nil, tostring(err) end
+    return res.status, res.headers
 end
 
 local function header(h, name)
@@ -184,9 +175,18 @@ function Epub.fetchFile(session, novel_id, novel_name, epub)
     end
     local socketutil = require("socketutil")
     local closer = UI.loading(size and T(_("Downloading EPUB (%1)…"), Model.formatBytes(size)) or _("Downloading EPUB…"))
-    local code, headers = fetchTo(url, socketutil.file_sink(fh))
+    local first = true
+    local code, headers = fetchTo(session, url, function()
+        -- A retry on the other server address starts the file again.
+        if not first then
+            pcall(function() fh:close() end)
+            fh = io.open(tmp, "wb")
+        end
+        first = false
+        return fh and socketutil.file_sink(fh) or nil
+    end)
     closer()
-    pcall(function() fh:close() end)
+    if fh then pcall(function() fh:close() end) end
     local lfs = require("libs/libkoreader-lfs")
     local got = lfs.attributes(tmp, "size") or 0
     if code ~= 200 or got == 0 or (size and got ~= size) then

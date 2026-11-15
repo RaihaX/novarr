@@ -22,7 +22,7 @@ package.cpath = ko .. "/common/?.so;" .. ko .. "/libs/?.so;" .. package.cpath
 
 -- The plugin requires its own modules as "novarr.<name>" (main.lua sets this
 -- up the same way through package.preload).
-for _, name in ipairs({ "json", "chapterdoc", "queue", "store", "model", "api", "sync", "readinginfo", "epubflow", "covers", "updater", "groups" }) do
+for _, name in ipairs({ "json", "chapterdoc", "queue", "store", "model", "api", "sync", "readinginfo", "epubflow", "covers", "updater", "groups", "http_client", "address", "wifipolicy" }) do
     package.preload["novarr." .. name] = function()
         return dofile(plugin_dir .. "/" .. name .. ".lua")
     end
@@ -30,7 +30,7 @@ end
 
 local T = require("testlib")
 
-local files = { "test_api", "test_chapterdoc", "test_queue", "test_store", "test_model", "test_sync", "test_readinginfo", "test_epubflow", "test_covers", "test_dialect", "test_updater", "test_groups" }
+local files = { "test_api", "test_chapterdoc", "test_queue", "test_store", "test_model", "test_sync", "test_readinginfo", "test_epubflow", "test_covers", "test_dialect", "test_updater", "test_groups", "test_http_client", "test_address", "test_wifipolicy" }
 for _, f in ipairs(files) do
     T.file(f)
     local fn = assert(loadfile(spec_dir .. "/" .. f .. ".lua"))

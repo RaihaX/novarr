@@ -14,10 +14,21 @@ local UI = require("novarr.ui_common")
 local Settings = {}
 Settings.__index = Settings
 
-local PREFETCH_CHOICES = { 0, 3, 10, 20, 50 }
+local PREFETCH_CHOICES = { 0, 20, 50, 100, 200 }
 
 local function onOff(v)
     return v and _("On") or _("Off")
+end
+
+local function failureText(session, url, e)
+    if e.kind == "offline" then
+        return T(_("Couldn't reach a server at %1.\n\nCheck the address (and port), that Novarr is running, and that this device is on the same network."), url)
+    elseif e.kind == "not_novarr" then
+        return T(_("%1 answered, but it isn't a Novarr server (or its API isn't available). Check the address and port."), url)
+    elseif e.kind == "server" then
+        return T(_("The server at %1 had a problem (error %2). Try again later."), url, e.status or "?")
+    end
+    return session:errorText(e)
 end
 
 --[[--
@@ -37,17 +48,7 @@ function Settings.askServer(session, on_saved)
             local meta, e = api:meta()
             closer()
             if not meta then
-                local text_err
-                if e.kind == "offline" then
-                    text_err = T(_("Couldn't reach a server at %1.\n\nCheck the address (and port), that Novarr is running, and that this device is on the same network."), url)
-                elseif e.kind == "not_novarr" then
-                    text_err = T(_("%1 answered, but it isn't a Novarr server (or its API isn't available). Check the address and port."), url)
-                elseif e.kind == "server" then
-                    text_err = T(_("The server at %1 had a problem (error %2). Try again later."), url, e.status or "?")
-                else
-                    text_err = session:errorText(e)
-                end
-                UI.info(text_err)
+                UI.info(failureText(session, url, e))
                 return
             end
             local function save()
@@ -57,7 +58,8 @@ function Settings.askServer(session, on_saved)
                 if on_saved then Session.guard(on_saved) end
             end
             local old = session:serverUrl()
-            if old and old ~= url and session:hasLocalData() then
+            local same_server = url == session:get("server_url_away")
+            if old and old ~= url and not same_server and session:hasLocalData() then
                 UI.confirm({
                     text = _("This is a different server. Saved chapters and changes not yet sent to the old server will be removed from this device."),
                     ok_text = _("Switch server"),
@@ -82,23 +84,105 @@ function Settings.askServer(session, on_saved)
     })
 end
 
+--[[--
+Asks for the second address of the same server (for when away from home,
+e.g. a Tailscale name). Checked like the first one; one that can't be
+reached right now can still be saved ("Save anyway"). An empty field
+removes it.
+]]
+function Settings.askAwayServer(session, on_saved)
+    local function done(dialog, url)
+        UIManager:close(dialog)
+        session:setAwayServer(url)
+        if url then
+            UI.notify(T(_("Second address saved: %1"), url))
+        else
+            UI.notify(_("Second address removed."))
+        end
+        if on_saved then Session.guard(on_saved) end
+    end
+    local function verify(text, dialog)
+        if not text:find("%S") then
+            done(dialog, nil)
+            return true
+        end
+        local url = Api.normalizeUrl(text)
+        if not url then
+            UI.info(session:errorText(Api.err("bad_url")))
+            return true
+        end
+        if url == session:serverUrl() then
+            UI.info(_("That is already the server address. The second address is another way to reach the same server, for example from outside your home network."))
+            return true
+        end
+        local function saveAnyway(message)
+            UI.confirm({
+                text = message .. "\n\n" .. _("Save it anyway? Novarr will use it when the server address can't be reached."),
+                ok_text = _("Save anyway"),
+                ok = function() done(dialog, url) end,
+            })
+        end
+        local function check()
+            local closer = UI.loading(T(_("Checking %1…"), url))
+            local api = Api.new({ base_url = url, log = Session.log })
+            local meta, e = api:meta({ block_timeout = 8, total_timeout = 15 })
+            closer()
+            if meta then
+                done(dialog, url)
+            elseif e.kind == "offline" then
+                saveAnyway(T(_("Couldn't reach a server at %1 right now."), url))
+            else
+                UI.info(failureText(session, url, e))
+            end
+        end
+        session:whenConnected(check, function()
+            saveAnyway(_("No network connection, so the address can't be checked now."))
+        end)
+        return true
+    end
+    UI.input({
+        title = _("Second address (away from home)"),
+        value = session:get("server_url_away") or "",
+        hint = "novarr.example.ts.net",
+        description = _("Optional: another address of the same Novarr server, for example its Tailscale name. Novarr switches to it by itself when the server address can't be reached. Leave empty to remove it."),
+        ok_text = _("Save"),
+        callback = verify,
+    })
+end
+
 function Settings:items()
     local s = self.session
     local items = {}
     table.insert(items, {
-        text = _("Server"),
+        text = _("Server address"),
         mandatory = s:serverUrl() or _("not set"),
         callback = function()
             Settings.askServer(s, function() s:refreshScreens() end)
         end,
     })
     table.insert(items, {
+        text = _("Second address (away from home)"),
+        mandatory = s:get("server_url_away") or _("not set"),
+        callback = function()
+            Settings.askAwayServer(s, function() s:refreshScreens() end)
+        end,
+    })
+    if s:get("server_url_away") then
+        table.insert(items, {
+            text = s.address:which() == "away" and _("Using: second address") or _("Using: home address"),
+            dim = true,
+            select_enabled = false,
+            callback = function() end,
+        })
+    end
+    local prefetch = tonumber(s:get("prefetch")) or 0
+    table.insert(items, {
         text = _("Chapters to fetch ahead while reading"),
-        mandatory = tostring(s:get("prefetch")),
+        mandatory = prefetch <= 0 and _("Off") or tostring(prefetch),
         callback = function()
             local buttons = {}
             for _i, n in ipairs(PREFETCH_CHOICES) do
-                local label = n == 0 and _("None") or tostring(n)
+                local label = n == 0 and _("Off") or tostring(n)
                 if n == s:get("prefetch") then label = UI.MARK_READ .. " " .. label end
                 table.insert(buttons, { text = label, callback = function()
                     s:set("prefetch", n)
@@ -117,6 +201,18 @@ function Settings:items()
                 s:set(key, not s:get(key))
                 self:rebuild()
             end,
+        })
+    end
+    toggle("wifi_auto_off", _("Turn Wi-Fi off while reading when everything is saved"))
+    if s:get("wifi_auto_off") then
+        local low = require("novarr.wifipolicy").lowWater(prefetch)
+        table.insert(items, {
+            text = prefetch > 0
+                and T(_("Wi-Fi comes back at %1 chapters left or after %2 read"), low, require("novarr.wifipolicy").SYNC_AFTER)
+                or _("Not while chapters to fetch ahead is Off"),
+            dim = true,
+            select_enabled = false,
+            callback = function() end,
         })
     end
     toggle("remove_after_reading", _("Remove chapters after reading (keeps the last 2)"))

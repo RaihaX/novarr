@@ -14,7 +14,9 @@ iPhone app know where you are.
   which KOReader package you need depends on your Kindle model and firmware, so
   follow that guide rather than guessing.
 - Your Novarr server, and the e-reader on the **same network** (the same Wi-Fi at
-  home, for example). Novarr has no login, so nothing else is needed.
+  home, for example). Novarr has no login, so nothing else is needed. Away from
+  home, a second address of the server (a Tailscale name, for example) can be added
+  in Settings, see **Two addresses** below.
 - KOReader 2024.11 or newer for the reading info in the status bar (older versions
   work, they just don't show it).
 
@@ -134,15 +136,62 @@ The menu (tools tab ▸ Novarr) also has *Next chapter*, *Previous chapter*,
 Use **Download for offline…** on a novel to save the next 10 or 50 unread chapters,
 all unread ones or every chapter. A window shows the progress and has a Cancel
 button. While you read online, Novarr also quietly saves the next chapters ahead
-(20 by default, see Settings), one at a time and never right after a page turn, so
-reading stays smooth and you can keep going when the Wi-Fi drops. It stops when less
-than 20 MB of space is left.
+(**100** by default; Off, 20, 50, 100 or 200 in Settings), one at a time and never
+right after a page turn, so reading stays smooth and you can keep going when the
+Wi-Fi drops. When many are missing it fetches them quickly one after another (about
+two a second); a page turn waits at most for the one chapter being fetched at that
+moment. It stops when less than 20 MB of space is left. If you had chosen 20 yourself
+it stays 20; the old default of 20 becomes 100.
 
 Offline, every screen shows what was last loaded (with a small "Offline — showing
 saved data" line), saved chapters open as usual, and what you read is remembered
 and sent to the server the next time there is a connection (or when you tap
-**Sync**). Novarr never switches Wi-Fi on by itself: when *you* open Novarr or
-download something, KOReader asks to turn Wi-Fi on as it does for its other tools.
+**Sync**). Novarr only switches Wi-Fi on by itself when it switched it off itself
+(see below); otherwise, when *you* open Novarr or download something, KOReader asks
+to turn Wi-Fi on as it does for its other tools.
+
+### Wi-Fi off while reading
+
+To save battery, Novarr switches Wi-Fi off while you read once everything is
+saved: what you read has been sent to the server, the next chapters are on the
+device (100 ahead, or every chapter the server has), and nothing else of Novarr's is
+using the network (a download, an EPUB, an update, a Novarr screen). You see nothing
+happen: no message, and the status line stays the same.
+
+Wi-Fi comes back **by itself**, without asking, when about 25 chapters are left
+(a quarter of the chapters saved ahead), after 20 chapters read (to send them to
+the server), when you reach a chapter that isn't saved, or when you open Novarr
+Home or another Novarr screen that needs the server. It then sends your reading,
+looks for new chapters, saves chapters up to 100 ahead again and switches off
+again. Turning Wi-Fi on takes a few seconds on a Kindle; you keep reading
+meanwhile (if you are waiting for the next chapter you may see "Getting the next
+chapter…"). If it can't connect, it tries again quietly after 1, 5 and then 15
+minutes.
+
+Novarr only ever switches back on a Wi-Fi that *it* switched off. If you switch
+Wi-Fi off yourself (KOReader's menu), it stays off until you switch it on. If you
+switch it on yourself, Novarr may switch it off again later once everything is
+saved. When you close the chapter or open another book, Novarr stops looking after
+Wi-Fi and leaves it as it is. Switch all this off with *Turn Wi-Fi off while
+reading when everything is saved* in Settings; Novarr then never touches Wi-Fi.
+
+### Two addresses (home and away)
+
+In Settings, **Second address (away from home)** takes another address of the same
+Novarr server, for example its Tailscale name (`https://novarr.example.ts.net`).
+It is checked like the first one; if it can't be reached right now you can still
+**Save anyway**. Both addresses are the same server: saved chapters, covers and
+waiting changes are shared, nothing is downloaded twice.
+
+Novarr uses the address that worked last. When the server doesn't answer at that
+address, Novarr quietly tries the other one and carries on there if it answers,
+without a message. It goes back to the home address when KOReader starts, when the
+Wi-Fi connects, when the device wakes up and when you tap **Sync**. Settings shows
+which one is in use ("Using: home address" / "Using: second address").
+
+`https://` addresses also work while the KOReader Tailscale plugin is connected
+(it routes KOReader's connections through a local proxy); before, only `http://`
+addresses did.
 
 By default chapters you have finished are removed from the device as you read on,
 keeping the last two (so you can go back a little). With joined chapters this happens
@@ -165,8 +214,9 @@ through Novarr is the way that stays up to date and in sync.
 
 ### Settings
 
-Server address, how many chapters to save ahead while reading, remove chapters after
-reading, mark a chapter read at its end, join chapters for smooth page turns, show
+Server address and a second address for away from home, how many chapters to save
+ahead while reading, whether to turn Wi-Fi off while reading when everything is
+saved, remove chapters after reading, mark a chapter read at its end, join chapters for smooth page turns, show
 reading info in the status bar, show the clock while reading, show covers, how much
 space Novarr uses, whether to check for plugin updates by itself, and the plugin
 version.
@@ -187,7 +237,8 @@ anything goes wrong (Wi-Fi drops, the server has a problem, you tap Cancel) you 
 was changed" and the plugin you have keeps working.
 
 Novarr also looks for an update by itself, at most once a day, when Home loads and the
-device is already on Wi-Fi (it never turns Wi-Fi on for this and never interrupts you).
+device is already on Wi-Fi, or while you read before it switches Wi-Fi off (it never
+turns Wi-Fi on for this and never interrupts you).
 When there is one, Home's button reads **Settings •** and the last Settings row reads
 **Update available (1.2.0) — tap to install**. Switch this off with *Check for plugin
 updates automatically* in Settings.
@@ -212,7 +263,12 @@ there too). To remove the plugin completely, delete `koreader/plugins/novarr.kop
 
 - **"Couldn't reach the Novarr server"**: check the address and port (open it in a
   browser on your phone on the same Wi-Fi), that the server is running, and that the
-  e-reader is connected to the same network.
+  e-reader is connected to the same network. Away from home, add the server's second
+  address in Settings. With KOReader's proxy (or the Tailscale plugin) on, the proxy
+  must be running too: Novarr's lines in the log say "proxy step failed" when it isn't.
+- **Wi-Fi is off and doesn't come back by itself**: Novarr only switches back on a
+  Wi-Fi it switched off; if you switched it off yourself, switch it on in KOReader's
+  menu. A failed connection is tried again after 1, 5 and 15 minutes.
 - **"isn't a Novarr server"**: the address answers, but with something else (another
   web page, a router login page). Check the port.
 - **"Novarr hasn't downloaded this chapter from its source yet"** or **"has no text on

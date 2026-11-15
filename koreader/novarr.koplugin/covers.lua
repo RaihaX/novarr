@@ -9,7 +9,10 @@ Cover image cache: <data folder>/novarr/covers/<hash of URL>.<ext>.
 * Fetching is done by the caller one cover per scheduled step, only when
   already connected (see ui_coverlist.lua); this module never touches Wi-Fi.
 
-Dependencies (lfs, hash, fetch, now) are injected so the logic is testable.
+Dependencies (lfs, hash, key, fetch, now) are injected so the logic is testable.
+key(url) gives the string hashed for the file name: the session passes one
+that maps either server address to the home one, so a cover saved through
+one address is found through the other.
 fetch(url, path) -> content_type | nil, err  writes the body to `path`.
 ]]
 
@@ -29,6 +32,8 @@ function Covers.new(opts)
         dir = assert(opts.dir),
         lfs = assert(opts.lfs),
         hash = assert(opts.hash),
+        -- url -> the string the file name is a hash of (default: the url itself).
+        key = opts.key or function(url) return url end,
         fetch = opts.fetch,
         max_bytes = opts.max_bytes or Covers.MAX_BYTES,
         failed = {},       -- url -> true (this session)
@@ -55,7 +60,7 @@ function Covers.extFromType(content_type)
 end
 
 function Covers:base(url)
-    return self.dir .. "/" .. self.hash(url)
+    return self.dir .. "/" .. self.hash(self.key(url))
 end
 
 --- Path of the cached cover for url, or nil.

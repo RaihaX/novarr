@@ -16,6 +16,7 @@ local logger = require("logger")
 local _ = require("gettext")
 local T = require("ffi/util").template
 
+local Address = require("novarr.address")
 local Api = require("novarr.api")
 local ChapterDoc = require("novarr.chapterdoc")
 local Groups = require("novarr.groups")
@@ -43,7 +44,8 @@ local Session = {
 Session.VERSION = Api.VERSION
 
 local DEFAULTS = {
-    prefetch = 20,
+    prefetch = 100,
+    wifi_auto_off = true,
     remove_after_reading = true,
     keep_read = 2,
     mark_read_at_end = true,
@@ -89,21 +91,58 @@ function Session:init()
         log = log,
     })
     self:migrateSettings()
+    self.address = Address.new({
+        probe = function(base) return self:probeAddress(base) end,
+        now = nowMs,
+        log = log,
+        on_switch = function(base) self:set("server_active", base) end,
+    })
     self:rebuildApi()
+    -- KOReader started: the first request checks the home address again.
+    self.address:invalidate("start")
 end
 
--- The old default of 3 chapters ahead becomes 20, unless the user chose 3.
+--[[--
+Old defaults of chapters to fetch ahead become the current one (100),
+unless the user chose that number: 3 (before 1.1), then 20 (before 1.3).
+]]
 function Session:migrateSettings()
-    if self.settings:readSetting("prefetch_migrated") then return end
-    if self.settings:readSetting("prefetch") == 3 and not self.settings:readSetting("prefetch_user_set") then
-        self.settings:delSetting("prefetch")
+    local changed = false
+    local user_set = self.settings:readSetting("prefetch_user_set")
+    if not self.settings:readSetting("prefetch_migrated") then
+        if self.settings:readSetting("prefetch") == 3 and not user_set then
+            self.settings:delSetting("prefetch")
+        end
+        self.settings:saveSetting("prefetch_migrated", true)
+        changed = true
     end
-    self.settings:saveSetting("prefetch_migrated", true)
-    self.settings:flush()
+    if not self.settings:readSetting("prefetch_migrated_100") then
+        if self.settings:readSetting("prefetch") == 20 and not user_set then
+            self.settings:delSetting("prefetch")
+        end
+        self.settings:saveSetting("prefetch_migrated_100", true)
+        changed = true
+    end
+    if changed then self.settings:flush() end
 end
 
+--- Points the API client at the configured address(es); keeps the remembered active one.
 function Session:rebuildApi()
-    self.api = Api.new({ base_url = self:get("server_url"), log = log })
+    self.address:configure(self:get("server_url"), self:get("server_url_away"), self:get("server_active"))
+    self.api = Api.new({ base_url = self:get("server_url"), router = self.address, log = log })
+end
+
+--- Whether `base` answers as a Novarr server within the probe timeout (no Wi-Fi prompt).
+function Session:probeAddress(base)
+    if not base or Api.isOffline() then return false end
+    local api = Api.new({ base_url = base, log = log })
+    local meta = api:meta({ block_timeout = Address.PROBE_TIMEOUT, total_timeout = Address.PROBE_TIMEOUT })
+    return meta ~= nil
+end
+
+--- The address requests use now (the home one unless a second one is set and in use).
+function Session:activeUrl()
+    return self.address and self.address.active or self:serverUrl()
 end
 
 function Session:get(key)
@@ -154,17 +193,20 @@ end
 
 --- Cheap check: is there a network connection (never turns Wi-Fi on).
 function Session:isConnected()
-    if Api.simulate_offline then return false end
+    if Api.isOffline() then return false end
     local ok, res = pcall(NetworkMgr.isConnected, NetworkMgr)
     return ok and res and true or false
 end
 
 --[[--
 Runs fn when connected, offering to turn Wi-Fi on first (KOReader's own
-prompt). Returns true when fn ran right away. With the offline test hook it
-never runs fn and calls on_unavailable instead.
+prompt). When Novarr itself had switched Wi-Fi off (wifi.lua), it is
+switched on again without asking ("Turning Wi-Fi on…" shows when that takes
+more than 2 s, unless opts.quiet). Returns true when fn ran right away.
+With the offline test hook it never runs fn and calls on_unavailable instead.
 ]]
-function Session:whenConnected(fn, on_unavailable)
+function Session:whenConnected(fn, on_unavailable, opts)
+    opts = opts or {}
     if Api.simulate_offline then
         if on_unavailable then on_unavailable() end
         return false
@@ -173,7 +215,15 @@ function Session:whenConnected(fn, on_unavailable)
         fn()
         return true
     end
-    NetworkMgr:runWhenConnected(Session.wrap(fn))
+    local wrapped = Session.wrap(fn)
+    local Wifi = require("novarr.wifi")
+    if Wifi.restore(opts.reason or "a Novarr action needs the network", wrapped, function()
+        -- Couldn't connect by itself: KOReader's own way, as before.
+        NetworkMgr:runWhenConnected(wrapped)
+    end, { notice = not opts.quiet and _("Turning Wi-Fi on…") or nil }) then
+        return false
+    end
+    NetworkMgr:runWhenConnected(wrapped)
     return false
 end
 
@@ -181,7 +231,7 @@ end
 
 function Session:errorText(e)
     local kind = e and e.kind or "offline"
-    local server = self:serverUrl() or ""
+    local server = self:activeUrl() or ""
     if kind == "bad_url" then
         return _("That doesn't look like a server address. Try something like 192.168.1.34:8080.")
     elseif kind == "offline" then
@@ -479,6 +529,8 @@ function Session:syncNow(done)
     if not self:serverUrl() then return end
     local function run()
         local closer = UI.loading(_("Syncing with Novarr…"))
+        -- The user tapped Sync: is the home address back?
+        self.address:reprobe("Sync", { force = true })
         local r = self:flushQueue()
         -- Pull a fresh library so the screens show the server's view.
         self:fetchInto("novels", function(etag) return self.api:novels(etag) end, true)
@@ -1138,7 +1190,11 @@ stored chapters belong to the old one (ids differ), so they are cleared.
 ]]
 function Session:setServer(url)
     local old = self:serverUrl()
-    if old and old ~= url then
+    local away = self:get("server_url_away")
+    if away and away == url then
+        -- The second address becomes the home one: the same server, nothing is cleared.
+        self:unset("server_url_away")
+    elseif old and old ~= url then
         self.store:clearCache()
         self.store:clearOverlays()
         self.queue:clear()
@@ -1148,7 +1204,55 @@ function Session:setServer(url)
         self.chapter_lists = {}
     end
     self:set("server_url", url)
+    self:unset("server_active")
     self:rebuildApi()
+end
+
+--[[--
+Sets (or with nil removes) the second address of the same server. Nothing
+stored is cleared: cache, queue and chapters stay as they are.
+]]
+function Session:setAwayServer(url)
+    if url and url ~= "" and url ~= self:serverUrl() then
+        self:set("server_url_away", url)
+    else
+        self:unset("server_url_away")
+    end
+    if self:get("server_active") and self:get("server_active") ~= self:serverUrl()
+            and self:get("server_active") ~= self:get("server_url_away") then
+        self:unset("server_active")
+    end
+    self:rebuildApi()
+end
+
+--[[--
+Fetches a URL the server gave (a cover, the EPUB file): moved to the address
+in use first; when it gets no answer and it is on one of the configured
+addresses, retried once on the other one if that answers. make_sink() is
+called for each attempt (a fresh sink: the file is opened again). opts:
+headers, block_timeout, total_timeout. Returns res {status, headers} or nil, err.
+]]
+function Session:fetchUrl(url, opts, make_sink)
+    if Api.isOffline() then return nil, "simulated offline" end
+    local HttpClient = require("novarr.http_client")
+    local function attempt(u)
+        return HttpClient.request({
+            url = u, method = "GET", headers = opts.headers,
+            user_agent = "NovarrKOReader/" .. Api.VERSION,
+            block_timeout = opts.block_timeout, total_timeout = opts.total_timeout,
+            make_sink = make_sink, log = log,
+        })
+    end
+    local addr = self.address
+    local res, err = attempt(addr:rewrite(url))
+    if not res and addr:owns(url) then
+        local other = addr:failed(addr.active, err)
+        if other then
+            log("Novarr: retrying a download on " .. other)
+            res, err = attempt(addr:rewrite(url))
+        end
+    end
+    return res, err
 end
 
 --- Whether switching to url would discard local data.
@@ -1158,25 +1262,26 @@ end
 
 -- ---------------------------------------------------------------- covers
 
-local function fetchCover(url, path)
-    if Api.simulate_offline then return nil, "offline" end
+local function fetchCover(session, url, path)
+    if Api.isOffline() then return nil, "offline" end
     local socketutil = require("socketutil")
-    local socket = require("socket")
-    local requester = url:sub(1, 8) == "https://" and require("ssl.https") or require("socket.http")
-    local fh = io.open(path, "wb")
-    if not fh then return nil, "cannot write" end
-    socketutil:set_timeout(5, 15)
-    local ok, code, headers = pcall(function()
-        return socket.skip(1, requester.request{
-            url = url,
-            headers = { ["User-Agent"] = "NovarrKOReader/" .. Api.VERSION, ["Accept"] = "image/jpeg, image/png, image/webp, image/gif" },
-            sink = socketutil.file_sink(fh),
-        })
-    end)
-    socketutil:reset_timeout()
-    pcall(function() fh:close() end)
-    if not ok or code ~= 200 or type(headers) ~= "table" then return nil, tostring(code) end
-    return headers["content-type"] or "image/jpeg"
+    local fh
+    local function open()
+        if fh then pcall(function() fh:close() end) end
+        fh = io.open(path, "wb")
+        return fh and socketutil.file_sink(fh) or nil
+    end
+    local probe = io.open(path, "wb")
+    if not probe then return nil, "cannot write" end
+    probe:close()
+    local res, err = session:fetchUrl(url, {
+        headers = { ["User-Agent"] = "NovarrKOReader/" .. Api.VERSION, ["Accept"] = "image/jpeg, image/png, image/webp, image/gif" },
+        block_timeout = 5, total_timeout = 15,
+    }, open)
+    if fh then pcall(function() fh:close() end) end
+    if not res then return nil, tostring(err) end
+    if res.status ~= 200 or type(res.headers) ~= "table" then return nil, tostring(res.status) end
+    return res.headers["content-type"] or "image/jpeg"
 end
 
 --- The cover cache (created on first use).
@@ -1187,7 +1292,9 @@ function Session:covers()
             dir = self.root .. "/covers",
             lfs = lfs,
             hash = function(s) return require("ffi/sha2").md5(s) end,
-            fetch = fetchCover,
+            -- The same cover whichever server address the list came from.
+            key = function(url) return self.address:canonical(url) end,
+            fetch = function(url, path) return fetchCover(self, url, path) end,
             log = log,
         })
     end
@@ -1334,10 +1441,17 @@ function Session:dumpState()
     return {
         time = nowMs(),
         server_url = self:serverUrl(),
+        server_url_away = self:get("server_url_away"),
+        server_active = self:get("server_active"),
+        active_url = self:activeUrl(),
+        address_in_use = self.address:which(),
         simulate_offline = Api.simulate_offline,
         settings = {
             prefetch = self:get("prefetch"),
             prefetch_migrated = self.settings:readSetting("prefetch_migrated"),
+            prefetch_migrated_100 = self.settings:readSetting("prefetch_migrated_100"),
+            prefetch_user_set = self.settings:readSetting("prefetch_user_set"),
+            wifi_auto_off = self:get("wifi_auto_off"),
             remove_after_reading = self:get("remove_after_reading"),
             mark_read_at_end = self:get("mark_read_at_end"),
             join_chapters = self:get("join_chapters"),
@@ -1353,6 +1467,15 @@ function Session:dumpState()
             installed_update = self.update_installed,
         },
         queue = Json.array(self.queue:list()),
+        wifi = (function()
+            local ok, d = pcall(function() return require("novarr.wifi").dump() end)
+            if ok and d then d.events = Json.array(d.events) end
+            return ok and d or nil
+        end)(),
+        reading_prefetch = self.reader and self.reader.reading and {
+            pending = self.reader.reading.prefetch and #self.reader.reading.prefetch or 0,
+            done = self.reader.reading.prefetch_done, total = self.reader.reading.prefetch_total,
+        } or nil,
         downloads = Json.array(downloads),
         overlays = overlays,
         menus = Json.array(menus),

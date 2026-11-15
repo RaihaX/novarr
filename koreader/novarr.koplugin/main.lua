@@ -18,9 +18,10 @@ local _ = require("gettext")
 -- package.path). They load lazily, on first use.
 local plugin_dir = (debug.getinfo(1, "S").source or ""):match("^@(.*)/[^/]*$") or "."
 local MODULES = {
-    "api", "autopilot", "chapterdoc", "covers", "epub", "epubflow", "groups", "json", "model", "queue", "reading", "readinginfo", "session",
-    "store", "sync", "ui_caughtup", "ui_chapters", "ui_common", "ui_coverlist", "ui_downloads", "ui_home", "ui_library",
-    "ui_novel", "ui_progress", "ui_settings", "ui_shelf", "ui_update", "updater",
+    "address", "api", "autopilot", "chapterdoc", "covers", "epub", "epubflow", "groups", "http_client", "json", "model",
+    "queue", "reading", "readinginfo", "session", "store", "sync", "ui_caughtup", "ui_chapters", "ui_common",
+    "ui_coverlist", "ui_downloads", "ui_home", "ui_library", "ui_novel", "ui_progress", "ui_settings", "ui_shelf",
+    "ui_update", "updater", "wifi", "wifipolicy",
 }
 for _i, name in ipairs(MODULES) do
     package.preload["novarr." .. name] = function()
@@ -35,6 +36,7 @@ do
     local Updater = require("novarr.updater")
     local version = Updater.parseVersion(Updater.readFile(plugin_dir .. "/_meta.lua"))
     if version then require("novarr.api").VERSION = version end
+    require("novarr.api").log = function(text) logger.info(text) end
 end
 
 local ChapterDoc = require("novarr.chapterdoc")
@@ -187,6 +189,9 @@ function Novarr:onDocumentRerendered()
 end
 
 function Novarr:onSuspend()
+    if Session.plugin == self then
+        Session.guard(function() require("novarr.wifi").onSuspend() end)
+    end
     if not self.reading then return end
     Session.guard(function()
         local Reading = require("novarr.reading")
@@ -196,6 +201,18 @@ function Novarr:onSuspend()
 end
 
 function Novarr:onResume()
+    if Session.plugin == self then
+        Session.guard(function()
+            -- Woken up: the next request checks the home address again.
+            Session.address:invalidate("wake-up")
+            -- After KOReader's own resume handling (it may restore Wi-Fi).
+            if not self.resume_task then
+                self.resume_task = Session.wrap(function() require("novarr.wifi").onResume() end)
+            end
+            UIManager:unschedule(self.resume_task)
+            UIManager:scheduleIn(3, self.resume_task)
+        end)
+    end
     if not self.reading then return end
     Session.guard(function() require("novarr.reading").resumeTimer(self) end)
 end
@@ -207,8 +224,15 @@ end
 
 -- A connection appeared (KOReader broadcasts this): send pending writes.
 -- Never turns Wi-Fi on; nothing happens when there is nothing to send.
+-- Also: the next request checks the home address again, and the Wi-Fi
+-- management (wifi.lua) starts an online window while reading.
 function Novarr:onNetworkConnected()
-    if Session.plugin ~= self or not Session.queue or Session.queue:count() == 0 then return end
+    if Session.plugin ~= self or not Session.queue then return end
+    Session.guard(function()
+        Session.address:invalidate("network connected")
+        require("novarr.wifi").onNetworkConnected()
+    end)
+    if Session.queue:count() == 0 then return end
     if not self.flush_task then
         self.flush_task = function()
             Session.guard(function() Session:quietFlush(50) end)
@@ -218,12 +242,18 @@ function Novarr:onNetworkConnected()
     UIManager:scheduleIn(2, self.flush_task)
 end
 
+function Novarr:onNetworkDisconnected()
+    if Session.plugin ~= self then return end
+    Session.guard(function() require("novarr.wifi").onNetworkDisconnected() end)
+end
+
 function Novarr:onCloseWidget()
     Session.guard(function()
         if self.reading then
             require("novarr.reading").unschedule(self)
         end
         if self.flush_task then UIManager:unschedule(self.flush_task) end
+        if self.resume_task then UIManager:unschedule(self.resume_task) end
         if Session.plugin == self then Session.plugin = nil end
         if Session.reader == self then Session.reader = nil end
     end)
