@@ -6,6 +6,7 @@ Pure Lua: no KOReader modules, so it can be unit tested on its own.
 
 File layout (relative to the Novarr storage root):
     chapters/<novelId>/<chapterId>_<slug>.html
+    chapters/<novelId>/group_<block>_<N>.html   joined chapters (see groups.lua)
 The ids come first and only from the path, so a lost index never stops the
 plugin from recognising one of its chapters. The slug only makes the file
 browser and history readable; it is FAT32-safe and kept short.
@@ -113,6 +114,26 @@ function ChapterDoc.idsFromPath(path, root)
     return tonumber(novel), chapter
 end
 
+--[[--
+Recognises a group file path (<root>/chapters/<novelId>/group_<block>_<N>.html).
+Returns novelId, block, N (numbers) or nil.
+]]
+function ChapterDoc.groupFromPath(path, root)
+    if type(path) ~= "string" or type(root) ~= "string" or root == "" then
+        return nil
+    end
+    local prefix = root .. "/chapters/"
+    if path:sub(1, #prefix) ~= prefix then return nil end
+    local novel, b, n = path:sub(#prefix + 1):match("^(%d+)/group_(%d+)_(%d+)%.html$")
+    if not novel then return nil end
+    return tonumber(novel), tonumber(b), tonumber(n)
+end
+
+--- Whether a path is one of Novarr's documents (a chapter or a group file) under root.
+function ChapterDoc.isNovarrPath(path, root)
+    return ChapterDoc.idsFromPath(path, root) ~= nil or ChapterDoc.groupFromPath(path, root) ~= nil
+end
+
 --- Path of a chapter file (given its file name) under root.
 function ChapterDoc.path(root, novel_id, file_name)
     return string.format("%s/chapters/%d/%s", root, novel_id, file_name)
@@ -133,33 +154,32 @@ local CSS = table.concat({
     ".novarr-novel { text-align: center; font-size: 0.85em; margin: 0; text-indent: 0; }",
 }, "\n")
 
---[[--
-Builds the chapter HTML from an API chapter object
-({novel_name, label, chapter, paragraphs = {...}}). Uses only the plain-text
-paragraphs (never the server's HTML) and escapes everything.
-`lang` defaults to "en".
-]]
-function ChapterDoc.build(chapter, lang)
+local function cleanLang(lang)
     lang = ChapterDoc.fatSafe(lang or "en", 16):gsub("[^%w%-]", "")
     if lang == "" then lang = "en" end
+    return lang
+end
+
+local function chapterLabel(chapter)
     local label = chapter.label
     if not label or label == "" then
         label = chapter.chapter and ("Chapter " .. tostring(chapter.chapter)) or "Chapter"
     end
-    local out = {
-        "<!DOCTYPE html>",
-        '<html lang="' .. lang .. '">',
-        "<head>",
-        '<meta charset="utf-8"/>',
-        "<title>" .. ChapterDoc.escape(ChapterDoc.title(chapter.novel_name, label)) .. "</title>",
-        "<style>" .. CSS .. "</style>",
-        "</head>",
-        "<body>",
-    }
+    return label
+end
+
+--[[--
+The body of a chapter, as lines of HTML: the novel's name, the chapter
+heading and its paragraphs. Shared by single chapter files and group files.
+Uses only the plain-text paragraphs (never the server's HTML) and escapes
+everything.
+]]
+function ChapterDoc.bodyLines(chapter)
+    local out = {}
     if chapter.novel_name and chapter.novel_name ~= "" then
         table.insert(out, '<p class="novarr-novel">' .. ChapterDoc.escape(chapter.novel_name) .. "</p>")
     end
-    table.insert(out, "<h2>" .. ChapterDoc.escape(label) .. "</h2>")
+    table.insert(out, "<h2>" .. ChapterDoc.escape(chapterLabel(chapter)) .. "</h2>")
     local paragraphs = chapter.paragraphs
     if type(paragraphs) == "table" then
         for _i, p in ipairs(paragraphs) do
@@ -167,6 +187,82 @@ function ChapterDoc.build(chapter, lang)
                 table.insert(out, "<p>" .. ChapterDoc.escape(p) .. "</p>")
             end
         end
+    end
+    return out
+end
+
+local function head(lang, title, css)
+    return {
+        "<!DOCTYPE html>",
+        '<html lang="' .. lang .. '">',
+        "<head>",
+        '<meta charset="utf-8"/>',
+        "<title>" .. ChapterDoc.escape(title) .. "</title>",
+        "<style>" .. css .. "</style>",
+        "</head>",
+        "<body>",
+    }
+end
+
+--[[--
+Builds the chapter HTML from an API chapter object
+({novel_name, label, chapter, paragraphs = {...}}). `lang` defaults to "en".
+]]
+function ChapterDoc.build(chapter, lang)
+    local out = head(cleanLang(lang), ChapterDoc.title(chapter.novel_name, chapterLabel(chapter)), CSS)
+    for _i, line in ipairs(ChapterDoc.bodyLines(chapter)) do table.insert(out, line) end
+    table.insert(out, "</body>")
+    table.insert(out, "</html>")
+    table.insert(out, "")
+    return table.concat(out, "\n")
+end
+
+--[[--
+The body lines of a stored chapter file (one built by ChapterDoc.build):
+everything between <body> and </body>, or nil when the file does not look
+like one (or has no text), so it is left out of group files.
+]]
+function ChapterDoc.bodyOf(html)
+    if type(html) ~= "string" then return nil end
+    local body = html:match("\n<body>\n(.-)\n</body>\n</html>")
+    if not body or not body:find("<h2>", 1, true) then return nil end
+    -- Nothing but the heading and the novel's name: no text to read.
+    if not body:find("\n<p>", 1, true) then return nil end
+    return body
+end
+
+-- Group files: every chapter starts on a new page; the hidden <h1> gives
+-- crengine's table of contents a named top level (the chapter <h2>s below).
+local GROUP_CSS = CSS .. "\n" .. table.concat({
+    ".novarr-chapter { page-break-before: always; }",
+    "h1.novarr-group { display: none; }",
+}, "\n")
+
+--- Title of a group file: "Novel name · chapters 961–980".
+function ChapterDoc.groupTitle(novel_name, first, last)
+    local range = first == last and string.format("chapter %d", first)
+        or string.format("chapters %d\226\128\147%d", first, last) -- U+2013 en dash
+    if novel_name and novel_name ~= "" then
+        return novel_name .. " \194\183 " .. range -- U+00B7 middle dot
+    end
+    return range:sub(1, 1):upper() .. range:sub(2)
+end
+
+--[[--
+Builds a group document: chapters = list of {id, body} in reading order
+(body = ChapterDoc.bodyOf of the stored file). Each chapter is a top-level
+<div class="novarr-chapter" id="novarr-ch-<id>"> under <body>. The output is
+deterministic: the same chapters give the same bytes, and adding chapters at
+the end leaves everything from the first chapter <div> up to the end of the
+previous last chapter unchanged.
+]]
+function ChapterDoc.buildGroup(title, chapters, lang)
+    local out = head(cleanLang(lang), title, GROUP_CSS)
+    table.insert(out, '<h1 class="novarr-group">' .. ChapterDoc.escape(title) .. "</h1>")
+    for _i, c in ipairs(chapters) do
+        table.insert(out, string.format('<div class="novarr-chapter" id="novarr-ch-%d">', math.floor(tonumber(c.id) or 0)))
+        table.insert(out, c.body)
+        table.insert(out, "</div>")
     end
     table.insert(out, "</body>")
     table.insert(out, "</html>")

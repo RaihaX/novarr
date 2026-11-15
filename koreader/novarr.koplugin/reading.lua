@@ -14,6 +14,13 @@ chapter path; for any other document the plugin does nothing.
   away, or say clearly why it cannot be opened. KOReader's own end-of-book dialog is suppressed for
   Novarr chapters only.
 * On close: final progress, remove-after-reading clean-up.
+
+Joined chapters (a group file holds a run of chapters, see groups.lua): the
+chapter being read is worked out from the position in the document, so
+moving from one chapter to the next is an ordinary page turn. Progress,
+read marks, reading time and the status line stay per chapter. KOReader's
+end of the document (and paging back on its first page) opens the group
+file with the next (previous) chapter.
 ]]
 
 local Event = require("ui/event")
@@ -22,6 +29,7 @@ local logger = require("logger")
 local _ = require("gettext")
 local T = require("ffi/util").template
 
+local Groups = require("novarr.groups")
 local Model = require("novarr.model")
 local ReadingInfo = require("novarr.readinginfo")
 local Session = require("novarr.session")
@@ -35,12 +43,27 @@ Reading.PREFETCH_STEP = 3        -- seconds between two prefetched chapters
 Reading.PREFETCH_QUIET_MS = 1500 -- never fetch this soon after a page turn
 
 local function UI() return require("novarr.ui_common") end
+local footerOf -- (status bar section)
 
 -- ---------------------------------------------------------------- attach
 
-function Reading.attach(plugin, novel_id, chapter_id)
+function Reading.attach(plugin, novel_id, chapter_id, group)
     local ui = plugin.ui
+    local grp
+    if group then
+        -- The chapters in this file, from the file itself (what is on screen).
+        local ids = Groups.idsInHtml(Session.store:readFile(ui.document.file))
+        if #ids == 0 then
+            logger.warn("Novarr: group file without chapters, leaving it alone:", ui.document.file)
+            return
+        end
+        local index = {}
+        for i, id in ipairs(ids) do index[id] = i end
+        grp = { block = group.block, n = group.n, ids = ids, index = index }
+        chapter_id = ids[1] -- until the position is known (onReady)
+    end
     local r = {
+        group = grp,
         novel_id = novel_id,
         chapter_id = chapter_id,
         path = ui.document.file,
@@ -103,6 +126,10 @@ end
 
 function Reading.currentPercent(plugin)
     local ui = plugin.ui
+    if plugin.reading and plugin.reading.group then
+        local here = Reading.where(plugin)
+        return here and here.percent or nil
+    end
     local frac
     -- Position of the top of the screen through the chapter: the same
     -- measure GotoPercent (used to resume) and the web reader use.
@@ -155,7 +182,9 @@ function Reading.onReady(plugin)
     Session.return_to = nil
     Session.opening_path = nil
     local _read, progress = Reading.knownProgress(r)
-    if Session.open_at_end and Session.open_at_end == r.path then
+    if r.group then
+        Reading.placeInGroup(plugin)
+    elseif Session.open_at_end and Session.open_at_end == r.path then
         -- Opened by paging back from the next chapter: show the last page,
         -- whatever position KOReader had saved. Nothing is marked: progress
         -- is reported again only once the user turns a page.
@@ -184,16 +213,44 @@ function Reading.onReady(plugin)
     r.last_turn = nil
     r.ready_at = Session.nowMs()
     r.timer = ReadingInfo.newTimer(os.time())
+    if r.group then r.last_where = Reading.where(plugin) end
     Session.guard(Reading.addFooter, plugin)
     Session.guard(Reading.applyCover, plugin, false)
     Session.guard(Reading.offerSleepCover, plugin)
+    if r.group then
+        -- A block was opened: tidy up earlier ones (see Session:cleanupJoined).
+        Session.guard(function() Session:cleanupJoined(r.novel_id, r.group.block, r.group.n) end)
+    end
     UIManager:unschedule(plugin.background_task)
     UIManager:scheduleIn(Reading.BACKGROUND_DELAY, plugin.background_task)
+    Reading.logTiming(r)
+end
+
+-- How long opening took (from the request), and from the end of the previous chapter.
+function Reading.logTiming(r)
+    local now = Session.nowMs()
+    local kind = r.group and string.format("group of %d chapters", #r.group.ids) or "single chapter"
+    if Session.open_t0 then
+        logger.info(string.format("Novarr: TIMING open %s: ready %d ms after the request", kind, now - Session.open_t0))
+    end
+    if Session.switch_t0 and now - Session.switch_t0 > 30000 then Session.switch_t0 = nil end
+    if Session.switch_t0 then
+        logger.info(string.format("Novarr: TIMING chapter change by document switch (%s): ready %d ms after the end of the previous one", kind, now - Session.switch_t0))
+    end
+    local t0, s0 = Session.open_t0, Session.switch_t0
+    Session.open_t0, Session.switch_t0 = nil, nil
+    -- The first paint happens before the next tick.
+    UIManager:nextTick(function()
+        local t = Session.nowMs()
+        if t0 then logger.info(string.format("Novarr: TIMING open %s: painted %d ms after the request", kind, t - t0)) end
+        if s0 then logger.info(string.format("Novarr: TIMING chapter change by document switch (%s): painted %d ms after the end of the previous one", kind, t - s0)) end
+    end)
 end
 
 function Reading.onMove(plugin)
     local r = plugin.reading
     if not r or not r.ready then return end
+    if r.group then Reading.trackGroup(plugin) end
     local p = Reading.currentPercent(plugin)
     r.last_turn = Session.nowMs()
     if not p or p == r.percent then return end
@@ -212,6 +269,289 @@ function Reading.persist(plugin)
     Session:recordProgress(r.novel_id, r.chapter_id, r.percent)
     r.dirty = false
     r.last_saved = Session.nowMs()
+end
+
+-- ---------------------------------------------------------------- joined chapters
+
+local function isScroll(plugin)
+    local view = plugin.ui and plugin.ui.view
+    return view ~= nil and view.view_mode == "scroll"
+end
+
+-- What changes when the document is laid out again (font, margins, size, view mode).
+local function layoutKey(plugin)
+    local doc = plugin.ui.document
+    local okh, hash = pcall(doc.getDocumentRenderingHash, doc, true)
+    local okc, count = pcall(doc.getPageCount, doc)
+    return table.concat({ okh and tostring(hash) or "", tostring(doc.info and doc.info.doc_height),
+        okc and tostring(count) or "", isScroll(plugin) and "scroll" or "page" }, ":")
+end
+
+--[[--
+Where each chapter of the open group file starts: r.layout = {key, pages,
+ys, count, height}, pages[i]/ys[i] the page and y position of chapter i's
+<div> (crengine resolves "#novarr-ch-<id>" like a link target). Worked out
+once per layout; returns layout, fresh (true when just recomputed).
+]]
+function Reading.layout(plugin)
+    local r = plugin.reading
+    local key = layoutKey(plugin)
+    if r.layout and r.layout.key == key then return r.layout, false end
+    local doc = plugin.ui.document
+    local pages, ys = {}, {}
+    for i, id in ipairs(r.group.ids) do
+        local xp = "#novarr-ch-" .. id
+        local okp, page = pcall(doc.getPageFromXPointer, doc, xp)
+        local oky, y = pcall(doc.getPosFromXPointer, doc, xp)
+        pages[i] = okp and tonumber(page) or (pages[i - 1] or 1)
+        ys[i] = oky and tonumber(y) or (ys[i - 1] or 0)
+    end
+    local okc, count = pcall(doc.getPageCount, doc)
+    r.layout = { key = key, pages = pages, ys = ys, count = okc and count or pages[#pages],
+        height = doc.info and doc.info.doc_height or ys[#ys] }
+    return r.layout, true
+end
+
+--- Last page and end y of each chapter of the layout.
+local function chapterEnds(L)
+    local pages, ys = {}, {}
+    for i = 1, #L.pages do
+        pages[i] = L.pages[i + 1] and (L.pages[i + 1] - 1) or L.count
+        ys[i] = L.ys[i + 1] or L.height
+    end
+    return pages, ys
+end
+
+--[[--
+The reader's place in the group file: {key, scroll, page, y, index (chapter
+index in the file), percent (within that chapter)}. Page mode goes by pages
+(each chapter starts on a new page), scroll mode by the y position of the
+top of the screen.
+]]
+function Reading.where(plugin)
+    local r = plugin.reading
+    if not r or not r.group then return nil end
+    local ui = plugin.ui
+    local doc = ui.document
+    local L = Reading.layout(plugin)
+    local scroll = isScroll(plugin)
+    local oky, y = pcall(doc.getCurrentPos, doc)
+    y = oky and tonumber(y) or 0
+    local okp, page = pcall(doc.getCurrentPage, doc)
+    page = okp and tonumber(page) or 1
+    local index = scroll and Groups.chapterAt(L.ys, y) or Groups.chapterAt(L.pages, page)
+    local _pages, ends = chapterEnds(L)
+    return { key = L.key, scroll = scroll, page = page, y = y, index = index,
+        percent = Groups.percentIn(y, L.ys[index], ends[index]) }
+end
+
+--[[--
+Moves to a chapter of the open group file. opts.at_end: its last page;
+opts.percent: that far into it; opts.resume: its known progress when it is
+part-read (as a chapter opened on its own resumes); else its start.
+]]
+function Reading.goInside(plugin, chapter_id, opts)
+    opts = opts or {}
+    local r = plugin.reading
+    local i = r.group.index[chapter_id]
+    if not i then return false end
+    local ui = plugin.ui
+    local L = Reading.layout(plugin)
+    local pct = opts.percent
+    if pct == nil and opts.resume and not opts.at_end then
+        local _read, progress = Session:chapterState(r.novel_id, chapter_id)
+        if progress and progress > 0 and progress < 100 then pct = progress end
+    end
+    local end_pages, end_ys = chapterEnds(L)
+    if isScroll(plugin) and ui.rolling and ui.rolling._gotoPos then
+        local s, e = L.ys[i], end_ys[i]
+        local y
+        if opts.at_end then
+            y = math.max(s, e - (ui.dimen and ui.dimen.h or 0))
+        else
+            y = s + math.floor((pct or 0) * (e - s) / 100)
+        end
+        ui.rolling:_gotoPos(y)
+        ui.rolling.xpointer = ui.document:getXPointer()
+    else
+        local page = opts.at_end and end_pages[i] or Reading.pageForPercent(plugin, i, pct or 0)
+        ui:handleEvent(Event:new("GotoPage", page))
+    end
+    return true
+end
+
+--- Page of chapter i (of the open group file) that shows `percent` of it (page mode).
+function Reading.pageForPercent(plugin, i, percent)
+    local L = Reading.layout(plugin)
+    local end_pages, end_ys = chapterEnds(L)
+    local doc = plugin.ui.document
+    local tops = {}
+    if (percent or 0) > 0 then
+        for q = L.pages[i], end_pages[i] do
+            local ok, y = pcall(function() return doc:getPosFromXPointer(doc:getPageXPointer(q)) end)
+            table.insert(tops, ok and tonumber(y) or (tops[#tops] or L.ys[i]))
+        end
+    end
+    return Groups.pageForPercent(L.pages[i], tops, L.ys[i], end_ys[i], percent)
+end
+
+--- Same file paths, also when one of them went through realpath (History).
+local function samePath(a, b)
+    if not a or not b then return false end
+    if a == b then return true end
+    local tail = "chapters/[^/]+/[^/]+$"
+    return a:match(tail) ~= nil and a:match(tail) == b:match(tail)
+end
+
+--[[--
+On opening a group file: go to the chapter the plugin opened it for
+(Session.group_target). KOReader's own saved position wins when the file is
+the one it was (unchanged, or only grown at the end) and that position lies
+inside the expected chapter: it is more precise than a percent. Opened by
+paging back: the chapter's last page. Opened by KOReader itself (History,
+last document): its own position, whatever chapter that is.
+]]
+function Reading.placeInGroup(plugin)
+    local r = plugin.reading
+    local target = Session.group_target
+    Session.group_target = nil
+    if target and not samePath(target.path, r.path) then target = nil end
+    Reading.layout(plugin)
+    local here = Reading.where(plugin)
+    if target and r.group.index[target.chapter_id] then
+        local keep = not target.at_end and r.had_position and target.decision ~= "rebuild"
+            and here and r.group.ids[here.index] == target.chapter_id
+        if keep then
+            logger.info("Novarr: chapter", target.chapter_id, "at KOReader's saved position")
+        else
+            Reading.goInside(plugin, target.chapter_id, { at_end = target.at_end, resume = true })
+            logger.info("Novarr: chapter", target.chapter_id, target.at_end and "at its last page" or "placed in the group file")
+        end
+        r.at_end_open = target.at_end or nil
+        here = Reading.where(plugin)
+    elseif target then
+        logger.warn("Novarr: chapter", target.chapter_id, "is not in", r.path)
+    end
+    r.chapter_id = r.group.ids[here and here.index or 1]
+    r.left, r.ordinal, r.ordinal_of = nil, nil, nil
+end
+
+--- Jumps to a chapter of the open group file (menu, chapter list). Returns true when it is there.
+function Reading.jumpTo(plugin, chapter_id, opts)
+    local r = plugin.reading
+    if not r or not r.group or not r.group.index[chapter_id] then return false end
+    logger.info("Novarr: going to chapter", chapter_id, "inside the group file")
+    Reading.goInside(plugin, chapter_id, opts)
+    -- The move above was seen by onMove (events are synchronous); make sure.
+    if r.ready then Reading.trackGroup(plugin) end
+    return true
+end
+
+--[[--
+The end of a chapter, reached by paging through its last page (or, for the
+last chapter of a file, KOReader's end of the document): reading time
+recorded, marked read (setting) or progress 100, as one chapter file did.
+]]
+function Reading.finishChapter(plugin)
+    local r = plugin.reading
+    if not r or r.ended then return end
+    r.ended = true
+    r.percent = 100
+    if r.timer then
+        ReadingInfo.tick(r.timer, os.time())
+        local kept = Session:recordChapterTime(r.novel_id, r.timer.seconds)
+        logger.info("Novarr: chapter", r.chapter_id, "read in", r.timer.seconds, "s of active reading", kept and "(recorded)" or "(too short, ignored)")
+    end
+    if Session:get("mark_read_at_end") then
+        Session:markChapter(r.novel_id, r.chapter_id, true, "end")
+    else
+        Session:recordProgress(r.novel_id, r.chapter_id, 100)
+    end
+    r.dirty = false
+end
+
+--- Chapters left, time per chapter and "ch N of M" for the current chapter; refreshes the status bar.
+function Reading.chapterInfo(plugin)
+    local r = plugin.reading
+    r.left = Session:novelEstimate(r.novel_id, r.chapter_id, 0)
+    r.per_chapter = Session:secondsPerChapter(r.novel_id)
+    local cl = Session:chapterList(r.novel_id)
+    if cl then r.ordinal, r.ordinal_of = Model.ordinal(cl.list, r.chapter_id) end
+    local footer = footerOf(plugin)
+    if plugin.footer_func and footer and footer.onUpdateFooter then
+        pcall(footer.onUpdateFooter, footer, true)
+    end
+end
+
+--[[--
+After every move in a group file: has the reader gone into another chapter?
+Forward by one screen through the end of a chapter finishes it (see
+Groups.finished); any other change (paging back, a jump through go-to, skim,
+the table of contents, bookmarks or the menu, a re-layout) only saves the
+left chapter's position, as closing it did.
+]]
+function Reading.trackGroup(plugin)
+    local r = plugin.reading
+    local _L, fresh = Reading.layout(plugin)
+    local here = Reading.where(plugin)
+    local prev = r.last_where
+    r.last_where = here
+    local from = r.group.index[r.chapter_id]
+    local to = here.index
+    if not from or to == from then return end
+    local finished = {}
+    if not fresh and prev and prev.key == here.key and prev.scroll == here.scroll then
+        local L = r.layout
+        local end_pages, end_ys = chapterEnds(L)
+        local doc = plugin.ui.document
+        local okv, visible = pcall(doc.getVisiblePageCount, doc)
+        finished = Groups.finished({
+            from = from, to = to, scroll = here.scroll,
+            prev = here.scroll and prev.y or prev.page,
+            cur = here.scroll and here.y or here.page,
+            ends = here.scroll and end_ys or end_pages,
+            view = here.scroll and (plugin.ui.dimen and plugin.ui.dimen.h or 0) or (okv and tonumber(visible) or 1),
+        })
+    end
+    local left_id = r.chapter_id
+    local done = {}
+    for _i, idx in ipairs(finished) do
+        done[idx] = true
+        if idx == from then
+            Reading.finishChapter(plugin)
+        elseif Session:get("mark_read_at_end") then
+            Session:markChapter(r.novel_id, r.group.ids[idx], true, "end")
+        end
+    end
+    if not done[from] then Reading.persist(plugin) end
+    r.chapter_id = r.group.ids[to]
+    r.ended = false
+    r.percent = here.percent
+    r.dirty = false
+    r.at_end_open = nil
+    r.timer = ReadingInfo.newTimer(os.time())
+    logger.info(string.format("Novarr: chapter %s -> %s inside the group file (%s)", tostring(left_id), tostring(r.chapter_id),
+        done[from] and "finished by paging" or (to > from and "jumped forward" or "back")))
+    Session.guard(Reading.chapterInfo, plugin)
+    -- As opening a chapter did: a few seconds later, quietly send what is
+    -- pending (when connected) and fetch ahead from this chapter on.
+    if plugin.background_task then
+        r.prefetch = nil
+        if plugin.prefetch_task then UIManager:unschedule(plugin.prefetch_task) end
+        UIManager:unschedule(plugin.background_task)
+        UIManager:scheduleIn(Reading.BACKGROUND_DELAY, plugin.background_task)
+    end
+end
+
+--- The document was laid out again: chapter starts are worked out afresh.
+function Reading.onRerendered(plugin)
+    local r = plugin.reading
+    if not r or not r.group or not r.ready then return end
+    r.layout = nil
+    Reading.trackGroup(plugin)
+    r.last_where = Reading.where(plugin)
+    r.percent = r.last_where and r.last_where.percent or r.percent
+    Session.guard(Reading.chapterInfo, plugin)
 end
 
 -- ---------------------------------------------------------------- sleep screen cover
@@ -286,7 +626,7 @@ end
 
 -- ---------------------------------------------------------------- status bar
 
-local function footerOf(plugin)
+function footerOf(plugin)
     local view = plugin.ui and plugin.ui.view
     return view and view.footer, view
 end
@@ -554,12 +894,16 @@ function Reading.goNext(plugin)
     if r.next_at and now - r.next_at < 1500 then return end
     r.next_at = now
     local id, downloaded = Reading.neighbour(r, 1)
+    -- Joined chapters: the next one is in this file, a page turn away.
+    if id and Reading.jumpTo(plugin, id, { resume = true }) then return end
     local stored = id and Session.store:hasChapter(r.novel_id, id)
     local connected = Session:isConnected()
     if id and (stored or (connected and downloaded ~= false)) then
         openLater(r.novel_id, id)
         return
     end
+    -- Nothing is opened from here on: no chapter change to time.
+    Session.switch_t0 = nil
     if id and not stored and not connected then
         UI().info(_("The next chapter isn't saved on this device, and there's no network connection."))
         return
@@ -587,6 +931,7 @@ function Reading.goPrev(plugin, opts)
         if not opts.quiet then UI().info(_("This is the first chapter."), 2) end
         return
     end
+    if Reading.jumpTo(plugin, id, { at_end = opts.at_end, resume = true }) then return end
     local stored = Session.store:hasChapter(r.novel_id, id)
     if not stored and not Session:isConnected() then
         UI().info(_("The previous chapter isn't saved on this device, and there's no network connection."))
@@ -622,21 +967,10 @@ function Reading.onEnd(plugin)
     -- after this one opened; never let it skip (and mark read) a chapter
     -- that has been on screen for a moment only.
     if not r.ready or (r.ready_at and Session.nowMs() - r.ready_at < 1200) then return end
-    if not r.ended then
-        r.ended = true
-        r.percent = 100
-        if r.timer then
-            ReadingInfo.tick(r.timer, os.time())
-            local kept = Session:recordChapterTime(r.novel_id, r.timer.seconds)
-            logger.info("Novarr: chapter", r.chapter_id, "read in", r.timer.seconds, "s of active reading", kept and "(recorded)" or "(too short, ignored)")
-        end
-        if Session:get("mark_read_at_end") then
-            Session:markChapter(r.novel_id, r.chapter_id, true, "end")
-        else
-            Session:recordProgress(r.novel_id, r.chapter_id, 100)
-        end
-        r.dirty = false
-    end
+    -- A group file: the end of the document is the end of its last chapter.
+    if r.group then Reading.trackGroup(plugin) end
+    if not r.ended then Reading.finishChapter(plugin) end
+    Session.switch_t0 = Session.nowMs()
     Reading.goNext(plugin)
 end
 
@@ -652,7 +986,17 @@ function Reading.onClose(plugin)
     Session.guard(Reading.removeFooter, plugin)
     Session.guard(function() Session:captureStyle() end)
     Reading.persist(plugin)
-    Session.guard(function() Session:cleanupRead(r.novel_id, r.chapter_id) end)
+    Session.guard(function()
+        if r.group then
+            -- Switching to another group file: its onReady tidies up, around
+            -- the block being opened (never this one's view of "earlier").
+            if not Session.switching then
+                Session:cleanupJoined(r.novel_id, r.group.block, r.group.n)
+            end
+        else
+            Session:cleanupRead(r.novel_id, r.chapter_id)
+        end
+    end)
     if not Session.switching and Session.opened_from_novarr then
         Session.return_to = { novel_id = r.novel_id }
     end

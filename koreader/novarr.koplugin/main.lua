@@ -18,7 +18,7 @@ local _ = require("gettext")
 -- package.path). They load lazily, on first use.
 local plugin_dir = (debug.getinfo(1, "S").source or ""):match("^@(.*)/[^/]*$") or "."
 local MODULES = {
-    "api", "autopilot", "chapterdoc", "covers", "epub", "epubflow", "json", "model", "queue", "reading", "readinginfo", "session",
+    "api", "autopilot", "chapterdoc", "covers", "epub", "epubflow", "groups", "json", "model", "queue", "reading", "readinginfo", "session",
     "store", "sync", "ui_caughtup", "ui_chapters", "ui_common", "ui_coverlist", "ui_downloads", "ui_home", "ui_library",
     "ui_novel", "ui_progress", "ui_settings", "ui_shelf", "ui_update", "updater",
 }
@@ -47,13 +47,18 @@ local Novarr = WidgetContainer:extend{
 }
 
 -- Recognises a Novarr chapter path (also through the real path of the root).
+-- Returns novel_id, chapter_id for a chapter file; novel_id, nil, {block, n}
+-- for a group file (joined chapters).
 local function chapterIds(file)
     if not file then return nil end
-    local n, c = ChapterDoc.idsFromPath(file, Session.root)
-    if n then return n, c end
+    local roots = { Session.root }
     local ok, real = pcall(function() return require("ffi/util").realpath(Session.root) end)
-    if ok and real and real ~= Session.root then
-        return ChapterDoc.idsFromPath(file, real)
+    if ok and real and real ~= Session.root then table.insert(roots, real) end
+    for _i, root in ipairs(roots) do
+        local n, c = ChapterDoc.idsFromPath(file, root)
+        if n then return n, c end
+        local gn, block, size = ChapterDoc.groupFromPath(file, root)
+        if gn then return gn, nil, { block = block, n = size } end
     end
     return nil
 end
@@ -73,9 +78,9 @@ function Novarr:init()
         end
         local file = self.ui and self.ui.document and self.ui.document.file
         if file then
-            local novel_id, chapter_id = chapterIds(file)
+            local novel_id, chapter_id, group = chapterIds(file)
             if novel_id then
-                require("novarr.reading").attach(self, novel_id, chapter_id)
+                require("novarr.reading").attach(self, novel_id, chapter_id, group)
             else
                 -- Someone else's document: forget any "return to Novarr" intent.
                 Session.return_to = nil
@@ -173,6 +178,12 @@ end
 function Novarr:onPosUpdate()
     if not self.reading then return end
     Session.guard(function() require("novarr.reading").onMove(self) end)
+end
+
+-- Font, margins, rotation...: where the chapters of a group file start changed.
+function Novarr:onDocumentRerendered()
+    if not self.reading then return end
+    Session.guard(function() require("novarr.reading").onRerendered(self) end)
 end
 
 function Novarr:onSuspend()

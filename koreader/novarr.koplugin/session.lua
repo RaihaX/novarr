@@ -18,6 +18,7 @@ local T = require("ffi/util").template
 
 local Api = require("novarr.api")
 local ChapterDoc = require("novarr.chapterdoc")
+local Groups = require("novarr.groups")
 local Json = require("novarr.json")
 local Model = require("novarr.model")
 local Queue = require("novarr.queue")
@@ -35,6 +36,8 @@ local Session = {
     chapter_lists = {},  -- novel_id -> {list=, by_id=, fetched_at=} memory cache
     last_errors = {},    -- screen key -> {time, kind} of the last failed refresh
     empty_chapters = {}, -- chapter ids the server had no text for (this session)
+    bad_bodies = {},     -- stored chapter ids whose file has no readable text (left out of group files)
+    group_target = nil,  -- {path, chapter_id, at_end, decision}: where to go in a group file being opened
 }
 
 Session.VERSION = Api.VERSION
@@ -50,7 +53,11 @@ local DEFAULTS = {
     open_on_start = true,
     keep_style = true,
     auto_update_check = true,
+    join_chapters = true,
+    group_size = Groups.DEFAULT_SIZE,
 }
+
+local purgeSidecar -- defined with the removal functions below
 
 local function nowMs()
     local ok, socket = pcall(require, "socket")
@@ -621,12 +628,7 @@ function Session:captureStyle()
     local inst = ReaderUI.instance
     local file = inst and inst.document and inst.document.file
     if not file or not inst.doc_settings then return end
-    local is_chapter = ChapterDoc.idsFromPath(file, self.root)
-    if not is_chapter then
-        local ok, real = pcall(function() return require("ffi/util").realpath(self.root) end)
-        is_chapter = ok and real and ChapterDoc.idsFromPath(file, real)
-    end
-    if not is_chapter then return end
+    if not self:isChapterPath(file) then return end
     -- Have the reader modules write their current values first.
     if inst.saveSettings then pcall(inst.saveSettings, inst) end
     local data = inst.doc_settings.data
@@ -661,18 +663,25 @@ the device, so switch without KOReader's "Opening file" box and with a
 partial refresh (ReaderUI's own `seamless` option; older versions ignore
 the extra argument). opts.at_end: show its last page (paging back).
 ]]
+-- Two quick page turns at the end of a chapter ask for the next chapter
+-- twice; a second document switch while the first is still under way
+-- confuses KOReader ("ReaderUI instance mismatch"). The first one wins.
+function Session:openBusy()
+    return self.opening_path ~= nil and self.opening_at ~= nil and nowMs() - self.opening_at < 5000
+end
+
 function Session:openFile(path, opts)
     opts = opts or {}
-    -- Two quick page turns at the end of a chapter ask for the next chapter
-    -- twice; a second document switch while the first is still under way
-    -- confuses KOReader ("ReaderUI instance mismatch"). The first one wins.
     local now = nowMs()
-    if self.opening_path and self.opening_at and now - self.opening_at < 5000 then
+    if self:openBusy() then
         log("Novarr: already opening a chapter, ignoring a second request")
         return
     end
     self.opening_at = now
+    self.open_t0 = now
     self.open_at_end = opts.at_end and path or nil
+    -- Joined chapters: which chapter to show in the group file (see Reading.onReady).
+    self.group_target = opts.group_target
     self:captureStyle()
     self:applyStyle(path)
     self:closeAllMenus()
@@ -680,6 +689,7 @@ function Session:openFile(path, opts)
     self.opening_path = path
     local ReaderUI = require("apps/reader/readerui")
     log(string.format("Novarr: opening %s%s", path:match("[^/]*$"), opts.seamless and " (seamless)" or ""))
+    self.switch_count = (self.switch_count or 0) + 1
     if ReaderUI.instance and ReaderUI.instance.document then
         self.switching = true
         self.leaving_path = ReaderUI.instance.document.file
@@ -699,7 +709,9 @@ function Session:openChapter(novel_id, chapter_id, opts)
     local path = novel_id and self.store:chapterPath(novel_id, chapter_id)
     if path and lfs.attributes(path, "mode") == "file" then
         self.opened_from_novarr = true
-        self:openFile(path, { seamless = opts.from_reader, at_end = opts.at_end })
+        if not self:openJoined(novel_id, chapter_id, opts) then
+            self:openFile(path, { seamless = opts.from_reader, at_end = opts.at_end })
+        end
         return true
     end
     local cl = novel_id and self:chapterList(novel_id)
@@ -714,7 +726,9 @@ function Session:openChapter(novel_id, chapter_id, opts)
         closer()
         if fetched then
             self.opened_from_novarr = true
-            self:openFile(fetched, { seamless = opts.from_reader, at_end = opts.at_end })
+            if not self:openJoined(novel_id, chapter_id, opts) then
+                self:openFile(fetched, { seamless = opts.from_reader, at_end = opts.at_end })
+            end
         elseif why == "not_downloaded" then
             UI.info(self:notDownloadedText(row or ch))
         elseif why == "empty" then
@@ -731,6 +745,108 @@ function Session:openChapter(novel_id, chapter_id, opts)
     return false
 end
 
+-- ---------------------------------------------------------------- joined chapters
+
+--- Whether chapters open joined in groups (the setting; read at each open).
+function Session:joinedOn()
+    return self:get("join_chapters") ~= false
+end
+
+function Session:groupSize()
+    return Groups.size(self:get("group_size"))
+end
+
+--[[--
+The group file for a stored chapter, built or refreshed when needed (see
+Groups.prepare). Returns g or nil, reason.
+]]
+function Session:prepareGroup(novel_id, chapter_id)
+    local cl = self:chapterList(novel_id)
+    if not cl then return nil, "no_list" end
+    local summary = self:novelSummary(novel_id)
+    local t0 = nowMs()
+    local g, why = Groups.prepare(self.store, {
+        novel_id = novel_id, chapter_id = chapter_id, list = cl.list, n = self:groupSize(),
+        novel_name = summary and summary.name or self.store:getIndex(novel_id).novel_name,
+        lang = "en", bad = self.bad_bodies, now = nowMs,
+        can_write = function(bytes)
+            local free = self:freeBytes()
+            return not free or free - bytes >= Session.MIN_FREE_BYTES
+        end,
+    })
+    if g then
+        log(string.format("Novarr: group file %s (%d chapters, %s) ready in %d ms",
+            g.path:match("[^/]*$"), #g.ids, g.decision, nowMs() - t0))
+    end
+    return g, why
+end
+
+--[[--
+Opens a stored chapter inside its group file (joined chapters on). Returns
+false when the chapter has to be opened on its own instead (setting off,
+its place in the reading order unknown, no space for the group file...).
+]]
+function Session:openJoined(novel_id, chapter_id, opts)
+    opts = opts or {}
+    local cl = self:chapterList(novel_id)
+    local mode, reason = Groups.openMode(self:get("join_chapters"), cl and cl.list, chapter_id)
+    if mode ~= "joined" then
+        if reason ~= "setting off" then
+            log("Novarr: opening chapter " .. tostring(chapter_id) .. " on its own (" .. tostring(reason) .. ")")
+        end
+        return false
+    end
+    if self:openBusy() then
+        log("Novarr: already opening a chapter, ignoring a second request")
+        return true
+    end
+    -- Already in the group file on screen: just go there.
+    local reader = self.reader
+    local r = reader and reader.reading
+    if r and r.group and r.novel_id == novel_id and r.group.index[chapter_id] then
+        self:closeAllMenus()
+        require("novarr.reading").jumpTo(reader, chapter_id, { at_end = opts.at_end, resume = true })
+        return true
+    end
+    local g, why = self:prepareGroup(novel_id, chapter_id)
+    if not g then
+        log("Novarr: opening chapter " .. tostring(chapter_id) .. " on its own (" .. tostring(why) .. ")")
+        return false
+    end
+    self:openFile(g.path, { seamless = opts.from_reader, group_target = {
+        path = g.path, chapter_id = chapter_id, at_end = opts.at_end, decision = g.decision,
+    } })
+    return true
+end
+
+--- Chapter ids (set) of the group file open in the reader for this novel, or nil.
+function Session:openGroupSet(novel_id)
+    local r = self.reader and self.reader.reading
+    if r and r.group and (novel_id == nil or r.novel_id == novel_id) then return r.group.index end
+    return nil
+end
+
+--- Removes a group file (not the open one) with its KOReader data. Returns true if removed.
+function Session:removeGroupFile(novel_id, block, n)
+    local path = self.store:groupPath(novel_id, block, n)
+    if path == self:currentPath() or path == self.opening_path then return false end
+    purgeSidecar(path)
+    self.store:removeGroup(novel_id, block, n)
+    return true
+end
+
+--- Removes the (closed) group files of a novel that hold a chapter (after that chapter was removed).
+function Session:removeGroupsWith(novel_id, chapter_id)
+    for _i, gf in ipairs(self.store:groupFiles(novel_id)) do
+        local m = self.store:readGroupManifest(novel_id, gf.block, gf.n)
+        local holds = not m or type(m.ids) ~= "table"
+        for _j, id in ipairs(m and type(m.ids) == "table" and m.ids or {}) do
+            if id == chapter_id then holds = true end
+        end
+        if holds then self:removeGroupFile(novel_id, gf.block, gf.n) end
+    end
+end
+
 function Session:notDownloadedText(row)
     local text = _("Novarr hasn't downloaded this chapter from its source yet, so there is nothing to read.")
     if row and row.reason and row.reason ~= "" then
@@ -741,7 +857,7 @@ end
 
 -- ---------------------------------------------------------------- removal
 
-local function purgeSidecar(path)
+function purgeSidecar(path)
     pcall(function()
         local DocSettings = require("docsettings")
         DocSettings:open(path):purge()
@@ -755,12 +871,12 @@ Session.purgeSidecar = purgeSidecar
 --- Whether a path is one of Novarr's chapter files.
 function Session:isChapterPath(path)
     if type(path) ~= "string" then return false end
-    if ChapterDoc.idsFromPath(path, self.root) then return true end
+    if ChapterDoc.isNovarrPath(path, self.root) then return true end
     if not self.real_root then
         local ok, real = pcall(function() return require("ffi/util").realpath(self.root) end)
         self.real_root = ok and real or self.root
     end
-    return ChapterDoc.idsFromPath(path, self.real_root) ~= nil
+    return ChapterDoc.isNovarrPath(path, self.real_root)
 end
 
 --[[--
@@ -806,26 +922,44 @@ end
 function Session:removeChapter(novel_id, chapter_id)
     local path = self.store:chapterPath(novel_id, chapter_id)
     if not path or path == self:currentPath() or path == self.opening_path then return false end
+    -- A chapter of the group file open in the reader is part of the open document.
+    local open = self:openGroupSet(novel_id)
+    if open and open[chapter_id] then return false end
     purgeSidecar(path)
     self.store:removeChapter(novel_id, chapter_id)
+    self:removeGroupsWith(novel_id, chapter_id)
     return true
 end
 
 --- Removes all stored chapters of a novel (except the one open in the reader).
 function Session:removeNovelDownloads(novel_id)
     local current = self:currentPath()
+    -- The group file open in the reader and the chapters in it are kept.
+    local open = self:openGroupSet(novel_id) or {}
     local kept = false
-    for _i, path in ipairs(self.store:chapterPaths(novel_id)) do
-        if path == current then
+    local dir = self.store:chaptersDir(novel_id)
+    for _i, entry in pairs(self.store:getIndex(novel_id).chapters) do
+        local path = dir .. "/" .. entry.file
+        if path == current or open[entry.id] then
             kept = true
         else
             purgeSidecar(path)
         end
     end
+    for _i, gf in ipairs(self.store:groupFiles(novel_id)) do
+        if gf.path == current then
+            kept = true
+        else
+            purgeSidecar(gf.path)
+        end
+    end
     if kept then
         for _i, entry in pairs(self.store:getIndex(novel_id).chapters) do
-            local p = self.store:chaptersDir(novel_id) .. "/" .. entry.file
-            if p ~= current then self.store:removeChapter(novel_id, entry.id) end
+            local p = dir .. "/" .. entry.file
+            if p ~= current and not open[entry.id] then self.store:removeChapter(novel_id, entry.id) end
+        end
+        for _i, gf in ipairs(self.store:groupFiles(novel_id)) do
+            if gf.path ~= current then self.store:removeGroup(novel_id, gf.block, gf.n) end
         end
     else
         self.store:removeNovel(novel_id)
@@ -839,6 +973,12 @@ most recent (in reading order) and except `current_id`. Unread and part-read
 chapters are never touched.
 ]]
 function Session:cleanupRead(novel_id, current_id)
+    if not self:joinedOn() then
+        -- Joined chapters switched off: their files are of no use any more.
+        for _i, gf in ipairs(self.store:groupFiles(novel_id)) do
+            self:removeGroupFile(novel_id, gf.block, gf.n)
+        end
+    end
     if not self:get("remove_after_reading") then return 0 end
     local index = self.store:getIndex(novel_id)
     local cl = self:chapterList(novel_id)
@@ -862,6 +1002,42 @@ function Session:cleanupRead(novel_id, current_id)
     end
     if n > 0 then log("Novarr: removed " .. n .. " read chapter(s) of novel " .. novel_id) end
     return n
+end
+
+--[[--
+Clean-up while a group file of `block` is open (joined chapters):
+  * group files other than the open block's and its two neighbours' go
+    (they are rebuilt when needed);
+  * with remove-after-reading on: read chapters of earlier blocks are
+    deleted except the `keep_read` (2) latest of them, so paging back still
+    works. The open block, later blocks, unread and part-read chapters, and
+    chapters whose place in the reading order is unknown are never touched.
+]]
+function Session:cleanupJoined(novel_id, block, n)
+    local groups_removed = 0
+    for _i, gf in ipairs(self.store:groupFiles(novel_id)) do
+        if gf.n ~= n or not Groups.keepGroupFile(gf.block, block) then
+            if self:removeGroupFile(novel_id, gf.block, gf.n) then groups_removed = groups_removed + 1 end
+        end
+    end
+    if groups_removed > 0 then log("Novarr: removed " .. groups_removed .. " group file(s) of novel " .. novel_id) end
+    if not self:get("remove_after_reading") then return 0 end
+    local cl = self:chapterList(novel_id)
+    if not cl then return 0 end
+    local _ids, ord = Groups.ordinals(cl.list)
+    local stored = {}
+    for _i, entry in pairs(self.store:getIndex(novel_id).chapters) do
+        local o = ord[entry.id]
+        table.insert(stored, { id = entry.id, ord = o, block = o and Groups.block(o, n) or nil })
+    end
+    local ids = Groups.removalCandidates(stored, function(id) return (self:chapterState(novel_id, id)) end,
+        self:get("keep_read"), block)
+    local removed = 0
+    for _i, id in ipairs(ids) do
+        if self:removeChapter(novel_id, id) then removed = removed + 1 end
+    end
+    if removed > 0 then log("Novarr: removed " .. removed .. " read chapter(s) of novel " .. novel_id) end
+    return removed
 end
 
 -- ---------------------------------------------------------------- downloads
@@ -1104,6 +1280,13 @@ function Session:dumpState()
         for _i, entry in pairs(self.store:getIndex(d.novel_id).chapters) do table.insert(ids, entry.id) end
         table.sort(ids)
         d.chapter_ids = ids
+        local groups = {}
+        for _i, gf in ipairs(self.store:groupFiles(d.novel_id)) do
+            local m = self.store:readGroupManifest(d.novel_id, gf.block, gf.n)
+            table.insert(groups, { file = gf.path:match("[^/]*$"), size = gf.size,
+                ids = m and type(m.ids) == "table" and Json.array(m.ids) or nil, title = m and m.title or nil })
+        end
+        d.groups = Json.array(groups)
         table.insert(downloads, d)
     end
     local overlays = {}
@@ -1133,6 +1316,19 @@ function Session:dumpState()
                 return ok and okc and (tostring(p) .. "/" .. tostring(c)) or nil
             end)(),
             active_seconds = r.timer and r.timer.seconds or nil,
+            mode = r.group and "joined" or "single",
+            view_mode = self.reader.ui and self.reader.ui.view and self.reader.ui.view.view_mode or nil,
+            group = r.group and {
+                block = r.group.block, n = r.group.n, ids = Json.array(r.group.ids),
+                index = r.group.index[r.chapter_id],
+                start_pages = r.layout and Json.array(r.layout.pages) or nil,
+                start_ys = r.layout and Json.array(r.layout.ys) or nil,
+                position = (function()
+                    local ok, p = pcall(function() return require("novarr.reading").where(self.reader) end)
+                    return ok and p or nil
+                end)(),
+            } or nil,
+            switches = self.switch_count,
             timing_samples = Json.array(self.store:getTiming(r.novel_id)) }
     end
     return {
@@ -1144,6 +1340,8 @@ function Session:dumpState()
             prefetch_migrated = self.settings:readSetting("prefetch_migrated"),
             remove_after_reading = self:get("remove_after_reading"),
             mark_read_at_end = self:get("mark_read_at_end"),
+            join_chapters = self:get("join_chapters"),
+            group_size = self:get("group_size"),
             auto_update_check = self:get("auto_update_check"),
             update_available_build = self:get("update_available_build"),
             update_available_version = self:get("update_available_version"),

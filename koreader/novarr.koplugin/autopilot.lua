@@ -15,7 +15,7 @@ pause after each (default 1.5 s; "wait MS" adds more):
     next_page / prev_page   page the topmost Novarr screen
     left_button          tap the title bar's left button of the topmost Novarr screen
     reader_next_page     turn a page in the reader
-    reader_goto_end      jump to the last page, then turn once more (end of chapter)
+    reader_goto_end      jump to the last page (in a group file: of the current chapter), then turn once more
     reader_prev_page     turn a page back (on page 1: previous chapter, at its end)
     reader_goto_start    jump to the first page
     reader_close         close the reader (back to the file manager)
@@ -41,6 +41,12 @@ pause after each (default 1.5 s; "wait MS" adds more):
     log TEXT             write TEXT to KOReader's log
     mem LABEL            log process RSS and Lua heap (after a full GC)
     time_pages N         turn the topmost screen's page N times and log the time per turn
+    reader_turn_timed [-1]   one page turn in the reader, timed (paint included)
+    reader_page_until_chapter_change [MAX] [back]   turn pages until the chapter changes
+    reader_goto_chapter_end  last page of the current chapter (in a group file)
+    reader_goto_chapter ID [PCT]   KOReader's own go-to (a jump) to a chapter in the open group file
+    show_chapters        the chapter list of the novel open in the reader
+    lua PATH             run a Lua file (debugging)
     quit                 exit KOReader
 
 Every step is logged as "NovarrAutopilot: ..." in KOReader's log, with
@@ -202,10 +208,15 @@ function steps.reader_next_page()
     reader():handleEvent(Event:new("GotoViewRel", 1))
 end
 
-function steps.reader_goto_end()
+function steps.reader_goto_end(session)
     local ui = reader()
-    local count = ui.document:getPageCount()
-    ui:handleEvent(Event:new("GotoPage", count))
+    local r = session.reader and session.reader.reading
+    if r and r.group then
+        -- A group file: the end of the current chapter (then the turn goes into the next one).
+        require("novarr.reading").goInside(session.reader, r.chapter_id, { at_end = true })
+    else
+        ui:handleEvent(Event:new("GotoPage", ui.document:getPageCount()))
+    end
     UIManager:scheduleIn(0.3, function()
         local ok, err = pcall(function() reader():handleEvent(Event:new("GotoViewRel", 1)) end)
         if not ok then say("ERROR", "reader_goto_end:", err) end
@@ -384,6 +395,99 @@ end
 
 function steps.log(_, arg)
     say(arg)
+end
+
+-- ---- joined chapters
+
+local function readingState(session)
+    local r = session.reader and session.reader.reading
+    return r and r.chapter_id, r
+end
+
+-- One forward page turn, painted, timed; logs the chapter before/after and
+-- whether KOReader switched documents.
+local function timedTurn(session, diff)
+    local socket = require("socket")
+    local before, r = readingState(session)
+    local doc = reader().document
+    local switches = session.switch_count or 0
+    local t0 = socket.gettime()
+    reader():handleEvent(Event:new("GotoViewRel", diff or 1))
+    UIManager:forceRePaint()
+    local ms = (socket.gettime() - t0) * 1000
+    local after = readingState(session)
+    local ui = require("apps/reader/readerui").instance
+    local switched = (session.switch_count or 0) ~= switches or not ui or ui.document ~= doc
+    return ms, before, after, switched, r
+end
+
+-- reader_turn_timed [-1]: one page turn (back with -1), timed.
+function steps.reader_turn_timed(session, arg)
+    local ms, before, after, switched = timedTurn(session, tonumber(arg) or 1)
+    say(string.format("TURN %.1f ms (paint included), chapter %s -> %s, document switch: %s",
+        ms, tostring(before), tostring(after), switched and "yes" or "no"))
+end
+
+-- reader_page_until_chapter_change [MAX] [back]: turns pages until the chapter changes
+-- (inside a group file) or a document switch starts; logs the turns and the crossing turn's time.
+function steps.reader_page_until_chapter_change(session, arg)
+    local max = tonumber((arg or ""):match("^(%d+)")) or 400
+    local diff = (arg or ""):find("back") and -1 or 1
+    local start = readingState(session)
+    for i = 1, max do
+        local ms, before, after, switched = timedTurn(session, diff)
+        if switched or after ~= start then
+            say(string.format("CROSSED after %d turn(s): chapter %s -> %s, last turn %.1f ms, document switch: %s",
+                i, tostring(start), tostring(after), ms, switched and "yes" or "no"))
+            return
+        end
+        if session.opening_path then
+            say(string.format("CROSSED after %d turn(s): a document switch started (chapter %s)", i, tostring(before)))
+            return
+        end
+    end
+    say(string.format("NOT CROSSED after %d turns (chapter %s)", max, tostring(start)))
+end
+
+-- reader_goto_chapter_end: the last page of the current chapter (inside a group file), else of the document.
+function steps.reader_goto_chapter_end(session)
+    local _id, r = readingState(session)
+    local ui = reader()
+    if r and r.group then
+        local Reading = require("novarr.reading")
+        Reading.goInside(session.reader, r.chapter_id, { at_end = true })
+        return
+    end
+    ui:handleEvent(Event:new("GotoPage", ui.document:getPageCount()))
+end
+
+-- reader_goto_chapter ID [PERCENT]: KOReader's own "go to" (a jump) to a chapter of the open group file.
+function steps.reader_goto_chapter(session, arg)
+    local id, pct = (arg or ""):match("^(%d+)%s*(%d*)$")
+    local _c, r = readingState(session)
+    if not r or not r.group then error("no group file open") end
+    local L = require("novarr.reading").layout(session.reader)
+    local i = r.group.index[tonumber(id)]
+    if not i then error("chapter " .. tostring(id) .. " is not in the open group file") end
+    local page = L.pages[i]
+    if pct and pct ~= "" then
+        page = require("novarr.reading").pageForPercent(session.reader, i, tonumber(pct))
+    end
+    reader():handleEvent(Event:new("GotoPage", page))
+end
+
+-- show_chapters: the chapter list of the novel open in the reader (Novarr menu ▸ Chapter list).
+function steps.show_chapters(session)
+    local _c, r = readingState(session)
+    if not r then error("no Novarr chapter open") end
+    session:showChapters(r.novel_id)
+end
+
+-- Runs a Lua file as function(session, Autopilot helpers); logs what it returns.
+function steps.lua(session, arg)
+    local chunk = assert(loadfile(arg))
+    local res = chunk(session, { reader = reader, say = say, writeFile = writeFile })
+    if res ~= nil then say("lua:", type(res) == "table" and Json.encode(res) or tostring(res)) end
 end
 
 function steps.quit()

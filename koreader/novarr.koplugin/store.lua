@@ -6,6 +6,7 @@ Everything Novarr keeps on the device, under one root folder
     cache/<key>.meta.json   {etag, fetched_at}
     chapters/<novelId>/<chapterId>_<slug>.html   stored chapters
     chapters/<novelId>/index.json                what is stored (rebuilt from file names if lost)
+    chapters/<novelId>/group_<b>_<N>.html/.json  joined chapters, built from the stored ones (disposable)
     overlay/<novelId>.json  local read marks / progress not yet confirmed by the server
     queue.json              pending server writes
 
@@ -20,6 +21,7 @@ from then on the server's answer already reflects it.
 ]]
 
 local ChapterDoc = require("novarr.chapterdoc")
+local Groups = require("novarr.groups")
 
 local Store = {}
 Store.__index = Store
@@ -386,6 +388,63 @@ function Store:removeNovel(novel_id)
     return paths
 end
 
+-- ---------------------------------------------------------------- group files
+-- Joined chapters (see groups.lua): group_<block>_<N>.html plus a manifest
+-- group_<block>_<N>.json ({version, block, n, ids, parts}) next to it.
+
+function Store:groupPath(novel_id, block, n)
+    return self:chaptersDir(novel_id) .. "/" .. Groups.fileName(block, n)
+end
+
+function Store:groupManifestPath(novel_id, block, n)
+    return self:chaptersDir(novel_id) .. "/" .. Groups.manifestName(block, n)
+end
+
+--- The manifest of a group file, or nil (missing or unreadable).
+function Store:readGroupManifest(novel_id, block, n)
+    local m = self:readJson(self:groupManifestPath(novel_id, block, n))
+    if type(m) ~= "table" then return nil end
+    return m
+end
+
+--[[--
+Writes a group file and its manifest. The manifest is removed first and
+written last, so an interrupted write is never taken for a complete file.
+Returns the path or nil, err.
+]]
+function Store:writeGroup(novel_id, block, n, html, manifest)
+    local mpath = self:groupManifestPath(novel_id, block, n)
+    os.remove(mpath)
+    local path = self:groupPath(novel_id, block, n)
+    local ok, err = self:writeFile(path, html)
+    if not ok then return nil, err end
+    ok, err = self:writeJson(mpath, manifest)
+    if not ok then return nil, err end
+    return path
+end
+
+--- Group files of a novel: list of {block, n, path, size}.
+function Store:groupFiles(novel_id)
+    local out = {}
+    local dir = self:chaptersDir(novel_id)
+    if self.lfs.attributes(dir, "mode") ~= "directory" then return out end
+    for entry in self.lfs.dir(dir) do
+        local b, n = Groups.parseFileName(entry)
+        if b then
+            local path = dir .. "/" .. entry
+            table.insert(out, { block = b, n = n, path = path, size = self.lfs.attributes(path, "size") or 0 })
+        end
+    end
+    table.sort(out, function(a, b) return a.block < b.block or (a.block == b.block and a.n < b.n) end)
+    return out
+end
+
+--- Removes a group file and its manifest. Returns bytes freed.
+function Store:removeGroup(novel_id, block, n)
+    local freed = self:removeTree(self:groupPath(novel_id, block, n))
+    return freed + self:removeTree(self:groupManifestPath(novel_id, block, n))
+end
+
 --- Novel ids that have a chapters folder.
 function Store:novelsWithDownloads()
     local out = {}
@@ -413,6 +472,8 @@ function Store:downloads()
             count = count + 1
             bytes = bytes + (self.lfs.attributes(dir .. "/" .. entry.file, "size") or entry.size or 0)
         end
+        -- Joined-chapter files take space too (they are counted, not listed).
+        for _i, g in ipairs(self:groupFiles(novel_id)) do bytes = bytes + g.size end
         if count > 0 then
             table.insert(out, { novel_id = novel_id, name = index.novel_name, count = count, bytes = bytes })
         else

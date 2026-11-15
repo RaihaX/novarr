@@ -121,6 +121,8 @@ function Settings:items()
     end
     toggle("remove_after_reading", _("Remove chapters after reading (keeps the last 2)"))
     toggle("mark_read_at_end", _("Mark chapter read at its end"))
+    -- Takes effect the next time a chapter is opened.
+    toggle("join_chapters", _("Join chapters for smooth page turns"))
     toggle("show_reading_info", _("Show reading info in the status bar"))
     toggle("show_clock", _("Show clock while reading"))
     toggle("show_covers", _("Show covers"))
