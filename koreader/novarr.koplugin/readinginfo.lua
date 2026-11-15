@@ -149,4 +149,53 @@ function ReadingInfo.pause(timer)
     timer.last = nil
 end
 
+--[[--
+Status-line parts for "15:13 · ch 969 of 1,147 · 178 left · 9 h left".
+Returns a list of {key, text}; keys: clock, ch, of, left, time.
+]]
+function ReadingInfo.statusParts(clock, n, m, chapters_left, seconds_left)
+    local parts = {}
+    if clock then table.insert(parts, { key = "clock", text = clock }) end
+    if n then
+        table.insert(parts, { key = "ch", text = string.format(_("ch %s"), ReadingInfo.thousands(n)) })
+        if m then table.insert(parts, { key = "of", text = string.format(_("of %s"), ReadingInfo.thousands(m)) }) end
+    end
+    if chapters_left then
+        table.insert(parts, { key = "left", text = string.format(_("%s left"), ReadingInfo.thousands(chapters_left)) })
+    end
+    local d = ReadingInfo.formatDuration(seconds_left)
+    if d then table.insert(parts, { key = "time", text = string.format(_("%s left"), d) }) end
+    return parts
+end
+
+-- "ch 969" and "of 1,147" are joined with a space, everything else with " · ".
+function ReadingInfo.joinParts(parts)
+    local out = ""
+    for i, p in ipairs(parts) do
+        if i == 1 then out = p.text
+        elseif p.key == "of" then out = out .. " " .. p.text
+        else out = out .. " \194\183 " .. p.text end
+    end
+    return out ~= "" and out or nil
+end
+
+--[[--
+Fits the status line into `budget` pixels (measure(text) -> pixels): drops
+"of M" first, then the clock. Returns the text (nil when empty).
+]]
+function ReadingInfo.fitStatus(parts, measure, budget)
+    local function without(key)
+        local out = {}
+        for _i, p in ipairs(parts) do if p.key ~= key then table.insert(out, p) end end
+        return out
+    end
+    local text = ReadingInfo.joinParts(parts)
+    if not text or not budget or not measure or measure(text) <= budget then return text end
+    parts = without("of")
+    text = ReadingInfo.joinParts(parts)
+    if not text or measure(text) <= budget then return text end
+    parts = without("clock")
+    return ReadingInfo.joinParts(parts)
+end
+
 return ReadingInfo

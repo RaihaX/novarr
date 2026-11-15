@@ -60,18 +60,23 @@ function Library:items()
     for _i, id in ipairs(s.store:novelsWithDownloads()) do downloaded[id] = true end
     local shown = Model.filterNovels(novels, self.filter, self.query, downloaded)
     for _i, novel in ipairs(shown) do
-        local right = Model.readCountText(novel, s:readDelta(novel.id))
+        local count = Model.readCountText(novel, s:readDelta(novel.id))
+        local right = count
         if (tonumber(novel.chapters_new) or 0) > 0 then
             right = UI.MARK_NEW .. " " .. right
         end
         if downloaded[novel.id] then
             right = UI.MARK_SAVED .. " " .. right
+            count = UI.MARK_SAVED .. " " .. count
         end
         table.insert(items, {
             text = novel.name,
             mandatory = right,
-            cover = covers and { url = novel.cover_url, name = novel.name, author = novel.author, info = right } or nil,
-            callback = function() s:showNovel(novel.id) end,
+            cover = covers and { url = novel.cover_url, name = novel.name, author = novel.author, info = count, -- the badge shows new chapters
+                badge = tonumber(novel.chapters_new) or 0 } or nil,
+            -- One tap reads (the resume chapter); hold opens the Novel screen.
+            callback = function() s:openNovel(novel.id) end,
+            hold_callback = function() s:showNovel(novel.id) end,
         })
     end
     if #shown == 0 then

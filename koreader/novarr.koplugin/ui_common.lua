@@ -174,7 +174,16 @@ function UI.showMenu(session, opts)
     local items = opts.items or {}
     if opts.current then items.current = opts.current end
     local menu
-    if opts.cover_list then
+    if opts.shelf then
+        menu = require("novarr.ui_shelf"):new{
+            title = opts.title,
+            item_table = items,
+            text_mode = not session:showCovers(),
+            covers = session:covers(),
+            can_fetch = function() return session:isConnected() end,
+            fetch_cover = function(url) return session:covers():download(url) end,
+        }
+    elseif opts.cover_list then
         menu = require("novarr.ui_coverlist"):new{
             title = opts.title,
             item_table = items,

@@ -19,8 +19,8 @@ local _ = require("gettext")
 local plugin_dir = (debug.getinfo(1, "S").source or ""):match("^@(.*)/[^/]*$") or "."
 local MODULES = {
     "api", "autopilot", "chapterdoc", "covers", "epub", "epubflow", "json", "model", "queue", "reading", "readinginfo", "session",
-    "store", "sync", "ui_chapters", "ui_common", "ui_coverlist", "ui_downloads", "ui_home", "ui_library",
-    "ui_novel", "ui_progress", "ui_settings",
+    "store", "sync", "ui_caughtup", "ui_chapters", "ui_common", "ui_coverlist", "ui_downloads", "ui_home", "ui_library",
+    "ui_novel", "ui_progress", "ui_settings", "ui_shelf",
 }
 for _i, name in ipairs(MODULES) do
     package.preload["novarr." .. name] = function()

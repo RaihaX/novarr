@@ -76,3 +76,20 @@ T.it("stored chapters remember their word count", function()
     T.eq(Store.countWords({ "one two  three", "", "four" }), 4)
     T.eq(Store.countWords({}), nil)
 end)
+
+T.it("status line: clock · ch N of M · left · time", function()
+    local parts = RI.statusParts("15:13", 969, 1147, 178, 9 * 3600)
+    T.eq(RI.joinParts(parts), "15:13 \194\183 ch 969 of 1,147 \194\183 178 left \194\183 9 h left")
+    T.eq(RI.joinParts(RI.statusParts(nil, nil, nil, 3, nil)), "3 left")
+    T.eq(RI.joinParts(RI.statusParts(nil, nil, nil, nil, nil)), nil)
+end)
+
+T.it("status line fits the width: drop 'of M' first, then the clock", function()
+    local parts = RI.statusParts("15:13", 969, 1147, 178, 9 * 3600)
+    local measure = function(t) return #t end
+    local full = RI.joinParts(parts)
+    T.eq(RI.fitStatus(parts, measure, #full), full)
+    T.eq(RI.fitStatus(parts, measure, #full - 1), "15:13 \194\183 ch 969 \194\183 178 left \194\183 9 h left")
+    T.eq(RI.fitStatus(parts, measure, 20), "ch 969 \194\183 178 left \194\183 9 h left")
+    T.eq(RI.fitStatus(parts, nil, 1), full) -- no measure: unchanged
+end)

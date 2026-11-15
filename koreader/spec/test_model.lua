@@ -140,3 +140,107 @@ T.it("building 3,000 rows is fast", function()
     T.truthy(#rows == 3000 and idx)
     T.truthy(dt < 0.5, "took " .. dt .. " s")
 end)
+
+-- ---------------------------------------------------------------- UX round
+
+local function L(n, missing)
+    local list = {}
+    for i = 1, n do list[i] = { id = 100 + i, downloaded = not (missing and missing[i]), read = false } end
+    return list
+end
+local function readTo(list, k) for i = 1, k do list[i].read = true end return list end
+local function effective(overlay)
+    return function(c)
+        local e = overlay[tostring(c.id)]
+        if e and e.read ~= nil then return e.read end
+        return c.read
+    end
+end
+
+-- {name, list, server resume id, overlay, expected id}
+local resume_cases = {
+    { "server only", readTo(L(20), 4), 105, {}, 105 },
+    { "local read further than server", readTo(L(20), 4), 105,
+        { ["116"] = { read = true, at = 10 } }, 117 },
+    { "local read behind server (catch-up mark) keeps server", readTo(L(20), 9), 110,
+        { ["102"] = { read = true, at = 10 } }, 110 },
+    { "part-read newer than read marks wins", readTo(L(20), 4), 105,
+        { ["116"] = { read = true, at = 10 }, ["117"] = { progress = 40, at = 20 } }, 117 },
+    { "re-opening an already read chapter does not move it back", readTo(L(20), 9), 110,
+        { ["103"] = { progress = 30, at = 50 } }, 110 },
+    { "an unread chapter being read, behind the server's, wins when newest", readTo(L(20), 4), 110,
+        { ["106"] = { progress = 30, at = 50 } }, 106 },
+    { "older part-read loses to a newer read mark further on", readTo(L(20), 4), 105,
+        { ["106"] = { progress = 30, at = 5 }, ["111"] = { read = true, at = 9 } }, 112 },
+    { "server points at a read chapter (progress < 90), device read past it", readTo(L(20), 5), 105,
+        { ["105"] = { read = true, at = 3 }, ["106"] = { read = true, at = 4 } }, 107 },
+    { "next after local read skips chapters the server lacks", readTo(L(20, { [8] = true }), 4), 105,
+        { ["107"] = { read = true, at = 1 } }, 109 },
+    { "unread mark never moves it", readTo(L(20), 9), 110, { ["104"] = { read = false, at = 99 } }, 110 },
+    { "no server resume, nothing local: first unread", readTo(L(10), 3), nil, {}, 104 },
+    { "read to the end locally: keep server", readTo(L(5), 4), 105, { ["105"] = { read = true, at = 1 } }, 105 },
+}
+for _i, c in ipairs(resume_cases) do
+    T.it("resume rule: " .. c[1], function()
+        T.eq(Model.resolveResume(c[2], c[3], c[4], effective(c[4])), c[5])
+    end)
+end
+
+T.it("ordinal among downloaded chapters", function()
+    local list = L(10, { [3] = true, [7] = true })
+    T.eq({ Model.ordinal(list, 104) }, { 3, 8 })
+    T.eq({ Model.ordinal(list, 103) }, { nil, 8 })
+    T.eq({ Model.ordinal({}, 1) }, { nil, 0 })
+end)
+
+T.it("home shelf order: hero, in progress by recency, new chapters, rest", function()
+    local novels = {
+        { id = 1, chapters_read = 5, last_read_at = "2026-11-10T00:00:00Z" },
+        { id = 2, chapters_read = 0, chapters_new = 3 },
+        { id = 3, chapters_read = 9, last_read_at = "2026-11-14T00:00:00Z" },
+        { id = 4, chapters_read = 0 },
+        { id = 5, chapters_read = 7, finished = true },
+        { id = 6, chapters_read = 0 },
+    }
+    local hero, started, rest = Model.shelfOrder(novels, {})
+    T.eq(hero.id, 3); T.truthy(started)
+    T.eq(ids(rest), { 1, 2, 4, 5, 6 })
+    -- reading on this device more recently than the server knows
+    local h2, _s, r2 = Model.shelfOrder(novels, { [1] = Model.parseIso("2026-11-15T00:00:00Z") * 1000, [6] = 1 })
+    T.eq(h2.id, 1)
+    T.eq(ids(r2), { 3, 6, 2, 4, 5 })
+    -- nothing in progress: first library novel, "Start reading"
+    local h3, s3, r3 = Model.shelfOrder({ { id = 9 }, { id = 8, chapters_new = 1 } }, {})
+    T.eq(h3.id, 8); T.falsy(s3); T.eq(ids(r3), { 9 })
+    local h4 = Model.shelfOrder({}, {})
+    T.eq(h4, nil)
+end)
+
+T.it("home shelf pages", function()
+    T.eq(Model.shelfPages(10, 6, 9), { { first = 1, last = 6 }, { first = 7, last = 10 } })
+    T.eq(Model.shelfPages(3, 6, 9), { { first = 1, last = 3 } })
+    T.eq(Model.shelfPages(0, 6, 9), { { first = 1, last = 0 } })
+    T.eq(#Model.shelfPages(150, 6, 9), 17)
+end)
+
+T.it("one tap: resume chapter, or the Novel screen when nothing to resume", function()
+    T.eq({ Model.tapTarget({ chapters_downloaded = 10 }, 55) }, { "open", 55 })
+    T.eq({ Model.tapTarget({ chapters_downloaded = 0 }, 55) }, { "novel" })
+    T.eq({ Model.tapTarget({ chapters_downloaded = 10 }, nil) }, { "novel" })
+    T.eq({ Model.tapTarget(nil, 1) }, { "novel" })
+end)
+
+T.it("prefetch pacing", function()
+    T.eq(Model.prefetchWait(10000, 9000, nil, 5000, 1500), 4)       -- too soon after opening
+    T.eq(Model.prefetchWait(20000, 9000, 19500, 5000, 1500), 1)     -- page turn half a second ago
+    T.eq(Model.prefetchWait(20000, 9000, 15000, 5000, 1500), 0)     -- quiet: go
+    T.eq(Model.prefetchWait(20000, nil, nil), 0)
+end)
+
+T.it("history pruning keeps only the chapter being read", function()
+    local is_ch = function(p) return p:find("/novarr/chapters/", 1, true) ~= nil end
+    local paths = { "/b/book.epub", "/k/novarr/chapters/2/11_a.html", "/k/novarr/chapters/2/12_b.html", "/k/novarr/chapters/3/9.html" }
+    T.eq(Model.historyToPrune(paths, "/k/novarr/chapters/2/12_b.html", is_ch),
+        { "/k/novarr/chapters/2/11_a.html", "/k/novarr/chapters/3/9.html" })
+    T.eq(Model.historyToPrune(paths, nil, is_ch), { paths[2], paths[3], paths[4] })
+end)
