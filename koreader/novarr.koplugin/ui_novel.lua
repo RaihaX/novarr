@@ -1,13 +1,16 @@
 --[[--
-Novel screen: Continue/Start, Chapters, Download for offline, Remove
-downloads, Mark all as read, About (synopsis).
+Novel screen: Continue/Start, Chapters, reading stats (stats.lua), Check
+for new chapters (checks.lua) with its status, Download for offline,
+Remove downloads, Mark all as read, Download as EPUB, About (synopsis).
 ]]
 
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 local T = require("ffi/util").template
 
+local Checks = require("novarr.checks")
 local Model = require("novarr.model")
+local Stats = require("novarr.stats")
 local ReadingInfo = require("novarr.readinginfo")
 local Session = require("novarr.session")
 local UI = require("novarr.ui_common")
@@ -76,6 +79,28 @@ function Novel:items()
         })
     elseif left_text then
         table.insert(items, { text = left_text, dim = true, select_enabled = false, callback = function() end })
+    end
+    -- Reading stats, compact (nothing until something was recorded).
+    for _i, line in ipairs(Stats.lines(s:novelStats(self.novel_id))) do
+        table.insert(items, { text = line, dim = true, select_enabled = false, stats = true, callback = function() end })
+    end
+    local check_text, check_kind = Checks.text(self.novel_id)
+    table.insert(items, {
+        text = _("Check for new chapters"),
+        mandatory = check_kind == "busy" and _("Checking…") or nil,
+        dim = check_kind == "busy",
+        callback = function()
+            if check_kind == "busy" then
+                UI.info(check_text)
+                return
+            end
+            Checks.ask(self.novel_id)
+        end,
+    })
+    if check_text and check_kind ~= "busy" then
+        -- A long reason may not fit on the row: a tap shows it whole.
+        table.insert(items, { text = check_text, dim = true, check_status = true,
+            callback = function() UI.info(check_text) end })
     end
     local _set, saved = s.store:storedSet(self.novel_id)
     table.insert(items, {

@@ -5,7 +5,8 @@ screens: chapters left, reading time left, clock. Pure Lua (unit tested).
 Time per chapter is measured on this device: active reading seconds per
 finished chapter (gaps between page turns over 5 minutes and time while
 suspended are not counted), a rolling window of the last 30 per novel,
-values under 20 s discarded. With fewer than 3 measurements it is
+values under 20 s discarded, over 90 min left out of the average. With
+fewer than 3 such measurements it is
 estimated from word counts at 250 words per minute.
 ]]
 
@@ -17,6 +18,7 @@ local ReadingInfo = {}
 
 ReadingInfo.MAX_GAP = 5 * 60         -- seconds; longer pauses are not reading
 ReadingInfo.MIN_SAMPLE = 20          -- seconds; shorter "reads" are skims
+ReadingInfo.MAX_SAMPLE = 90 * 60     -- seconds; longer ones are left out of the average
 ReadingInfo.WINDOW = 30              -- finished chapters remembered per novel
 ReadingInfo.MIN_SAMPLES = 3          -- measurements needed before trusting them
 ReadingInfo.WORDS_PER_MINUTE = 250
@@ -50,10 +52,17 @@ otherwise from the average word count (nil when unknown). Returns seconds
 (or nil) and the source ("measured" / "words").
 ]]
 function ReadingInfo.secondsPerChapter(samples, avg_words)
-    if samples and #samples >= ReadingInfo.MIN_SAMPLES then
-        local sum = 0
-        for _i, s in ipairs(samples) do sum = sum + s end
-        return sum / #samples, "measured"
+    -- Samples over MAX_SAMPLE (a chapter left open across a long pause) are left out,
+    -- as on the Novel screen's stats (stats.lua).
+    local sum, n = 0, 0
+    for _i, s in ipairs(samples or {}) do
+        if s >= ReadingInfo.MIN_SAMPLE and s <= ReadingInfo.MAX_SAMPLE then
+            sum = sum + s
+            n = n + 1
+        end
+    end
+    if n >= ReadingInfo.MIN_SAMPLES then
+        return sum / n, "measured"
     end
     avg_words = tonumber(avg_words)
     if avg_words and avg_words > 0 then

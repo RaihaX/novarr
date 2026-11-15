@@ -465,11 +465,15 @@ function Reading.finishChapter(plugin)
     if not r or r.ended then return end
     r.ended = true
     r.percent = 100
+    local seconds
     if r.timer then
         ReadingInfo.tick(r.timer, os.time())
+        seconds = r.timer.seconds
         local kept = Session:recordChapterTime(r.novel_id, r.timer.seconds)
         logger.info("Novarr: chapter", r.chapter_id, "read in", r.timer.seconds, "s of active reading", kept and "(recorded)" or "(too short, ignored)")
     end
+    -- Reading stats (Novel screen): one finished chapter, now.
+    Session.guard(Session.recordChapterRead, Session, r.novel_id, seconds)
     if Session:get("mark_read_at_end") then
         Session:markChapter(r.novel_id, r.chapter_id, true, "end")
     else
@@ -527,8 +531,12 @@ function Reading.trackGroup(plugin)
         done[idx] = true
         if idx == from then
             Reading.finishChapter(plugin)
-        elseif Session:get("mark_read_at_end") then
-            Session:markChapter(r.novel_id, r.group.ids[idx], true, "end")
+        else
+            -- Paged through in the same move (a very short chapter): finished, not timed.
+            Session.guard(Session.recordChapterRead, Session, r.novel_id, nil)
+            if Session:get("mark_read_at_end") then
+                Session:markChapter(r.novel_id, r.group.ids[idx], true, "end")
+            end
         end
     end
     if not done[from] then Reading.persist(plugin) end
@@ -940,26 +948,14 @@ local function openLater(novel_id, chapter_id)
     end))
 end
 
+--[[--
+"Check for new chapters" for the novel being read: asks the server to check
+its source (checks.lua); the caught-up page shows how it goes.
+]]
 function Reading.checkNew(plugin)
     local r = plugin.reading
     if not r then return end
-    Session:whenConnected(function()
-        local closer = UI().loading(_("Checking for new chapters…"))
-        local _cl, e = Session:refreshChapterList(r.novel_id)
-        closer()
-        if e then
-            UI().info(Session:errorText(e))
-            return
-        end
-        local id = Reading.neighbour(r, 1)
-        if id then
-            openLater(r.novel_id, id)
-        else
-            UI().info(_("No new chapters yet."))
-        end
-    end, function()
-        UI().info(_("No network connection."))
-    end)
+    require("novarr.checks").ask(r.novel_id)
 end
 
 --[[--
@@ -1005,11 +1001,23 @@ function Reading.goNext(plugin)
     -- When Novarr had switched Wi-Fi off, it comes back (new chapters, sync).
     if not connected then Wifi().restore("caught up with the saved chapters") end
     local ok = pcall(function()
+        local novel_id, chapter_id = r.novel_id, r.chapter_id
         require("novarr.ui_caughtup").show(Session, {
-            novel_id = r.novel_id,
-            chapter_id = r.chapter_id,
-            connected = connected,
-            on_check = function() Reading.checkNew(plugin) end,
+            novel_id = novel_id,
+            chapter_id = chapter_id,
+            -- After a check: the next chapter, once the refreshed list has one.
+            has_next = function()
+                local rr = plugin.reading
+                return rr ~= nil and rr.novel_id == novel_id and Reading.neighbour(rr, 1) ~= nil
+            end,
+            on_continue = function()
+                local rr = plugin.reading
+                local id = rr and rr.novel_id == novel_id and Reading.neighbour(rr, 1)
+                if id then
+                    rr.next_at = nil
+                    if not Reading.jumpTo(plugin, id, { resume = true }) then openLater(novel_id, id) end
+                end
+            end,
         })
     end)
     if not ok then

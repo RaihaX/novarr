@@ -34,6 +34,8 @@ T.it("seconds per chapter: measured after 3 samples, words before", function()
     T.eq(RI.secondsPerChapter({ 300, 600 }, 2500), 600) -- 2500 words at 250 wpm = 10 min
     T.eq({ RI.secondsPerChapter({ 300, 600, 900 }, 2500) }, { 600, "measured" })
     T.eq(RI.secondsPerChapter({}, nil), nil)
+    T.eq({ RI.secondsPerChapter({ 300, 600, 900, 7000 }, 2500) }, { 600, "measured" }, "over 90 min left out")
+    T.eq(select(2, RI.secondsPerChapter({ 300, 600, 7000 }, 2500)), "words", "two usable samples are not enough")
 end)
 
 T.it("average words from word_count or stored words", function()

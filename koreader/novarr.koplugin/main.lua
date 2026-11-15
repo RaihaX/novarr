@@ -18,10 +18,10 @@ local _ = require("gettext")
 -- package.path). They load lazily, on first use.
 local plugin_dir = (debug.getinfo(1, "S").source or ""):match("^@(.*)/[^/]*$") or "."
 local MODULES = {
-    "address", "api", "autopilot", "chapterdoc", "covers", "epub", "epubflow", "groups", "http_client", "json", "model",
-    "queue", "reading", "readinginfo", "session", "store", "sync", "ui_caughtup", "ui_chapters", "ui_common",
-    "ui_coverlist", "ui_downloads", "ui_home", "ui_library", "ui_novel", "ui_progress", "ui_settings", "ui_shelf",
-    "ui_update", "updater", "wifi", "wifipolicy",
+    "address", "api", "autopilot", "chapterdoc", "checks", "checkstate", "covers", "discover", "epub", "epubflow",
+    "groups", "http_client", "json", "model", "queue", "reading", "readinginfo", "session", "stats", "store", "sync",
+    "ui_caughtup", "ui_chapters", "ui_common", "ui_coverlist", "ui_discover", "ui_downloads", "ui_home", "ui_library",
+    "ui_novel", "ui_progress", "ui_settings", "ui_shelf", "ui_update", "updater", "wifi", "wifipolicy",
 }
 for _i, name in ipairs(MODULES) do
     package.preload["novarr." .. name] = function()
@@ -191,6 +191,9 @@ end
 function Novarr:onSuspend()
     if Session.plugin == self then
         Session.guard(function() require("novarr.wifi").onSuspend() end)
+        -- Checks for new chapters stop looking while asleep (only when one was started).
+        local Checks = package.loaded["novarr.checks"]
+        if type(Checks) == "table" then Session.guard(Checks.onSuspend) end
     end
     if not self.reading then return end
     Session.guard(function()
@@ -207,7 +210,11 @@ function Novarr:onResume()
             Session.address:invalidate("wake-up")
             -- After KOReader's own resume handling (it may restore Wi-Fi).
             if not self.resume_task then
-                self.resume_task = Session.wrap(function() require("novarr.wifi").onResume() end)
+                self.resume_task = Session.wrap(function()
+                    require("novarr.wifi").onResume()
+                    local Checks = package.loaded["novarr.checks"]
+                    if type(Checks) == "table" then Checks.onResume() end
+                end)
             end
             UIManager:unschedule(self.resume_task)
             UIManager:scheduleIn(3, self.resume_task)

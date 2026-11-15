@@ -617,6 +617,37 @@ function Store:saveTiming()
     if self._timing then self:writeJson(self.root .. "/timing.json", self._timing) end
 end
 
+-- ---------------------------------------------------------------- reading stats
+
+--- Finished-chapter events of a novel (see stats.lua): list {t, s}, oldest first.
+function Store:getStats(novel_id)
+    if not self._stats then
+        local t = self:readJson(self.root .. "/stats.json")
+        self._stats = type(t) == "table" and t or {}
+    end
+    local list = self._stats[tostring(novel_id)]
+    if type(list) ~= "table" then
+        list = {}
+        self._stats[tostring(novel_id)] = list
+    end
+    return list
+end
+
+function Store:saveStats()
+    if not self._stats then return end
+    -- Novels with no events left are not written.
+    local out = {}
+    for k, list in pairs(self._stats) do
+        if type(list) == "table" and #list > 0 then out[k] = self.json.array(list) end
+    end
+    self:writeJson(self.root .. "/stats.json", out)
+end
+
+function Store:clearStats()
+    self._stats = {}
+    os.remove(self.root .. "/stats.json")
+end
+
 -- ---------------------------------------------------------------- EPUBs
 
 --- Downloaded EPUBs: { ["<novelId>"] = {path, etag, size, name, saved_at} }.
@@ -657,6 +688,7 @@ function Store:forget()
     self._index = {}
     self._overlay = {}
     self._timing = nil
+    self._stats = nil
     self._epubs = nil
 end
 

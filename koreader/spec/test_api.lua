@@ -168,3 +168,75 @@ T.it("JSON null becomes nil", function()
     T.eq(Json.decode(""), nil)
     T.eq(Json.encode(Json.array({})), "[]")
 end)
+
+-- ---------------------------------------------------------------- discover, add, check
+
+T.it("browse: query string encoded, long timeouts, type/source/q/page/per_page", function()
+    local transport, log = fake({ json(200, { items = {}, page = 2, has_more = false }) })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    local data = api:browse({ type = "search", source = "novelfull", q = "Shadow & Slave/é", page = 2, per_page = 20 })
+    T.truthy(data)
+    T.eq(log[1].method, "GET")
+    T.eq(log[1].url, "http://h/api/v1/discover/browse?type=search&source=novelfull&q=Shadow%20%26%20Slave%2F%C3%A9&page=2&per_page=20")
+    T.truthy(log[1].total_timeout >= 120, "total timeout at least 120 s")
+    T.truthy(log[1].block_timeout >= 120, "block timeout as long (the server holds the answer)")
+end)
+
+T.it("browse: empty values are left out of the query", function()
+    local transport, log = fake({ json(200, { items = {} }) })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    api:browse({ type = "popular", q = "", page = 1 })
+    T.eq(log[1].url, "http://h/api/v1/discover/browse?type=popular&page=1")
+end)
+
+T.it("browse: 502 is a server error carrying the server's message apart", function()
+    local api = Api.new({ base_url = "http://h", transport = fake({
+        { status = 502, headers = {}, body = '{"message":"Couldn\'t load this list from the source. Try again later."}' } }) })
+    local data, e = api:browse({ type = "popular" })
+    T.eq(data, nil)
+    T.eq(e.kind, "server")
+    T.eq(e.status, 502)
+    T.eq(e.message, nil)
+    T.eq(e.server_message, "Couldn't load this list from the source. Try again later.")
+end)
+
+T.it("addNovel: POST title and url; 201 and 200 both return the novel", function()
+    local transport, log = fake({
+        json(201, { novel = { id = 9, name = "Shadow Slave" }, already_in_library = false }),
+        json(200, { novel = { id = 2, name = "Shadow Slave" }, already_in_library = true }),
+        { status = 422, headers = {}, body = '{"message":"The url field must be a valid URL.","errors":{"url":["x"]}}' },
+        { status = 503, headers = {}, body = '{"message":"Another novel is being added right now. Try again in a moment."}' },
+    })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    local d1, _e1, i1 = api:addNovel("Shadow Slave", "https://novelping.com/novel/shadow-slave")
+    T.eq(log[1].method, "POST")
+    T.eq(log[1].url, "http://h/api/v1/novels")
+    T.eq(Json.decode(log[1].body), { title = "Shadow Slave", url = "https://novelping.com/novel/shadow-slave" })
+    T.eq(d1.novel.id, 9)
+    T.eq(i1.status, 201)
+    local d2 = api:addNovel("Shadow Slave", "u")
+    T.truthy(d2.already_in_library)
+    local _d3, e3 = api:addNovel("x", "bad")
+    T.eq(e3.kind, "invalid")
+    T.eq(e3.message, "The url field must be a valid URL.")
+    local _d4, e4 = api:addNovel("x", "u")
+    T.eq(e4.status, 503)
+    T.contains(e4.server_message, "Another novel")
+end)
+
+T.it("check: POST starts, GET reads, the check object is returned", function()
+    local transport, log = fake({
+        json(202, { check = { status = "running", new_chapters = 0 } }),
+        json(200, { check = { status = "done", new_chapters = 3 } }),
+        json(200, { nothing = true }),
+    })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    T.eq(api:checkStart(7).status, "running")
+    T.eq(log[1].method, "POST")
+    T.eq(log[1].url, "http://h/api/v1/novels/7/check")
+    T.eq(api:checkStatus(7).new_chapters, 3)
+    T.eq(log[2].method, "GET")
+    local c, e = api:checkStatus(7)
+    T.eq(c, nil)
+    T.eq(e.kind, "server")
+end)
