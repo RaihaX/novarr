@@ -2,10 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Novel;
+use App\Services\Discover;
 use App\Sources\EmpireNovelSource;
-use App\Sources\Source;
-use App\Sources\SourceResolver;
 use Illuminate\Http\Request;
 
 /**
@@ -35,11 +33,7 @@ class DiscoverController extends Controller
      */
     protected function sourceOptions(): array
     {
-        return array_map(fn(Source $source) => [
-            'label' => $source->discoverLabel(),
-            'host' => $source->discoverHost(),
-            'lists' => $source->discoverLists(),
-        ], SourceResolver::discoverable());
+        return app(Discover::class)->sourceOptions();
     }
 
     /**
@@ -54,7 +48,8 @@ class DiscoverController extends Controller
      */
     public function browse(Request $request)
     {
-        $sources = SourceResolver::discoverable();
+        $discover = app(Discover::class);
+        $sources = $discover->sources();
 
         // A registry in which no source offers Discover has nothing to list.
         if ($sources === []) {
@@ -63,7 +58,7 @@ class DiscoverController extends Controller
 
         $data = $request->validate([
             'source' => 'nullable|in:' . implode(',', array_keys($sources)),
-            'type' => 'required|in:search,popular,new,random,completed',
+            'type' => 'required|in:' . implode(',', Discover::TYPES),
             'q' => 'required_if:type,search|nullable|string|max:100',
         ]);
 
@@ -76,7 +71,7 @@ class DiscoverController extends Controller
             return response()->json(['success' => true, 'items' => []]);
         }
 
-        $items = $source->discover($data['type'], $data['q'] ?? null);
+        $items = $discover->results($source, $data['type'], $data['q'] ?? null);
         $sourceLabel = $source->discoverHost();
 
         if ($items === null) {
@@ -86,12 +81,11 @@ class DiscoverController extends Controller
             ], 502);
         }
 
-        // Mark results that are already in the library (by slug/URL or name).
-        $library = $this->libraryIndex();
-        foreach ($items as &$item) {
-            $item['in_library'] = $this->inLibrary($item, $library);
-        }
-        unset($item);
+        // The page only needs the in_library flag.
+        $items = array_map(function (array $item) {
+            unset($item['novel_id']);
+            return $item;
+        }, $items);
 
         $hidden = 0;
         if ($data['type'] !== 'search') {
@@ -103,74 +97,16 @@ class DiscoverController extends Controller
         return response()->json(['success' => true, 'items' => $items, 'hidden' => $hidden]);
     }
 
-    /**
-     * Library lookup sets: per-source slugs (Source::librarySlug() — for
-     * NovelPing either host, legacy novelbin too), normalised URLs for
-     * other sources, normalised names.
-     *
-     * @return array{slugs: array<string, array<string, true>>, urls: array<string, true>, names: array<string, true>}
-     */
-    protected function libraryIndex(): array
-    {
-        $index = ['slugs' => [], 'urls' => [], 'names' => []];
-        $sources = SourceResolver::all();
-
-        foreach (Novel::query()->get(['name', 'translator_url']) as $novel) {
-            $url = (string) $novel->translator_url;
-            if ($url !== '') {
-                $index['urls'][self::normalizeUrl($url)] = true;
-                foreach ($sources as $key => $source) {
-                    if (($slug = $source->librarySlug($url, stored: true)) !== null) {
-                        $index['slugs'][$key][$slug] = true;
-                    }
-                }
-            }
-            $name = self::normalizeName((string) $novel->name);
-            if ($name !== '') {
-                $index['names'][$name] = true;
-            }
-        }
-
-        return $index;
-    }
-
-    protected function inLibrary(array $item, array $library): bool
-    {
-        $url = (string) ($item['url'] ?? '');
-        if ($url !== '') {
-            foreach ($library['slugs'] as $key => $slugs) {
-                $slug = SourceResolver::get($key)?->librarySlug($url);
-                if ($slug !== null && isset($slugs[$slug])) {
-                    return true;
-                }
-            }
-            if (isset($library['urls'][self::normalizeUrl($url)])) {
-                return true;
-            }
-        }
-
-        $name = self::normalizeName((string) ($item['name'] ?? ''));
-
-        return $name !== '' && isset($library['names'][$name]);
-    }
-
-    /** Scheme, "www.", case and a trailing "/" or "_" don't make a different novel. */
+    /** See Discover::normalizeUrl(); kept for existing callers. */
     public static function normalizeUrl(string $url): string
     {
-        $url = strtolower(trim($url));
-        $url = preg_replace('#^https?://(www\.)?#', '', $url);
-
-        return rtrim($url, '/_');
+        return Discover::normalizeUrl($url);
     }
 
-    /** Lowercase, punctuation stripped, whitespace collapsed: "Re:Zero!" ≈ "re zero". */
+    /** See Discover::normalizeName(); kept for existing callers. */
     public static function normalizeName(string $name): string
     {
-        $name = mb_strtolower(html_entity_decode(trim($name), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-        $name = str_replace(["'", "\u{2019}"], '', $name);
-        $name = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $name) ?? '';
-
-        return trim($name);
+        return Discover::normalizeName($name);
     }
 
     /**
