@@ -71,3 +71,18 @@ T.it("placeholder initials", function()
     T.eq(Covers.initials(""), "?")
     T.eq(Covers.initials("\229\164\169\229\174\152 b"), "\229\164\169B")
 end)
+
+T.it("a key function makes one file for the same cover on either server address", function()
+    local dir = T.tmpdir() .. "/covers"
+    local key = function(url) return (url:gsub("^https://nas%.ts%.net", "http://192.168.1.34:8080")) end
+    local fetched = {}
+    local c = Covers.new({ dir = dir, lfs = lfs, hash = hash, key = key, fetch = function(url, path)
+        table.insert(fetched, url)
+        return writer("image/jpeg")(url, path)
+    end })
+    local p = c:download("https://nas.ts.net/covers/2-md.jpg")
+    T.eq(p, dir .. "/" .. hash("http://192.168.1.34:8080/covers/2-md.jpg") .. ".jpg")
+    T.eq(c:cached("http://192.168.1.34:8080/covers/2-md.jpg"), p, "found through the home address")
+    T.falsy(c:wants("http://192.168.1.34:8080/covers/2-md.jpg"))
+    T.eq(#fetched, 1)
+end)

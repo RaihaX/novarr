@@ -28,6 +28,24 @@ pause after each (default 1.5 s; "wait MS" adds more):
     dispatch EVENT       send an event to the top widget (as a gesture/Dispatcher action does)
     broadcast EVENT      broadcast an event to every widget (e.g. NetworkConnected)
     offline on|off       make the plugin's network layer act as if offline
+    wifi_backend emulator|fake   Wi-Fi emulation: requests fail while the emulated Wi-Fi
+                         is off. emulator = KOReader's own NetworkMgr (the desktop
+                         emulator's fake Wi-Fi), fake = Novarr's pretend Wi-Fi
+                         (connect delay and failures below)
+    wifi on|off          the user switches Wi-Fi on/off (as KOReader's Wi-Fi menu entry does)
+    wifi_delay SECONDS   fake Wi-Fi: how long connecting takes
+    wifi_fail N          fake Wi-Fi: the next N connection attempts fail
+    wifi_scale X         multiply every Wi-Fi management duration (20 s on, timeouts, backoff)
+    wifi_eval            run the Wi-Fi decision now
+    tls_ca PATH          trust only this CA file for https (direct and through a proxy alike)
+    http_proxy URL|off   KOReader's HTTP proxy setting (NetworkMgr:setHTTPProxy)
+    reader_chapter_turns N [MS]   turn pages (one every MS ms, default 50) until N chapter
+                         changes happened, each logged; the script waits for it
+    reader_turn_to_chapter ID|last [MS]   turn pages (one every MS ms, default 50) until
+                         chapter ID (last: the last stored one in reading order) is the
+                         one being read; the script waits for it
+    reader_turns_timed N MS  N page turns, one every MS ms, each timed (paint included);
+                         logs the slowest and the average; the script waits for it
     sync                 "Sync now"
     set KEY VALUE        change a plugin setting (number, true/false or text)
     unset KEY            remove a plugin setting (back to its default)
@@ -352,6 +370,52 @@ function steps.offline(_, arg)
     Api.simulate_offline = (arg == "on")
 end
 
+function steps.wifi_backend(session, arg)
+    local Wifi = require("novarr.wifi")
+    if arg == "fake" then
+        Wifi.setBackend(Wifi.fakeBackend({ on = true }))
+    else
+        Wifi.setBackend(Wifi.realBackend)
+    end
+    Api.offline_check = function() return not Wifi.backend.isConnected() end
+    say("wifi backend", Wifi.backend.name, "on:", tostring(Wifi.backend.isOn()))
+end
+
+function steps.wifi(_, arg)
+    local Wifi = require("novarr.wifi")
+    if not Wifi.backend.userToggle then error("this Wi-Fi backend can't be switched") end
+    Wifi.backend.userToggle(arg == "on")
+end
+
+function steps.wifi_delay(_, arg)
+    local Wifi = require("novarr.wifi")
+    if Wifi.backend.name ~= "fake" then error("wifi_delay needs wifi_backend fake") end
+    Wifi.backend.delay = tonumber(arg) or 2
+end
+
+function steps.wifi_fail(_, arg)
+    local Wifi = require("novarr.wifi")
+    if Wifi.backend.name ~= "fake" then error("wifi_fail needs wifi_backend fake") end
+    Wifi.backend.fail = tonumber(arg) or 1
+end
+
+function steps.wifi_scale(_, arg)
+    require("novarr.wifi").scale = tonumber(arg) or 1
+end
+
+function steps.wifi_eval()
+    require("novarr.wifi").evaluate("autopilot")
+end
+
+function steps.tls_ca(_, arg)
+    require("ssl").set_system_ca(arg)
+end
+
+function steps.http_proxy(_, arg)
+    local NetworkMgr = require("ui/network/manager")
+    NetworkMgr:setHTTPProxy(arg ~= "off" and arg or nil)
+end
+
 function steps.sync(session)
     session:syncNow()
 end
@@ -449,6 +513,124 @@ function steps.reader_page_until_chapter_change(session, arg)
     say(string.format("NOT CROSSED after %d turns (chapter %s)", max, tostring(start)))
 end
 
+-- reader_chapter_turns N: page forward until N chapter changes (inside group files or by
+-- document switches) happened; logs each change and the slowest turn.
+function steps.reader_chapter_turns(session, arg)
+    local want = tonumber((arg or ""):match("^(%d+)")) or 1
+    local gap = (tonumber((arg or ""):match("^%d+%s+(%d+)")) or 50) / 1000
+    local changes, turns, slowest = 0, 0, 0
+    local seen = readingState(session)
+    Autopilot.busy = true
+    local function step()
+        local ok, err = pcall(function()
+            if session.opening_path then return end -- a document switch is under way
+            -- A change can also happen between two turns (the next file opened a tick later).
+            local now_at = readingState(session)
+            if now_at and now_at ~= seen then
+                changes = changes + 1
+                say(string.format("CHAPTER %d/%d: %s -> %s after %d turn(s)", changes, want, tostring(seen), tostring(now_at), turns))
+                seen = now_at
+                if changes >= want then return end
+            end
+            local ms = timedTurn(session, 1)
+            turns = turns + 1
+            if ms > slowest then slowest = ms end
+            local after = readingState(session)
+            if after and after ~= seen then
+                changes = changes + 1
+                say(string.format("CHAPTER %d/%d: %s -> %s after %d turn(s)", changes, want, tostring(seen), tostring(after), turns))
+                seen = after
+            end
+        end)
+        if not ok then
+            say("ERROR", "reader_chapter_turns:", err)
+            Autopilot.busy = false
+            return
+        end
+        if changes < want and turns < want * 400 then
+            UIManager:scheduleIn(gap, step)
+        else
+            say(string.format("CHAPTER TURNS done: %d change(s), %d turn(s), slowest turn %.1f ms", changes, turns, slowest))
+            Autopilot.busy = false
+        end
+    end
+    step()
+end
+
+-- reader_turn_to_chapter ID [MS]: page forward until chapter ID is the one being read.
+function steps.reader_turn_to_chapter(session, arg)
+    local target = tonumber((arg or ""):match("^(%d+)"))
+    if (arg or ""):match("^last") then
+        local _c, r = readingState(session)
+        local cl = r and session:chapterList(r.novel_id)
+        if not cl then error("no chapter list") end
+        for i = #cl.list, 1, -1 do
+            if session.store:hasChapter(r.novel_id, cl.list[i].id) then target = cl.list[i].id break end
+        end
+        say("last stored chapter:", tostring(target))
+    end
+    if not target then error("reader_turn_to_chapter needs a chapter id") end
+    local gap = (tonumber((arg or ""):match("^%S+%s+(%d+)")) or 50) / 1000
+    local turns = 0
+    Autopilot.busy = true
+    local function step()
+        local ok, err = pcall(function()
+            if session.opening_path then return end
+            if readingState(session) == target then return end
+            timedTurn(session, 1)
+            turns = turns + 1
+        end)
+        if not ok then
+            say("ERROR", "reader_turn_to_chapter:", err)
+            Autopilot.busy = false
+            return
+        end
+        if readingState(session) == target or turns >= 3000 then
+            say(string.format("TURNED TO chapter %s after %d turn(s)", tostring(readingState(session)), turns))
+            Autopilot.busy = false
+        else
+            UIManager:scheduleIn(gap, step)
+        end
+    end
+    step()
+end
+
+-- reader_turns_timed N MS: N forward page turns, one every MS ms, each timed.
+function steps.reader_turns_timed(session, arg)
+    local n = tonumber((arg or ""):match("^(%d+)")) or 10
+    local gap = (tonumber((arg or ""):match("^%d+%s+(%d+)")) or 2000) / 1000
+    local done, total, slowest, late_max = 0, 0, 0, 0
+    local socket = require("socket")
+    local planned = socket.gettime()
+    Autopilot.busy = true
+    local function step()
+        local ok, err = pcall(function()
+            if session.opening_path then return end
+            -- How late this turn starts (something else, e.g. a prefetch request, held the UI).
+            local late = math.max(0, (socket.gettime() - planned) * 1000)
+            if late > late_max then late_max = late end
+            local ms, before, after, switched = timedTurn(session, 1)
+            done = done + 1
+            total = total + ms
+            if ms > slowest then slowest = ms end
+            say(string.format("TIMED TURN %d: %.1f ms, started %.0f ms late, chapter %s -> %s%s", done, ms, late, tostring(before), tostring(after), switched and " (document switch)" or ""))
+        end)
+        if not ok then
+            say("ERROR", "reader_turns_timed:", err)
+            Autopilot.busy = false
+            return
+        end
+        if done < n then
+            planned = socket.gettime() + gap
+            UIManager:scheduleIn(gap, step)
+        else
+            say(string.format("TIMED TURNS done: %d turn(s), slowest %.1f ms, average %.1f ms, latest start %.0f ms", done, slowest, total / math.max(1, done), late_max))
+            Autopilot.busy = false
+        end
+    end
+    step()
+end
+
 -- reader_goto_chapter_end: the last page of the current chapter (inside a group file), else of the document.
 function steps.reader_goto_chapter_end(session)
     local _id, r = readingState(session)
@@ -525,6 +707,18 @@ function Autopilot.start(session, script_path)
                 if not ok then say("ERROR", line, err) end
             end
             if cmd == "quit" then return end
+        end
+        if Autopilot.busy then
+            -- An asynchronous step: wait for it to finish, then pause as usual.
+            local function waiter()
+                if Autopilot.busy then
+                    UIManager:scheduleIn(0.2, waiter)
+                else
+                    UIManager:scheduleIn(pause, run)
+                end
+            end
+            UIManager:scheduleIn(0.2, waiter)
+            return
         end
         UIManager:scheduleIn(pause, run)
     end

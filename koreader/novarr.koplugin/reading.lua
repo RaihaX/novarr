@@ -8,8 +8,13 @@ chapter path; for any other document the plugin does nothing.
 * Progress is tracked in memory on page turns, saved locally and queued at
   most every 30 s, and on close / suspend.
 * A few seconds after opening, if (and only if) the device is already
-  connected: quietly send pending writes, then prefetch the next chapters,
-  one per scheduled step, giving up silently on any error.
+  connected: quietly send pending writes, then prefetch the next chapters
+  (up to the "chapters to fetch ahead" setting, 100 by default), one per
+  scheduled step (0.5 s apart while more than 10 are missing, else 3 s),
+  never within 1.5 s of a page turn, giving up silently on any error.
+* With "Turn Wi-Fi off while reading when everything is saved" on, see
+  wifi.lua: each online window also refreshes the chapter list and runs the
+  daily update check when due, and Wi-Fi is switched off and on around it.
 * End of chapter: mark read (setting) and open the next chapter straight
   away, or say clearly why it cannot be opened. KOReader's own end-of-book dialog is suppressed for
   Novarr chapters only.
@@ -39,8 +44,11 @@ local Reading = {}
 Reading.SAVE_INTERVAL_MS = 30 * 1000
 Reading.BACKGROUND_DELAY = 3     -- seconds after the chapter opens (send pending writes)
 Reading.PREFETCH_START_MS = 6000 -- first prefetch not before this, after the chapter is ready
-Reading.PREFETCH_STEP = 3        -- seconds between two prefetched chapters
+Reading.PREFETCH_STEP = 3        -- seconds between two prefetched chapters (topping up a few)
+Reading.PREFETCH_FAST_STEP = 0.5 -- seconds between two when many are missing
+Reading.PREFETCH_FAST_ABOVE = 10 -- "many": more than this many chapters missing
 Reading.PREFETCH_QUIET_MS = 1500 -- never fetch this soon after a page turn
+Reading.PREFETCH_LOG_EVERY = 10  -- one log line per this many prefetched chapters
 
 local function UI() return require("novarr.ui_common") end
 local footerOf -- (status bar section)
@@ -774,20 +782,76 @@ function Reading.prefetchIds(r)
     return out
 end
 
+--[[--
+Chapters stored ahead of the open one: {has_list, ahead (stored among the
+next `n` chapters the server has text for), missing (of those, not stored
+and fetchable)}.
+]]
+function Reading.aheadInfo(r, n)
+    local out = { has_list = false, ahead = 0, missing = 0 }
+    local cl = Session:chapterList(r.novel_id)
+    if not cl or not cl.pos[r.chapter_id] then return out end
+    out.has_list = true
+    if (tonumber(n) or 0) <= 0 then return out end
+    for _i, id in ipairs(Model.nextChapters(cl.list, r.chapter_id, n)) do
+        if Session.store:hasChapter(r.novel_id, id) then
+            out.ahead = out.ahead + 1
+        elseif not Session.empty_chapters[id] then
+            out.missing = out.missing + 1
+        end
+    end
+    return out
+end
+
+local function Wifi() return require("novarr.wifi") end
+
 function Reading.background(plugin)
     local r = plugin.reading
     if not r or not Session:serverUrl() then return end
-    -- Never turn Wi-Fi on, never prompt: skip entirely when not connected.
-    if not Session:isConnected() then return end
-    local res = Session:quietFlush(20)
-    if res and res.stalled then return end
+    -- Never prompt; Wi-Fi only comes on when Novarr had switched it off (wifi.lua).
+    if not Session:isConnected() then
+        if Wifi().managing() then Wifi().evaluate("chapter opened, offline") end
+        return
+    end
+    local managing = Wifi().managing()
+    local window = managing and Wifi().window or nil
+    local res = Session:quietFlush(managing and 200 or 20)
+    if res and (res.sent or 0) + (res.dropped or 0) > 0 then Wifi().progress() end
+    if res and res.stalled then
+        if managing then Wifi().evaluate("sync failed") end
+        return
+    end
+    if window and not window.list_refreshed then
+        -- Once per online window: new chapters on the server?
+        local _cl, e = Session:refreshChapterList(r.novel_id)
+        if not e then window.list_refreshed = true end
+    end
+    if window and not window.update_ran then
+        window.update_ran = true
+        Session.guard(function() require("novarr.ui_update").autoCheck(Session) end)
+    end
     -- The novel's cover for the sleep screen, if it was not cached yet.
     Session.guard(Reading.applyCover, plugin, true)
     Session.guard(Reading.offerSleepCover, plugin)
     r.prefetch = Reading.prefetchIds(r)
+    r.prefetch_total = #r.prefetch
+    r.prefetch_done = 0
+    r.prefetch_t0 = Session.nowMs()
+    -- The pace is chosen for the whole run: a big fill stays fast to its end.
+    r.prefetch_fast = #r.prefetch > Reading.PREFETCH_FAST_ABOVE
     if #r.prefetch > 0 then
-        UIManager:scheduleIn(Reading.PREFETCH_STEP, plugin.prefetch_task)
+        logger.info(string.format("Novarr: prefetch: %d chapter(s) to fetch ahead (%s)", #r.prefetch,
+            #r.prefetch > Reading.PREFETCH_FAST_ABOVE and "fast" or "topping up"))
+        UIManager:scheduleIn(Reading.prefetchGap(r), plugin.prefetch_task)
     end
+    if window then window.background_done = true end
+    if managing then Wifi().evaluate("background done") end
+end
+
+--- Seconds between two prefetched chapters: short when the run started with many missing.
+function Reading.prefetchGap(r)
+    if r.prefetch_fast then return Reading.PREFETCH_FAST_STEP end
+    return Reading.PREFETCH_STEP
 end
 
 -- Seconds to wait before the next prefetch (0: go now). See Model.prefetchWait.
@@ -795,10 +859,19 @@ function Reading.prefetchWait(r)
     return Model.prefetchWait(Session.nowMs(), r.ready_at, r.last_turn, Reading.PREFETCH_START_MS, Reading.PREFETCH_QUIET_MS)
 end
 
+local function prefetchEnded(r, why)
+    if (r.prefetch_done or 0) > 0 then
+        logger.info(string.format("Novarr: prefetch %s: %d of %d chapter(s) in %.1f s", why, r.prefetch_done,
+            r.prefetch_total or 0, (Session.nowMs() - (r.prefetch_t0 or Session.nowMs())) / 1000))
+    end
+    r.prefetch = nil
+    if Wifi().managing() then Wifi().evaluate("prefetch " .. why) end
+end
+
 function Reading.prefetchStep(plugin)
     local r = plugin.reading
     if not r or not r.prefetch or #r.prefetch == 0 then return end
-    if not Session:isConnected() then r.prefetch = nil return end
+    if not Session:isConnected() then prefetchEnded(r, "stopped (offline)") return end
     -- Keep page turns smooth: not right after opening, not right after a turn.
     local wait = Reading.prefetchWait(r)
     if wait > 0 then
@@ -806,19 +879,28 @@ function Reading.prefetchStep(plugin)
         return
     end
     local free = Session:freeBytes()
-    if free and free < Session.MIN_FREE_BYTES then r.prefetch = nil return end
+    if free and free < Session.MIN_FREE_BYTES then prefetchEnded(r, "stopped (less than 20 MB free)") return end
     local id = table.remove(r.prefetch, 1)
     if not Session.store:hasChapter(r.novel_id, id) then
+        local t0 = Session.nowMs()
         local path, why = Session:downloadChapter(id)
+        r.prefetch_last_ms = Session.nowMs() - t0
         if not path then
             logger.info("Novarr: prefetch stopped at chapter", id, type(why) == "table" and why.kind or why)
-            r.prefetch = nil
+            prefetchEnded(r, "stopped")
             return
         end
-        logger.info("Novarr: prefetched chapter", id)
+        r.prefetch_done = (r.prefetch_done or 0) + 1
+        Wifi().progress()
+        if r.prefetch_done % Reading.PREFETCH_LOG_EVERY == 0 or (r.prefetch_total or 0) <= Reading.PREFETCH_LOG_EVERY then
+            logger.info(string.format("Novarr: prefetched %d of %d (chapter %d, %d ms)", r.prefetch_done,
+                r.prefetch_total or 0, id, r.prefetch_last_ms))
+        end
     end
     if #r.prefetch > 0 then
-        UIManager:scheduleIn(Reading.PREFETCH_STEP, plugin.prefetch_task)
+        UIManager:scheduleIn(Reading.prefetchGap(r), plugin.prefetch_task)
+    else
+        prefetchEnded(r, "done")
     end
 end
 
@@ -902,6 +984,17 @@ function Reading.goNext(plugin)
         openLater(r.novel_id, id)
         return
     end
+    -- Novarr switched Wi-Fi off to save battery: switch it back on and carry on.
+    if id and not stored and not connected and downloaded ~= false then
+        local novel_id = r.novel_id
+        local restoring = Wifi().restore("the next chapter is not saved", function()
+            openLater(novel_id, id)
+        end, function()
+            Session.switch_t0 = nil
+            UI().info(_("The next chapter isn't saved on this device, and there's no network connection."))
+        end, { notice = _("Getting the next chapter…") })
+        if restoring then return end
+    end
     -- Nothing is opened from here on: no chapter change to time.
     Session.switch_t0 = nil
     if id and not stored and not connected then
@@ -909,6 +1002,8 @@ function Reading.goNext(plugin)
         return
     end
     -- Caught up with the newest downloaded chapter: a calm full-screen page.
+    -- When Novarr had switched Wi-Fi off, it comes back (new chapters, sync).
+    if not connected then Wifi().restore("caught up with the saved chapters") end
     local ok = pcall(function()
         require("novarr.ui_caughtup").show(Session, {
             novel_id = r.novel_id,
@@ -1000,6 +1095,7 @@ function Reading.onClose(plugin)
     if not Session.switching and Session.opened_from_novarr then
         Session.return_to = { novel_id = r.novel_id }
     end
+    if not Session.switching then Session.guard(function() Wifi().stop() end) end
     if Session.reader == plugin then Session.reader = nil end
     plugin.reading = nil
 end

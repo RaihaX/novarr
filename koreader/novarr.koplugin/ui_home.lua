@@ -144,7 +144,7 @@ function Home:refresh(quiet)
     s:whenConnected(run, function()
         s.last_errors.novels = s.last_errors.novels or { time = Session.nowMs(), kind = "offline" }
         self:rebuild()
-    end)
+    end, { quiet = true, reason = "Novarr Home" })
 end
 
 --[[--

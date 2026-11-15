@@ -166,8 +166,10 @@ function UIUpdate.install(session, m, on_change)
             cancel_callback = function() cancelled = true end,
         }
         UIManager:show(dialog)
+        UIUpdate.installing = true
         local closed = false
         local function close(message)
+            UIUpdate.installing = false
             if not closed then
                 closed = true
                 UIManager:close(dialog)
