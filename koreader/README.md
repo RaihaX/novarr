@@ -77,6 +77,26 @@ chapter opens straight away** (without the "Opening file" box when it is already
 device). Turning back on the first page of a chapter opens the previous chapter at its
 last page, as in one continuous book; that doesn't change what is marked read.
 
+**Chapters are joined in groups of 20** so that going from one chapter to the next is
+an ordinary page turn, with no pause to load a new file (on a Kindle that pause is
+easy to see). Every chapter still starts on a new page, and everything else stays per
+chapter: a chapter is marked read when you turn the page past its end, your place,
+the status line and the reading time follow the chapter you are in, and KOReader's
+table of contents lists the chapters of the group. The short load happens once every
+20 chapters instead of at every chapter. Some details:
+
+- Only chapters you have *paged through to the end* are marked read. Jumping ahead
+  (KOReader's go to page, skim, table of contents, bookmarks, or Novarr's *Next
+  chapter*) doesn't mark the chapters you skipped.
+- A group holds the chapters that are saved on the device side by side: if one in
+  the middle isn't saved (or has no text on the server), the group stops there and
+  the next one opens as before.
+- New chapters saved while you read join the group the next time it is opened; the
+  open book is never changed under you.
+- If something looks wrong on your device, switch *Join chapters for smooth page
+  turns* off in Novarr ▸ Settings: each chapter then opens on its own, exactly as
+  before (from the next chapter you open).
+
 When you finish the newest chapter Novarr has, a quiet "You're up to date" page shows
 the cover and when the server last got a chapter, with *Check for new chapters*
 (when online), *Choose another novel* and *Close*. You only see a message when the
@@ -125,8 +145,11 @@ and sent to the server the next time there is a connection (or when you tap
 download something, KOReader asks to turn Wi-Fi on as it does for its other tools.
 
 By default chapters you have finished are removed from the device as you read on,
-keeping the last two (so you can go back a little). Unread and part-read chapters are
-never removed. Switch this off in Settings if you prefer to keep everything.
+keeping the last two (so you can go back a little). With joined chapters this happens
+when you move on to the next group of 20: finished chapters of earlier groups go,
+except the last two, and nothing in the group you are reading is touched. Unread and
+part-read chapters are never removed. Switch this off in Settings if you prefer to
+keep everything.
 
 ### A whole novel as an EPUB
 
@@ -143,9 +166,10 @@ through Novarr is the way that stays up to date and in sync.
 ### Settings
 
 Server address, how many chapters to save ahead while reading, remove chapters after
-reading, mark a chapter read at its end, show reading info in the status bar, show the
-clock while reading, show covers, how much space Novarr uses, whether to check for
-plugin updates by itself, and the plugin version.
+reading, mark a chapter read at its end, join chapters for smooth page turns, show
+reading info in the status bar, show the clock while reading, show covers, how much
+space Novarr uses, whether to check for plugin updates by itself, and the plugin
+version.
 
 ### Updating the plugin over Wi-Fi
 
@@ -174,7 +198,9 @@ server) or a setup without the plugin folder; copy the plugin over USB as in **I
 ## Where things are kept, and removing everything
 
 - Saved chapters, covers, the list of pending changes and saved lists:
-  `koreader/novarr/` (on a Kindle: `/mnt/us/koreader/novarr/`).
+  `koreader/novarr/` (on a Kindle: `/mnt/us/koreader/novarr/`). The joined chapters
+  you read are `group_…html` files next to the chapters; they are made from the saved
+  chapters, count towards the space Novarr uses, and are removed with them.
 - Settings: `koreader/settings/novarr.lua`.
 - EPUBs: the `Novarr` folder in KOReader's home folder.
 
