@@ -55,6 +55,13 @@ Route::prefix('v1')
         Route::get('/novels/{id}/epub', [ApiV1\EpubController::class, 'show'])->whereNumber('id')->name('novels.epub');
         Route::post('/novels/{id}/epub', [ApiV1\EpubController::class, 'build'])->whereNumber('id')->name('novels.epub.build');
 
+        // Discover, add a novel, and "check for new chapters now" (the KOReader plugin).
+        Route::get('/discover', [ApiV1\DiscoverController::class, 'index'])->name('discover');
+        Route::get('/discover/browse', [ApiV1\DiscoverController::class, 'browse'])->name('discover.browse');
+        Route::post('/novels', [ApiV1\AddNovelController::class, 'store'])->name('novels.store');
+        Route::get('/novels/{id}/check', [ApiV1\CheckController::class, 'show'])->whereNumber('id')->name('novels.check');
+        Route::post('/novels/{id}/check', [ApiV1\CheckController::class, 'start'])->whereNumber('id')->name('novels.check.start');
+
         Route::post('/chapters/bulk-read', [NovelChapterController::class, 'bulkRead'])->name('chapters.bulk_read');
         Route::get('/chapters/{id}', [ApiV1\ChapterController::class, 'show'])->whereNumber('id')->name('chapters.show');
         Route::post('/chapters/{id}/progress', [NovelChapterController::class, 'progress'])->whereNumber('id')->name('chapters.progress');
