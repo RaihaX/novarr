@@ -1,0 +1,170 @@
+local T = ...
+local Api = require("novarr.api")
+local Json = require("novarr.json")
+
+-- URL normalisation table (mirrors the iOS app's ServerURL.normalize).
+local cases = {
+    { "192.168.1.34", "http://192.168.1.34" },
+    { "  192.168.1.34:8080  ", "http://192.168.1.34:8080" },
+    { "192.168.1.34:8080/", "http://192.168.1.34:8080" },
+    { "http://192.168.1.34:8080/api/v1", "http://192.168.1.34:8080" },
+    { "http://192.168.1.34:8080/api/v1/", "http://192.168.1.34:8080" },
+    { "http://192.168.1.34:8080/api", "http://192.168.1.34:8080" },
+    { "HTTPS://Novarr.Example.TS.net", "https://novarr.example.ts.net" },
+    { "https://host/novarr/", "https://host/novarr" },
+    { "https://host/novarr/API/V1", "https://host/novarr" },
+    { "host///", "http://host" },
+    { "http://host/?x=1#frag", "http://host" },
+    { "[fd7a::1]:8137", "http://[fd7a::1]:8137" },
+    { "localhost:08137", "http://localhost:8137" },
+    { "", nil },
+    { "   ", nil },
+    { "ftp://host", nil },
+    { "http://", nil },
+    { "http://host:abc", nil },
+    { "http://host:70000", nil },
+    { "two words", nil },
+    { "http://user:pw@host", nil },
+    { "http://ho$t", nil },
+}
+for _, c in ipairs(cases) do
+    T.it("normalizeUrl " .. string.format("%q", c[1]), function()
+        T.eq(Api.normalizeUrl(c[1]), c[2])
+    end)
+end
+
+-- A fake transport that records requests and returns canned answers.
+local function fake(responses)
+    local log = {}
+    local transport = function(req)
+        table.insert(log, req)
+        local r = responses[#log] or responses.default
+        if type(r) == "function" then return r(req) end
+        if r == "offline" then return nil, "connection refused" end
+        return r
+    end
+    return transport, log
+end
+
+local function json(status, value, headers)
+    return { status = status, headers = headers or {}, body = Json.encode(value) }
+end
+
+T.it("request sends Accept, User-Agent, JSON body and parses JSON", function()
+    local transport, log = fake({ json(200, { success = true }) })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    local ok = api:sendWrite({ kind = "progress", chapter_id = 5, progress = 40 }, 1234)
+    T.truthy(ok)
+    T.eq(log[1].method, "POST")
+    T.eq(log[1].url, "http://h/api/v1/chapters/5/progress")
+    T.eq(log[1].headers["Accept"], "application/json")
+    T.eq(log[1].headers["Content-Type"], "application/json")
+    T.contains(log[1].headers["User-Agent"], "NovarrKOReader/")
+    local body = Json.decode(log[1].body)
+    T.eq(body, { progress = 40, age = 1234 })
+end)
+
+T.it("progress with read sends read=true", function()
+    local transport, log = fake({ json(200, { success = true }) })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    api:sendWrite({ kind = "progress", chapter_id = 5, progress = 100, read = true }, 0)
+    T.eq(Json.decode(log[1].body), { progress = 100, read = true, age = 0 })
+end)
+
+T.it("set_read and bulk_read bodies", function()
+    local transport, log = fake({ json(200, { success = true }), json(200, { success = true }) })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    api:sendWrite({ kind = "set_read", chapter_id = 9, read = false }, 7)
+    api:sendWrite({ kind = "bulk_read", bulk = { read = true, scope = "up_to", novel_id = 2, anchor_id = 30 } }, 8)
+    T.eq(log[1].url, "http://h/api/v1/chapters/9/read")
+    T.eq(Json.decode(log[1].body), { read = false, age = 7 })
+    T.eq(log[2].url, "http://h/api/v1/chapters/bulk-read")
+    T.eq(Json.decode(log[2].body), { read = true, scope = "up_to", novel_id = 2, anchor_id = 30, age = 8 })
+end)
+
+T.it("ETag: sends If-None-Match and reports 304", function()
+    local transport, log = fake({ { status = 304, headers = { etag = '"abc"' }, body = "" } })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    local data, e, info = api:novels('"abc"')
+    T.eq(data, nil)
+    T.eq(e, nil)
+    T.truthy(info.not_modified)
+    T.eq(log[1].headers["If-None-Match"], '"abc"')
+end)
+
+T.it("returns the ETag of a 200", function()
+    local transport = fake({ json(200, { novels = {} }, { etag = '"v2"' }) })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    local data, _, info = api:novels()
+    T.truthy(data)
+    T.eq(info.etag, '"v2"')
+    T.truthy(info.body:find("novels", 1, true))
+end)
+
+local classify = {
+    { "offline", "offline" },
+    { { status = 404, headers = {}, body = '{"message":"No query results"}' }, "not_found" },
+    { { status = 422, headers = {}, body = '{"message":"The read field is required."}' }, "invalid" },
+    { { status = 500, headers = {}, body = "oops" }, "server" },
+    { { status = 503, headers = {}, body = "" }, "server" },
+    { { status = 200, headers = {}, body = "<html>Captive portal</html>" }, "server" },
+}
+for i, c in ipairs(classify) do
+    T.it("classifies failure " .. i .. " as " .. c[2], function()
+        local api = Api.new({ base_url = "http://h", transport = fake({ c[1] }) })
+        local data, e = api:chapter(1)
+        T.eq(data, nil)
+        T.eq(e.kind, c[2])
+    end)
+end
+
+T.it("422 keeps the server message", function()
+    local api = Api.new({ base_url = "http://h", transport = fake({ classify[3][1] }) })
+    local _, e = api:chapter(1)
+    T.eq(e.message, "The read field is required.")
+end)
+
+T.it("meta: accepts Novarr, rejects others", function()
+    local api = Api.new({ base_url = "http://h", transport = fake({
+        json(200, { app = "novarr", api_version = 1 }),
+        json(200, { app = "something" }),
+        { status = 404, headers = {}, body = "<html>nope</html>" },
+        { status = 200, headers = {}, body = "<html>router</html>" },
+        "offline",
+        json(200, { app = "Novarr", api_version = 0 }),
+    }) })
+    T.truthy(api:meta())
+    local _, e2 = api:meta(); T.eq(e2.kind, "not_novarr")
+    local _, e3 = api:meta(); T.eq(e3.kind, "not_novarr")
+    local _, e4 = api:meta(); T.eq(e4.kind, "not_novarr")
+    local _, e5 = api:meta(); T.eq(e5.kind, "offline")
+    local _, e6 = api:meta(); T.eq(e6.kind, "not_novarr")
+end)
+
+T.it("simulated offline never calls the transport", function()
+    local transport, log = fake({ json(200, {}) })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    Api.simulate_offline = true
+    local data, e = api:home()
+    Api.simulate_offline = false
+    T.eq(data, nil)
+    T.eq(e.kind, "offline")
+    T.eq(#log, 0)
+end)
+
+T.it("retryable classes", function()
+    T.truthy(Api.isRetryable({ kind = "offline" }))
+    T.truthy(Api.isRetryable({ kind = "server" }))
+    T.falsy(Api.isRetryable({ kind = "not_found" }))
+    T.falsy(Api.isRetryable({ kind = "invalid" }))
+end)
+
+T.it("JSON null becomes nil", function()
+    local v = Json.decode('{"a":null,"b":[1,null],"c":{"d":null,"e":1}}')
+    T.eq(v.a, nil)
+    T.eq(v.c.d, nil)
+    T.eq(v.c.e, 1)
+    T.eq(Json.decode("not json"), nil)
+    T.eq(Json.decode(""), nil)
+    T.eq(Json.encode(Json.array({})), "[]")
+end)

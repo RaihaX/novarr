@@ -21,6 +21,22 @@ class CacheHelper
     }
 
     /**
+     * An EPUB build started through the native app's API
+     * (Api\V1\EpubController): {job_id, started_at}. Expires after 30 minutes
+     * so a crashed worker can't leave the novel "building" forever.
+     */
+    public static function apiEpubBuildKey(int $novelId): string
+    {
+        return "api_epub_build_{$novelId}";
+    }
+
+    /** The outcome of the last API-started EPUB build, kept after its build record expires. */
+    public static function apiEpubLastBuildKey(int $novelId): string
+    {
+        return "api_epub_last_build_{$novelId}";
+    }
+
+    /**
      * Clear novel-specific cache: the novel page's stats, plus library-wide
      * aggregates that depend on this novel's read/download state.
      *
