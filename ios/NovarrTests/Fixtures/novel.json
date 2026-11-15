@@ -1,0 +1,39 @@
+{
+    "novel": {
+        "id": 2,
+        "name": "Ascending the Nine Heavens",
+        "author": "Feng Qingyang",
+        "cover_url": "https://novarr.example.ts.net/storage/covers/ascending.jpg",
+        "cover_large_url": "https://novarr.example.ts.net/storage/covers/ascending.jpg",
+        "state": "failed",
+        "completed": false,
+        "paused": false,
+        "origin": "Translated · ZH",
+        "tags": [
+            {
+                "id": 2,
+                "name": "Cultivation"
+            },
+            {
+                "id": 1,
+                "name": "Xianxia"
+            }
+        ],
+        "chapters_total": 323,
+        "chapters_downloaded": 20,
+        "chapters_read": 18,
+        "chapters_new": 0,
+        "read_percent": 5,
+        "download_percent": 6,
+        "finished": false,
+        "last_read_at": "2026-11-14T06:19:59Z",
+        "updated_at": "2026-08-28T12:01:09Z",
+        "resume_chapter_id": 21,
+        "description": "Chen Fan leaves the valley to climb the Nine Heavens.\n\nA cultivation story of patience & stubbornness.",
+        "source_url": "https://novelping.com/novel/ascending",
+        "source_unavailable": {
+            "count": 1,
+            "message": "1 chapter is listed on novelping.com but not available there (not found or empty). Novarr checks again on 15 Nov 2026 at 05:36."
+        }
+    }
+}

@@ -38,7 +38,7 @@ class HomeController extends Controller
         $snoozed = $health->snoozed();
 
         // First item is the hero; the next six fill the Continue row.
-        $continue = Cache::remember('dashboard_continue', 60, fn() => $this->continueReading(8));
+        $continue = $this->continueShelf();
         $counts = $this->readingCounts(array_map(fn($item) => $item['novel']->id, $continue));
 
         $hero = isset($continue[0]) ? $this->hero($continue[0], $counts, $attentionIds) : null;
@@ -53,28 +53,15 @@ class HomeController extends Controller
             ];
         }, array_slice($continue, 1, 6));
 
-        // New chapters, split by whether you have started the novel. A novel
-        // that is also on the Continue shelf continues where the shelf does
-        // (an abandoned chapter resumes), so the two never disagree; its
-        // cover comes from the shelf's already-loaded novel (no extra query).
-        $onShelf = [];
-        foreach ($continue as $item) {
-            $onShelf[$item['novel']->id] = $item;
-        }
+        // New chapters, split by whether you have started the novel.
         $newReading = [];
         $newFresh = [];
-        foreach (Cache::remember('dashboard_new_chapters', 60, fn() => $this->newChapters()) as $g) {
-            // ?? false: an entry cached by the previous release has no flag.
-            if (!($g['reading'] ?? false)) {
+        foreach ($this->newChapterGroups($continue) as $g) {
+            if ($g['reading']) {
+                $newReading[] = $g;
+            } else {
                 $newFresh[] = $g;
-                continue;
             }
-            if ($item = $onShelf[$g['novel_id']] ?? null) {
-                $g['read_from_id'] = $item['next']->id;
-                $g['read_from'] = (float) $item['next']->chapter;
-                $g['novel'] = $item['novel'];
-            }
-            $newReading[] = $g;
         }
 
         return view('home', [
@@ -86,6 +73,41 @@ class HomeController extends Controller
             'attention' => $attention,
             'snoozed' => $snoozed,
         ]);
+    }
+
+    /** The Continue items (hero first, then the shelf), cached briefly. */
+    public function continueShelf(): array
+    {
+        return Cache::remember('dashboard_continue', 60, fn() => $this->continueReading(8));
+    }
+
+    /**
+     * Home's "New chapters" groups (newChapters(), cached), each flagged
+     * `reading`. A novel that is also on the Continue shelf ($continue, from
+     * continueReading()) continues where the shelf does (an abandoned chapter
+     * resumes), so the two never disagree; its cover comes from the shelf's
+     * already-loaded novel (no extra query).
+     */
+    public function newChapterGroups(array $continue): array
+    {
+        $onShelf = [];
+        foreach ($continue as $item) {
+            $onShelf[$item['novel']->id] = $item;
+        }
+
+        $out = [];
+        foreach (Cache::remember('dashboard_new_chapters', 60, fn() => $this->newChapters()) as $g) {
+            // ?? false: an entry cached by the previous release has no flag.
+            $g['reading'] = (bool) ($g['reading'] ?? false);
+            if ($g['reading'] && ($item = $onShelf[$g['novel_id']] ?? null)) {
+                $g['read_from_id'] = $item['next']->id;
+                $g['read_from'] = (float) $item['next']->chapter;
+                $g['novel'] = $item['novel'];
+            }
+            $out[] = $g;
+        }
+
+        return $out;
     }
 
     /**
@@ -410,12 +432,12 @@ class HomeController extends Controller
             ->whereNotNull('read_at')
             ->whereNotNull('read_progress')
             ->where('read_progress', '<', 90)
-            ->select(['id', 'novel_id', 'chapter', 'label', 'read_progress'])
+            ->select(['id', 'novel_id', 'chapter', 'book', 'label', 'read_progress'])
             ->orderByDesc('read_at')
             ->orderByDesc('id'));
 
         // Otherwise the first unread in reading order.
-        $next = $this->firstUnread($novelIds, ['id', 'novel_id', 'chapter', 'label']);
+        $next = $this->firstUnread($novelIds, ['id', 'novel_id', 'chapter', 'book', 'label']);
 
         $items = [];
         foreach ($recent as $novelId => $lastRead) {

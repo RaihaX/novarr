@@ -9,6 +9,9 @@ class CacheHelper
     /** Per-novel chapter aggregates behind the Library's counts and sorts (NovelController::libraryAggregates). */
     public const LIBRARY_AGGREGATES_KEY = 'library_aggregates_v1';
 
+    /** Each novel's resume chapter for the native app's API (Api\V1\Presenter::resumeChapterIds). */
+    public const API_RESUME_KEY = 'api_resume_v1';
+
     /** Cache key for NovelController::novelStats(). */
     public static function novelStatsKey(int $novelId): string
     {
@@ -32,5 +35,6 @@ class CacheHelper
         Cache::forget('library_reading_v1');
         Cache::forget(static::LIBRARY_AGGREGATES_KEY);
         Cache::forget('dashboard_continue');
+        Cache::forget(static::API_RESUME_KEY);
     }
 }

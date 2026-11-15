@@ -208,56 +208,7 @@ class NovelController extends Controller
         // Whole-table aggregates: cached briefly so a big library doesn't pay
         // for them on every page/filter change; CacheHelper::clearNovelCache()
         // drops the cache whenever a chapter's read/download state changes.
-        $cached = \Illuminate\Support\Facades\Cache::remember('library_reading_v1', 60, function () {
-        $lastRead = NovelChapter::query()
-            ->whereNotNull('read_at')
-            ->where('blacklist', 0)
-            ->selectRaw('novel_id, MAX(read_at) as last_read')
-            ->groupBy('novel_id');
-
-        $counts = \Illuminate\Support\Facades\DB::table('novel_chapters as c')
-            ->leftJoinSub($lastRead, 'lr', 'lr.novel_id', '=', 'c.novel_id')
-            ->where('c.blacklist', 0)
-            ->whereNull('c.deleted_at')
-            ->groupBy('c.novel_id')
-            ->selectRaw('c.novel_id,
-                COUNT(*) as toc,
-                SUM(CASE WHEN c.status = 1 THEN 1 ELSE 0 END) as downloaded,
-                SUM(CASE WHEN c.read_at IS NOT NULL THEN 1 ELSE 0 END) as read_count,
-                SUM(CASE WHEN c.status = 1 AND c.read_at IS NULL AND lr.last_read IS NOT NULL
-                         AND c.download_date > lr.last_read THEN 1 ELSE 0 END) as new_count')
-            ->get()
-            ->keyBy('novel_id');
-
-        $reading = [];
-        foreach (Novel::get(['id', 'no_of_chapters']) as $n) {
-            $row = $counts->get($n->id);
-            $read = (int) ($row->read_count ?? 0);
-            // Same denominator as the download progress everywhere else.
-            $total = \App\Services\NovelHealth::downloadProgress(
-                (int) ($row->downloaded ?? 0),
-                (int) ($row->toc ?? 0),
-                (int) ($n->no_of_chapters ?? 0)
-            )['total'];
-            $total = max($total, $read);
-
-            $reading[$n->id] = [
-                'read' => $read,
-                'new' => (int) ($row->new_count ?? 0),
-                'total' => $total,
-                'percent' => $total > 0 ? (int) min(100, floor($read / $total * 100)) : 0,
-                'finished' => $total > 0 && $read >= $total,
-            ];
-        }
-
-        return [
-            'reading' => $reading,
-            'totals' => [
-                'downloaded' => (int) $counts->sum('downloaded'),
-                'queued' => (int) $counts->sum(fn($r) => $r->toc - $r->downloaded),
-            ],
-        ];
-        });
+        $cached = static::libraryReading();
         $reading = $cached['reading'];
         $totals = $cached['totals'];
 
@@ -336,6 +287,68 @@ class NovelController extends Controller
             'tags' => \App\Tag::orderBy('name')->get(['id', 'name']),
             'activeTag' => $request->query('tag'),
         ]);
+    }
+
+    /**
+     * The Library's reading index: per novel read / new / total / percent /
+     * finished, plus library-wide downloaded and queued totals. One grouped
+     * pass over the chapter table, cached briefly; CacheHelper::clearNovelCache()
+     * drops it whenever a chapter's read/download state changes.
+     *
+     * @return array{reading: array<int, array{read:int, new:int, total:int, percent:int, finished:bool}>, totals: array{downloaded:int, queued:int}}
+     */
+    public static function libraryReading(): array
+    {
+        return Cache::remember('library_reading_v1', 60, function () {
+            $lastRead = NovelChapter::query()
+                ->whereNotNull('read_at')
+                ->where('blacklist', 0)
+                ->selectRaw('novel_id, MAX(read_at) as last_read')
+                ->groupBy('novel_id');
+
+            $counts = \Illuminate\Support\Facades\DB::table('novel_chapters as c')
+                ->leftJoinSub($lastRead, 'lr', 'lr.novel_id', '=', 'c.novel_id')
+                ->where('c.blacklist', 0)
+                ->whereNull('c.deleted_at')
+                ->groupBy('c.novel_id')
+                ->selectRaw('c.novel_id,
+                    COUNT(*) as toc,
+                    SUM(CASE WHEN c.status = 1 THEN 1 ELSE 0 END) as downloaded,
+                    SUM(CASE WHEN c.read_at IS NOT NULL THEN 1 ELSE 0 END) as read_count,
+                    SUM(CASE WHEN c.status = 1 AND c.read_at IS NULL AND lr.last_read IS NOT NULL
+                             AND c.download_date > lr.last_read THEN 1 ELSE 0 END) as new_count')
+                ->get()
+                ->keyBy('novel_id');
+
+            $reading = [];
+            foreach (Novel::get(['id', 'no_of_chapters']) as $n) {
+                $row = $counts->get($n->id);
+                $read = (int) ($row->read_count ?? 0);
+                // Same denominator as the download progress everywhere else.
+                $total = \App\Services\NovelHealth::downloadProgress(
+                    (int) ($row->downloaded ?? 0),
+                    (int) ($row->toc ?? 0),
+                    (int) ($n->no_of_chapters ?? 0)
+                )['total'];
+                $total = max($total, $read);
+
+                $reading[$n->id] = [
+                    'read' => $read,
+                    'new' => (int) ($row->new_count ?? 0),
+                    'total' => $total,
+                    'percent' => $total > 0 ? (int) min(100, floor($read / $total * 100)) : 0,
+                    'finished' => $total > 0 && $read >= $total,
+                ];
+            }
+
+            return [
+                'reading' => $reading,
+                'totals' => [
+                    'downloaded' => (int) $counts->sum('downloaded'),
+                    'queued' => (int) $counts->sum(fn($r) => $r->toc - $r->downloaded),
+                ],
+            ];
+        });
     }
 
     /**
@@ -838,7 +851,7 @@ class NovelController extends Controller
      * novel's own title. Strip the noise and return null when nothing real
      * remains, so the view can fall back to "No summary available".
      */
-    protected function cleanSynopsis(?string $html, string $name): ?string
+    public static function cleanSynopsis(?string $html, string $name): ?string
     {
         if (empty($html)) {
             return null;

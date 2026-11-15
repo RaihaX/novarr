@@ -1,0 +1,80 @@
+name: Novarr
+options:
+  bundleIdPrefix: studio.visns
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    DEVELOPMENT_TEAM: QSK3QCWCH2
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+targets:
+  Novarr:
+    type: application
+    platform: iOS
+    sources:
+      - path: Novarr
+    info:
+      path: Novarr/App/Info.plist
+      properties:
+        CFBundleDisplayName: Novarr
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen:
+          UIColorName: AccentColor
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: Novarr connects to your Novarr server on your local network to load your library and chapters.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: studio.visns.novarr
+        PRODUCT_NAME: Novarr
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ENABLE_PREVIEWS: YES
+
+  NovarrTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: NovarrTests
+    dependencies:
+      - target: Novarr
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: studio.visns.novarr.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Novarr:
+    build:
+      targets:
+        Novarr: all
+        NovarrTests: [test]
+    test:
+      targets:
+        - NovarrTests
+      gatherCoverageData: false
+    run:
+      config: Debug
