@@ -88,13 +88,20 @@ class ApiV1HighlightTest extends TestCase
             ->assertJsonPath('highlight.id', $id)
             ->assertJsonPath('highlight.note', 'Now noted');
 
-        // No note (or null) keeps it.
-        $this->postJson('/api/v1/highlights', ['chapter_id' => $chapter->id, 'excerpt' => 'Same words', 'note' => null])
+        // Without the "note" key the stored note is kept.
+        $this->postJson('/api/v1/highlights', ['chapter_id' => $chapter->id, 'excerpt' => 'Same words'])
             ->assertOk()
             ->assertJsonPath('highlight.note', 'Now noted');
 
         $this->assertSame(1, Bookmark::count());
         $this->assertSame('Now noted', Bookmark::find($id)->note);
+
+        // An explicit null (the note was removed on the device) clears it.
+        $this->postJson('/api/v1/highlights', ['chapter_id' => $chapter->id, 'excerpt' => 'Same words', 'note' => null])
+            ->assertOk()
+            ->assertJsonPath('highlight.id', $id)
+            ->assertJsonPath('highlight.note', null);
+        $this->assertNull(Bookmark::find($id)->note);
 
         // Another excerpt, or the same excerpt on another chapter, is new.
         $this->postJson('/api/v1/highlights', ['chapter_id' => $chapter->id, 'excerpt' => 'Other words'])->assertCreated();
