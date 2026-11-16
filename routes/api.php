@@ -58,6 +58,8 @@ Route::prefix('v1')
         // Discover, add a novel, and "check for new chapters now" (the KOReader plugin).
         Route::get('/discover', [ApiV1\DiscoverController::class, 'index'])->name('discover');
         Route::get('/discover/browse', [ApiV1\DiscoverController::class, 'browse'])->name('discover.browse');
+        Route::post('/discover/searches', [ApiV1\DiscoverSearchController::class, 'store'])->name('discover.searches.store');
+        Route::get('/discover/searches/{id}', [ApiV1\DiscoverSearchController::class, 'show'])->name('discover.searches.show');
         Route::post('/novels', [ApiV1\AddNovelController::class, 'store'])->name('novels.store');
         Route::get('/novels/{id}/check', [ApiV1\CheckController::class, 'show'])->whereNumber('id')->name('novels.check');
         Route::post('/novels/{id}/check', [ApiV1\CheckController::class, 'start'])->whereNumber('id')->name('novels.check.start');
@@ -66,6 +68,11 @@ Route::prefix('v1')
         Route::get('/chapters/{id}', [ApiV1\ChapterController::class, 'show'])->whereNumber('id')->name('chapters.show');
         Route::post('/chapters/{id}/progress', [NovelChapterController::class, 'progress'])->whereNumber('id')->name('chapters.progress');
         Route::post('/chapters/{id}/read', [NovelChapterController::class, 'setRead'])->whereNumber('id')->name('chapters.read');
+
+        // Highlights: the website's bookmarks (excerpt + optional note on a chapter).
+        Route::get('/highlights', [ApiV1\HighlightController::class, 'index'])->name('highlights');
+        Route::post('/highlights', [ApiV1\HighlightController::class, 'store'])->name('highlights.store');
+        Route::delete('/highlights/{id}', [ApiV1\HighlightController::class, 'destroy'])->whereNumber('id')->name('highlights.destroy');
 
         // The KOReader plugin's "update over Wi-Fi".
         Route::get('/koreader/plugin', [ApiV1\KoreaderPluginController::class, 'manifest'])->name('koreader.plugin');
