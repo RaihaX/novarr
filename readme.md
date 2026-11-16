@@ -1,8 +1,8 @@
 # Novarr
 
-A self-hosted web-novel **manager, downloader, and reader** — think "Sonarr for web novels." Novarr discovers series from supported sites, scrapes their tables of contents and chapters on a schedule, stores them locally, and gives you a fast reading experience — light or dark, with a command palette, a now-reading home, a cover-grid library, continuous reading, cross-device position sync, highlights, read-aloud, reading stats, full-text search, ePub export, Send-to-Kindle, an OPDS catalog, and offline reading as an installable PWA.
+A self-hosted web-novel **manager, downloader, and reader** — think "Sonarr for web novels." Novarr discovers series from supported sites, scrapes their tables of contents and chapters on a schedule, stores them locally, and gives you a fast reading experience — light or dark, with a command palette, a now-reading home, a cover-grid library, continuous reading, cross-device position sync, highlights, read-aloud, reading stats, full-text search, ePub export, Send-to-Kindle, an OPDS catalog, and offline reading as an installable PWA. A JSON API serves two companion readers that live in this repository: a native **iPhone/iPad app** and a **KOReader plugin** for Kindles and other e-readers.
 
-Built with **Laravel 11** (PHP 8.3+), Bootstrap 5 (trimmed to what's used), Hotwire Turbo, and Vite, wearing a bespoke **design system** (see [Design & branding](#design--branding)) — dark canonical with a full light companion, Geist for the UI, Literata for reading, one hairline, no shadows.
+Built with **Laravel 12** (PHP 8.3+), Bootstrap 5 (trimmed to what's used), Hotwire Turbo, and Vite, wearing a bespoke **design system** (see [Design & branding](#design--branding)) — dark canonical with a full light companion, Geist for the UI, Literata for reading, one hairline, no shadows.
 
 ---
 
@@ -53,6 +53,7 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 - [Scheduler & queue](#scheduler--queue)
 - [Artisan commands](#artisan-commands)
 - [OPDS catalog](#opds-catalog)
+- [Apps and JSON API](#apps-and-json-api)
 - [Offline reading (PWA)](#offline-reading-pwa)
 - [Tailscale](#tailscale)
 - [Deployment](#deployment)
@@ -123,6 +124,11 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 - **Offline library** view and a **read-state sync queue** that replays your offline progress when you reconnect.
 - See [Offline reading](#offline-reading-pwa) for details.
 
+### Apps & API
+- **JSON API** at `/api/v1` — library, chapters, reading progress, Discover, adding novels, on-demand checks for new chapters and ePub builds. See [Apps and JSON API](#apps-and-json-api).
+- **iPhone / iPad app** (`ios/`) — a native SwiftUI reader: home, library, novel pages, reader and settings, with reading position shared with the website.
+- **KOReader plugin** (`koreader/`) — read on a Kindle or any KOReader device straight from the server: a cover-shelf home, chapters joined into groups so chapter changes are plain page turns, 100 chapters saved ahead with Wi-Fi switched off in between, Discover and "check for new chapters" on the device, reading stats, a second server address for away from home, and plugin updates over Wi-Fi.
+
 ### Operations
 - **Settings UI** — FlareSolverr URL, notification webhook, Kindle email, scrape delays, summary-email time, minimum chapter words, chapters per novel per run, run-time bound, NovelUpdates match threshold and snapshot retention — each with its default and effective value, plus one-click **test** buttons. The Tailscale **Funnel** switch is red, asks before enabling, and shows an app-wide banner while on.
 - **System health** — scheduler heartbeat, queue status, FlareSolverr reachability, failed-job inspection/retry/cleanup, and the **Needs attention** panel with Snooze (7 days) / Wake. **Activity** lists missing chapters and recent downloads; the home status strip links to both.
@@ -156,6 +162,7 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
                  │
                  ▼
    Web UI (Blade + Turbo) ── Reader · Search · ePub · Kindle · PWA offline
+   JSON API (/api/v1)     ── iPhone/iPad app · KOReader plugin
 ```
 
 - **Scraping is abstracted behind source adapters** (`app/Sources`). A `SourceResolver` picks the right adapter for a novel's URL; each adapter knows how to fetch that site's table of contents and metadata and declares where chapter text lives. `app/Scraping` holds the shared machinery: `Fetcher` (the only place that touches the network; fakeable in tests), `ContentExtractor` (per-source selectors, then a density scorer), `ChapterLabelParser` (volume / number / part / title / sort key from a label), `NovelUpdatesMatcher` (identity scoring) and `FailureSnapshot`.
@@ -322,6 +329,7 @@ Most operational settings are editable from the **Settings** page (stored in `ap
 | `NOVARR_SNAPSHOTS_ENABLED` / `_KEEP` / `_DAYS` | Failure-snapshot retention defaults (overridable in Settings) | `true` / `5` / `14` |
 | `NOVARR_TLS_VERIFY` | TLS verification for every scraper/FlareSolverr request (keep on) | `true` |
 | `NOVARR_NOVELARROW_HOST` | Canonical host for the NovelPing (ex-novelarrow) source; API, chapter and cover URLs are built on it | `novelping.com` |
+| `NOVARR_KOREADER_PLUGIN_PATH` | Folder served to KOReader devices as the plugin update (see [Apps and JSON API](#apps-and-json-api)) | `koreader/novarr.koplugin` |
 | `TRUSTED_PROXIES` | Proxies whose `X-Forwarded-*` headers are trusted (nginx / Tailscale in front) | `*` |
 | `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER` | Must exceed the 3600 s job timeout | `3700` |
 
@@ -404,6 +412,48 @@ Any of these can also be run from the **Commands** page in the UI with live job-
 ## OPDS catalog
 
 Every novel with a generated ePub is published as an **OPDS 1.2 acquisition feed** at `/opds` — point KOReader, Moon+ Reader, Calibre, or any OPDS-capable reader at `https://<your-host>/opds` to browse your library with covers and download ePubs directly. No configuration needed; the feed reflects whatever `novel:epub` has produced.
+
+---
+
+## Apps and JSON API
+
+Two readers besides the website live in this repository. Both talk to the server through the JSON API and share reading position with the website. Like the rest of Novarr, the API has **no login**: keep the server on your own network or tailnet.
+
+### JSON API (`/api/v1`)
+
+| Endpoint | What it does |
+|---|---|
+| `GET /meta` | App id, API version and server version; the apps use it to check an address is Novarr |
+| `GET /home` | The novel being read and the shelves of the home screen |
+| `GET /novels`, `GET /novels/{id}` | The library and one novel's details |
+| `GET /novels/{id}/chapters` | A novel's chapters in reading order |
+| `GET /chapters/{id}` | One chapter (paragraphs and sanitised HTML); never marks it read |
+| `POST /chapters/{id}/progress`, `POST /chapters/{id}/read`, `POST /chapters/bulk-read` | Reading position and read marks |
+| `GET /discover`, `GET /discover/browse` | The sources with their lists, and one page of a list or search (`type`, `source`, `q`, `page`) |
+| `POST /novels` | Add a novel from a Discover result (`title`, `url`) |
+| `POST /novels/{id}/check`, `GET /novels/{id}/check` | Ask the server to check a novel's source for new chapters, and follow that check |
+| `POST /novels/{id}/epub`, `GET /novels/{id}/epub` | Build a novel's ePub and download it |
+| `GET /koreader/plugin`, `GET /koreader/plugin/files/{path}` | The KOReader plugin's update manifest and files |
+
+List endpoints answer conditional requests (`ETag` / `If-None-Match`). A Discover search can take a minute or two when the source sits behind FlareSolverr. A check runs on the queue (`novel:toc`, then `novel:chapter`), so it needs the queue worker or the scheduler's drain.
+
+### iPhone / iPad app (`ios/`)
+
+A native SwiftUI app (iOS 17+): connect to the server by address, then Home, Library, novel pages, the reader and Settings. The Xcode project is generated from `ios/project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen); open `ios/Novarr.xcodeproj` to build and run, and `NovarrTests` holds its tests.
+
+### KOReader plugin (`koreader/`)
+
+For a Kindle (jailbroken, with KOReader) or any other KOReader device. Copy `koreader/novarr.koplugin` into the device's `koreader/plugins/` folder once, enter the server address, and read. What it does:
+
+- **Home shelf** with covers; one tap opens the chapter you are on.
+- **Joined chapters** — chapters are read in groups of 20, so a chapter change is a plain page turn.
+- **100 chapters saved ahead**, and **Wi-Fi switched off** while reading once everything is saved; it comes back by itself to top up and to send progress.
+- **Discover** — browse or search the sources and add novels from the device.
+- **Check for new chapters** when you have caught up, and **reading stats** on the novel page.
+- **Two server addresses** (home and away, a Tailscale name for example), and `https://` through KOReader's HTTP proxy.
+- **Updates over Wi-Fi** — the server serves the plugin folder it was deployed with, so deploying Novarr is how a plugin update reaches the device (Novarr ▸ Settings ▸ version row). The Docker image includes the folder; `NOVARR_KOREADER_PLUGIN_PATH` points it elsewhere.
+
+The full guide, including install, settings and troubleshooting, is [koreader/README.md](koreader/README.md). Development: `cd koreader && make test KOREADER_DIR=<path to a KOReader install>` runs the unit tests and `make package` builds `novarr-koplugin.zip`.
 
 ---
 
@@ -658,15 +708,19 @@ app/
 │   │                      #   Home, Activity, Attention (snooze), Metadata
 │   │                      #   (NovelUpdates candidates), Snapshot, Stats,
 │   │                      #   Bookmark, Opds, Settings, SystemHealth, Health,
-│   │                      #   Log, Command, Tailscale
+│   │                      #   Log, Command, Tailscale; Api/V1/ (JSON API: Library,
+│   │                      #   Chapter, Discover, AddNovel, Check, Epub, KoreaderPlugin)
 │   ├── Helpers.php        # Scraping/TOC helpers, metadata, Kindle helpers
 │   └── Middleware/        # PerformanceMonitoring (CSRF exemptions live in bootstrap/app.php)
-├── Jobs/RunNovelCommand   # Queued Artisan command runner (per-novel lock, 3600s timeout)
+├── Jobs/                  # RunNovelCommand (queued Artisan command runner, per-novel lock,
+│                          #   3600s timeout), FinishNovelCheck (closes an API-started check)
 ├── Scraping/              # Fetcher (all network I/O), ContentExtractor, ChapterLabelParser
 │                          #   (+ ChapterLabel DTO), NovelUpdatesMatcher, FailureSnapshot,
 │                          #   OriginInference (translated vs original)
 ├── Services/              # NovelHealth (needs-attention: scrape, stall, TOC branches; progress),
-│                          #   DefaultCoverGenerator (brand fallback covers), ChapterNumberResolver
+│                          #   DefaultCoverGenerator (brand fallback covers), ChapterNumberResolver,
+│                          #   CoverThumbnails, Discover (source lists/search for web + API),
+│                          #   NovelCheck (on-demand check for new chapters)
 ├── Sources/               # Source interface, AbstractSource (content selectors),
 │                          #   NovelArrow/EmpireNovel/NovelFull adapters, SourceResolver
 └── *.php                  # Models: Novel, NovelChapter, ChapterText (body text),
@@ -696,12 +750,16 @@ public/
 └── icon-*.png             # App / maskable / apple-touch icons
 routes/
 ├── web.php                # All web routes
+├── api.php                # JSON API v1 (apps)
 └── console.php            # Scheduler definitions
 tests/
 ├── Feature/ · Unit/       # PHP suite (incl. Golden*Test adapters-over-fixtures)
 ├── fixtures/              # Saved source pages + expected JSON per adapter
 ├── js/                    # node --test suites: offline queue, service worker, palette, perf
 └── Support/FakeFetcher    # Network fake that fails any un-faked URL
+ios/                       # iPhone/iPad app (SwiftUI; project.yml → Novarr.xcodeproj)
+koreader/                  # KOReader plugin: novarr.koplugin/ (served for Wi-Fi updates),
+                           #   spec/ (unit tests), Makefile, README
 deploy.sh                  # Bare-metal release script (backup → down → pull → migrate → up)
 docker/ · Dockerfile · docker-compose.yml · Makefile   # Container stack
 ```
@@ -722,7 +780,7 @@ yarn test:js      # JS suites: offline queue, service worker, palette, bundle gu
 
 For remote/tablet access to the Vite dev server (e.g. over Tailscale), the dev assets must be advertised at the externally-reachable HTTPS origin — set `server.origin`, `server.allowedHosts`, and `server.hmr` in `vite.config.js` from `.env`, and confirm `public/hot` shows the external URL.
 
-**Tech stack:** Laravel 11 · PHP 8.3+ · MySQL 8 / MariaDB · Bootstrap 5.3 under the Novarr design system · Hotwire Turbo · Vite · self-hosted fonts (Geist, Geist Mono, Literata via Fontsource; Atkinson Hyperlegible loaded on the reader as the "Legible" option) · Lucide icons (inlined) · FlareSolverr · Resend · GD (cover rendering) · PWA (service worker + IndexedDB).
+**Tech stack:** Laravel 12 · PHP 8.3+ · MySQL 8 / MariaDB · Bootstrap 5.3 under the Novarr design system · Hotwire Turbo · Vite · self-hosted fonts (Geist, Geist Mono, Literata via Fontsource; Atkinson Hyperlegible loaded on the reader as the "Legible" option) · Lucide icons (inlined) · FlareSolverr · Resend · GD (cover rendering) · PWA (service worker + IndexedDB) · Swift 6 / SwiftUI (iOS app) · Lua (KOReader plugin).
 
 ---
 

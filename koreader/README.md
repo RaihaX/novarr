@@ -280,8 +280,8 @@ version.
 ### Updating the plugin over Wi-Fi
 
 Your Novarr server carries the latest plugin, so after the first install you don't
-need the USB cable again. In Novarr ▸ **Settings**, tap the last row,
-**Novarr plugin 1.1.0 — check for update**. Novarr asks the server and either says
+need the USB cable again. In Novarr ▸ **Settings**, tap the last row (on the second Settings page),
+**Novarr plugin 1.4.0 — check for update** (with your version). Novarr asks the server and either says
 "Novarr is up to date" or shows the new version with **Install update**. A window shows
 the download ("Downloading update… 12 of 27") with a Cancel button. When it is done,
 choose **Restart now** (or **Later**: the new version is used the next time KOReader
@@ -296,7 +296,7 @@ Novarr also looks for an update by itself, at most once a day, when Home loads a
 device is already on Wi-Fi, or while you read before it switches Wi-Fi off (it never
 turns Wi-Fi on for this and never interrupts you).
 When there is one, Home's button reads **Settings •** and the last Settings row reads
-**Update available (1.2.0) — tap to install**. Switch this off with *Check for plugin
+**Update available (1.5.0) — tap to install** (with the new version). Switch this off with *Check for plugin
 updates automatically* in Settings.
 
 If the server says it "doesn't offer plugin updates", it is an older Novarr (update the
