@@ -268,14 +268,21 @@ function Discover.addOutcome(data, e)
     return "error", nil
 end
 
---- The text of the "Searching…" notice for a request.
-function Discover.loadingText(view, source)
+--- One line saying what is being fetched: "Searching NovelPing for "sword"…" / "Loading Popular from NovelPing…".
+function Discover.statusText(view, source)
     local name = source and source.name or view.source
     if view.list == "search" then
-        return template(_("Searching %1 for \"%2\"…"), name, view.query or "") .. "\n"
-            .. _("This can take up to two minutes.")
+        return template(_("Searching %1 for \"%2\"…"), name, view.query or "")
     end
     return template(_("Loading %1 from %2…"), Discover.listName(source, view.list), name)
+end
+
+--- The text of the blocking "Searching…" notice for a request (older servers).
+function Discover.loadingText(view, source)
+    if view.list == "search" then
+        return Discover.statusText(view, source) .. "\n" .. _("This can take up to two minutes.")
+    end
+    return Discover.statusText(view, source)
 end
 
 --- A search query from what was typed: trimmed, at most 100 characters (the server's limit), nil when empty.

@@ -55,6 +55,7 @@ local DEFAULTS = {
     open_on_start = true,
     keep_style = true,
     auto_update_check = true,
+    auto_update_install = false,
     join_chapters = true,
     group_size = Groups.DEFAULT_SIZE,
 }
@@ -100,6 +101,11 @@ function Session:init()
     self:rebuildApi()
     -- KOReader started: the first request checks the home address again.
     self.address:invalidate("start")
+    -- The time of the last user action (the automatic plugin install waits for 30 s without one).
+    Session.last_input = nowMs()
+    pcall(function()
+        UIManager.event_hook:register("InputEvent", function() Session.last_input = nowMs() end)
+    end)
 end
 
 --[[--
@@ -549,7 +555,103 @@ function Session:flushQueue(max_entries)
         return { sent = 0, dropped = 0, remaining = 0 }
     end
     return Sync.flush({ api = self.api, queue = self.queue, store = self.store, now = nowMs, log = log,
-        max_entries = max_entries })
+        max_entries = max_entries, on_sent = function(entry, data) self:writeSent(entry, data) end })
+end
+
+-- A queued write reached the server: highlights keep the server's id (to delete them later).
+function Session:writeSent(entry, data)
+    local Highlights = require("novarr.highlights")
+    if entry.kind == "highlight" then
+        local h = type(data) == "table" and type(data.highlight) == "table" and data.highlight or nil
+        if h and tonumber(h.id) then
+            Highlights.remember(self.store:getHighlightMap(), entry.hkey, h.id, nowMs())
+            self.store:saveHighlightMap()
+            log(string.format("Novarr: highlight on chapter %d sent (id %d)", entry.chapter_id, h.id))
+        end
+    elseif entry.kind == "highlight_delete" then
+        if Highlights.forget(self.store:getHighlightMap(), entry.hkey, entry.id) > 0 then
+            self.store:saveHighlightMap()
+        end
+        log(string.format("Novarr: highlight %d deleted on the server", entry.id))
+    end
+end
+
+--- Reading time and the part with Wi-Fi on, per day (wifitime.lua; store: wifitime.json).
+function Session:wifiTime()
+    return self.store:getWifiTime()
+end
+
+-- ---------------------------------------------------------------- highlights
+
+local function md5(text) return require("ffi/sha2").md5(text) end
+Session.hash = md5
+
+--[[--
+Queues a highlight for the server (POST /highlights, idempotent on chapter
++ excerpt): sent when connected, retried, kept over restarts. The excerpt
+and note are trimmed and cut to the server's limits. note_cleared: the
+note was removed (sent as null). Returns the key, or nil when there is
+nothing to send.
+]]
+function Session:queueHighlight(novel_id, chapter_id, excerpt, note, note_cleared)
+    local Highlights = require("novarr.highlights")
+    excerpt = Highlights.clean(excerpt, Highlights.MAX_EXCERPT)
+    if not excerpt or type(chapter_id) ~= "number" then return nil end
+    note = Highlights.clean(note, Highlights.MAX_NOTE)
+    local hkey = Highlights.key(chapter_id, excerpt, md5)
+    self.queue:enqueue({ kind = "highlight", chapter_id = chapter_id, novel_id = novel_id, hkey = hkey,
+        excerpt = excerpt, note = note, note_cleared = (not note and note_cleared) and true or nil })
+    log(string.format("Novarr: highlight on chapter %d queued (%d characters%s)", chapter_id,
+        Highlights.ulen(excerpt), note and ", with a note" or ""))
+    self:flushSoon()
+    return hkey
+end
+
+--[[--
+A highlight deleted in KOReader: one not sent yet just leaves the queue;
+one whose server id is known is deleted there (DELETE /highlights/{id},
+queued). An unknown id: nothing is sent. Returns "deleted" | "dropped" | "unknown".
+]]
+function Session:unqueueHighlight(chapter_id, excerpt)
+    local Highlights = require("novarr.highlights")
+    excerpt = Highlights.clean(excerpt, Highlights.MAX_EXCERPT)
+    if not excerpt or type(chapter_id) ~= "number" then return "unknown" end
+    local hkey = Highlights.key(chapter_id, excerpt, md5)
+    local dropped = self.queue:dropHighlight(hkey)
+    local id = Highlights.lookup(self.store:getHighlightMap(), hkey)
+    if id then
+        self.queue:enqueue({ kind = "highlight_delete", id = id, hkey = hkey })
+        log(string.format("Novarr: highlight %d on chapter %d: delete queued", id, chapter_id))
+        self:flushSoon()
+        return "deleted"
+    end
+    log(string.format("Novarr: highlight on chapter %d deleted: %s", chapter_id,
+        dropped and "it had not been sent yet" or "its server id is unknown, nothing sent"))
+    return dropped and "dropped" or "unknown"
+end
+
+--- Deletes a highlight by its server id (the Highlights list): queued, sent at once when connected.
+function Session:deleteHighlightId(id)
+    self.queue:enqueue({ kind = "highlight_delete", id = id })
+    self:flushSoon(0.2)
+end
+
+--- Sends pending writes in a few seconds when already connected (never prompts).
+function Session:flushSoon(delay)
+    if not self:isConnected() then return end
+    if not self.flush_soon_task then
+        self.flush_soon_task = function()
+            Session.guard(function()
+                local res = self:quietFlush(50)
+                if res and (res.sent or 0) + (res.dropped or 0) > 0 then
+                    local W = package.loaded["novarr.wifi"]
+                    if type(W) == "table" then W.progress() end
+                end
+            end)
+        end
+    end
+    UIManager:unschedule(self.flush_soon_task)
+    UIManager:scheduleIn(delay or 3, self.flush_soon_task)
 end
 
 --- "Sync now": user action with Wi-Fi prompt and feedback.
@@ -1227,6 +1329,7 @@ function Session:setServer(url)
         self.store:clearCache()
         self.store:clearOverlays()
         self.store:clearStats()
+        self.store:clearHighlightMap()
         self.queue:clear()
         for _i, novel_id in ipairs(self.store:novelsWithDownloads()) do
             self:removeNovelDownloads(novel_id)
@@ -1491,6 +1594,14 @@ function Session:dumpState()
                 end)(),
             } or nil,
             switches = self.switch_count,
+            annotations = (function()
+                local out = {}
+                local ui = self.reader.ui
+                for _i, a in ipairs(ui and ui.annotation and ui.annotation.annotations or {}) do
+                    table.insert(out, { text = a.text, note = a.note, drawer = a.drawer })
+                end
+                return Json.array(out)
+            end)(),
             timing_samples = Json.array(self.store:getTiming(r.novel_id)) }
     end
     return {
@@ -1512,6 +1623,8 @@ function Session:dumpState()
             join_chapters = self:get("join_chapters"),
             group_size = self:get("group_size"),
             auto_update_check = self:get("auto_update_check"),
+            auto_update_install = self:get("auto_update_install"),
+            update_auto_attempt = self:get("update_auto_attempt"),
             update_available_build = self:get("update_available_build"),
             update_available_version = self:get("update_available_version"),
             update_checked_at = self:get("update_checked_at"),
@@ -1530,6 +1643,28 @@ function Session:dumpState()
             for _i, entry in ipairs(self.menus) do
                 if entry.screen and entry.screen.kind == "discover" then
                     return require("novarr.ui_discover").dumpOf(entry.screen)
+                end
+            end
+            return nil
+        end)(),
+        highlights = (function()
+            local out = { known_ids = 0 }
+            for _k in pairs(self.store:getHighlightMap()) do out.known_ids = out.known_ids + 1 end
+            for _i, entry in ipairs(self.menus) do
+                if entry.screen and entry.screen.kind == "highlights" then
+                    out.screen = require("novarr.ui_highlights").dumpOf(entry.screen)
+                end
+            end
+            return out
+        end)(),
+        wifitime = (function()
+            local ok, d = pcall(function() return require("novarr.wifitime").dump(self:wifiTime(), os.time()) end)
+            return ok and d or nil
+        end)(),
+        discover_search = (function()
+            for _i, entry in ipairs(self.menus) do
+                if entry.screen and entry.screen.kind == "discover" then
+                    return require("novarr.ui_discover").searchDumpOf(entry.screen)
                 end
             end
             return nil

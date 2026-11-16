@@ -9,6 +9,8 @@ Everything Novarr keeps on the device, under one root folder
     chapters/<novelId>/group_<b>_<N>.html/.json  joined chapters, built from the stored ones (disposable)
     overlay/<novelId>.json  local read marks / progress not yet confirmed by the server
     queue.json              pending server writes
+    highlights.json         server ids of highlights sent from this device (bounded)
+    wifitime.json           reading time and the part with Wi-Fi on, per day (7 days)
 
 Files are written to a temp file and renamed into place (a Kindle can lose
 power at any moment) and every reader tolerates missing or corrupt files.
@@ -669,6 +671,33 @@ function Store:saveEpubs()
     if self._epubs then self:writeJson(self.root .. "/epubs.json", self._epubs) end
 end
 
+-- ---------------------------------------------------------------- small JSON tables
+
+-- A JSON object kept in memory once read: highlights.json (highlight ids,
+-- see highlights.lua), wifitime.json (reading and Wi-Fi time, wifitime.lua).
+local function smallTable(name)
+    return function(self)
+        self._small = self._small or {}
+        if not self._small[name] then
+            local t = self:readJson(self.root .. "/" .. name .. ".json")
+            self._small[name] = type(t) == "table" and t or {}
+        end
+        return self._small[name]
+    end, function(self)
+        if self._small and self._small[name] then
+            self:writeJson(self.root .. "/" .. name .. ".json", self._small[name])
+        end
+    end, function(self)
+        if self._small then self._small[name] = nil end
+        os.remove(self.root .. "/" .. name .. ".json")
+    end
+end
+
+--- chapter_id:hash -> {id, at}: server ids of highlights sent from this device.
+Store.getHighlightMap, Store.saveHighlightMap, Store.clearHighlightMap = smallTable("highlights")
+--- {days = {["YYYY-MM-DD"] = {read, wifi}}}: reading time with Wi-Fi on or off.
+Store.getWifiTime, Store.saveWifiTime, Store.clearWifiTime = smallTable("wifitime")
+
 -- ---------------------------------------------------------------- queue file
 
 function Store:queuePath()
@@ -690,6 +719,7 @@ function Store:forget()
     self._timing = nil
     self._stats = nil
     self._epubs = nil
+    self._small = nil
 end
 
 return Store

@@ -19,7 +19,8 @@ local _ = require("gettext")
 local plugin_dir = (debug.getinfo(1, "S").source or ""):match("^@(.*)/[^/]*$") or "."
 local MODULES = {
     "address", "api", "autopilot", "chapterdoc", "checks", "checkstate", "covers", "discover", "epub", "epubflow",
-    "groups", "http_client", "json", "model", "queue", "reading", "readinginfo", "session", "stats", "store", "sync",
+    "groups", "highlights", "http_client", "json", "model", "queue", "reading", "readinginfo", "searchstate", "session",
+    "stats", "store", "sync", "ui_highlights", "wifitime",
     "ui_caughtup", "ui_chapters", "ui_common", "ui_coverlist", "ui_discover", "ui_downloads", "ui_home", "ui_library",
     "ui_novel", "ui_progress", "ui_settings", "ui_shelf", "ui_update", "updater", "wifi", "wifipolicy",
 }
@@ -194,6 +195,8 @@ function Novarr:onSuspend()
         -- Checks for new chapters stop looking while asleep (only when one was started).
         local Checks = package.loaded["novarr.checks"]
         if type(Checks) == "table" then Session.guard(Checks.onSuspend) end
+        local Discover = package.loaded["novarr.ui_discover"]
+        if type(Discover) == "table" then Session.guard(Discover.onSuspend) end
     end
     if not self.reading then return end
     Session.guard(function()
@@ -214,6 +217,8 @@ function Novarr:onResume()
                     require("novarr.wifi").onResume()
                     local Checks = package.loaded["novarr.checks"]
                     if type(Checks) == "table" then Checks.onResume() end
+                    local Discover = package.loaded["novarr.ui_discover"]
+                    if type(Discover) == "table" then Discover.onResume() end
                 end)
             end
             UIManager:unschedule(self.resume_task)
@@ -229,6 +234,24 @@ function Novarr:onCloseDocument()
     Session.guard(function() require("novarr.reading").onClose(self) end)
 end
 
+-- Sent by ReaderUI:reloadDocument() only (a re-render that reopens the same
+-- file): the close that follows is not "leaving the book".
+function Novarr:onPreserveCurrentSession()
+    if not self.reading then return end
+    self.reading.reloading = true
+end
+
+-- KOReader exiting or restarting (its Exit / Restart menu entries, gestures,
+-- Novarr's own "Restart now"): Wi-Fi that Novarr switched off comes back on.
+-- Both are broadcast; restoreOnLeave does nothing the second time.
+function Novarr:onExit()
+    Session.guard(function() require("novarr.wifi").restoreOnLeave("KOReader exiting", { exiting = true }) end)
+end
+
+function Novarr:onRestart()
+    Session.guard(function() require("novarr.wifi").restoreOnLeave("KOReader restarting", { exiting = true }) end)
+end
+
 -- A connection appeared (KOReader broadcasts this): send pending writes.
 -- Never turns Wi-Fi on; nothing happens when there is nothing to send.
 -- Also: the next request checks the home address again, and the Wi-Fi
@@ -237,6 +260,8 @@ function Novarr:onNetworkConnected()
     if Session.plugin ~= self or not Session.queue then return end
     Session.guard(function()
         Session.address:invalidate("network connected")
+        -- Reading time with Wi-Fi on: the segment so far was with Wi-Fi off.
+        if Session.reader and Session.reader.reading then require("novarr.reading").timeTick(Session.reader) end
         require("novarr.wifi").onNetworkConnected()
     end)
     if Session.queue:count() == 0 then return end
@@ -251,7 +276,10 @@ end
 
 function Novarr:onNetworkDisconnected()
     if Session.plugin ~= self then return end
-    Session.guard(function() require("novarr.wifi").onNetworkDisconnected() end)
+    Session.guard(function()
+        if Session.reader and Session.reader.reading then require("novarr.reading").timeTick(Session.reader) end
+        require("novarr.wifi").onNetworkDisconnected()
+    end)
 end
 
 function Novarr:onCloseWidget()

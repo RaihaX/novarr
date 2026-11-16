@@ -15,18 +15,27 @@ library, from the Kindle. Reached from Home (next to Library).
   in it. After adding: the result is marked, the library is fetched again,
   and the server is asked to check the novel (checks.lua) so its chapters
   arrive.
-* Every request blocks KOReader while it runs, as everywhere in the plugin,
-  behind a notice painted first. A search through a slow source can take up
-  to two minutes; LuaSocket can't be interrupted mid-request, so the notice
-  only says how long it may take.
+* Lists, searches and "More" pages run on the server in the background
+  (POST /discover/searches, searchstate.lua holds the rules): the screen
+  shows "Searching…" with a Cancel row and looks at the search every 3 s
+  through UIManager scheduling, so KOReader stays usable, for up to 5
+  minutes. Cancel only stops following. A result that arrives after the
+  user left Discover (or picked another list) is dropped. While a search
+  is followed the Wi-Fi management counts Novarr as busy.
+* An older server (the POST answers 404/405): the blocking GET
+  /discover/browse as before, behind a notice painted first, remembered for
+  the rest of the session (Session.discover_blocking).
 ]]
 
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 local T = require("ffi/util").template
 
+local logger = require("logger")
+
 local Checks = require("novarr.checks")
 local Discover = require("novarr.discover")
+local SearchState = require("novarr.searchstate")
 local Session = require("novarr.session")
 local UI = require("novarr.ui_common")
 
@@ -35,6 +44,18 @@ Screen.__index = Screen
 
 -- Remembered for the session (not persisted): where the user was.
 local last = { source = nil, list = nil }
+
+-- The search being followed: {screen, view, st, task} or nil (one at a time).
+local follow = nil
+local suspended = false
+
+local function nowS() return math.floor(Session.nowMs() / 1000) end
+local function log(text) logger.info("Novarr Discover: " .. text) end
+
+--- Whether a background search is being followed (the Wi-Fi management counts it as busy).
+function Screen.following()
+    return follow ~= nil and SearchState.active(follow.st)
+end
 
 function Screen:source()
     return Discover.find(self.sources, self.source_id)
@@ -88,7 +109,14 @@ function Screen:items()
         })
         self.index_of[i] = #items
     end
-    if view.error then
+    if view.search and SearchState.active(view.search) then
+        table.insert(items, { text = Discover.statusText(view, src), dim = true, select_enabled = false,
+            searching = true, callback = function() end })
+        table.insert(items, { text = _("Cancel"), callback = function() self:cancelSearch() end })
+    elseif view.stopped then
+        table.insert(items, { text = _("Stopped. Tap to try again."), dim = true,
+            callback = function() self:fetchPage() end })
+    elseif view.error then
         table.insert(items, { text = _("Couldn't load this list. Tap to try again."), dim = true,
             callback = function() self:fetchPage() end })
     elseif view.loaded and #view.items == 0 then
@@ -148,30 +176,155 @@ function Screen:load()
     end, { reason = "Novarr Discover" })
 end
 
---- Fetches the next page of the current view and shows it (on the page of its first new item).
+-- A page arrived (blocking or background): shown on the page of its first new item.
+function Screen:showPage(view, data)
+    view.error, view.stopped = nil, nil
+    local _added, first = Discover.addPage(view, data)
+    last.source, last.list = view.source, view.list ~= "search" and view.list or last.list
+    self:rebuild({ result = first })
+end
+
+-- A request failed (or a followed search ended without a result): the retry row and a plain message.
+function Screen:showFailure(view, text)
+    view.error = true
+    self:rebuild()
+    UI.info(text)
+end
+
+--- Fetches the next page of the current view: in the background, or blocking on older servers.
 function Screen:fetchPage()
     local s = self.session
     local view = self.view
-    if not view then return end
+    if not view or (view.search and SearchState.active(view.search)) then return end
     s:whenConnected(function()
-        if self.view ~= view then return end
-        local closer = UI.loading(Discover.loadingText(view, self:source()))
-        local data, e = s.api:browse(Discover.nextRequest(view))
-        closer()
         if self.view ~= view or self.closed then return end
-        if not data then
-            view.error = true
-            self:rebuild()
-            UI.info(Discover.browseErrorText(e) or s:errorText(e))
-            return
+        if Session.discover_blocking then
+            self:fetchBlocking(view)
+        else
+            self:startSearch(view)
         end
-        view.error = nil
-        local _added, first = Discover.addPage(view, data)
-        last.source, last.list = view.source, view.list ~= "search" and view.list or last.list
-        self:rebuild({ result = first })
     end, function()
         UI.info(_("No network connection."))
     end, { reason = "Novarr Discover" })
+end
+
+--- The blocking GET /discover/browse (servers without background searches).
+function Screen:fetchBlocking(view)
+    local s = self.session
+    local closer = UI.loading(Discover.loadingText(view, self:source()))
+    local data, e = s.api:browse(Discover.nextRequest(view))
+    closer()
+    if self.view ~= view or self.closed then return end
+    if not data then
+        self:showFailure(view, Discover.browseErrorText(e) or s:errorText(e))
+        return
+    end
+    self:showPage(view, data)
+end
+
+local function stopFollowing()
+    if follow and follow.task then UIManager:unschedule(follow.task) end
+    if follow then SearchState.cancel(follow.st) end
+    follow = nil
+end
+
+--- POST /discover/searches, then follow it (see handle()).
+function Screen:startSearch(view)
+    local s = self.session
+    stopFollowing()
+    local st = SearchState.new(nowS())
+    view.search, view.error, view.stopped = st, nil, nil
+    follow = { screen = self, view = view, st = st }
+    self:rebuild()
+    UIManager:forceRePaint() -- "Searching…" shows while the request is sent
+    local req = Discover.nextRequest(view)
+    local search, e = s.api:searchStart(req)
+    if follow == nil or follow.st ~= st then return end -- cancelled meanwhile
+    local action = SearchState.onStart(st, search, e, nowS())
+    log(string.format("%s %s page %d: %s (%s)", req.type, req.q and ("\"" .. req.q .. "\"") or req.source, req.page,
+        st.phase, st.id or (e and e.kind) or "-"))
+    self:handle(view, st, action)
+end
+
+-- What a search answer leads to.
+function Screen:handle(view, st, action)
+    local s = self.session
+    if action == "poll" then
+        if not follow.task then
+            follow.task = function() Session.guard(Screen.poll) end
+        end
+        UIManager:unschedule(follow.task)
+        if not suspended then UIManager:scheduleIn(SearchState.nextDelay(st, nowS()), follow.task) end
+        return
+    end
+    follow = nil
+    view.search = nil
+    if self.view ~= view or self.closed then
+        log("result dropped (Discover left or another list chosen)")
+        return
+    end
+    if action == "fallback" then
+        log("the server has no background searches: blocking requests for this session")
+        Session.discover_blocking = true
+        self:fetchBlocking(view)
+    elseif action == "done" then
+        log(string.format("done after %d poll(s)", st.polls))
+        self:showPage(view, st.result)
+    elseif st.phase ~= "cancelled" then
+        log("ended: " .. st.phase .. (st.message and (" (" .. st.message .. ")") or ""))
+        self:showFailure(view, SearchState.failureText(st) or Discover.browseErrorText(st.error) or s:errorText(st.error))
+    end
+end
+
+--- One look at the followed search (scheduled; never prompts for Wi-Fi).
+function Screen.poll()
+    local f = follow
+    if not f or suspended then return end
+    local self, view, st = f.screen, f.view, f.st
+    if self.closed or self.view ~= view then
+        SearchState.cancel(st)
+        follow = nil
+        log("result dropped (Discover left or another list chosen)")
+        return
+    end
+    local s = self.session
+    local action
+    if not s:isConnected() then
+        action = SearchState.onOffline(st, nowS())
+    else
+        local search, e = s.api:searchStatus(st.id)
+        if follow ~= f then return end
+        action = SearchState.onPoll(st, search, e, nowS())
+        if not search then log(string.format("poll failed (%s), %s", tostring(e and e.kind), action)) end
+    end
+    self:handle(view, st, action)
+end
+
+--- The Cancel row: stop following (the server may still finish it; its answer is not used).
+function Screen:cancelSearch()
+    local view = self.view
+    if not view or not view.search then return end
+    log("cancelled after " .. view.search.polls .. " poll(s)")
+    stopFollowing()
+    view.search = nil
+    -- Pages already shown stay (with More…); nothing shown yet: a row to try again.
+    if not view.loaded then view.stopped = true end
+    self:rebuild()
+end
+
+--- KOReader went to sleep: no polls meanwhile.
+function Screen.onSuspend()
+    suspended = true
+    if follow and follow.task then UIManager:unschedule(follow.task) end
+end
+
+--- Woken up: look again soon.
+function Screen.onResume()
+    suspended = false
+    if follow and follow.task and SearchState.active(follow.st) then
+        UIManager:unschedule(follow.task)
+        UIManager:scheduleIn(1, follow.task)
+    end
 end
 
 -- ---------------------------------------------------------------- choices
@@ -274,6 +427,10 @@ end
 
 function Screen:onClose()
     self.closed = true
+    if follow and follow.screen == self then
+        log("Discover closed while following a search: stopped")
+        stopFollowing()
+    end
 end
 
 function Screen.show(session)
@@ -297,6 +454,17 @@ function Screen.dumpOf(screen)
         sources = screen.sources and #screen.sources or nil,
         list = v and v.list, query = v and v.query, page = v and v.page, has_more = v and v.has_more,
         loaded = v and v.loaded, error = v and v.error or nil, count = v and #v.items or 0,
+    }
+end
+
+--- The background search state for the autopilot dump (its own section, round 5).
+function Screen.searchDumpOf(screen)
+    local v = screen.view
+    return {
+        following = Screen.following(),
+        blocking = Session.discover_blocking or false,
+        stopped = v and v.stopped or false,
+        search = v and v.search and { phase = v.search.phase, id = v.search.id, polls = v.search.polls } or nil,
     }
 end
 

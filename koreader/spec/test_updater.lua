@@ -378,3 +378,39 @@ T.it("api: plugin manifest, 404 and raw file download", function()
     Api.simulate_offline = false
     T.eq(e.kind, "offline")
 end)
+
+-- ---------------------------------------------------------------- automatic install
+
+local function due(over)
+    local o = { enabled = true, flagged = "b2", installed = false, linked = false, attempt = nil, today = "2026-11-16",
+        home_top = true, reader_open = false, connected = true, idle_s = 45 }
+    for k, v in pairs(over or {}) do o[k] = v end
+    return { Updater.autoInstallDue(o) }
+end
+
+T.it("autoInstallDue: installs when on, flagged, Home on top, online, idle 30 s", function()
+    T.eq(due(), { "install", "idle on Home" })
+end)
+
+T.it("autoInstallDue: never when off, nothing flagged, already installed or linked", function()
+    T.eq(due({ enabled = false })[1], "skip")
+    T.eq(Updater.autoInstallDue({ flagged = "b2", home_top = true, connected = true, idle_s = 99 }), "skip", "off by default (nil)")
+    T.eq(due({ flagged = false })[1], "skip")
+    T.eq(due({ installed = true })[1], "skip")
+    T.eq(due({ linked = true })[1], "skip")
+end)
+
+T.it("autoInstallDue: one attempt per build per day", function()
+    T.eq(due({ attempt = { build = "b2", day = "2026-11-16" } }), { "skip", "already tried today" })
+    T.eq(due({ attempt = { build = "b2", day = "2026-11-15" } })[1], "install", "the next day")
+    T.eq(due({ attempt = { build = "b1", day = "2026-11-16" } })[1], "install", "another build")
+end)
+
+T.it("autoInstallDue: waits while reading, off Home, offline (never switches Wi-Fi on), or right after a user action", function()
+    T.eq(due({ reader_open = true }), { "wait", "a book is open", 30 })
+    T.eq(due({ home_top = false }), { "wait", "Home is not on top", 30 })
+    T.eq(due({ connected = false }), { "wait", "offline", 60 })
+    T.eq(due({ idle_s = 12 }), { "wait", "recent user action", 18 })
+    T.eq(due({ idle_s = 29.5 }), { "wait", "recent user action", 1 })
+    T.eq(due({ idle_s = 5, idle_needed = 4 })[1], "install")
+end)

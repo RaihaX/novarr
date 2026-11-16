@@ -215,6 +215,11 @@ function Settings:items()
             callback = function() end,
         })
     end
+    -- How much of the reading had Wi-Fi on (wifitime.lua): hidden under 10 min of reading.
+    local wifi_line = require("novarr.wifitime").line(s:wifiTime(), os.time())
+    if wifi_line then
+        table.insert(items, { text = wifi_line, dim = true, select_enabled = false, wifi_time = true, callback = function() end })
+    end
     toggle("remove_after_reading", _("Remove chapters after reading (keeps the last 2)"))
     toggle("mark_read_at_end", _("Mark chapter read at its end"))
     -- Takes effect the next time a chapter is opened.
@@ -241,6 +246,7 @@ function Settings:items()
         end,
     })
     toggle("auto_update_check", _("Check for plugin updates automatically"))
+    toggle("auto_update_install", _("Install plugin updates automatically"))
     local Update = require("novarr.ui_update")
     local available = Update.available(s)
     local version_text
