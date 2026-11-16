@@ -58,8 +58,9 @@ class HighlightController extends Controller
 
     /**
      * POST /api/v1/highlights — 201 with the new highlight; 200 with the
-     * stored one when this chapter already has this excerpt (its note is
-     * replaced when a non-empty note is sent).
+     * stored one when this chapter already has this excerpt. Its note is
+     * replaced when "note" is sent: a text sets it, null (or empty) removes
+     * it; without the "note" key the stored note is kept.
      */
     public function store(Request $request): JsonResponse
     {
@@ -75,7 +76,7 @@ class HighlightController extends Controller
 
         $existing = Bookmark::where('novel_chapter_id', $chapter->id)->where('excerpt', $excerpt)->orderBy('id')->first();
         if ($existing !== null) {
-            if ($note !== null && $note !== $existing->note) {
+            if ($request->has('note') && $note !== $existing->note) {
                 $existing->update(['note' => $note]);
             }
 
