@@ -76,14 +76,42 @@ class DiscoverController extends Controller
             return response()->json(['items' => [], 'page' => 1, 'has_more' => false]);
         }
 
-        $data = $request->validate([
+        $data = $request->validate(static::browseRules($sources));
+
+        $listing = static::listing($discover, $sources, $data);
+        if ($listing === null) {
+            return response()->json(['message' => self::UPSTREAM_FAILED], 502);
+        }
+
+        return response()->json($listing);
+    }
+
+    /**
+     * Validation rules of a browse (GET /discover/browse and POST
+     * /discover/searches take the same parameters).
+     *
+     * @param  array<string, \App\Sources\Source>  $sources
+     */
+    public static function browseRules(array $sources): array
+    {
+        return [
             'source' => 'nullable|in:' . implode(',', array_keys($sources)),
             'type' => 'required|in:' . implode(',', Discover::TYPES),
             'q' => 'required_if:type,search|nullable|string|max:100',
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|min:1|max:' . self::MAX_PER_PAGE,
-        ]);
+        ];
+    }
 
+    /**
+     * One page of a list for validated browse parameters:
+     * {items, page, has_more}, or null when the source could not be reached
+     * (or threw). $sources must not be empty.
+     *
+     * @param  array<string, \App\Sources\Source>  $sources
+     */
+    public static function listing(Discover $discover, array $sources, array $data): ?array
+    {
         $key = $data['source'] ?? array_key_first($sources);
         $source = $sources[$key];
         $page = (int) ($data['page'] ?? 1);
@@ -97,7 +125,7 @@ class DiscoverController extends Controller
         }
 
         if ($items === null) {
-            return response()->json(['message' => self::UPSTREAM_FAILED], 502);
+            return null;
         }
 
         // Random draws a new list on every request, so a later page would
@@ -110,11 +138,11 @@ class DiscoverController extends Controller
             $hasMore = count($items) > $page * $perPage;
         }
 
-        return response()->json([
+        return [
             'items' => array_map(fn(array $item) => self::item($item, (string) $key), array_values($slice)),
             'page' => $page,
             'has_more' => $hasMore,
-        ]);
+        ];
     }
 
     /** One result item; `title` and `url` are what POST /api/v1/novels takes. */

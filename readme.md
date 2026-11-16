@@ -430,12 +430,14 @@ Two readers besides the website live in this repository. Both talk to the server
 | `GET /chapters/{id}` | One chapter (paragraphs and sanitised HTML); never marks it read |
 | `POST /chapters/{id}/progress`, `POST /chapters/{id}/read`, `POST /chapters/bulk-read` | Reading position and read marks |
 | `GET /discover`, `GET /discover/browse` | The sources with their lists, and one page of a list or search (`type`, `source`, `q`, `page`) |
+| `POST /discover/searches`, `GET /discover/searches/{id}` | The same browse or search run in the background (after the response is sent), then fetched by id (kept 15 minutes) |
 | `POST /novels` | Add a novel from a Discover result (`title`, `url`) |
 | `POST /novels/{id}/check`, `GET /novels/{id}/check` | Ask the server to check a novel's source for new chapters, and follow that check |
 | `POST /novels/{id}/epub`, `GET /novels/{id}/epub` | Build a novel's ePub and download it |
+| `GET /highlights`, `POST /highlights`, `DELETE /highlights/{id}` | Highlights (the website's bookmarks: an excerpt with an optional note), newest first, per novel with `novel_id` |
 | `GET /koreader/plugin`, `GET /koreader/plugin/files/{path}` | The KOReader plugin's update manifest and files |
 
-List endpoints answer conditional requests (`ETag` / `If-None-Match`). A Discover search can take a minute or two when the source sits behind FlareSolverr. A check runs on the queue (`novel:toc`, then `novel:chapter`), so it needs the queue worker or the scheduler's drain.
+List endpoints answer conditional requests (`ETag` / `If-None-Match`). A Discover search can take a minute or two when the source sits behind FlareSolverr. A check runs on the queue (`novel:toc`, then `novel:chapter`), so it needs the queue worker or the scheduler's drain. A background Discover search does not use the queue.
 
 ### iPhone / iPad app (`ios/`)
 
