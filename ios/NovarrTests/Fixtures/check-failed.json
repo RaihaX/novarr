@@ -1,0 +1,11 @@
+{
+    "check": {
+        "status": "failed",
+        "started_at": "2026-11-15T03:20:11Z",
+        "finished_at": "2026-11-15T03:21:40Z",
+        "chapters_before": 120,
+        "chapters_now": 120,
+        "new_chapters": 0,
+        "message": "Another scrape of this novel was already running, so this check was skipped."
+    }
+}

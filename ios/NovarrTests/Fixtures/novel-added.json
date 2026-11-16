@@ -1,0 +1,25 @@
+{
+    "novel": {
+        "id": 143,
+        "name": "Lord of the Mysteries",
+        "author": null,
+        "cover_url": null,
+        "cover_large_url": null,
+        "state": "active",
+        "completed": false,
+        "paused": false,
+        "origin": null,
+        "tags": [],
+        "chapters_total": 0,
+        "chapters_downloaded": 0,
+        "chapters_read": 0,
+        "chapters_new": 0,
+        "read_percent": 0,
+        "download_percent": 0,
+        "finished": false,
+        "last_read_at": null,
+        "updated_at": null,
+        "resume_chapter_id": null
+    },
+    "already_in_library": false
+}

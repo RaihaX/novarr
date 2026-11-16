@@ -26,10 +26,12 @@ final class AppModel {
     /// Whether the last request reached the server.
     private(set) var isReachable = true
     private(set) var pendingWrites = 0
-    /// Bumped after read-state changes so list screens know to reload.
+    /// Bumped after read-state or library changes so list screens know to reload.
     private(set) var readStateRevision = 0
 
     let downloads = DownloadManager()
+    /// "Check for new chapters" runs, watched app-wide.
+    let checks = ChapterChecks()
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let monitor = NWPathMonitor()
@@ -37,6 +39,7 @@ final class AppModel {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        checks.onChaptersChanged = { [weak self] _ in self?.libraryChanged() }
         // Also honours `-serverURL http://…` as a launch argument (argument domain).
         if let raw = defaults.string(forKey: Self.serverDefaultsKey), let url = ServerURL.normalize(raw) {
             configure(url)
@@ -59,6 +62,7 @@ final class AppModel {
     }
 
     private func configure(_ url: URL) {
+        checks.cancelAll()
         serverURL = url
         client = APIClient(baseURL: url)
         let directory = OfflineStore.directory(for: url)
@@ -141,6 +145,20 @@ final class AppModel {
         default:
             break
         }
+    }
+
+    // MARK: Library changes
+
+    /// The library gained a novel or chapters: Home and Library reload when
+    /// they next appear (they compare this revision).
+    func libraryChanged() {
+        readStateRevision += 1
+    }
+
+    /// Starts (or joins) a check for new chapters on the server.
+    func startCheck(novelId: Int) {
+        guard let client else { return }
+        checks.start(novelId: novelId, client: client)
     }
 
     // MARK: Connectivity bookkeeping

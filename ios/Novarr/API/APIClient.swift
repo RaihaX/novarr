@@ -69,16 +69,84 @@ struct APIClient: Sendable {
         }
     }
 
+    // MARK: Discover and adding novels
+
+    /// Searches through FlareSolverr-backed sources can take minutes on the server.
+    static let browseTimeout: TimeInterval = 150
+
+    func discoverSources() async throws -> [DiscoverSource] {
+        try await get("discover", as: DiscoverSourcesEnvelope.self).sources
+    }
+
+    /// One page of a source's list, or of a search when `type` is `search`.
+    /// Blocking on the server; cancel the calling task to abandon it.
+    func discoverBrowse(type: String, source: String?, query: String?,
+                        page: Int, perPage: Int = 20) async throws -> DiscoverPage {
+        var items = [URLQueryItem(name: "type", value: type)]
+        if let source { items.append(URLQueryItem(name: "source", value: source)) }
+        if let query { items.append(URLQueryItem(name: "q", value: query)) }
+        items.append(URLQueryItem(name: "page", value: String(page)))
+        items.append(URLQueryItem(name: "per_page", value: String(perPage)))
+        return try await get("discover/browse", query: items, as: DiscoverPage.self, timeout: Self.browseTimeout)
+    }
+
+    /// 201 (added) and 200 (already in the library) both succeed; 422/503 throw `.http`.
+    func addNovel(title: String, url: URL) async throws -> AddNovelResponse {
+        let data = try await send("POST", "novels", body: AddNovelBody(title: title, url: url.absoluteString))
+        return try decode(AddNovelResponse.self, from: data)
+    }
+
+    // MARK: Checks
+
+    func check(novelId: Int) async throws -> NovelCheck {
+        try await get("novels/\(novelId)/check", as: CheckEnvelope.self).check
+    }
+
+    /// Starts a check, or joins the one already running (202 either way).
+    func startCheck(novelId: Int) async throws -> NovelCheck {
+        let data = try await send("POST", "novels/\(novelId)/check", body: Optional<EmptyBody>.none, timeout: 60)
+        return try decode(CheckEnvelope.self, from: data).check
+    }
+
+    // MARK: Highlights
+
+    func highlights(novelId: Int? = nil, page: Int = 1, perPage: Int = 50) async throws -> HighlightsPage {
+        var items: [URLQueryItem] = []
+        if let novelId { items.append(URLQueryItem(name: "novel_id", value: String(novelId))) }
+        items.append(URLQueryItem(name: "page", value: String(page)))
+        items.append(URLQueryItem(name: "per_page", value: String(perPage)))
+        return try await get("highlights", query: items, as: HighlightsPage.self)
+    }
+
+    /// 204 even when it was already gone; a 404 means the same thing here.
+    func deleteHighlight(id: Int) async throws {
+        do {
+            _ = try await send("DELETE", "highlights/\(id)", body: Optional<EmptyBody>.none)
+        } catch APIError.http(404, _) {
+            return
+        }
+    }
+
     // MARK: Plumbing
 
     func url(for path: String) -> URL {
         baseURL.appending(path: "api/v1/" + path)
     }
 
-    private func get<T: Decodable>(_ path: String, as type: T.Type, timeout: TimeInterval = 20) async throws -> T {
-        var request = URLRequest(url: url(for: path), timeoutInterval: timeout)
+    func url(for path: String, query: [URLQueryItem]) -> URL {
+        let base = url(for: path)
+        return query.isEmpty ? base : base.appending(queryItems: query)
+    }
+
+    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type,
+                                   timeout: TimeInterval = 20) async throws -> T {
+        var request = URLRequest(url: url(for: path, query: query), timeoutInterval: timeout)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let data = try await perform(request)
+        return try decode(T.self, from: data)
+    }
+
+    private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do {
             return try JSONCoding.decoder().decode(T.self, from: data)
         } catch {
@@ -87,12 +155,20 @@ struct APIClient: Sendable {
     }
 
     private func post<Body: Encodable>(_ path: String, body: Body) async throws {
-        var request = URLRequest(url: url(for: path), timeoutInterval: 20)
-        request.httpMethod = "POST"
+        _ = try await send("POST", path, body: body)
+    }
+
+    /// A write with an optional JSON body; returns the response body.
+    private func send<Body: Encodable>(_ method: String, _ path: String, body: Body?,
+                                       timeout: TimeInterval = 20) async throws -> Data {
+        var request = URLRequest(url: url(for: path), timeoutInterval: timeout)
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONCoding.encoder().encode(body)
-        _ = try await perform(request)
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONCoding.encoder().encode(body)
+        }
+        return try await perform(request)
     }
 
     private func perform(_ request: URLRequest) async throws -> Data {
@@ -101,6 +177,8 @@ struct APIClient: Sendable {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            // Let callers tell "the user moved on" apart from "the server is down".
+            if Task.isCancelled { throw CancellationError() }
             throw APIError.from(error)
         }
         guard let http = response as? HTTPURLResponse else {
@@ -114,6 +192,13 @@ struct APIClient: Sendable {
     }
 
     private struct ErrorBody: Decodable { var message: String? }
+
+    private struct EmptyBody: Encodable {}
+
+    private struct AddNovelBody: Encodable {
+        var title: String
+        var url: String
+    }
 
     private struct ProgressBody: Encodable {
         var progress: Int?

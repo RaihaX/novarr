@@ -1,0 +1,11 @@
+{
+    "check": {
+        "status": "running",
+        "started_at": "2026-11-15T03:20:11Z",
+        "finished_at": null,
+        "chapters_before": 120,
+        "chapters_now": 121,
+        "new_chapters": 1,
+        "message": null
+    }
+}

@@ -12,7 +12,12 @@ final class NovelModel {
     private(set) var phase: LoadPhase = .idle
     private(set) var isShowingCache = false
     private(set) var actionError: String?
+    /// The newest few highlights in this novel (empty when none, or the server has no highlights API).
+    private(set) var highlights: [Highlight] = []
+    private(set) var hasMoreHighlights = false
     var chapterSearch = ""
+
+    static let highlightPreviewCount = 3
 
     init(route: NovelRoute) {
         novelId = route.id
@@ -63,6 +68,16 @@ final class NovelModel {
         } else {
             phase = .loaded
         }
+        if d.error == nil { await loadHighlights(app: app) }
+    }
+
+    /// Best effort: a server without highlights simply shows no section.
+    func loadHighlights(app: AppModel) async {
+        guard let client = app.client,
+              let page = try? await client.highlights(novelId: novelId, page: 1, perPage: Self.highlightPreviewCount)
+        else { return }
+        highlights = page.highlights
+        hasMoreHighlights = page.hasMore
     }
 
     func refreshCachedIDs(app: AppModel) async {
