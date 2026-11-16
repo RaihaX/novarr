@@ -5,6 +5,8 @@ Entry kinds:
     progress  { chapter_id, novel_id, progress = 0..100 int, read = true|nil }
     set_read  { chapter_id, novel_id, read = bool }
     bulk_read { novel_id, bulk = { read, scope, ids, novel_id, anchor_id } }
+    highlight { chapter_id, novel_id, hkey, excerpt, note = text|nil, note_cleared = true|nil }
+    highlight_delete { id, hkey|nil }
 Every entry also has `at` (wall-clock ms when recorded) and `seq` (unique,
 increasing).
 
@@ -14,6 +16,10 @@ is reordered across a bulk_read):
     chapter (a pending read=true is kept: read marks are never lost);
   * a set_read removes pending progress and set_read entries for that chapter;
   * bulk_read is appended as is.
+  * highlights (anywhere in the queue: they never interact with read
+    marks): a newer highlight replaces the pending one with the same hkey
+    (chapter + excerpt; the note is the latest); dropHighlight(hkey)
+    removes a pending one that was never sent (deleted before it left).
 
 Flushing sends entries oldest first. The `send` callback returns one of
 "ok" (remove), "drop" (rejected for good, e.g. 404/422: remove and log) or
@@ -30,13 +36,20 @@ Queue.MAX_AGE_MS = 30 * 24 * 3600 * 1000
 -- are idempotent, progress carries its age).
 Queue.SAVE_EVERY = 10
 
-local VALID_KINDS = { progress = true, set_read = true, bulk_read = true }
+local VALID_KINDS = { progress = true, set_read = true, bulk_read = true, highlight = true, highlight_delete = true }
 
 local function isValid(e)
     if type(e) ~= "table" or not VALID_KINDS[e.kind] then return false end
     if type(e.at) ~= "number" then return false end
     if e.kind == "bulk_read" then
         return type(e.bulk) == "table" and type(e.bulk.read) == "boolean"
+    end
+    if e.kind == "highlight" then
+        return type(e.chapter_id) == "number" and type(e.excerpt) == "string" and e.excerpt ~= ""
+            and type(e.hkey) == "string" and (e.note == nil or type(e.note) == "string")
+    end
+    if e.kind == "highlight_delete" then
+        return type(e.id) == "number"
     end
     if type(e.chapter_id) ~= "number" then return false end
     if e.kind == "progress" then
@@ -137,6 +150,14 @@ function Queue:enqueue(entry)
                 table.remove(items, i)
             end
         end
+    elseif e.kind == "highlight" then
+        for i = #items, 1, -1 do
+            if items[i].kind == "highlight" and items[i].hkey == e.hkey then table.remove(items, i) end
+        end
+    elseif e.kind == "highlight_delete" then
+        for i = #items, 1, -1 do
+            if items[i].kind == "highlight_delete" and items[i].id == e.id then table.remove(items, i) end
+        end
     elseif e.kind == "set_read" then
         for i = #items, floor + 1, -1 do
             local old = items[i]
@@ -202,6 +223,22 @@ function Queue:flush(send, on_done)
         stalled = true
     end
     return { sent = sent, dropped = dropped, remaining = #self.items, stalled = stalled }
+end
+
+--[[--
+Removes a pending (never sent) highlight with this hkey. Returns true when
+there was one: then nothing reached the server and nothing has to be deleted.
+]]
+function Queue:dropHighlight(hkey)
+    local found = false
+    for i = #self.items, 1, -1 do
+        if self.items[i].kind == "highlight" and self.items[i].hkey == hkey then
+            table.remove(self.items, i)
+            found = true
+        end
+    end
+    if found then self:persist() end
+    return found
 end
 
 --- Removes everything (used when the server address changes).

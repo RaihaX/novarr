@@ -1,5 +1,5 @@
 --[[--
-Novel screen: Continue/Start, Chapters, reading stats (stats.lua), Check
+Novel screen: Continue/Start, Chapters, Highlights (ui_highlights.lua), reading stats (stats.lua), Check
 for new chapters (checks.lua) with its status, Download for offline,
 Remove downloads, Mark all as read, Download as EPUB, About (synopsis).
 ]]
@@ -56,6 +56,10 @@ function Novel:items()
         text = _("Chapters"),
         mandatory = string.format("%d/%d", math.max(0, math.min(read, total)), total),
         callback = function() s:showChapters(self.novel_id) end,
+    })
+    table.insert(items, {
+        text = _("Highlights"),
+        callback = function() require("novarr.ui_highlights").show(s, self.novel_id, novel.name) end,
     })
     local left, secs = s:novelEstimate(self.novel_id)
     local left_text

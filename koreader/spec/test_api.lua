@@ -240,3 +240,60 @@ T.it("check: POST starts, GET reads, the check object is returned", function()
     T.eq(c, nil)
     T.eq(e.kind, "server")
 end)
+
+T.it("searchStart: POST /discover/searches with the browse parameters; searchStatus: GET by id", function()
+    local transport, log = fake({
+        json(202, { search = { id = "a-b_1", status = "running" } }),
+        json(200, { search = { id = "a-b_1", status = "done", result = { items = {}, page = 1, has_more = false } } }),
+        json(200, { nothing = true }),
+        json(404, {}),
+        json(405, { message = "Method Not Allowed" }),
+    })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    local st = api:searchStart({ type = "search", source = "nb", q = "sword", page = 2, per_page = 20 })
+    T.eq(st, { id = "a-b_1", status = "running" })
+    T.eq(log[1].method, "POST")
+    T.eq(log[1].url, "http://h/api/v1/discover/searches")
+    T.eq(Json.decode(log[1].body), { type = "search", source = "nb", q = "sword", page = 2, per_page = 20 })
+    T.eq(api:searchStatus("a-b_1").status, "done")
+    T.eq(log[2].method, "GET")
+    T.eq(log[2].url, "http://h/api/v1/discover/searches/a-b_1")
+    local s, e = api:searchStatus("a-b_1")
+    T.eq(s, nil)
+    T.eq(e.kind, "server")
+    local _s, e404 = api:searchStart({ type = "popular", source = "nb", page = 1, per_page = 20 })
+    T.eq(e404.kind, "not_found")
+    T.eq(Json.decode(log[4].body).q, nil, "no q for a list")
+    local _s2, e405 = api:searchStart({ type = "popular", source = "nb", page = 1 })
+    T.eq({ e405.kind, e405.status }, { "invalid", 405 })
+end)
+
+T.it("highlight writes: POST with chapter, excerpt, note (null when cleared); DELETE answers 204", function()
+    local transport, log = fake({
+        json(201, { highlight = { id = 12, chapter_id = 5 } }),
+        json(200, { highlight = { id = 12 } }),
+        { status = 204, headers = {}, body = "" },
+        json(404, {}),
+    })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    local ok, data = api:sendWrite({ kind = "highlight", chapter_id = 5, excerpt = "Text", note = "n", hkey = "5:x" }, 10)
+    T.truthy(ok)
+    T.eq(data.highlight.id, 12)
+    T.eq(log[1].url, "http://h/api/v1/highlights")
+    T.eq(Json.decode(log[1].body), { chapter_id = 5, excerpt = "Text", note = "n" })
+    api:sendWrite({ kind = "highlight", chapter_id = 5, excerpt = "Text", hkey = "5:x", note_cleared = true }, 10)
+    T.contains(log[2].body, '"note":null')
+    T.truthy(api:sendWrite({ kind = "highlight_delete", id = 12 }, 10))
+    T.eq(log[3].method, "DELETE")
+    T.eq(log[3].url, "http://h/api/v1/highlights/12")
+    local gone, e = api:sendWrite({ kind = "highlight_delete", id = 13 }, 10)
+    T.eq(gone, nil)
+    T.eq(e.kind, "not_found")
+end)
+
+T.it("highlights list: GET with novel_id, page, per_page", function()
+    local transport, log = fake({ json(200, { highlights = {}, page = 2, has_more = false }) })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    T.eq(api:highlights(42, 2, 50).page, 2)
+    T.eq(log[1].url, "http://h/api/v1/highlights?novel_id=42&page=2&per_page=50")
+end)

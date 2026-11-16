@@ -12,7 +12,8 @@ local Api = require("novarr.api")
 local Sync = {}
 
 --[[--
-Flushes the queue. ctx = { api, queue, store, now, log, max_entries (optional) }.
+Flushes the queue. ctx = { api, queue, store, now, log, max_entries (optional),
+on_sent(entry, data) (optional: called with the server's answer of every sent write) }.
 Returns the queue summary {sent, dropped, remaining, stalled, error}.
 ]]
 function Sync.flush(ctx)
@@ -25,7 +26,11 @@ function Sync.flush(ctx)
         end
         sent_count = sent_count + 1
         local ok, e = ctx.api:sendWrite(entry, age)
-        if ok then return "ok" end
+        if ok then
+            -- The answer (sendWrite's second value) matters for highlights: the server's id.
+            if ctx.on_sent then ctx.on_sent(entry, e) end
+            return "ok"
+        end
         last_error = e
         if Api.isRetryable(e) then return "retry" end
         if ctx.log then
@@ -35,6 +40,7 @@ function Sync.flush(ctx)
         return "drop"
     end, function(entry)
         local store = ctx.store
+        if entry.kind == "highlight" or entry.kind == "highlight_delete" then return end
         if not store or not entry.novel_id then return end
         local now = ctx.now and ctx.now() or nil
         if entry.kind == "bulk_read" then

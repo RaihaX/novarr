@@ -74,3 +74,25 @@ T.it("max_entries limits one quiet flush", function()
     T.eq(r.remaining, 1)
     T.eq(#sent, 2)
 end)
+
+T.it("on_sent gets every sent write with the server's answer; highlights leave the overlay alone", function()
+    local root = T.tmpdir()
+    local now = function() return 1000 end
+    local store = Store.new({ root = root, lfs = lfs, json = Json, now = now })
+    local queue = Queue.new({ load = function() return nil end, save = function() end, now = now })
+    local answers = { '{"highlight":{"id":77}}', '{"success":true}' }
+    local n = 0
+    local api = Api.new({ base_url = "http://h", transport = function()
+        n = n + 1
+        return { status = n == 1 and 201 or 200, headers = {}, body = answers[n] }
+    end })
+    queue:enqueue({ kind = "highlight", chapter_id = 5, novel_id = 1, hkey = "5:x", excerpt = "E" })
+    queue:enqueue({ kind = "set_read", chapter_id = 6, novel_id = 1, read = true })
+    local seen = {}
+    local r = Sync.flush({ api = api, queue = queue, store = store, now = now,
+        on_sent = function(entry, data) table.insert(seen, { entry.kind, data }) end })
+    T.eq(r.sent, 2)
+    T.eq(seen[1], { "highlight", { highlight = { id = 77 } } })
+    T.eq(seen[2][1], "set_read")
+    T.eq(store:getOverlay(1)["5"], nil, "no overlay entry for a highlight")
+end)

@@ -441,7 +441,7 @@ List endpoints answer conditional requests (`ETag` / `If-None-Match`). A Discove
 
 ### iPhone / iPad app (`ios/`)
 
-A native SwiftUI app (iOS 17+): connect to the server by address, then Home, Library, novel pages, the reader and Settings. The Xcode project is generated from `ios/project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen); open `ios/Novarr.xcodeproj` to build and run, and `NovarrTests` holds its tests.
+A native SwiftUI app (iOS 17+): connect to the server by address, then Home, Library, Discover (browse or search the sources and add novels), novel pages with **Check for new chapters**, the reader, Highlights (per novel and across the library) and Settings. The Xcode project is generated from `ios/project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen); open `ios/Novarr.xcodeproj` to build and run, and `NovarrTests` holds its tests.
 
 ### KOReader plugin (`koreader/`)
 
@@ -450,10 +450,12 @@ For a Kindle (jailbroken, with KOReader) or any other KOReader device. Copy `kor
 - **Home shelf** with covers; one tap opens the chapter you are on.
 - **Joined chapters** — chapters are read in groups of 20, so a chapter change is a plain page turn.
 - **100 chapters saved ahead**, and **Wi-Fi switched off** while reading once everything is saved; it comes back by itself to top up and to send progress.
-- **Discover** — browse or search the sources and add novels from the device.
+- **Wi-Fi back on when you leave** — closing the book or exiting KOReader switches Wi-Fi on again when Novarr had switched it off; Settings shows how much of the reading time had Wi-Fi on.
+- **Discover** — browse or search the sources and add novels from the device; searches run in the background on the server, so the device stays usable.
 - **Check for new chapters** when you have caught up, and **reading stats** on the novel page.
+- **Highlights** — text highlighted in KOReader (with its note) is sent to the server and appears on the website's Highlights page and in the iPhone app; the novel page lists them.
 - **Two server addresses** (home and away, a Tailscale name for example), and `https://` through KOReader's HTTP proxy.
-- **Updates over Wi-Fi** — the server serves the plugin folder it was deployed with, so deploying Novarr is how a plugin update reaches the device (Novarr ▸ Settings ▸ version row). The Docker image includes the folder; `NOVARR_KOREADER_PLUGIN_PATH` points it elsewhere.
+- **Updates over Wi-Fi** — the server serves the plugin folder it was deployed with, so deploying Novarr is how a plugin update reaches the device (Novarr ▸ Settings ▸ version row, or automatically with "Install plugin updates automatically"). The Docker image includes the folder; `NOVARR_KOREADER_PLUGIN_PATH` points it elsewhere.
 
 The full guide, including install, settings and troubleshooting, is [koreader/README.md](koreader/README.md). Development: `cd koreader && make test KOREADER_DIR=<path to a KOReader install>` runs the unit tests and `make package` builds `novarr-koplugin.zip`.
 

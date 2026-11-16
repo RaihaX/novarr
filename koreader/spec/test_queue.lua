@@ -175,3 +175,56 @@ T.it("progress values are clamped integers", function()
     T.eq(q.items[3].progress, 50)
     T.eq(q.items[3].read, nil)
 end)
+
+-- ---------------------------------------------------------------- highlights
+
+T.it("highlights: a newer one with the same key replaces the pending one (latest note)", function()
+    local q = newQueue()
+    q:enqueue({ kind = "progress", chapter_id = 1, progress = 10 })
+    q:enqueue({ kind = "highlight", chapter_id = 1, hkey = "1:a", excerpt = "Text" })
+    q:enqueue({ kind = "bulk_read", novel_id = 1, bulk = { read = true, scope = "all" } })
+    q:enqueue({ kind = "highlight", chapter_id = 1, hkey = "1:b", excerpt = "Other" })
+    q:enqueue({ kind = "highlight", chapter_id = 1, hkey = "1:a", excerpt = "Text", note = "n" })
+    T.eq(kinds(q), "progress:1,bulk_read:all,highlight:1,highlight:1")
+    T.eq(q.items[4].note, "n")
+    T.eq(q.items[3].hkey, "1:b")
+end)
+
+T.it("highlights: dropHighlight removes a pending one that was never sent", function()
+    local q, saved = newQueue()
+    q:enqueue({ kind = "highlight", chapter_id = 1, hkey = "1:a", excerpt = "Text" })
+    q:enqueue({ kind = "progress", chapter_id = 1, progress = 10 })
+    local saves = saved.saves
+    T.truthy(q:dropHighlight("1:a"))
+    T.eq(kinds(q), "progress:1")
+    T.eq(saved.saves, saves + 1)
+    T.falsy(q:dropHighlight("1:a"))
+    T.eq(saved.saves, saves + 1, "nothing to drop, nothing written")
+end)
+
+T.it("highlights: a repeated delete of one id is queued once; entries survive a reload", function()
+    local q, saved = newQueue()
+    q:enqueue({ kind = "highlight_delete", id = 7, hkey = "1:a" })
+    q:enqueue({ kind = "highlight_delete", id = 7 })
+    q:enqueue({ kind = "highlight", chapter_id = 2, hkey = "2:x", excerpt = "E", note_cleared = true })
+    T.eq(#q.items, 2)
+    local q2 = Queue.new({ load = function() return saved.value end, save = function() end })
+    T.eq(#q2.items, 2)
+    T.eq(q2.items[1].id, 7)
+    T.truthy(q2.items[2].note_cleared)
+end)
+
+T.it("highlights: malformed entries are dropped on load", function()
+    local q = newQueue({
+        { kind = "highlight", chapter_id = 1, hkey = "1:a", excerpt = "ok", at = 1, seq = 1 },
+        { kind = "highlight", chapter_id = 1, hkey = "1:a", excerpt = "", at = 1, seq = 2 },
+        { kind = "highlight", chapter_id = 1, excerpt = "no key", at = 1, seq = 3 },
+        { kind = "highlight", chapter_id = "1", hkey = "1:a", excerpt = "x", at = 1, seq = 4 },
+        { kind = "highlight", chapter_id = 1, hkey = "1:a", excerpt = "x", note = 5, at = 1, seq = 5 },
+        { kind = "highlight_delete", id = "7", at = 1, seq = 6 },
+        { kind = "highlight_delete", id = 7, at = 1, seq = 7 },
+    })
+    T.eq(#q.items, 2)
+    T.eq(q.items[1].excerpt, "ok")
+    T.eq(q.items[2].id, 7)
+end)

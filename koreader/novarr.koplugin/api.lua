@@ -220,6 +220,9 @@ function Api:request(path, opts)
         return nil, nil, { status = 304, etag = etag or opts.etag, not_modified = true }
     end
     local text = res.body or ""
+    if status == 204 then
+        return {}, nil, { status = 204 } -- No Content (DELETE)
+    end
     if status == 404 then
         return nil, err("not_found", 404)
     end
@@ -351,6 +354,29 @@ function Api:browse(p)
     })
 end
 
+local function searchObject(data, e)
+    if not data then return nil, e end
+    if type(data.search) ~= "table" then return nil, err("server", nil, "bad search") end
+    return data.search
+end
+
+--[[--
+Starts a background browse/search (POST /discover/searches): p as for
+browse(). Returns the search object {id, status, message, result} or nil,
+err (not_found / invalid 405 on a server without background searches).
+]]
+function Api:searchStart(p)
+    local body = { type = p.type, source = p.source, page = p.page, per_page = p.per_page }
+    if p.q and p.q ~= "" then body.q = p.q end
+    return searchObject(self:request("discover/searches", { method = "POST", body = body }))
+end
+
+--- A background search's state (GET /discover/searches/{id}). Returns the search object or nil, err.
+function Api:searchStatus(id)
+    return searchObject(self:request("discover/searches/" .. Api.urlEncode(id),
+        { block_timeout = 10, total_timeout = 15 }))
+end
+
 --[[--
 Adds a novel from a Discover result. Returns data {novel, already_in_library},
 info {status = 201|200} or nil, err (422 invalid, 503 server).
@@ -402,12 +428,34 @@ function Api:sendWrite(entry, age)
         if b.ids then body.ids = Json.array(b.ids) end
         if b.novel_id then body.novel_id = b.novel_id end
         if b.anchor_id then body.anchor_id = b.anchor_id end
+    elseif entry.kind == "highlight" then
+        path = "highlights"
+        body = { chapter_id = entry.chapter_id, excerpt = entry.excerpt }
+        if entry.note then
+            body.note = entry.note
+        elseif entry.note_cleared then
+            body.note = Json.null -- the note was removed in KOReader
+        end
+    elseif entry.kind == "highlight_delete" then
+        local res, e = self:request(string.format("highlights/%d", entry.id), { method = "DELETE" })
+        if res then return true end
+        return nil, e
     else
         return nil, err("invalid", nil, "unknown write")
     end
     local data, e = self:request(path, { method = "POST", body = body })
     if not data then return nil, e end
-    return true
+    return true, data
+end
+
+--[[--
+A novel's highlights, newest first: {highlights = [{id, novel_id, chapter_id,
+chapter_label, excerpt, note, created_at}], page, has_more}.
+]]
+function Api:highlights(novel_id, page, per_page)
+    local q = Api.query({ { "novel_id", novel_id and tostring(novel_id) }, { "page", page and tostring(page) },
+        { "per_page", per_page and tostring(per_page) } })
+    return self:request("highlights?" .. q)
 end
 
 -- ---------------------------------------------------------------- plugin update

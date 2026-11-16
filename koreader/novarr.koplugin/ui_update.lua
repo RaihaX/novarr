@@ -3,6 +3,7 @@
 
     UIUpdate.check(session, on_change)       Settings: check, then offer to install
     UIUpdate.autoCheck(session, on_change)   after Home has loaded: quiet, at most once a day
+    UIUpdate.autoInstall(session, on_change) "Install plugin updates automatically" (Home, idle)
     UIUpdate.cleanupLeftovers(session)       at start-up
 
 The automatic check never turns Wi-Fi on and never shows a popup: it only
@@ -140,6 +141,71 @@ local function preloadModules()
     end
 end
 
+--[[--
+Runs the staged install of manifest m one file per scheduled step (the
+same download, verification, compile check and swap, with rollback, for
+the user's and the automatic install). hooks:
+    progress(i, total)   after each file (optional)
+    cancelled() -> bool  checked before each file (optional)
+    done(ok, code)       at the end: ok, or false and the failure code
+]]
+local function runJob(session, m, hooks)
+    local job = Updater.newJob(deps(session), pluginDir(session), m, UIUpdate.localManifest(session))
+    local ok, code = job:prepare()
+    if not ok then
+        hooks.done(false, code)
+        return
+    end
+    UIUpdate.installing = true
+    local ended = false
+    local function finish(fok, fcode)
+        if ended then return end
+        ended = true
+        UIUpdate.installing = false
+        hooks.done(fok, fcode)
+    end
+    local step
+    local function inner()
+        if hooks.cancelled and hooks.cancelled() then
+            job:abort()
+            Session.log("Novarr: plugin update cancelled after " .. job.i .. " of " .. job.total .. " files")
+            finish(false, "cancelled")
+            return true
+        end
+        local state, scode = job:step()
+        if not state then
+            finish(false, scode)
+            return true
+        end
+        if hooks.progress then hooks.progress(job.i, job.total) end
+        if state == "more" then
+            UIManager:scheduleIn(0.05, step)
+            return true
+        end
+        preloadModules()
+        local fok, ferr = job:finish()
+        if not fok then
+            finish(false, ferr)
+            return true
+        end
+        Session.log(string.format("Novarr: plugin updated to %s (build %s): %d downloaded, %d unchanged",
+            tostring(m.version), m.build:sub(1, 12), job.downloaded, job.reused))
+        session.local_plugin = nil
+        forget(session)
+        session.update_installed = m.version or "?"
+        finish(true)
+        return true
+    end
+    step = function()
+        if not Session.guard(inner) then
+            -- An unexpected error: never leave a half-staged folder.
+            job:abort()
+            finish(false, "error")
+        end
+    end
+    UIManager:scheduleIn(0.2, step)
+end
+
 --- Downloads, checks and installs the manifest m with a cancellable progress window.
 function UIUpdate.install(session, m, on_change)
     if UIUpdate.isLinked(session) then
@@ -152,76 +218,104 @@ function UIUpdate.install(session, m, on_change)
         return
     end
     local function run()
-        local job = Updater.newJob(deps(session), pluginDir(session), m, UIUpdate.localManifest(session))
-        local ok, code = job:prepare()
-        if not ok then
-            UI.info(FAIL[code] or FAIL.download)
-            return
-        end
         local cancelled = false
-        local dialog = require("novarr.ui_progress"):new{
-            title = _("Updating Novarr"),
-            text = T(_("Downloading update… %1 of %2"), 0, job.total),
-            cancelling_text = _("Cancelling…"),
-            cancel_callback = function() cancelled = true end,
-        }
-        UIManager:show(dialog)
-        UIUpdate.installing = true
-        local closed = false
-        local function close(message)
-            UIUpdate.installing = false
-            if not closed then
-                closed = true
-                UIManager:close(dialog)
-            end
-            if message then UI.info(message) end
+        local dialog
+        runJob(session, m, {
+            progress = function(i, total)
+                if not dialog then return end
+                dialog:setText(T(_("Downloading update… %1 of %2"), i, total))
+            end,
+            cancelled = function() return cancelled end,
+            done = function(ok, code)
+                if dialog then UIManager:close(dialog) end
+                if ok then
+                    if on_change then on_change() end
+                    UIUpdate.offerRestart(session, m.version)
+                elseif code == "cancelled" then
+                    UI.info(_("Update cancelled. Nothing was changed."))
+                elseif code ~= "error" then
+                    UI.info(FAIL[code] or FAIL.download)
+                end
+            end,
+        })
+        if UIUpdate.installing then
+            dialog = require("novarr.ui_progress"):new{
+                title = _("Updating Novarr"),
+                text = T(_("Downloading update… %1 of %2"), 0, #m.files),
+                cancelling_text = _("Cancelling…"),
+                cancel_callback = function() cancelled = true end,
+            }
+            UIManager:show(dialog)
         end
-        local step
-        local function inner()
-            if cancelled then
-                job:abort()
-                Session.log("Novarr: plugin update cancelled after " .. job.i .. " of " .. job.total .. " files")
-                close(_("Update cancelled. Nothing was changed."))
-                return true
-            end
-            local state, fcode = job:step()
-            if not state then
-                close(FAIL[fcode] or FAIL.download)
-                return true
-            end
-            dialog:setText(T(_("Downloading update… %1 of %2"), job.i, job.total))
-            if state == "more" then
-                UIManager:scheduleIn(0.05, step)
-                return true
-            end
-            preloadModules()
-            local fok, ferr = job:finish()
-            if not fok then
-                close(FAIL[ferr] or FAIL.download)
-                return true
-            end
-            Session.log(string.format("Novarr: plugin updated to %s (build %s): %d downloaded, %d unchanged",
-                tostring(m.version), m.build:sub(1, 12), job.downloaded, job.reused))
-            session.local_plugin = nil
-            forget(session)
-            session.update_installed = m.version or "?"
-            close()
-            if on_change then on_change() end
-            UIUpdate.offerRestart(session, m.version)
-            return true
-        end
-        step = function()
-            if not Session.guard(inner) then
-                -- An unexpected error: never leave a half-staged folder.
-                job:abort()
-                close()
-            end
-        end
-        UIManager:scheduleIn(0.2, step)
     end
     session:whenConnected(run, function()
         UI.info(_("No network connection. Connect to Wi-Fi and try again."))
     end)
+end
+
+-- ---------------------------------------------------------------- automatic install
+
+--- What autoInstallDue says now (see updater.lua). home: the Home screen object.
+function UIUpdate.autoInstallState(session, home)
+    local top = UIManager._window_stack and UIManager._window_stack[#UIManager._window_stack]
+    local now = Session.nowMs()
+    return Updater.autoInstallDue({
+        enabled = session:get("auto_update_install") == true,
+        flagged = session:get("update_available_build"),
+        installed = session.update_installed ~= nil,
+        linked = UIUpdate.isLinked(session),
+        attempt = session:get("update_auto_attempt"),
+        today = os.date("%Y-%m-%d"),
+        home_top = home ~= nil and not home.closed and top ~= nil and top.widget == home.menu,
+        reader_open = session:currentPath() ~= nil,
+        connected = session:isConnected(),
+        idle_s = (now - (Session.last_input or 0)) / 1000,
+        idle_needed = UIUpdate.AUTO_IDLE_S,
+    })
+end
+
+UIUpdate.AUTO_IDLE_S = Updater.AUTO_IDLE_S
+
+--[[--
+"Install plugin updates automatically": installs the flagged update now,
+quietly (no progress window), with the same verification and rollback as
+the user's install. Then one question: restart now or later (never a
+restart by itself). A failure is logged, nothing is shown; the update
+stays offered in Settings. The attempt is recorded first, so a build is
+tried at most once a day. Never turns Wi-Fi on (the caller checked the
+device is online).
+]]
+function UIUpdate.autoInstall(session, on_change)
+    local build = session:get("update_available_build")
+    session:set("update_auto_attempt", { build = build, day = os.date("%Y-%m-%d") })
+    local m, e = session.api:pluginManifest()
+    if not m then
+        Session.log("Novarr: automatic plugin install: no manifest (" .. tostring(e and e.kind) .. ")")
+        return
+    end
+    local installed = UIUpdate.localManifest(session)
+    if not Updater.updateNeeded(installed.build, m.build) then
+        Session.log("Novarr: automatic plugin install: already up to date")
+        forget(session)
+        if on_change then on_change() end
+        return
+    end
+    local free = session:freeBytes()
+    if free and free < Session.MIN_FREE_BYTES + (tonumber(m.size) or 0) then
+        Session.log("Novarr: automatic plugin install: not enough free space")
+        return
+    end
+    Session.log(string.format("Novarr: automatic plugin install of %s (build %s) starting", tostring(m.version), m.build:sub(1, 12)))
+    runJob(session, m, {
+        done = function(ok, code)
+            if ok then
+                if on_change then on_change() end
+                UIUpdate.offerRestart(session, m.version)
+            else
+                Session.log("Novarr: automatic plugin install failed (" .. tostring(code) .. "); nothing was changed")
+            end
+        end,
+    })
 end
 
 --- Asks whether to install the update described by manifest m.

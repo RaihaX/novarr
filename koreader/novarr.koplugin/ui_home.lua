@@ -158,14 +158,48 @@ function Home:scheduleUpdateCheck()
     if not self.update_task then
         self.update_task = Session.wrap(function()
             require("novarr.ui_update").autoCheck(s, function() s:refreshScreens() end)
+            self:scheduleAutoInstall(1)
         end)
     end
     UIManager:unschedule(self.update_task)
     UIManager:scheduleIn(3, self.update_task)
 end
 
+--[[--
+"Install plugin updates automatically": while Home is open, looks whether
+the flagged update may be installed now (updater.lua autoInstallDue: Home
+on top, no book open, already online, no user action for 30 s, not tried
+today). Waits as long as it says; stops for this visit when there is
+nothing to do.
+]]
+function Home:scheduleAutoInstall(delay)
+    local s = self.session
+    if not self.install_task then
+        self.install_task = Session.wrap(function()
+            if self.closed then return end
+            local Update = require("novarr.ui_update")
+            local action, reason, wait = Update.autoInstallState(s, self)
+            if action == "install" then
+                Update.autoInstall(s, function() s:refreshScreens() end)
+            elseif action == "wait" then
+                if reason ~= self.install_wait_reason then
+                    Session.log("Novarr: automatic plugin install waits (" .. reason .. ")")
+                    self.install_wait_reason = reason
+                end
+                UIManager:scheduleIn(wait, self.install_task)
+            elseif s:get("auto_update_install") and s:get("update_available_build") then
+                Session.log("Novarr: automatic plugin install skipped (" .. reason .. ")")
+            end
+        end)
+    end
+    UIManager:unschedule(self.install_task)
+    UIManager:scheduleIn(delay or 1, self.install_task)
+end
+
 function Home:onClose()
+    self.closed = true
     if self.update_task then UIManager:unschedule(self.update_task) end
+    if self.install_task then UIManager:unschedule(self.install_task) end
 end
 
 function Home.show(session)
@@ -178,6 +212,8 @@ function Home.show(session)
     })
     -- Let the cached screen paint first, then refresh.
     UIManager:nextTick(Session.wrap(function() self:refresh() end))
+    -- An update flagged earlier may be installed while Home is open (setting, off by default).
+    self:scheduleAutoInstall(5)
     return self
 end
 

@@ -162,12 +162,41 @@ already have). After adding, the result is marked, the novel appears in your Lib
 and Novarr asks the server to fetch its chapter list (a check, as above): the chapters
 show up over the next minutes.
 
-Lists usually load in a second or two. A search on some sites goes through extra
-steps on the server and can take up to two minutes; KOReader waits for it with a
-"Searching…" notice (it can't be cancelled midway). If a site doesn't answer you see
-"That source didn't answer. Try again or pick another source." The covers come from
+Lists, searches and **More…** pages run on the server in the background: the list
+shows "Searching NovelPing for "sword"…" (or "Loading Popular from NovelPing…") with a
+**Cancel** row, and KOReader stays usable meanwhile (you can open a result already
+shown, or leave Discover). Novarr looks every 3 seconds and shows the results as soon
+as they are there; a search on some sites goes through extra steps on the server and
+can take a minute or two. Novarr gives up after 5 minutes. **Cancel** only stops
+waiting (the row then reads "Stopped. Tap to try again."); leaving Discover does the
+same, and a result that arrives afterwards is not shown. Wi-Fi is not switched off
+while Novarr waits for a search. With an older Novarr server that can't search in the
+background, Discover works as before: KOReader waits for each answer behind a
+"Searching…" notice. If a site doesn't answer you see the server's reason or "That
+source didn't answer. Try again or pick another source." The covers come from
 the sites themselves and are kept in their own small folder (at most 8 MB, the
 oldest removed first).
+
+### Highlights
+
+Highlight text in a Novarr chapter as in any book (hold on a word, drag, **Highlight**)
+and it is sent to the Novarr server, where it shows with the novel on the website (the
+website calls them bookmarks): the excerpt (up to 2000 characters; a longer selection is
+cut there), the chapter it is in (also inside joined chapters) and a note if you add one.
+Adding or changing the note sends it again; deleting the highlight deletes it on the
+server too. Like your reading, this works offline: the highlight waits on the device and
+is sent the next time there is a connection, and a highlight you delete before it was
+sent never leaves the device. Changing only a highlight's style or colour sends nothing.
+
+A novel's page has a **Highlights** row: everything the server has for that novel,
+newest first, with the chapter and the note (50 at a time, **More…** for the rest). Tap
+one for the whole text and **Delete**. This list needs the network.
+
+Note: the highlight marks *inside the book* are KOReader's and belong to the chapter
+file, so they disappear when Novarr removes chapters you have finished (see *Remove
+chapters after reading*); the highlights themselves stay on the server and in the
+Highlights list. A highlight deleted from that list stays marked in a chapter still on
+the device. Highlights in other books are never sent anywhere.
 
 ### Reading stats
 
@@ -227,9 +256,23 @@ minutes.
 Novarr only ever switches back on a Wi-Fi that *it* switched off. If you switch
 Wi-Fi off yourself (KOReader's menu), it stays off until you switch it on. If you
 switch it on yourself, Novarr may switch it off again later once everything is
-saved. When you close the chapter or open another book, Novarr stops looking after
-Wi-Fi and leaves it as it is. Switch all this off with *Turn Wi-Fi off while
-reading when everything is saved* in Settings; Novarr then never touches Wi-Fi.
+saved.
+
+When you leave the book (back to Novarr, to KOReader's file browser or another book)
+or exit or restart KOReader, Wi-Fi that Novarr switched off is switched back on, quietly
+and without waiting, so the Kindle's own Home and store find it on as you left it.
+Going to the next chapter or the next group of chapters, or the device going to sleep,
+is not leaving the book. Wi-Fi you switched off yourself stays off. (If KOReader is
+stopped without exiting, a crash or a power cut, Novarr Home switches it back on the
+next time it opens.)
+
+Settings shows how much of your reading had Wi-Fi on, under this setting, once you
+have read for 10 minutes or more, for example "Wi-Fi on 14 min of 6 h 10 min reading
+(last 7 days)". It counts the time a Novarr chapter is open and the device awake (a
+chapter left open without turning a page for over 5 minutes counts as 5 minutes).
+
+Switch all this off with *Turn Wi-Fi off while reading when everything is saved* in
+Settings; Novarr then never touches Wi-Fi.
 
 ### Two addresses (home and away)
 
@@ -270,18 +313,28 @@ through Novarr is the way that stays up to date and in sync.
 
 ### Settings
 
-Server address and a second address for away from home, how many chapters to save
-ahead while reading, whether to turn Wi-Fi off while reading when everything is
-saved, remove chapters after reading, mark a chapter read at its end, join chapters for smooth page turns, show
-reading info in the status bar, show the clock while reading, show covers, how much
-space Novarr uses, whether to check for plugin updates by itself, and the plugin
-version.
+- **Server address** and **Second address (away from home)**.
+- **Chapters to fetch ahead while reading**: Off, 20, 50, 100 (default) or 200.
+- **Turn Wi-Fi off while reading when everything is saved** (on), with when Wi-Fi comes
+  back and, once there is 10 minutes of reading, how much of it had Wi-Fi on.
+- **Remove chapters after reading (keeps the last 2)** (on).
+- **Mark chapter read at its end** (on).
+- **Join chapters for smooth page turns** (on).
+- **Show reading info in the status bar** (on) and **Show clock while reading** (on).
+- **Show covers** (on).
+- **Keep font and layout from chapter to chapter** (on).
+- **Open Novarr when KOReader starts** (on).
+- **Sleep screen shows the book cover**.
+- **Storage used**.
+- **Check for plugin updates automatically** (on) and **Install plugin updates
+  automatically** (off).
+- The plugin version, and checking for an update.
 
 ### Updating the plugin over Wi-Fi
 
 Your Novarr server carries the latest plugin, so after the first install you don't
 need the USB cable again. In Novarr ▸ **Settings**, tap the last row (on the second Settings page),
-**Novarr plugin 1.4.0 — check for update** (with your version). Novarr asks the server and either says
+**Novarr plugin 1.5.0 — check for update** (with your version). Novarr asks the server and either says
 "Novarr is up to date" or shows the new version with **Install update**. A window shows
 the download ("Downloading update… 12 of 27") with a Cancel button. When it is done,
 choose **Restart now** (or **Later**: the new version is used the next time KOReader
@@ -296,8 +349,17 @@ Novarr also looks for an update by itself, at most once a day, when Home loads a
 device is already on Wi-Fi, or while you read before it switches Wi-Fi off (it never
 turns Wi-Fi on for this and never interrupts you).
 When there is one, Home's button reads **Settings •** and the last Settings row reads
-**Update available (1.5.0) — tap to install** (with the new version). Switch this off with *Check for plugin
+**Update available (1.6.0) — tap to install** (with the new version). Switch this off with *Check for plugin
 updates automatically* in Settings.
+
+With **Install plugin updates automatically** switched on (it is off unless you switch
+it on), Novarr installs such an update by itself: only while Novarr Home is on screen
+with no book open, the device already on Wi-Fi (it never turns Wi-Fi on for this) and
+nothing tapped for 30 seconds. It downloads and checks the update exactly as above, just
+without the progress window, then asks once: "Novarr was updated to 1.6.0" with
+**Restart now** or **Later**; it never restarts KOReader by itself. If the update can't
+be installed nothing changes, nothing is shown, and it is tried again the next day at the
+earliest (you can still install it from Settings).
 
 If the server says it "doesn't offer plugin updates", it is an older Novarr (update the
 server) or a setup without the plugin folder; copy the plugin over USB as in **Install**.
@@ -309,7 +371,9 @@ server) or a setup without the plugin folder; copy the plugin over USB as in **I
   you read are `group_…html` files next to the chapters; they are made from the saved
   chapters, count towards the space Novarr uses, and are removed with them.
   Discover's covers are in `koreader/novarr/discover-covers/` (at most 8 MB), the
-  reading stats in `koreader/novarr/stats.json` (the last 8 days, per novel).
+  reading stats in `koreader/novarr/stats.json` (the last 8 days, per novel), the
+  reading time with Wi-Fi on in `koreader/novarr/wifitime.json` (the last 7 days) and
+  the server ids of highlights sent from the device in `koreader/novarr/highlights.json`.
 - Settings: `koreader/settings/novarr.lua`.
 - EPUBs: the `Novarr` folder in KOReader's home folder.
 

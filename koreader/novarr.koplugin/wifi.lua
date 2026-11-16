@@ -98,6 +98,23 @@ Wifi.realBackend = {
         local NM = networkMgr()
         if on then NM:toggleWifiOn(nil, nil, true) else NM:toggleWifiOff(nil, true) end
     end,
+    --[[ Leaving Novarr: switch the radio back on and return at once (no
+    callback, nothing waited for). With Wi-Fi restore (Kindle) this is
+    KOReader's start-up restore, a quick lipc call there; wifi_was_on is set
+    again (Novarr's switch-off had cleared it), as if Novarr had never
+    switched it off. exiting: KOReader is going away, so no connectivity
+    check is scheduled. ]]
+    restoreNow = function(exiting)
+        local NM = networkMgr()
+        local Device = require("device")
+        if Device.hasWifiRestore and Device:hasWifiRestore() then
+            NM:restoreWifiAsync()
+            G_reader_settings:makeTrue("wifi_was_on")
+            if not exiting then NM:scheduleConnectivityCheck() end
+        else
+            NM:enableWifi(nil, false)
+        end
+    end,
 }
 
 Wifi.backend = Wifi.realBackend
@@ -139,6 +156,9 @@ function Wifi.fakeBackend(opts)
             UIManager:broadcastEvent(Event:new("NetworkConnected"))
             if cb then cb() end
         end)
+    end
+    b.restoreNow = function()
+        b.turnOn(nil)
     end
     b.userToggle = function(on)
         b.on = on and true or false
@@ -204,7 +224,7 @@ end
 
 -- A user-started network action: chapter downloads, an EPUB being built,
 -- a plugin update being installed, a check for new chapters the server is
--- running, or any Novarr screen open (Discover included; Sync, the EPUB
+-- running, a Discover search being followed, or any Novarr screen open (Discover included; Sync, the EPUB
 -- download and chapter fetches block KOReader while they run, so nothing is
 -- decided meanwhile).
 local function busy(Session)
@@ -215,6 +235,8 @@ local function busy(Session)
     if type(E) == "table" and E.current_flow and E.current_flow.state ~= "done" then return true end
     local U = package.loaded["novarr.ui_update"]
     if type(U) == "table" and U.installing then return true end
+    local D = package.loaded["novarr.ui_discover"]
+    if type(D) == "table" and D.following() then return true end
     return #Session.menus > 0
 end
 
@@ -538,10 +560,47 @@ function Wifi.onResume()
     Wifi.evaluate("resume")
 end
 
---- The reader closed (not a switch to the next file): stop managing, leave Wi-Fi as it is.
+--- The reader closed (not a switch to the next file): stop managing (restoreOnLeave follows).
 function Wifi.stop()
     unscheduleAll()
     last_key = nil
+end
+
+--[[--
+Leaving Novarr's reading: the Novarr book closed for anything but the next
+Novarr file (to Home, to the file manager, another book), or KOReader
+exiting / restarting (opts.exiting). When Wi-Fi is off *because Novarr
+switched it off* (and the setting is on), it is switched back on silently,
+without waiting for the connection and without any message, and the flag is
+cleared. A switch-on under way is taken over (its timeout and retries are
+dropped). When the user switched Wi-Fi off, or it is on, nothing happens.
+Returns true when Wi-Fi was switched on.
+]]
+function Wifi.restoreOnLeave(why, opts)
+    opts = opts or {}
+    unscheduleAll()
+    last_key = nil
+    if backoff_task then UIManager:unschedule(backoff_task) end
+    if not Wifi.enabled() or not Wifi.offByNovarr() then return false end
+    if Wifi.connecting then
+        -- Already on its way: let it come, but no failure handling (it would switch it off again).
+        if timeout_task then UIManager:unschedule(timeout_task) end
+        Wifi.connecting = nil
+    end
+    observe() -- on already (KOReader's own restore...): the flag is cleared there
+    if not Wifi.offByNovarr() then return false end
+    log("switching on again (" .. tostring(why) .. ": Novarr had switched it off)")
+    event("restored", why)
+    setOffByNovarr(false)
+    Wifi.on_by_novarr = false
+    Wifi.window = nil
+    Wifi.failures = 0
+    Wifi.backoff_until = nil
+    Wifi.exhausted_at = nil
+    Wifi.m.pending = "on"
+    local ok, err = pcall(Wifi.backend.restoreNow or Wifi.backend.turnOn, opts.exiting and true or nil)
+    if not ok then log("couldn't switch it on: " .. tostring(err)) end
+    return ok
 end
 
 -- ---------------------------------------------------------------- debug

@@ -122,6 +122,21 @@ function Reading.attach(plugin, novel_id, chapter_id, group)
         end
     end
 
+    -- Highlights go to the server (highlights.lua). Every add, change and
+    -- removal of an annotation reaches ReaderAnnotation:onAnnotationsModified,
+    -- through the AnnotationsModified event or called directly (a note edited
+    -- in place): it is wrapped on this ReaderUI's own instance only, so other
+    -- books are never touched, and KOReader's handling always runs first.
+    local annotation = ui.annotation
+    if annotation and annotation.onAnnotationsModified then
+        local original = annotation.onAnnotationsModified
+        annotation.onAnnotationsModified = function(a, items, ...)
+            local res = original(a, items, ...)
+            if plugin.reading then Session.guard(Reading.onAnnotation, plugin, items) end
+            return res
+        end
+    end
+
     plugin.background_task = function()
         Session.guard(Reading.background, plugin)
     end
@@ -222,6 +237,7 @@ function Reading.onReady(plugin)
     r.ready_at = Session.nowMs()
     r.timer = ReadingInfo.newTimer(os.time())
     if r.group then r.last_where = Reading.where(plugin) end
+    Reading.timeStart(plugin)
     Session.guard(Reading.addFooter, plugin)
     Session.guard(Reading.applyCover, plugin, false)
     Session.guard(Reading.offerSleepCover, plugin)
@@ -259,6 +275,7 @@ function Reading.onMove(plugin)
     local r = plugin.reading
     if not r or not r.ready then return end
     if r.group then Reading.trackGroup(plugin) end
+    Reading.timeTick(plugin)
     local p = Reading.currentPercent(plugin)
     r.last_turn = Session.nowMs()
     if not p or p == r.percent then return end
@@ -570,6 +587,65 @@ function Reading.onRerendered(plugin)
     Session.guard(Reading.chapterInfo, plugin)
 end
 
+-- ---------------------------------------------------------------- highlights
+
+-- What was last sent for each highlight item of the open document (weak: items go with the document).
+local sent_items = setmetatable({}, { __mode = "k" })
+
+--[[--
+The chapter a highlight belongs to: the open chapter, or in a group file
+the chapter whose start comes last at or before the highlight's start
+(by its y position in the document, else by its page).
+]]
+function Reading.chapterOfItem(plugin, item)
+    local r = plugin.reading
+    if not r.group then return r.chapter_id end
+    local Highlights = require("novarr.highlights")
+    local doc = plugin.ui.document
+    local L = Reading.layout(plugin)
+    local xp = type(item.pos0) == "string" and item.pos0 or (type(item.page) == "string" and item.page) or nil
+    if xp then
+        local ok, y = pcall(doc.getPosFromXPointer, doc, xp)
+        if ok and tonumber(y) then return Highlights.chapterAt(L.ys, tonumber(y), r.group.ids) end
+        local okp, page = pcall(doc.getPageFromXPointer, doc, xp)
+        if okp and tonumber(page) then return Highlights.chapterAt(L.pages, tonumber(page), r.group.ids) end
+    end
+    if tonumber(item.pageno) then return Highlights.chapterAt(L.pages, tonumber(item.pageno), r.group.ids) end
+    return nil
+end
+
+--- An annotation was added, changed or removed in a Novarr chapter (see Reading.attach).
+function Reading.onAnnotation(plugin, items)
+    local r = plugin.reading
+    if not r then return end
+    local Highlights = require("novarr.highlights")
+    local kind, item, before = Highlights.change(items)
+    if not kind then return end
+    local chapter = Reading.chapterOfItem(plugin, item)
+    if not chapter then
+        logger.info("Novarr: highlight not sent: its chapter could not be worked out")
+        return
+    end
+    local last = sent_items[item]
+    if kind == "removed" then
+        sent_items[item] = nil
+        Session:unqueueHighlight(chapter, item.text)
+        return
+    end
+    if kind == "moved" then
+        Session:unqueueHighlight(Reading.chapterOfItem(plugin, before) or chapter, before.text)
+        last = nil
+    elseif kind == "changed" and last then
+        if last.text == item.text and last.note == item.note and last.chapter == chapter then return end -- style, colour
+        -- The highlighted text itself was edited: it is another highlight for the server.
+        if last.text ~= item.text then Session:unqueueHighlight(last.chapter, last.text) end
+    end
+    -- A change without a note (note deleted, or not known to have none): the server's note is cleared.
+    if Session:queueHighlight(r.novel_id, chapter, item.text, item.note, kind ~= "added") then
+        sent_items[item] = { text = item.text, note = item.note, chapter = chapter }
+    end
+end
+
 -- ---------------------------------------------------------------- sleep screen cover
 
 --[[--
@@ -751,11 +827,46 @@ end
 function Reading.pauseTimer(plugin)
     local r = plugin.reading
     if r and r.timer then ReadingInfo.pause(r.timer) end
+    Reading.timeTick(plugin, true)
 end
 
 function Reading.resumeTimer(plugin)
     local r = plugin.reading
     if r and r.timer then r.timer.last = os.time() end
+    Reading.timeStart(plugin)
+end
+
+-- ---------------------------------------------------------------- reading time with Wi-Fi on
+
+local function wifiIsOn()
+    local ok, on = pcall(function() return require("novarr.wifi").backend.isOn() end)
+    return ok and on and true or false
+end
+
+--- A reading segment starts (chapter ready, woken up): see wifitime.lua.
+function Reading.timeStart(plugin)
+    local r = plugin.reading
+    if not r or r.wt then return end
+    r.wt = require("novarr.wifitime").start(os.time(), wifiIsOn())
+end
+
+--[[--
+Ends the current segment (a page turn, Wi-Fi going on or off) and starts
+the next one; with stop (sleep, closing) no next one. Written at most once
+a minute, and when stopping.
+]]
+function Reading.timeTick(plugin, stop)
+    local r = plugin.reading
+    if not r or not r.wt then return end
+    local WifiTime = require("novarr.wifitime")
+    local now = os.time()
+    local data = Session:wifiTime()
+    WifiTime.add(data, r.wt, now, wifiIsOn())
+    if stop then r.wt = nil end
+    if stop or WifiTime.saveDue(Session.wifitime_saved, now) then
+        Session.wifitime_saved = now
+        Session.store:saveWifiTime()
+    end
 end
 
 -- ---------------------------------------------------------------- background
@@ -1086,6 +1197,7 @@ function Reading.onClose(plugin)
     local r = plugin.reading
     if not r then return end
     Reading.unschedule(plugin)
+    Session.guard(Reading.timeTick, plugin, true)
     Session.guard(Reading.removeFooter, plugin)
     Session.guard(function() Session:captureStyle() end)
     Reading.persist(plugin)
@@ -1103,7 +1215,14 @@ function Reading.onClose(plugin)
     if not Session.switching and Session.opened_from_novarr then
         Session.return_to = { novel_id = r.novel_id }
     end
-    if not Session.switching then Session.guard(function() Wifi().stop() end) end
+    -- Leaving the book (not the next Novarr file, not a reload of this one):
+    -- Wi-Fi that Novarr switched off comes back on (wifi.lua).
+    if not Session.switching and not r.reloading then
+        Session.guard(function()
+            Wifi().stop()
+            Wifi().restoreOnLeave("left the book")
+        end)
+    end
     if Session.reader == plugin then Session.reader = nil end
     plugin.reading = nil
 end

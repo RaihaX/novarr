@@ -253,6 +253,47 @@ function Updater.autoCheckDue(opts)
     return now - last >= (opts.interval or Updater.CHECK_INTERVAL_MS)
 end
 
+Updater.AUTO_IDLE_S = 30
+
+--[[--
+"Install plugin updates automatically" (off by default): whether to install
+the flagged update now. opts:
+    enabled        the setting
+    flagged        build id the automatic check found (nil: none)
+    installed      an update was already installed in this KOReader session
+    linked         the plugin folder is a development link (never updated)
+    attempt        {build, day} of the last automatic attempt (or nil)
+    today          "YYYY-MM-DD"
+    home_top       Novarr's Home is the screen on top (nothing over it)
+    reader_open    a document is open in the reader
+    connected      already online (Novarr never turns Wi-Fi on for this)
+    idle_s         seconds since the last user action
+    idle_needed    default AUTO_IDLE_S
+Returns action, reason, wait:
+    "install"
+    "skip", reason            nothing to do in this Home visit (setting off,
+                              nothing flagged, already tried today...)
+    "wait", reason, seconds   not now: look again in `seconds`
+At most one attempt per build per day: an attempt is recorded when it starts.
+]]
+function Updater.autoInstallDue(opts)
+    if not opts.enabled then return "skip", "switched off" end
+    if not opts.flagged then return "skip", "no update flagged" end
+    if opts.installed then return "skip", "an update is already installed (restart pending)" end
+    if opts.linked then return "skip", "linked development copy" end
+    local a = opts.attempt
+    if type(a) == "table" and a.build == opts.flagged and a.day == opts.today then
+        return "skip", "already tried today"
+    end
+    if opts.reader_open then return "wait", "a book is open", 30 end
+    if not opts.home_top then return "wait", "Home is not on top", 30 end
+    if not opts.connected then return "wait", "offline", 60 end
+    local need = opts.idle_needed or Updater.AUTO_IDLE_S
+    local idle = tonumber(opts.idle_s) or 0
+    if idle < need then return "wait", "recent user action", math.max(1, math.ceil(need - idle)) end
+    return "install", "idle on Home"
+end
+
 --[[--
 One plain sentence about an available update, e.g.
 "Version 1.1.0 is installed. The server has a newer build (1.2.0)."

@@ -13,6 +13,9 @@ local NULL = rapidjson.null
 
 local Json = {}
 
+-- Encodes as JSON null (for the rare request that must say "no value").
+Json.null = NULL
+
 local function denull(value)
     if value == NULL then return nil end
     if type(value) ~= "table" then return value end

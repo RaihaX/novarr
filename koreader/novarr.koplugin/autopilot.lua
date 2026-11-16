@@ -68,6 +68,17 @@ pause after each (default 1.5 s; "wait MS" adds more):
     checks_reset         forget every check for new chapters
     check NOVEL_ID       "Check for new chapters" for a novel (as the Novel screen's entry)
     discover             open the Discover screen
+    search_timing POLL MAX   background Discover searches: poll every POLL s, give up after MAX s
+    discover_blocking on|off   act as if the server had (not) answered 404 to background searches
+    highlight_add TEXT   highlight the first occurrence of TEXT in the open document (KOReader's
+                         own saveHighlight, as the highlight dialog does)
+    highlight_heading N  highlight the heading of the N-th chapter of the open group file
+    highlight_note TEXT|NOTE   give the highlight containing TEXT this note (KOReader's note dialog, Save)
+    highlight_style TEXT   change that highlight's style (KOReader's style choice)
+    highlight_delete TEXT  delete that highlight (KOReader's own deleteHighlight)
+    highlight_delete_heading N  delete the highlight on the N-th chapter's heading
+    user_action          count as a user action now (the automatic plugin install waits 30 s after one)
+    auto_install_idle S  the automatic plugin install waits S seconds without a user action
     lua PATH             run a Lua file (debugging)
     quit                 exit KOReader
 
@@ -690,6 +701,97 @@ end
 
 function steps.discover(session)
     require("novarr.ui_discover").show(session)
+end
+
+function steps.search_timing(_, arg)
+    local poll, max = (arg or ""):match("^(%d+)%s+(%d+)$")
+    if not poll then error("search_timing needs POLL MAX (seconds)") end
+    local SearchState = require("novarr.searchstate")
+    SearchState.POLL_S, SearchState.MAX_S = tonumber(poll), tonumber(max)
+end
+
+function steps.discover_blocking(session, arg)
+    require("novarr.session").discover_blocking = (arg == "on") or nil
+end
+
+-- ---- highlights (KOReader's own functions, as its highlight menu calls them)
+
+local function annotationIndex(ui, text)
+    for i, a in ipairs(ui.annotation.annotations) do
+        if a.drawer and type(a.text) == "string" and a.text:find(text, 1, true) then return i, a end
+    end
+    error("no highlight containing " .. tostring(text))
+end
+
+function steps.highlight_add(_, arg)
+    local ui = reader()
+    local hits = ui.document:findAllText(arg, false, 0, 5)
+    local hit = type(hits) == "table" and hits[1]
+    if not hit then error("text not found in the document: " .. tostring(arg)) end
+    local pos0, pos1 = hit.start, hit["end"]
+    ui.highlight.selected_text = { pos0 = pos0, pos1 = pos1, text = ui.document:getTextFromXPointers(pos0, pos1) or arg }
+    local index = ui.highlight:saveHighlight(false)
+    pcall(ui.highlight.clear, ui.highlight)
+    say("highlighted", arg, "index", tostring(index))
+end
+
+-- highlight_heading N: highlight the heading of the N-th chapter of the open group file
+-- (1 for a single chapter file); logs that chapter's id.
+function steps.highlight_heading(session, arg)
+    local _c, r = readingState(session)
+    if not r then error("no Novarr chapter open") end
+    local id = r.group and r.group.ids[tonumber(arg) or 1] or r.chapter_id
+    local cl = session:chapterList(r.novel_id)
+    local row = cl and cl.by_id[id]
+    if not row or not row.label then error("no label for chapter " .. tostring(id)) end
+    say("heading of chapter", id, ":", row.label)
+    steps.highlight_add(session, row.label)
+end
+
+-- highlight_delete_heading N: delete the highlight on the N-th chapter's heading (see highlight_heading).
+function steps.highlight_delete_heading(session, arg)
+    local _c, r = readingState(session)
+    if not r then error("no Novarr chapter open") end
+    local id = r.group and r.group.ids[tonumber(arg) or 1] or r.chapter_id
+    local cl = session:chapterList(r.novel_id)
+    local row = cl and cl.by_id[id]
+    if not row or not row.label then error("no label for chapter " .. tostring(id)) end
+    steps.highlight_delete(session, row.label)
+end
+
+function steps.highlight_note(_, arg)
+    local text, note = (arg or ""):match("^(.-)|(.*)$")
+    if not text then error("highlight_note needs TEXT|NOTE") end
+    local ui = reader()
+    local index = annotationIndex(ui, text)
+    ui.highlight:editNote(index, false)
+    local w = topWidget()
+    if not w or not w.setInputText then error("no note dialog") end
+    w:setInputText(note)
+    local b = findButton(w, "Save")
+    if not b then error("no Save button in the note dialog") end
+    b.callback()
+end
+
+function steps.highlight_style(_, arg)
+    local ui = reader()
+    local _i, item = annotationIndex(ui, arg)
+    item.drawer = item.drawer == "underscore" and "lighten" or "underscore"
+    ui:handleEvent(Event:new("AnnotationsModified", { item }))
+end
+
+function steps.highlight_delete(_, arg)
+    local ui = reader()
+    local index = annotationIndex(ui, arg)
+    ui.highlight:deleteHighlight(index)
+end
+
+function steps.user_action()
+    require("novarr.session").last_input = require("novarr.session").nowMs()
+end
+
+function steps.auto_install_idle(_, arg)
+    require("novarr.ui_update").AUTO_IDLE_S = tonumber(arg) or 30
 end
 
 -- Runs a Lua file as function(session, Autopilot helpers); logs what it returns.
