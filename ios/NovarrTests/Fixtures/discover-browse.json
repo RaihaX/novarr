@@ -1,0 +1,42 @@
+{
+    "items": [
+        {
+            "title": "Shadow Slave",
+            "author": "Guiltythree",
+            "cover_url": "https://images.novelping.com/novel/shadow-slave.jpg",
+            "description": "Growing up in poverty, Sunny never expected anything good from life. However, even he did not anticipate being chosen by the Nightmare Spell and becoming one of the Awakened...",
+            "status": "Ongoing",
+            "chapters": 3207,
+            "url": "https://novelping.com/novel/shadow-slave",
+            "source": "novelarrow",
+            "in_library": true,
+            "novel_id": 42
+        },
+        {
+            "title": "Lord of the Mysteries",
+            "author": null,
+            "cover_url": null,
+            "description": null,
+            "status": null,
+            "chapters": null,
+            "url": "https://novelping.com/novel/lord-of-the-mysteries",
+            "source": "novelarrow",
+            "in_library": false,
+            "novel_id": null
+        },
+        {
+            "title": "Reverend Insanity",
+            "author": "Gu Zhen Ren",
+            "cover_url": "https://images.novelping.com/novel/reverend-insanity.jpg",
+            "description": "Fang Yuan was reborn 500 years in the past.",
+            "status": "Completed",
+            "chapters": 2334,
+            "url": "https://novelping.com/novel/reverend-insanity",
+            "source": "novelarrow",
+            "in_library": false,
+            "novel_id": null
+        }
+    ],
+    "page": 1,
+    "has_more": true
+}

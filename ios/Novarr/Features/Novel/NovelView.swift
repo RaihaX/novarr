@@ -23,6 +23,8 @@ struct NovelView: View {
                             .listRowSeparator(.hidden)
                         primaryButton(summary)
                             .listRowSeparator(.hidden)
+                        CheckForChaptersControl(novelId: model.novelId)
+                            .listRowSeparator(.hidden)
                         downloadBlock
                             .listRowSeparator(.hidden)
                         if let unavailable = model.detail?.sourceUnavailable, unavailable.count > 0 {
@@ -44,6 +46,7 @@ struct NovelView: View {
                         .listRowSeparator(.hidden)
                 }
 
+                highlightsSection
                 chaptersSection(proxy: proxy)
             }
             .listStyle(.plain)
@@ -54,8 +57,18 @@ struct NovelView: View {
         .navigationTitle(model.summary?.name ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.load(app: app) }
-        .task { await model.load(app: app) }
+        .task {
+            await model.load(app: app)
+            #if DEBUG
+            // Debug builds only: starts a check on open, for simulator screenshots.
+            if UserDefaults.standard.bool(forKey: "debugStartCheck") { app.startCheck(novelId: model.novelId) }
+            #endif
+        }
         .task(id: app.downloads.revision) { await model.refreshCachedIDs(app: app) }
+        // A check listed or downloaded chapters: show them.
+        .onChange(of: app.checks.revision(for: model.novelId)) {
+            Task { await model.load(app: app) }
+        }
         .overlay(alignment: .bottom) {
             if model.isShowingCache && model.phase == .loaded {
                 OfflinePill().padding(.bottom, 12)
@@ -186,6 +199,30 @@ struct NovelView: View {
     }
 
     @ViewBuilder
+    private var highlightsSection: some View {
+        if !model.highlights.isEmpty && model.chapterSearch.isEmpty {
+            Section {
+                ForEach(model.highlights) { highlight in
+                    NavigationLink(value: ReaderRoute(novelId: model.novelId, chapterId: highlight.chapterId)) {
+                        HighlightRow(highlight: highlight, showsNovel: false)
+                    }
+                }
+                if model.hasMoreHighlights {
+                    NavigationLink(value: HighlightsRoute(novelId: model.novelId, novelName: model.summary?.name)) {
+                        Text("All highlights")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                }
+            } header: {
+                Text("Highlights")
+                    .font(.subheadline.weight(.semibold))
+                    .textCase(nil)
+            }
+        }
+    }
+
+    @ViewBuilder
     private func chaptersSection(proxy: ScrollViewProxy) -> some View {
         let visible = model.visibleChapters
         Section {
@@ -246,6 +283,10 @@ struct NovelView: View {
                         withAnimation { proxy.scrollTo(unread.id, anchor: .center) }
                     }
                 }
+                Button("Check for New Chapters", systemImage: "arrow.clockwise") {
+                    app.startCheck(novelId: model.novelId)
+                }
+                .disabled(app.checks.isRunning(model.novelId))
                 Divider()
                 Button("Mark All Read", systemImage: "checkmark.circle") {
                     bulkConfirmation = .all(novelId: model.novelId, read: true)

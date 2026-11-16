@@ -26,6 +26,11 @@ struct LibraryView: View {
         .navigationTitle("Library")
         .searchable(text: $model.search, prompt: "Title or author")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink(value: HighlightsRoute(novelId: nil, novelName: nil)) {
+                    Label("Highlights", systemImage: "highlighter")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Picker("Sort by", selection: $model.sort) {

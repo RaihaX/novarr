@@ -1,0 +1,31 @@
+{
+    "sources": [
+        {
+            "id": "novelarrow",
+            "name": "NovelPing (novelarrow)",
+            "host": "novelping.com",
+            "default": true,
+            "lists": [
+                {"id": "popular", "name": "Popular"},
+                {"id": "new", "name": "New"},
+                {"id": "random", "name": "Random"},
+                {"id": "completed", "name": "Completed"},
+                {"id": "search", "name": "Search"}
+            ]
+        },
+        {
+            "id": "empirenovel",
+            "name": "empirenovel.com",
+            "host": "empirenovel.com",
+            "default": false,
+            "lists": [{"id": "search", "name": "Search"}]
+        },
+        {
+            "id": "novelfull",
+            "name": "novelfull.com",
+            "host": "novelfull.com",
+            "default": false,
+            "lists": [{"id": "search", "name": "Search"}]
+        }
+    ]
+}

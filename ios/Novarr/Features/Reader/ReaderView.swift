@@ -57,6 +57,10 @@ struct ReaderView: View {
         .sheet(isPresented: $showSettings) { ReaderSettingsSheet() }
         .task { await model.load(app: app) }
         .onDisappear { Task { await model.leave(app: app) } }
+        // A check found chapters after this one: offer "Next chapter" without reloading the page.
+        .onChange(of: app.checks.revision(for: model.novelId)) {
+            Task { await model.refreshNext(app: app) }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { Task { await model.leave(app: app) } }
         }
@@ -195,6 +199,8 @@ struct ReaderView: View {
             } else if content.downloaded {
                 Text("You're all caught up.")
                     .font(.footnote)
+                    .foregroundStyle(theme.secondaryText)
+                CheckForChaptersControl(novelId: model.novelId, compact: true)
                     .foregroundStyle(theme.secondaryText)
                 Button("Back to novel") { dismiss() }
                     .font(.footnote.weight(.semibold))
