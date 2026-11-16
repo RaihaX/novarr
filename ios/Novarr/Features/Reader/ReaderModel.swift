@@ -99,6 +99,19 @@ final class ReaderModel {
         }
     }
 
+    /// Re-reads only the chapter's `next` link (after a check found new
+    /// chapters), leaving the text and scroll position alone.
+    func refreshNext(app: AppModel) async {
+        guard let client = app.client, let current = content,
+              current.next == nil || current.next?.downloaded == false else { return }
+        let id = chapterId
+        guard let fresh = try? await client.chapter(id: id),
+              var latest = content, latest.id == id, fresh.next != latest.next else { return }
+        latest.next = fresh.next
+        content = latest
+        prefetch(fresh.next, app: app)
+    }
+
     func go(to ref: ChapterRef, app: AppModel) async {
         await leave(app: app)
         chapterId = ref.id

@@ -13,6 +13,12 @@ struct NovarrApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await app.flushWrites() } }
+            // Checks poll only in the foreground and look again on return.
+            switch phase {
+            case .active: app.checks.setForeground(true)
+            case .background: app.checks.setForeground(false)
+            default: break
+            }
         }
     }
 }
@@ -29,6 +35,12 @@ struct ReaderRoute: Hashable {
     var chapterId: Int
 }
 
+/// All highlights, or one novel's when `novelId` is set.
+struct HighlightsRoute: Hashable {
+    var novelId: Int?
+    var novelName: String?
+}
+
 extension View {
     /// Registers the app's push destinations on a NavigationStack.
     func novarrDestinations() -> some View {
@@ -37,6 +49,9 @@ extension View {
         }
         .navigationDestination(for: ReaderRoute.self) { route in
             ReaderView(route: route)
+        }
+        .navigationDestination(for: HighlightsRoute.self) { route in
+            HighlightsView(route: route)
         }
     }
 }
