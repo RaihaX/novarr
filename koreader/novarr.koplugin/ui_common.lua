@@ -167,7 +167,8 @@ end
 --[[--
 Creates and shows a full-screen Novarr screen. opts:
     title, items, screen (object with kind/rebuild), on_hold(item),
-    left_icon, on_left(), current (item index to open on, bolded)
+    left_icon, on_left(), current (item index to open on, bolded),
+    cover_list (thumbnails), covers (a cover cache other than the library's)
 Returns the Menu.
 ]]
 function UI.showMenu(session, opts)
@@ -184,13 +185,15 @@ function UI.showMenu(session, opts)
             fetch_cover = function(url) return session:covers():download(url) end,
         }
     elseif opts.cover_list then
+        -- opts.covers: another cover cache (Discover keeps the sources' covers apart).
+        local covers = opts.covers or session:covers()
         menu = require("novarr.ui_coverlist"):new{
             title = opts.title,
             item_table = items,
             title_bar_left_icon = opts.left_icon,
-            covers = session:covers(),
+            covers = covers,
             can_fetch = function() return session:isConnected() end,
-            fetch_cover = function(url) return session:covers():download(url) end,
+            fetch_cover = function(url) return covers:download(url) end,
         }
     else
         menu = Menu:new{

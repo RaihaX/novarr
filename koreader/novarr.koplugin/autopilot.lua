@@ -64,6 +64,10 @@ pause after each (default 1.5 s; "wait MS" adds more):
     reader_goto_chapter_end  last page of the current chapter (in a group file)
     reader_goto_chapter ID [PCT]   KOReader's own go-to (a jump) to a chapter in the open group file
     show_chapters        the chapter list of the novel open in the reader
+    check_timing POLL MAX   checks for new chapters: poll every POLL s, give up after MAX s
+    checks_reset         forget every check for new chapters
+    check NOVEL_ID       "Check for new chapters" for a novel (as the Novel screen's entry)
+    discover             open the Discover screen
     lua PATH             run a Lua file (debugging)
     quit                 exit KOReader
 
@@ -663,6 +667,29 @@ function steps.show_chapters(session)
     local _c, r = readingState(session)
     if not r then error("no Novarr chapter open") end
     session:showChapters(r.novel_id)
+end
+
+-- ---- discover and checks
+
+function steps.check_timing(_, arg)
+    local poll, max = (arg or ""):match("^(%d+)%s+(%d+)$")
+    if not poll then error("check_timing needs POLL MAX (seconds)") end
+    local CheckState = require("novarr.checkstate")
+    CheckState.POLL_S, CheckState.MAX_S = tonumber(poll), tonumber(max)
+end
+
+function steps.checks_reset()
+    require("novarr.checks").reset()
+end
+
+function steps.check(_, arg)
+    local id = tonumber(arg)
+    if not id then error("check needs a novel id") end
+    require("novarr.checks").ask(id)
+end
+
+function steps.discover(session)
+    require("novarr.ui_discover").show(session)
 end
 
 -- Runs a Lua file as function(session, Autopilot helpers); logs what it returns.

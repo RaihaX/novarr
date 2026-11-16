@@ -224,7 +224,14 @@ function Api:request(path, opts)
         return nil, err("not_found", 404)
     end
     if status >= 500 then
-        return nil, err("server", status)
+        -- Discover/add answer 502/503 with a plain {"message"}: kept apart from
+        -- e.message (which callers read as "the request was refused").
+        local e = err("server", status)
+        local d = Json.decode(text)
+        if type(d) == "table" and type(d.message) == "string" and d.message ~= "" then
+            e.server_message = d.message
+        end
+        return nil, e
     end
     local data, derr = Json.decode(text)
     if status >= 400 then
@@ -300,6 +307,75 @@ function Api:epubBuild(novel_id, force)
     if not data then return nil, e end
     if type(data.epub) ~= "table" then return nil, err("server", nil, "bad epub status") end
     return data.epub
+end
+
+-- ---------------------------------------------------------------- discover, add, check
+
+-- Browse/search can take minutes (searches through FlareSolverr): the server
+-- holds the answer, so the per-read (block) timeout must be as long as the total.
+Api.BROWSE_BLOCK_TIMEOUT = 125
+Api.BROWSE_TOTAL_TIMEOUT = 150
+
+--- Percent-encodes a query string value (RFC 3986 unreserved characters kept).
+function Api.urlEncode(s)
+    return (tostring(s):gsub("[^%w%-%._~]", function(c) return string.format("%%%02X", c:byte()) end))
+end
+
+--- Builds "a=1&b=x" from a list of {key, value} pairs (nil/"" values left out).
+function Api.query(pairs_list)
+    local out = {}
+    for _i, kv in ipairs(pairs_list) do
+        if kv[2] ~= nil and kv[2] ~= "" then
+            table.insert(out, Api.urlEncode(kv[1]) .. "=" .. Api.urlEncode(kv[2]))
+        end
+    end
+    return table.concat(out, "&")
+end
+
+--- The Discover sources and their lists: {sources = [...]}.
+function Api:discover()
+    return self:request("discover")
+end
+
+--[[--
+One page of a source's list or search. p: type, source, q, page, per_page,
+block_timeout, total_timeout. Returns {items, page, has_more} or nil, err
+(kind "server", status 502 when the source failed).
+]]
+function Api:browse(p)
+    local q = Api.query({ { "type", p.type }, { "source", p.source }, { "q", p.q },
+        { "page", p.page and tostring(p.page) }, { "per_page", p.per_page and tostring(p.per_page) } })
+    return self:request("discover/browse?" .. q, {
+        block_timeout = p.block_timeout or Api.BROWSE_BLOCK_TIMEOUT,
+        total_timeout = p.total_timeout or Api.BROWSE_TOTAL_TIMEOUT,
+    })
+end
+
+--[[--
+Adds a novel from a Discover result. Returns data {novel, already_in_library},
+info {status = 201|200} or nil, err (422 invalid, 503 server).
+]]
+function Api:addNovel(title, url)
+    local data, e, info = self:request("novels", { method = "POST", body = { title = title, url = url } })
+    if not data then return nil, e end
+    if type(data.novel) ~= "table" or not data.novel.id then return nil, err("server", nil, "bad novel") end
+    return data, nil, info
+end
+
+local function checkObject(data, e)
+    if not data then return nil, e end
+    if type(data.check) ~= "table" then return nil, err("server", nil, "bad check") end
+    return data.check
+end
+
+--- Starts (or joins) a server check for new chapters. Returns the check object or nil, err.
+function Api:checkStart(novel_id)
+    return checkObject(self:request(string.format("novels/%d/check", novel_id), { method = "POST", body = {} }))
+end
+
+--- The novel's check: {status, started_at, finished_at, chapters_before, chapters_now, new_chapters, message}.
+function Api:checkStatus(novel_id)
+    return checkObject(self:request(string.format("novels/%d/check", novel_id)))
 end
 
 --[[--

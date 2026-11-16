@@ -2,7 +2,7 @@
 Novarr Home: a Kindle-like shelf (see ui_shelf.lua). The novel being read
 as a large "hero" block, then a grid of covers (other novels in progress,
 most recent first; novels with new chapters; the rest of the library), and
-a row of buttons: Library · Downloads · Sync · Settings.
+a row of buttons: Library · Discover · Downloads · Sync · Settings.
 
 One tap on a novel opens its resume chapter straight away; hold opens the
 Novel screen. Everything shown prefers this device's own reading (marks
@@ -103,6 +103,7 @@ function Home:items()
         table.insert(items, { kind = "button", text = text, callback = cb })
     end
     button(_("Library"), function() require("novarr.ui_library").show(s) end)
+    button(_("Discover"), function() require("novarr.ui_discover").show(s) end)
     button(_("Downloads"), function() require("novarr.ui_downloads").show(s) end)
     local pending = s.queue:count()
     button(pending > 0 and T(_("Sync (%1)"), pending) or _("Sync"), function()

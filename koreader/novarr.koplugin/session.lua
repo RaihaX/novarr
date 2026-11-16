@@ -449,6 +449,35 @@ function Session:recordChapterTime(novel_id, seconds)
 end
 
 --[[--
+A chapter finished on this device by reading it to its end (stats.lua):
+recorded with the time and its active reading seconds (nil when not timed).
+]]
+function Session:recordChapterRead(novel_id, seconds)
+    local Stats = require("novarr.stats")
+    Stats.add(self.store:getStats(novel_id), os.time(), seconds)
+    self.store:saveStats()
+end
+
+--[[--
+The Novel screen's reading stats: {today, week, average, catch_up, unread}
+(see stats.lua for the rules). `now` defaults to the current time.
+]]
+function Session:novelStats(novel_id, now)
+    local Stats = require("novarr.stats")
+    now = now or os.time()
+    local events = self.store:getStats(novel_id)
+    local today, week = Stats.counts(events, now)
+    local average = Stats.average(Stats.durations(self.store:getTiming(novel_id), events))
+    local unread
+    local cl = self:chapterList(novel_id)
+    if cl then
+        unread = ReadingInfo.chaptersLeft(cl.list, 0, function(c) return (self:chapterState(novel_id, c.id)) end)
+    end
+    return { today = today, week = week, average = average, unread = unread,
+        catch_up = Stats.catchUp(unread, average) }
+end
+
+--[[--
 Chapters left and seconds left for a novel. With `current_id`: chapters
 after the open one (time includes the rest of it, at `percent`). Without:
 from the resume chapter on (inclusive). Returns left (nil when the chapter
@@ -1197,6 +1226,7 @@ function Session:setServer(url)
     elseif old and old ~= url then
         self.store:clearCache()
         self.store:clearOverlays()
+        self.store:clearStats()
         self.queue:clear()
         for _i, novel_id in ipairs(self.store:novelsWithDownloads()) do
             self:removeNovelDownloads(novel_id)
@@ -1301,6 +1331,30 @@ function Session:covers()
     return self.cover_cache
 end
 
+Session.DISCOVER_COVERS_MAX_BYTES = 8 * 1024 * 1024
+
+--[[--
+Covers of Discover results (on the sources' own image hosts, not Novarr):
+their own folder, capped at 8 MB (the oldest go first), so browsing never
+fills the device. Fetched as they are (no server address rewriting: these
+URLs are on neither Novarr address), through the same HTTP client (https
+through KOReader's proxy included).
+]]
+function Session:discoverCovers()
+    if not self.discover_cover_cache then
+        local Covers = require("novarr.covers")
+        self.discover_cover_cache = Covers.new({
+            dir = self.root .. "/discover-covers",
+            lfs = lfs,
+            hash = function(s) return require("ffi/sha2").md5(s) end,
+            fetch = function(url, path) return fetchCover(self, url, path) end,
+            max_bytes = Session.DISCOVER_COVERS_MAX_BYTES,
+            log = log,
+        })
+    end
+    return self.discover_cover_cache
+end
+
 --- Whether KOReader's sleep screen is set to the book cover.
 function Session:sleepCoverOn()
     return G_reader_settings:readSetting("screensaver_type") == "cover"
@@ -1369,8 +1423,9 @@ function Session:dumpState()
         for _i, i in ipairs(indexes) do
             local it = m.item_table[i]
             local c = it.cover or it.hero
+            local cache = m.covers or self:covers()
             table.insert(items, { text = it.text, mandatory = it.mandatory, dim = it.dim or nil,
-                cover = c and { url = c.url, cached = self:covers():cached(c.url) ~= nil, info = c.info } or nil })
+                cover = c and { url = c.url, cached = cache:cached(c.url) ~= nil, info = c.info } or nil })
         end
         table.insert(menus, {
             kind = entry.screen and entry.screen.kind,
@@ -1467,6 +1522,36 @@ function Session:dumpState()
             installed_update = self.update_installed,
         },
         queue = Json.array(self.queue:list()),
+        checks = (function()
+            local C = package.loaded["novarr.checks"]
+            return type(C) == "table" and C.dump() or nil
+        end)(),
+        discover = (function()
+            for _i, entry in ipairs(self.menus) do
+                if entry.screen and entry.screen.kind == "discover" then
+                    return require("novarr.ui_discover").dumpOf(entry.screen)
+                end
+            end
+            return nil
+        end)(),
+        caughtup = (function()
+            local CU = package.loaded["novarr.ui_caughtup"]
+            local page = type(CU) == "table" and CU.current or nil
+            if not page then return nil end
+            return { novel_id = page.info.novel_id, status = page.status_text,
+                has_next = page.info.has_next and page.info.has_next() or false }
+        end)(),
+        stats = (function()
+            local out = {}
+            for _i, entry in ipairs(self.menus) do
+                if entry.screen and entry.screen.kind == "novel" then
+                    local id = entry.screen.novel_id
+                    out[tostring(id)] = self:novelStats(id)
+                    out[tostring(id)].events = #self.store:getStats(id)
+                end
+            end
+            return out
+        end)(),
         wifi = (function()
             local ok, d = pcall(function() return require("novarr.wifi").dump() end)
             if ok and d then d.events = Json.array(d.events) end

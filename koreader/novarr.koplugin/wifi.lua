@@ -203,11 +203,14 @@ local function observe()
 end
 
 -- A user-started network action: chapter downloads, an EPUB being built,
--- a plugin update being installed, or any Novarr screen open (Sync, the EPUB
+-- a plugin update being installed, a check for new chapters the server is
+-- running, or any Novarr screen open (Discover included; Sync, the EPUB
 -- download and chapter fetches block KOReader while they run, so nothing is
 -- decided meanwhile).
 local function busy(Session)
     if Session.download_job then return true end
+    local C = package.loaded["novarr.checks"]
+    if type(C) == "table" and C.anyActive() then return true end
     local E = package.loaded["novarr.epub"]
     if type(E) == "table" and E.current_flow and E.current_flow.state ~= "done" then return true end
     local U = package.loaded["novarr.ui_update"]
@@ -558,6 +561,7 @@ function Wifi.dump()
         backoff_until = Wifi.backoff_until,
         exhausted_at = Wifi.exhausted_at,
         queue = s.queue,
+        busy = s.busy,
         finished_unsynced = s.finished_unsynced,
         target = s.target,
         ahead = s.ahead,

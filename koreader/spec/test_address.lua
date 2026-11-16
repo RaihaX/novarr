@@ -199,3 +199,19 @@ T.it("Api: plugin files go through the same retry", function()
     T.truthy(bytes)
     T.eq(log[2], AWAY .. "/api/v1/koreader/plugin/files/main.lua")
 end)
+
+T.it("external URLs (Discover covers on a source's image host) are never rewritten", function()
+    local ext = "https://images.novelping.com/novel/shadow-slave.jpg"
+    for _i, active in ipairs({ HOME, AWAY }) do
+        local a = make({ active = active })
+        T.eq(a:rewrite(ext), ext)
+        T.eq(a:canonical(ext), ext)
+        T.falsy(a:owns(ext))
+    end
+    local one = make({ away = false })
+    T.eq(one:rewrite(ext), ext)
+    T.falsy(one:owns(ext))
+    -- Same host as Novarr but another port or scheme: not Novarr either.
+    local a = make({ active = AWAY })
+    T.eq(a:rewrite("https://192.168.1.34/x.jpg"), "https://192.168.1.34/x.jpg")
+end)

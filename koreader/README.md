@@ -51,8 +51,8 @@ manager): look for **Novarr**, **Novarr: next chapter** and
   other novels: the ones you are reading (most recent first), then those with new
   chapters (a black badge on the cover shows how many), then the rest. Swipe left or
   right (or use the page keys / the ‹ › arrows) for more. The buttons at the bottom
-  open the **Library**, **Downloads**, **Sync** (it shows how many changes are waiting,
-  e.g. "Sync (3)") and **Settings**.
+  open the **Library**, **Discover** (find and add novels, see below), **Downloads**,
+  **Sync** (it shows how many changes are waiting, e.g. "Sync (3)") and **Settings**.
 - **Tap a cover to read**: it opens straight at the chapter you are on. **Hold** a
   cover for the novel's page. A novel with nothing to read yet opens its page.
 - Home, the Library and the novel pages always show where *this device* is, even
@@ -62,9 +62,9 @@ manager): look for **Novarr**, **Novarr: next chapter** and
   **Search…** and **Show:** (All, Reading, Unread, New chapters, Completed,
   Downloaded on this device). Swipe left/right or use the arrows to turn pages.
 - **A novel** shows its cover, how many chapters are left and roughly how long
-  they will take, and these actions: *Continue / Start reading*, *Chapters*,
-  *Download for offline…*, *Remove downloads*, *Mark all as read*,
-  *Download as EPUB* and *About this novel*.
+  they will take, your reading stats (below), and these actions: *Continue / Start
+  reading*, *Chapters*, *Check for new chapters*, *Download for offline…*, *Remove
+  downloads*, *Mark all as read*, *Download as EPUB* and *About this novel*.
 - **Chapters** lists every chapter in order and opens on the one you are reading.
   On the right: `40%` for a chapter you are part-way through, ● when it is saved on
   the device, ✓ when it is read. The magnifier at the top left jumps to a chapter
@@ -100,10 +100,11 @@ table of contents lists the chapters of the group. The short load happens once e
   before (from the next chapter you open).
 
 When you finish the newest chapter Novarr has, a quiet "You're up to date" page shows
-the cover and when the server last got a chapter, with *Check for new chapters*
-(when online), *Choose another novel* and *Close*. You only see a message when the
-next chapter can't be opened: it isn't saved on the device and there is no Wi-Fi, or
-the server has no text for it yet.
+the cover and when the server last got a chapter, with *Check for new chapters*,
+*Choose another novel* and *Close*. The check runs on the server (see below); the page
+stays open and shows how it goes, and when new chapters arrive it offers *Continue
+reading*. You only see a message when the next chapter can't be opened: it isn't
+saved on the device and there is no Wi-Fi, or the server has no text for it yet.
 
 While you read, the status bar at the bottom shows the time, where you are in the
 novel, the chapters left and the reading time left, for example
@@ -131,6 +132,60 @@ kept there (so *open last file* still works), the earlier ones are taken out.
 The menu (tools tab ▸ Novarr) also has *Next chapter*, *Previous chapter*,
 *Chapter list* and *Novarr home* while you read a Novarr chapter.
 
+### Check for new chapters
+
+*Check for new chapters* (on a novel's page and on the "You're up to date" page) asks
+the Novarr server to look at the novel's source now: it reads the source's chapter
+list and downloads the new chapters, as the novel's *Scrape TOC* and *Download
+Chapters* buttons do on the website. That can take a few minutes. Meanwhile you can
+keep reading or leave the page: Novarr looks at how it is going every 15 seconds
+without holding anything up, and the novel's page shows *Checking…*. When it is done
+you see "3 new chapters." (or "No new chapters yet.", or the server's reason when it
+didn't work); the chapter list is fetched again and, if you are reading that novel,
+the new chapters are saved ahead as usual. A check already running on the server
+(started on the website, for example) is followed rather than started again. Novarr
+stops looking after 10 minutes (the server carries on), and while the device sleeps;
+on waking up it looks again. Wi-Fi is not switched off while a check runs.
+
+### Discover: adding novels
+
+**Discover** (on Home, next to Library) finds novels on the sites Novarr reads from,
+like the website's Discover page. At the top: **Source** (the sites the server
+offers), **List** (Popular, New, Completed, Random, where the site has them) and
+**Search…** (type with the on-screen keyboard; some sites can only be searched).
+Each result shows its cover, title, author, whether it is ongoing or completed, its
+chapter count and **✓ In library** when you already have it. **More…** at the end
+loads the next page.
+
+Tap a result for its synopsis and **Add to library** (or **Open** for a novel you
+already have). After adding, the result is marked, the novel appears in your Library,
+and Novarr asks the server to fetch its chapter list (a check, as above): the chapters
+show up over the next minutes.
+
+Lists usually load in a second or two. A search on some sites goes through extra
+steps on the server and can take up to two minutes; KOReader waits for it with a
+"Searching…" notice (it can't be cancelled midway). If a site doesn't answer you see
+"That source didn't answer. Try again or pick another source." The covers come from
+the sites themselves and are kept in their own small folder (at most 8 MB, the
+oldest removed first).
+
+### Reading stats
+
+A novel's page shows, once there is something to show, how many chapters you read
+**today** (since midnight) and **in the last 7 days** (today and the six days before),
+about how long a chapter takes you, and about how long it would take to read every
+unread chapter, for example:
+
+    Read today: 2 · last 7 days: 9
+    About 6 min per chapter · about 3 h to catch up
+
+Only chapters you read to the end on this device count (marking chapters read by hand
+doesn't). The time per chapter is your actual reading time (pauses over 5 minutes and
+time asleep left out); a chapter read in under 20 seconds or "taking" more than 90
+minutes is left out, and it needs three chapters before it shows. Before 1.4 only the
+times were kept, so the counts start from the update; the time per chapter can show
+right away.
+
 ### Without Wi-Fi
 
 Use **Download for offline…** on a novel to save the next 10 or 50 unread chapters,
@@ -155,7 +210,8 @@ to turn Wi-Fi on as it does for its other tools.
 To save battery, Novarr switches Wi-Fi off while you read once everything is
 saved: what you read has been sent to the server, the next chapters are on the
 device (100 ahead, or every chapter the server has), and nothing else of Novarr's is
-using the network (a download, an EPUB, an update, a Novarr screen). You see nothing
+using the network (a download, an EPUB, an update, a check for new chapters, a
+Novarr screen such as Discover). You see nothing
 happen: no message, and the status line stays the same.
 
 Wi-Fi comes back **by itself**, without asking, when about 25 chapters are left
@@ -252,6 +308,8 @@ server) or a setup without the plugin folder; copy the plugin over USB as in **I
   `koreader/novarr/` (on a Kindle: `/mnt/us/koreader/novarr/`). The joined chapters
   you read are `group_…html` files next to the chapters; they are made from the saved
   chapters, count towards the space Novarr uses, and are removed with them.
+  Discover's covers are in `koreader/novarr/discover-covers/` (at most 8 MB), the
+  reading stats in `koreader/novarr/stats.json` (the last 8 days, per novel).
 - Settings: `koreader/settings/novarr.lua`.
 - EPUBs: the `Novarr` folder in KOReader's home folder.
 
