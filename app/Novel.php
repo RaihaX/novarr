@@ -37,6 +37,9 @@ class Novel extends Model
         // reading_mode by the reader / metadata (never over a user's choice).
         "medium",
         "reading_mode",
+        // The upstream source behind a shared host (a Suwayomi source id);
+        // see App\Services\DownloadLanes.
+        "source_ref",
     ];
 
     /** In memory as in the database: a new row is a novel unless set. */
@@ -80,6 +83,7 @@ class Novel extends Model
         'origin_language' => 'string',
         'origin_source' => 'string',
         'origin_type' => 'string',
+        'source_ref' => 'string',
     ];
 
     public function chapters(): HasMany

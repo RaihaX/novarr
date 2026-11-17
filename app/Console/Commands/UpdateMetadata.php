@@ -142,6 +142,13 @@ class UpdateMetadata extends Command
                 $this->line("    reading mode: {$novel->reading_mode}");
             }
 
+            // The site behind a shared host (a Suwayomi source): the novel's
+            // download lane (App\Services\DownloadLanes).
+            if (!empty($metadata["source_ref"]) && $novel->source_ref !== (string) $metadata["source_ref"]) {
+                $novel->source_ref = (string) $metadata["source_ref"];
+                $this->line("    source: {$novel->source_ref}");
+            }
+
             $novel->save();
 
             if (!empty($metadata["genres"])) {

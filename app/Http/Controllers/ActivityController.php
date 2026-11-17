@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\NovelChapter;
+use App\Services\DownloadLanes;
 use App\Services\NovelHealth;
 use Illuminate\Support\Facades\Cache;
 
@@ -14,7 +15,7 @@ use Illuminate\Support\Facades\Cache;
  */
 class ActivityController extends Controller
 {
-    public function index(NovelHealth $health)
+    public function index(NovelHealth $health, DownloadLanes $lanes)
     {
         // Only the columns the tables render — the body lives in chapter_texts
         // and must never be pulled for list views.
@@ -39,11 +40,26 @@ class ActivityController extends Controller
         $attention = Cache::remember('dashboard_attention', 900, fn() => $health->needingAttention());
 
         return view('activity.index', [
+            'downloads' => $lanes->overview(),
             'missing_chapters' => $missing_chapters,
             'latest_chapters' => $latest_chapters,
             'stats' => HomeController::stats(),
             'attention_count' => count($attention),
             'snoozed' => $health->snoozed(),
+        ]);
+    }
+
+    /**
+     * GET /activity/downloads — the "Downloads by source" rows and summary
+     * (DownloadLanes::overview()) plus the section rendered, for the page's
+     * 10-second refresh. Database and cache only: never a request to a site.
+     */
+    public function downloads(DownloadLanes $lanes)
+    {
+        $downloads = $lanes->overview();
+
+        return response()->json($downloads + [
+            'html' => view('activity._downloads', ['downloads' => $downloads])->render(),
         ]);
     }
 }

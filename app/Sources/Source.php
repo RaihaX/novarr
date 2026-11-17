@@ -117,4 +117,13 @@ interface Source
      * a library novel's stored URL (may accept legacy hosts).
      */
     public function librarySlug(string $url, bool $stored = false): ?string;
+
+    /**
+     * The download lane of a novel when its chapter host alone does not
+     * name the upstream site (App\Services\DownloadLanes: at most one
+     * download runs per lane). Null: the lane is the chapter host. Must not
+     * make a request — it runs on hot paths; a lane that needs the network
+     * to be known is backfilled by DownloadLanes.
+     */
+    public function downloadLane(Novel $novel): ?string;
 }

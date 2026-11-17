@@ -171,6 +171,12 @@ abstract class AbstractSource implements Source
         return null;
     }
 
+    /** One site per host: the download lane is the chapter host. */
+    public function downloadLane(Novel $novel): ?string
+    {
+        return null;
+    }
+
     /** The site's own metadata for the novel (merged by metadata()). */
     protected function siteMetadata(Novel $novel): array
     {

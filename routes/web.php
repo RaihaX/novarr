@@ -26,6 +26,7 @@ $conditionalGet = 'cache.headers:private;max_age=0;etag';
 Route::get('/', [HomeController::class, 'index'])->name('home');
 Route::get('/continue', [HomeController::class, 'continue'])->name('continue');
 Route::get('/activity', [\App\Http\Controllers\ActivityController::class, 'index'])->name('activity.index');
+Route::get('/activity/downloads', [\App\Http\Controllers\ActivityController::class, 'downloads'])->name('activity.downloads');
 Route::view('/offline', 'offline')->name('offline');
 Route::view('/library', 'library')->name('library');
 

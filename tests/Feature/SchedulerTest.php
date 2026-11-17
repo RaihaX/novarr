@@ -50,7 +50,8 @@ class SchedulerTest extends TestCase
             'drain_queue' => 65,
             'daily_toc_check' => 90,
             'frequent_toc_check' => 90,
-            'download_new_chapters' => 150,
+            // The dispatcher only starts lane processes: a short mutex.
+            'download_new_chapters' => 10,
             'verify_novel_completion' => 120,
             'email_chapter_summary' => 30,
         ];
@@ -60,6 +61,11 @@ class SchedulerTest extends TestCase
             $this->assertTrue($events[$name]->withoutOverlapping, "{$name} has an overlap guard");
             $this->assertSame($minutes, $events[$name]->expiresAt, "{$name} mutex expiry");
         }
+    }
+
+    public function testTheChapterDispatcherRunsEveryFiveMinutes(): void
+    {
+        $this->assertSame('*/5 * * * *', $this->events()['download_new_chapters']->expression);
     }
 
     public function testHourlyTocSkipsWhileTheDailyRunHoldsItsMutex(): void

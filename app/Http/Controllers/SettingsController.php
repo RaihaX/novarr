@@ -107,12 +107,21 @@ class SettingsController extends Controller
             ],
             'max_run_minutes' => [
                 'label' => 'Max run length (minutes)',
-                'help' => 'A scheduled chapter run stops starting new downloads after this many minutes (10–140). Must stay below the 150-minute scheduler lock on novel:chapter: if a run outlives the lock, the next scheduled run can start on top of it.',
+                'help' => 'A scheduled download run of one source stops starting new chapters after this many minutes (10–140); what is left waits for that source\'s next run.',
                 'type' => 'number',
                 'group' => 'Scraping',
                 'min' => 10,
                 'max' => 140,
                 'default' => (string) config('novarr.defaults.max_run_minutes', 100),
+            ],
+            'max_parallel_lanes' => [
+                'label' => 'Sources downloading at once',
+                'help' => 'Each source downloads one chapter at a time; this many sources download in parallel (1–20). The rest start as soon as one finishes (checked every 5 minutes).',
+                'type' => 'number',
+                'group' => 'Scraping',
+                'min' => 1,
+                'max' => 20,
+                'default' => (string) config('novarr.defaults.max_parallel_lanes', 6),
             ],
             'novelupdates_match_threshold' => [
                 'label' => 'NovelUpdates match threshold',
@@ -198,6 +207,7 @@ class SettingsController extends Controller
             'min_chapter_words' => 'nullable|integer|min:50|max:2000',
             'max_chapters_per_novel_per_run' => 'nullable|integer|min:0|max:500',
             'max_run_minutes' => 'nullable|integer|min:10|max:140',
+            'max_parallel_lanes' => 'nullable|integer|min:1|max:20',
             'novelupdates_match_threshold' => 'nullable|numeric|min:0.5|max:1',
             'snapshots_keep_per_novel' => 'nullable|integer|min:0|max:50',
             'snapshots_days' => 'nullable|integer|min:1|max:90',
@@ -206,7 +216,7 @@ class SettingsController extends Controller
         ], [
             'scrape_max_delay.gte' => 'The max delay must be greater than or equal to the min delay.',
             'scrape_fastest_delay.min' => 'The fastest delay must be at least ' . \App\Scraping\HostPace::MIN_FASTEST . ' seconds.',
-            'max_run_minutes.max' => 'The max run length must stay below the 150-minute scheduler lock (140 minutes at most).',
+            'max_run_minutes.max' => 'The max run length can be 140 minutes at most.',
             'novelupdates_match_threshold.min' => 'The match threshold must be between 0.5 and 1.0.',
             'novelupdates_match_threshold.max' => 'The match threshold must be between 0.5 and 1.0.',
         ]);

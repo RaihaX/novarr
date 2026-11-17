@@ -97,6 +97,12 @@ class CreateNovel extends Command
             $object->reading_mode = $metadata["reading_mode"];
         }
 
+        // The site behind a shared host (a Suwayomi source): the novel's
+        // download lane (App\Services\DownloadLanes).
+        if (!empty($metadata["source_ref"])) {
+            $object->source_ref = (string) $metadata["source_ref"];
+        }
+
         $object->save();
 
         // Origin: getMetadata() already set it when NovelUpdates matched;
