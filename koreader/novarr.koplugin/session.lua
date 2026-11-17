@@ -45,7 +45,7 @@ Session.VERSION = Api.VERSION
 
 local DEFAULTS = {
     prefetch = 100,
-    wifi_auto_off = true,
+    wifi_auto_off = false, -- Wi-Fi stays on (1.7.0): the position reaches the server as it changes
     remove_after_reading = true,
     keep_read = 2,
     mark_read_at_end = true,
@@ -128,6 +128,13 @@ function Session:migrateSettings()
             self.settings:delSetting("prefetch")
         end
         self.settings:saveSetting("prefetch_migrated_100", true)
+        changed = true
+    end
+    -- 1.7.0: Wi-Fi stays on unless the setting is switched on again after
+    -- this (the old default, on, delayed the reading position).
+    if not self.settings:readSetting("wifi_stays_on_migrated") then
+        self.settings:delSetting("wifi_auto_off")
+        self.settings:saveSetting("wifi_stays_on_migrated", true)
         changed = true
     end
     if changed then self.settings:flush() end
