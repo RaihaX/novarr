@@ -3,7 +3,9 @@
     "json": {
         "success": true,
         "items": [],
-        "hidden": 3
+        "hidden": 3,
+        "has_more": false,
+        "page": 1
     },
     "fetches": [
         {

@@ -409,6 +409,51 @@ class SuwayomiSourceTest extends GoldenTestCase
         $this->assertSame([], (new SuwayomiSource())->discover('popular'), 'the registered instance lists nothing');
     }
 
+    public function testDiscoverPagesWithHasNextPage(): void
+    {
+        $page2 = json_encode(['data' => ['fetchSourceManga' => ['hasNextPage' => false, 'mangas' => [
+            ['id' => 2203, 'title' => 'Berserk', 'url' => '/manga/4', 'thumbnailUrl' => '/api/v1/manga/2203/thumbnail', 'status' => 'ONGOING', 'author' => 'Miura', 'description' => ''],
+        ]]]]);
+        $fetcher = $this->graphql([SuwayomiSource::MUTATION_FETCH_SOURCE_MANGA => fn(array $v) => match ([$v['input']['type'], $v['input']['page']]) {
+            ['POPULAR', 1] => 'suwayomi/fetch-source-manga-popular.json',   // hasNextPage: true
+            ['POPULAR', 2] => $page2,
+            ['SEARCH', 3] => 'suwayomi/fetch-source-manga-search.json',
+        }]);
+        $source = new SuwayomiSource(self::MANGAPILL, 'MangaPill', 'en');
+        $this->assertInstanceOf(\App\Sources\PagedDiscover::class, $source);
+
+        $first = $source->discoverPage('popular', null, 1);
+        $this->assertTrue($first['has_more']);
+        $this->assertSame(['One Piece', 'Solo Leveling'], array_column($first['items'], 'name'));
+        $this->assertSame($first['items'], $source->discover('popular'), 'discover() is page 1');
+
+        $second = $source->discoverPage('popular', null, 2);
+        $this->assertSame(['items' => [['name' => 'Berserk', 'url' => self::BASE . '/manga/2203', 'cover' => self::BASE . '/api/v1/manga/2203/thumbnail',
+            'cover_thumb' => '', 'author' => 'Miura', 'description' => '', 'status' => 'Ongoing']], 'has_more' => false], $second);
+        $this->assertSame(['Hajime no Ippo', 'Kindaichi 37-sai no Jikenbo'], array_column($source->discoverPage('search', ' hajime ', 3)['items'], 'name'));
+
+        // Each page cached on its own.
+        $this->assertSame($second, $source->discoverPage('popular', null, 2));
+        $source->discoverPage('popular', null, 1);
+        $this->assertSame([
+            [SuwayomiSource::MUTATION_FETCH_SOURCE_MANGA, ['input' => ['source' => self::MANGAPILL, 'type' => 'POPULAR', 'page' => 1]], 90],
+            [SuwayomiSource::MUTATION_FETCH_SOURCE_MANGA, ['input' => ['source' => self::MANGAPILL, 'type' => 'POPULAR', 'page' => 2]], 90],
+            [SuwayomiSource::MUTATION_FETCH_SOURCE_MANGA, ['input' => ['source' => self::MANGAPILL, 'type' => 'SEARCH', 'query' => 'hajime', 'page' => 3]], 90],
+        ], self::gqlCalls($fetcher));
+    }
+
+    public function testDiscoverPageCap(): void
+    {
+        $fetcher = $this->graphql([SuwayomiSource::MUTATION_FETCH_SOURCE_MANGA => 'suwayomi/fetch-source-manga-popular.json']);
+        $source = new SuwayomiSource(self::MANGAPILL, 'MangaPill', 'en');
+
+        $this->assertFalse($source->discoverPage('popular', null, \App\Sources\PagedDiscover::MAX_PAGE)['has_more'], 'hasNextPage, but the cap');
+        $this->assertSame(['items' => [], 'has_more' => false], $source->discoverPage('popular', null, \App\Sources\PagedDiscover::MAX_PAGE + 1));
+        $this->assertSame(['items' => [], 'has_more' => false], $source->discoverPage('popular', null, 0));
+        $this->assertSame(['items' => [], 'has_more' => false], (new SuwayomiSource())->discoverPage('popular', null, 1), 'the registered instance lists nothing');
+        $this->assertCount(1, self::gqlCalls($fetcher));
+    }
+
     public function testDiscoverUnreachableIsNull(): void
     {
         $this->graphql([SuwayomiSource::MUTATION_FETCH_SOURCE_MANGA => 'suwayomi/error.json']);

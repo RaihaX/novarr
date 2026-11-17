@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\Discover;
 use App\Sources\EmpireNovelSource;
+use App\Sources\PagedDiscover;
 use Illuminate\Http\Request;
 
 /**
@@ -45,6 +46,10 @@ class DiscoverController extends Controller
      * result and only mark library ones (`in_library`). The filter runs
      * after the cache read — the cache is keyed by the source query alone,
      * since the library changes far more often than the lists.
+     *
+     * page: 1-based (default 1, at most PagedDiscover::MAX_PAGE). The answer
+     * says whether the source has another page (`has_more`); only paged
+     * sources (MangaDex, Suwayomi) ever do — the others answer page 1 only.
      */
     public function browse(Request $request)
     {
@@ -53,14 +58,16 @@ class DiscoverController extends Controller
 
         // A registry in which no source offers Discover has nothing to list.
         if ($sources === []) {
-            return response()->json(['success' => true, 'items' => []]);
+            return response()->json(['success' => true, 'items' => [], 'has_more' => false, 'page' => 1]);
         }
 
         $data = $request->validate([
             'source' => 'nullable|in:' . implode(',', array_keys($sources)),
             'type' => 'required|in:' . implode(',', Discover::TYPES),
             'q' => 'required_if:type,search|nullable|string|max:100',
+            'page' => 'nullable|integer|min:1|max:' . PagedDiscover::MAX_PAGE,
         ]);
+        $page = (int) ($data['page'] ?? 1);
 
         // No source given: the page's default (the first one listed).
         $source = $sources[$data['source'] ?? array_key_first($sources)];
@@ -68,13 +75,13 @@ class DiscoverController extends Controller
         // A list the source doesn't offer (e.g. browse lists on a
         // search-only source) is an empty answer.
         if (!in_array($data['type'], $source->discoverLists(), true)) {
-            return response()->json(['success' => true, 'items' => []]);
+            return response()->json(['success' => true, 'items' => [], 'has_more' => false, 'page' => $page]);
         }
 
-        $items = $discover->results($source, $data['type'], $data['q'] ?? null);
+        $result = $discover->page($source, $data['type'], $data['q'] ?? null, $page);
         $sourceLabel = $source->discoverHost();
 
-        if ($items === null) {
+        if ($result === null) {
             return response()->json([
                 'success' => false,
                 'message' => "Could not reach {$sourceLabel} — try again shortly.",
@@ -85,7 +92,7 @@ class DiscoverController extends Controller
         $items = array_map(function (array $item) {
             unset($item['novel_id']);
             return $item;
-        }, $items);
+        }, $result['items']);
 
         $hidden = 0;
         if ($data['type'] !== 'search') {
@@ -94,7 +101,13 @@ class DiscoverController extends Controller
             $hidden = $before - count($items);
         }
 
-        return response()->json(['success' => true, 'items' => $items, 'hidden' => $hidden]);
+        return response()->json([
+            'success' => true,
+            'items' => $items,
+            'hidden' => $hidden,
+            'has_more' => $result['has_more'],
+            'page' => $page,
+        ]);
     }
 
     /** See Discover::normalizeUrl(); kept for existing callers. */

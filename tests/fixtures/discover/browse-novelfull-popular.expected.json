@@ -2,7 +2,9 @@
     "status": 200,
     "json": {
         "success": true,
-        "items": []
+        "items": [],
+        "has_more": false,
+        "page": 1
     },
     "fetches": []
 }
