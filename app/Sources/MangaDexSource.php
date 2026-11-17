@@ -645,7 +645,8 @@ class MangaDexSource extends AbstractSource implements ReportsPageFetches
 
     /**
      * Search by title (relevance) or the most-followed series, in the
-     * configured languages. Cached: popular an hour, searches ten minutes.
+     * configured languages; only series with a downloadable chapter are
+     * listed. Cached: popular an hour, searches ten minutes.
      * Null when the API could not be reached.
      */
     public function discover(string $type, ?string $query = null): ?array
@@ -670,11 +671,11 @@ class MangaDexSource extends AbstractSource implements ReportsPageFetches
         ];
 
         $ttl = $type === 'search' ? 600 : 3600;
-        $key = 'discover_mangadex_v1_' . md5(self::query($params));
+        $key = 'discover_mangadex_v2_' . md5(self::query($params));
         $fetch = function () use ($params) {
             $json = $this->api('manga', $params);
 
-            return is_array($json['data'] ?? null) ? self::discoverItems($json['data']) : null;
+            return is_array($json['data'] ?? null) ? $this->readableOnly(self::discoverItems($json['data'])) : null;
         };
 
         try {
@@ -692,6 +693,77 @@ class MangaDexSource extends AbstractSource implements ReportsPageFetches
             Log::warning('Discover: cache store unavailable (' . $e->getMessage() . ') — fetching uncached');
             return $fetch();
         }
+    }
+
+    /** Start time of the last hasReadableChapters() request. */
+    private float $lastReadableCheck = 0.0;
+
+    /**
+     * Drop the Discover items with nothing to download. MangaDex's own
+     * `availableTranslatedLanguage` filter is not enough: a series whose
+     * chapters were taken down (licensed titles) still lists the language.
+     * An item whose check could not be made is kept.
+     */
+    private function readableOnly(array $items): array
+    {
+        return array_values(array_filter($items, function (array $item) {
+            $id = self::seriesId($item['url']);
+
+            return $id === null || $this->hasReadableChapters($id) !== false;
+        }));
+    }
+
+    /**
+     * Does the series have a chapter Novarr can download in the configured
+     * languages (hosted on MangaDex, with pages)? Null when the API could
+     * not say. Cached for a day per series.
+     */
+    public function hasReadableChapters(string $id): ?bool
+    {
+        $key = 'mangadex_readable_v1_' . $id . '_' . md5(implode(',', self::languages()));
+        try {
+            $cached = Cache::get($key);
+        } catch (\Throwable $e) {
+            $cached = null;
+        }
+        if (is_bool($cached)) {
+            return $cached;
+        }
+
+        // Up to 40 checks in one page load: space the request starts (under
+        // the documented 5 a second) instead of sleeping after each answer.
+        $gap = min(210, (int) config('novarr.mangadex.request_delay_ms', 250)) / 1000;
+        $wait = $this->lastReadableCheck + $gap - microtime(true);
+        if ($wait > 0) {
+            usleep((int) ($wait * 1e6));
+        }
+        $this->lastReadableCheck = microtime(true);
+        $json = $this->api('chapter', self::readableParams($id));
+        if (!is_array($json) || !is_numeric($json['total'] ?? null)) {
+            return null;
+        }
+        $readable = (int) $json['total'] > 0;
+        try {
+            Cache::put($key, $readable, 86400);
+        } catch (\Throwable $e) {
+            // Uncached is fine: the list is still filtered.
+        }
+
+        return $readable;
+    }
+
+    /** Query counting a series' downloadable chapters (the feed's filters). */
+    public static function readableParams(string $id): array
+    {
+        return [
+            'limit' => 1,
+            'manga' => $id,
+            'translatedLanguage' => self::languages(),
+            'contentRating' => self::CONTENT_RATINGS,
+            'includeExternalUrl' => 0,
+            'includeEmptyPages' => 0,
+            'includeFuturePublishAt' => 0,
+        ];
     }
 
     /**
