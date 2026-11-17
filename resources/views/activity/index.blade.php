@@ -14,6 +14,13 @@
     </div>
 </div>
 
+{{-- What is downloading right now, per source; refreshed every 10 s
+     while the tab is visible. --}}
+<section class="dash-panel mb-4" id="downloads-section" aria-labelledby="downloadsTitle"
+         data-refresh-url="{{ route('activity.downloads') }}">
+    @include('activity._downloads', ['downloads' => $downloads])
+</section>
+
 {{-- The numbers the old dashboard stat tiles carried, as one mono line. --}}
 <ul class="activity-summary" aria-label="Library summary">
     <li><a href="{{ route('novels.index', ['status' => 0]) }}"><span class="home-mono">{{ number_format($stats['active']) }}</span> <x-status state="active" as="text">active</x-status></a></li>
@@ -138,3 +145,43 @@
     </section>
 </div>
 @endsection
+
+@push('scripts')
+<script>
+(function () {
+    // Refresh "Downloads by source" every 10 s while the tab is visible.
+    // The server renders the section (all text escaped there); this only
+    // swaps it in. Stops when Turbo leaves the page.
+    const section = document.getElementById('downloads-section');
+    if (!section) return;
+
+    let timer = null;
+    const leave = new AbortController();
+
+    async function refresh() {
+        if (document.visibilityState !== 'visible') return;
+        try {
+            const response = await fetch(section.dataset.refreshUrl, { headers: { 'Accept': 'application/json' } });
+            if (!response.ok) return;
+            const data = await response.json();
+            if (typeof data.html === 'string') section.innerHTML = data.html;
+        } catch (e) {
+            // Keep polling; a transient error is fine.
+        }
+    }
+
+    function stop() {
+        clearInterval(timer);
+        timer = null;
+        leave.abort();
+    }
+
+    timer = setInterval(refresh, 10000);
+    const opts = { signal: leave.signal, once: true };
+    document.addEventListener('turbo:before-render', stop, opts);
+    document.addEventListener('turbo:before-cache', stop, opts);
+    window.addEventListener('pagehide', stop, opts);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); }, { signal: leave.signal });
+})();
+</script>
+@endpush

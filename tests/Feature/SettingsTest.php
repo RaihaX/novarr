@@ -65,7 +65,8 @@ class SettingsTest extends TestCase
             $response->assertSee('name="' . $key . '"', false);
         }
 
-        $response->assertSee('150-minute scheduler lock');
+        $response->assertSee('name="max_parallel_lanes"', false);
+        $response->assertSee('Sources downloading at once');
         $response->assertSee('In effect:', false);
         $response->assertSee('Default: 0.85', false);
     }

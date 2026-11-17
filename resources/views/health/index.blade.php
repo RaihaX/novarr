@@ -114,7 +114,7 @@
                 <tbody>
                     @foreach($host_pace as $row)
                         <tr>
-                            <td class="mono-figure" data-label="Site">{{ $row['host'] }}</td>
+                            <td class="mono-figure" data-label="Site">{{ \App\Services\DownloadLanes::label($row['host']) }}</td>
                             <td class="mono-figure" data-label="Delay now">{{ $row['range'][0] }}–{{ $row['range'][1] }} s</td>
                             <td class="mono-figure" data-label="Fastest allowed">{{ $row['adaptive'] ? rtrim(rtrim(number_format($row['fastest'], 1), '0'), '.') . ' s' : '—' }}</td>
                             <td class="mono-muted" data-label="Learned floor">

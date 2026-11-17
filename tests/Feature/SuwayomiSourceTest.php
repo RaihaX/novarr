@@ -522,6 +522,8 @@ class SuwayomiSourceTest extends GoldenTestCase
         $fetcher = $this->graphql([
             SuwayomiSource::QUERY_CHAPTER_ID => 'suwayomi/chapter-id.json',
             SuwayomiSource::MUTATION_FETCH_PAGES => 'suwayomi/chapter-pages.json',
+            // The source lookup fails: the novel stays on the server's lane.
+            SuwayomiSource::QUERY_MANGA_SOURCE => 'suwayomi/error.json',
         ], $pages);
 
         $group = new Group();
@@ -558,7 +560,10 @@ class SuwayomiSourceTest extends GoldenTestCase
     public function testARateLimitedServerCoolsItsHostDown(): void
     {
         Storage::fake('manga');
-        $this->graphql([SuwayomiSource::QUERY_CHAPTER_ID => FakeFetcher::fail('rate_limited', 429)]);
+        $this->graphql([
+            SuwayomiSource::QUERY_CHAPTER_ID => FakeFetcher::fail('rate_limited', 429),
+            SuwayomiSource::QUERY_MANGA_SOURCE => 'suwayomi/error.json', // source unknown: the server's lane
+        ]);
         $group = new Group();
         $group->forceFill(['id' => 9100, 'label' => 'Default', 'url' => 'https://novelping.com'])->save();
         $novel = Novel::create(['name' => 'Hajime no Ippo', 'status' => 0, 'group_id' => 9100, 'translator_url' => self::SERIES]);

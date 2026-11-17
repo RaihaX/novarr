@@ -285,10 +285,11 @@ return [
         'min_chapter_words' => 250,
         // 0 = no per-novel cap.
         'max_chapters_per_novel_per_run' => 25,
-        // Must stay below the 150-minute withoutOverlapping() lock on the
-        // scheduled novel:chapter run, or a run can still be going when the
-        // lock expires and a second run starts on top of it.
+        // How long one download-lane run keeps starting chapters (at most
+        // 140); what is left waits for the lane's next run.
         'max_run_minutes' => 100,
+        // Download lanes (one source each) downloading at the same time.
+        'max_parallel_lanes' => 6,
         // Mirrors App\Scraping\NovelUpdatesMatcher::THRESHOLD.
         'novelupdates_match_threshold' => 0.85,
     ],

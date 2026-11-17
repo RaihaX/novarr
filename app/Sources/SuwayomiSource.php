@@ -72,6 +72,15 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover
     public const MUTATION_FETCH_PAGES = 'mutation ($input: FetchChapterPagesInput!) { fetchChapterPages(input: $input) { pages } }';
     public const MUTATION_FETCH_SOURCE_MANGA = 'mutation ($input: FetchSourceMangaInput!) { fetchSourceManga(input: $input) { hasNextPage mangas { id title url thumbnailUrl inLibrary status author genre description } } }';
 
+    /** The Suwayomi source of a manga already on the server (cheap: no fetch from the site). */
+    public const QUERY_MANGA_SOURCE = 'query ($id: Int!) { manga(id: $id) { sourceId source { name } } }';
+
+    /** Download lanes of Suwayomi novels: "suwayomi:{sourceId}" (App\Services\DownloadLanes). */
+    public const LANE_PREFIX = 'suwayomi:';
+
+    /** The source lookup runs while lanes are worked out: short. */
+    public const SOURCE_REF_TIMEOUT = 10;
+
     /**
      * @param ?string $sourceId   the Suwayomi source a Discover entry lists (null: the registered instance)
      * @param ?string $sourceName its name, for the picker label
@@ -502,6 +511,7 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover
         }
 
         $cover = $id > 0 ? self::thumbnailUrl($id) : '';
+        $sourceRef = trim((string) ($manga['sourceId'] ?? ''));
         $metadata = [
             'title' => trim((string) ($manga['title'] ?? '')),
             'description' => self::descriptionHtml((string) ($manga['description'] ?? '')),
@@ -513,6 +523,11 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover
             'reading_mode' => $vertical ? 'vertical' : 'rtl',
         ];
 
+        // The site behind the server: the novel's download lane.
+        if (self::validSourceId($sourceRef)) {
+            $metadata['source_ref'] = $sourceRef;
+        }
+
         $status = strtoupper(trim((string) ($manga['status'] ?? '')));
         if (isset(self::STATUS_TEXT[$status])) {
             $metadata['status_text'] = self::STATUS_TEXT[$status];
@@ -520,6 +535,70 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover
         }
 
         return $metadata;
+    }
+
+    // ---- Download lane ---------------------------------------------------------
+
+    /** Is this a Suwayomi source id (digits only)? Pure. */
+    public static function validSourceId(?string $id): bool
+    {
+        return is_string($id) && preg_match('/^\d{1,20}$/', $id) === 1;
+    }
+
+    /**
+     * Every Suwayomi novel shares the server's host, but each Suwayomi
+     * source is its own site: "suwayomi:{sourceId}" from novels.source_ref.
+     * Null while the source is unknown (DownloadLanes then backfills it with
+     * fetchSourceRef(), or uses the host). No request.
+     */
+    public function downloadLane(Novel $novel): ?string
+    {
+        $ref = $novel->source_ref;
+
+        return self::validSourceId($ref) && $this->matches($novel) ? self::LANE_PREFIX . $ref : null;
+    }
+
+    /**
+     * The Suwayomi source of a series on the server: ['id' => …, 'name' => …],
+     * or null when the server could not say (short timeout, logged). One
+     * cheap query — Suwayomi answers from its own database.
+     *
+     * @return ?array{id: string, name: string}
+     */
+    public function fetchSourceRef(Novel $novel): ?array
+    {
+        $id = self::mangaId($novel->translator_url);
+        if ($id === null) {
+            return null;
+        }
+
+        $data = $this->graphql(self::QUERY_MANGA_SOURCE, ['id' => $id], min(self::SOURCE_REF_TIMEOUT, self::timeout()));
+        $sourceId = trim((string) ($data['manga']['sourceId'] ?? ''));
+        if (!self::validSourceId($sourceId)) {
+            return null;
+        }
+
+        return ['id' => $sourceId, 'name' => trim((string) ($data['manga']['source']['name'] ?? ''))];
+    }
+
+    /**
+     * A source's name from the cached source list only (never a request —
+     * the Activity page and logs use it), else null.
+     */
+    public static function cachedSourceName(string $sourceId): ?string
+    {
+        try {
+            $list = Cache::get(self::sourcesCacheKey());
+        } catch (\Throwable $e) {
+            return null;
+        }
+        foreach (is_array($list) ? $list : [] as $row) {
+            if (($row['id'] ?? null) === $sourceId && ($row['name'] ?? '') !== '') {
+                return (string) $row['name'];
+            }
+        }
+
+        return null;
     }
 
     /** Plain-text description → <p> paragraphs (blank lines split, single newlines kept). Pure. */
@@ -639,7 +718,7 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover
             return $memo['list'];
         }
 
-        $cacheKey = 'suwayomi_sources_v1_' . md5($base);
+        $cacheKey = self::sourcesCacheKey();
         $list = null;
         try {
             $cached = Cache::get($cacheKey);
@@ -666,6 +745,12 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover
         app()->instance($memoKey, ['at' => microtime(true), 'list' => $list]);
 
         return $list;
+    }
+
+    /** Cache key of the server's source list (sourceList()). */
+    public static function sourcesCacheKey(): string
+    {
+        return 'suwayomi_sources_v1_' . md5(self::baseUrl());
     }
 
     /** `sources` nodes → [['id', 'name', 'lang']] (ids digits only, lang lower-cased). Pure. */

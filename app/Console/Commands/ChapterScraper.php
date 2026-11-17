@@ -12,6 +12,8 @@ use App\Mail\NewChapters;
 use App\Scraping\Fetcher;
 use App\Scraping\HostPace;
 use App\Scraping\SourceUnavailable;
+use App\Services\DownloadLanes;
+use App\Services\LaneProcessStarter;
 use App\Services\NovelHealth;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -54,8 +56,8 @@ class ChapterScraper extends Command
     public const NEEDS_REVIEW_ATTEMPTS = \App\NovelChapter::REVIEW_ATTEMPTS;
 
     /** Seconds the per-novel scrape lock is held at most (a killed run frees it after this). */
-    // Longer than the 150-minute scheduler lock, so the sweep (bounded by
-    // max_run_minutes) never outlives it; the lock is released in a finally.
+    // Longer than any lane run (bounded by max_run_minutes, at most 140), so
+    // a sweep never outlives it; the lock is released in a finally.
     // An explicit run has no deadline and can take longer than the TTL
     // (~180 chapters at a 60 s delay), so it renews the lock once half the
     // TTL has passed (renewNovelLock()) and stops if someone else took it.
@@ -75,7 +77,19 @@ class ChapterScraper extends Command
     /** Per-host request pace for this run (resolved in handle()). */
     private ?HostPace $pace = null;
 
-    protected $signature = "novel:chapter {novel=0} {--chapter= : Download a single chapter by its id}";
+    private ?DownloadLanes $lanes = null;
+
+    /**
+     * Download lanes this process holds: lane => {lock, at (when the lock was
+     * last taken, for renewal), mode, started_at, done}.
+     *
+     * @var array<string, object>
+     */
+    private array $heldLanes = [];
+
+    protected $signature = "novel:chapter {novel=0}"
+        . " {--chapter= : Download a single chapter by its id}"
+        . " {--lane=* : Download the due chapters of this download lane (one source); started by the scheduled dispatcher}";
     protected $description = "Scrape new chapters for each novel.";
 
     public function __construct()
@@ -94,6 +108,15 @@ class ChapterScraper extends Command
         return Cache::lock("novel-scrape:{$novelId}", self::NOVEL_LOCK_SECONDS);
     }
 
+    /**
+     * Four modes:
+     *  - `--chapter=ID`: one chapter (the reader's button), outside the lanes;
+     *  - `--lane=L` (repeatable): download the due chapters of those lanes;
+     *    one such process per lane is what the dispatcher starts;
+     *  - `{novel}`: an explicit run of one novel, in its lane;
+     *  - no novel (the schedule): the dispatcher — starts one lane process
+     *    per source with due chapters and returns.
+     */
     public function handle()
     {
         $this->pace = app(HostPace::class);
@@ -102,7 +125,22 @@ class ChapterScraper extends Command
             return $this->scrapeSingleChapter((int) $this->option("chapter"));
         }
 
-        $novelId = $this->argument("novel");
+        $lanes = array_values(array_unique(array_filter(
+            array_map("strval", (array) $this->option("lane")),
+            fn($lane) => trim($lane) !== ""
+        )));
+        if ($lanes !== []) {
+            $newChapters = $this->runLanes($lanes);
+            Log::info("Finished the download lane(s) " . implode(", ", $lanes) . ". Total new chapters: " . count($newChapters));
+            return 0;
+        }
+
+        $novelId = (int) $this->argument("novel");
+        if ($novelId === 0) {
+            $this->dispatchLanes();
+            return 0;
+        }
+
         Log::info("Starting chapter scraping for novel ID: $novelId");
 
         $newChapters = $this->scrapeChapters($novelId);
@@ -111,12 +149,18 @@ class ChapterScraper extends Command
             "Finished chapter scraping. Total new chapters: " .
                 count($newChapters)
         );
+
+        return 0;
     }
 
     /**
      * Download exactly one chapter — used by the reader's "Download this
      * chapter" button on pending chapters. No polite-delay sleep since it's
      * a single user-triggered fetch.
+     *
+     * Deliberately outside the download lanes: it takes no lane lock and
+     * runs even while the novel's source is busy with another download. It
+     * is one fetch the user is waiting for, not a queue.
      */
     private function scrapeSingleChapter(int $chapterId): int
     {
@@ -198,9 +242,13 @@ class ChapterScraper extends Command
         };
     }
 
-    private function scrapeChapters($novelId)
+    /**
+     * Novel ids with pending chapters, oldest successful download first: the
+     * sweep's candidates (due chapters only, paused novels left out) for
+     * $novelId 0, else that one novel (any pending chapter, paused or not).
+     */
+    private function candidateIds(int $novelId)
     {
-        $newChapters = [];
         Log::debug("Building query for novels.");
 
         $query = Novel::where("status", 0)
@@ -230,39 +278,270 @@ class ChapterScraper extends Command
 
         // Snapshot the ids up front: chunking a whereHas(pending) query skips
         // novels as earlier ones drop out of the filter mid-run.
-        $ids = $query
+        return $query
             ->orderBy($lastDownload)
             ->orderBy("updated_at")
             ->orderBy("id")
             ->pluck("id");
+    }
 
-        if ($novelId != 0) {
-            // An explicitly requested novel is neither capped nor cut short,
-            // and keeps the plain sequential fetch-then-wait loop.
-            foreach ($ids as $id) {
-                if ($novel = Novel::find($id)) {
-                    $this->processNovel($novel, $newChapters);
-                }
+    /**
+     * Explicit run of one novel (the novel page's button, the API check):
+     * neither capped nor cut short, the plain sequential fetch-then-wait
+     * loop — inside the novel's download lane. When another download of
+     * that source is running, the run does not wait: it says so and leaves
+     * the chapters to the lane's next sweep (success, not a failure).
+     */
+    private function scrapeChapters(int $novelId): array
+    {
+        $newChapters = [];
+
+        foreach ($this->candidateIds($novelId) as $id) {
+            $novel = Novel::find($id);
+            if (!$novel) {
+                continue;
             }
 
+            $first = $this->pendingChapters($novel, false, 1)->first();
+            $lane = $this->lanes()->laneFor($novel, $first);
+            if (!$this->takeLane($lane, "manual")) {
+                $pending = $novel->chapters()->where("status", 0)->where("blacklist", 0)->count();
+                $what = $pending === 1 ? "1 chapter of {$novel->name} is" : "{$pending} chapters of {$novel->name} are";
+                $line = "Another download from " . DownloadLanes::label($lane) . " is running; {$what} queued and will start when it finishes.";
+                $this->info($line);
+                Log::info("{$line} (lane {$lane}, novel ID {$novel->id})");
+                continue;
+            }
+
+            try {
+                $this->processNovel($novel, $newChapters, $lane);
+            } finally {
+                $this->releaseLanes();
+            }
+        }
+
+        return $newChapters;
+    }
+
+    /**
+     * The scheduled dispatcher: work out which lanes have due chapters (the
+     * sweep's candidates and order, grouped by lane) and start one lane
+     * process for each that is free, at most max_parallel_lanes running at
+     * once — lanes that have waited longest first; the rest wait for the
+     * next tick. Downloads nothing itself and returns quickly.
+     */
+    private function dispatchLanes(): void
+    {
+        $queues = $this->laneQueues($this->sweepOrder($this->candidateIds(0)->all()));
+        if ($queues === []) {
+            $this->info("Nothing is due for download.");
+            Log::info("novel:chapter dispatcher: nothing is due for download.");
+            return;
+        }
+
+        $busy = [];
+        $free = [];
+        foreach (array_keys($queues) as $lane) {
+            $lane = (string) $lane;
+            if (DownloadLanes::busy($lane)) {
+                $busy[] = $lane;
+            } else {
+                $free[] = $lane;
+            }
+        }
+
+        $max = max(1, (int) setting("max_parallel_lanes", config("novarr.defaults.max_parallel_lanes", 6)));
+        $free = DownloadLanes::longestWaitingFirst($free);
+        $start = array_slice($free, 0, max(0, $max - count($busy)));
+        $later = array_slice($free, count($start));
+
+        foreach ($busy as $lane) {
+            $this->line("  " . DownloadLanes::label($lane) . ": already downloading");
+        }
+        foreach ($start as $lane) {
+            $this->info("  " . DownloadLanes::label($lane) . ": starting (" . count($queues[$lane]) . " novel(s) due)");
+            DownloadLanes::markStarted($lane);
+        }
+        foreach ($later as $lane) {
+            $this->line("  " . DownloadLanes::label($lane) . ": waits for a free slot (max {$max} at once)");
+        }
+        Log::info("novel:chapter dispatcher: " . count($start) . " lane(s) started"
+            . ($start ? " (" . implode(", ", $start) . ")" : "")
+            . ", " . count($busy) . " already running, " . count($later) . " waiting for a slot.");
+
+        if ($start !== []) {
+            app(LaneProcessStarter::class)->startAll($start, fn(array $lanes) => $this->runLanes($lanes));
+        }
+    }
+
+    /**
+     * A lane process: take each lane's lock (a lane held elsewhere is left
+     * alone) and sweep the due chapters of those lanes' novels with the
+     * usual cap, deadline, order, pace, cooldown and failure rules. One lane
+     * per process in production; several share one interleaved sweep when
+     * run in-process (tests).
+     *
+     * @param  string[]  $lanes
+     */
+    private function runLanes(array $lanes): array
+    {
+        $newChapters = [];
+
+        $taken = [];
+        foreach ($lanes as $lane) {
+            if ($this->takeLane($lane, "sweep")) {
+                $taken[] = $lane;
+            } else {
+                $this->line("Another download from " . DownloadLanes::label($lane) . " is already running; leaving it to that one.");
+                Log::info("novel:chapter --lane={$lane}: the lane is busy; nothing to do.");
+            }
+        }
+        if ($taken === []) {
             return $newChapters;
         }
 
-        $ids = $this->sweepOrder($ids->all());
+        try {
+            $queues = array_intersect_key(
+                $this->laneQueues($this->sweepOrder($this->candidateIds(0)->all())),
+                array_flip($taken)
+            );
 
-        // Per-novel cap for the sweep so one huge backlog can't hog a run.
-        // <= 0 disables the cap.
-        $cap = (int) setting("max_chapters_per_novel_per_run", 25);
+            // Per-novel cap for the sweep so one huge backlog can't hog a run.
+            // <= 0 disables the cap.
+            $cap = (int) setting("max_chapters_per_novel_per_run", 25);
 
-        // Bound the sweep so it always finishes inside the scheduler mutex
-        // (150 min): what's left goes to the next run, which starts from the
-        // novels that have waited longest. Checked before every chapter.
-        $this->maxRunMinutes = max(0, (int) setting("max_run_minutes", 100));
-        $this->deadlineAt = $this->maxRunMinutes > 0 ? $this->clock() + $this->maxRunMinutes * 60 : null;
+            // Bound the lane run: what's left goes to the next run, which
+            // starts from the novels that have waited longest. Checked
+            // before every chapter.
+            $this->maxRunMinutes = max(0, (int) setting("max_run_minutes", 100));
+            $this->deadlineAt = $this->maxRunMinutes > 0 ? $this->clock() + $this->maxRunMinutes * 60 : null;
 
-        $this->sweep($ids, $cap, $newChapters);
+            $this->sweep($queues, $cap, $newChapters);
+        } finally {
+            $this->releaseLanes();
+        }
 
         return $newChapters;
+    }
+
+    /**
+     * Group the sweep's novels (in order) by download lane: those with a due
+     * chapter, by the lane of the chapter they would fetch first.
+     *
+     * @param  int[]  $ids
+     * @return array<string, int[]>
+     */
+    private function laneQueues(array $ids): array
+    {
+        $queues = [];
+        foreach ($ids as $id) {
+            $novel = Novel::find($id);
+            if (!$novel) {
+                continue;
+            }
+            $first = $this->pendingChapters($novel, true, 1)->first();
+            if (!$first) {
+                continue;
+            }
+            $queues[$this->lanes()->laneFor($novel, $first)][] = (int) $id;
+        }
+
+        return $queues;
+    }
+
+    private function lanes(): DownloadLanes
+    {
+        return $this->lanes ??= app(DownloadLanes::class);
+    }
+
+    /** Take a lane's lock for this process (non-blocking). */
+    private function takeLane(string $lane, string $mode): bool
+    {
+        $lock = DownloadLanes::lock($lane);
+        if (!$lock->get()) {
+            return false;
+        }
+
+        $this->heldLanes[$lane] = (object) [
+            "lock" => $lock,
+            "at" => $this->clock(),
+            "mode" => $mode,
+            "started_at" => now()->toIso8601String(),
+            "done" => 0,
+        ];
+
+        return true;
+    }
+
+    /**
+     * Keep holding a lane before its next chapter: renew the lock once
+     * RENEW_AFTER_SECONDS have passed (release and take it straight back, as
+     * renewNovelLock()). False when it was lost — it lapsed and another
+     * process took the lane — and this process must stop working it.
+     */
+    private function holdLane(string $lane): bool
+    {
+        $held = $this->heldLanes[$lane] ?? null;
+        if ($held === null) {
+            return false;
+        }
+        if ($this->clock() - $held->at <= DownloadLanes::RENEW_AFTER_SECONDS) {
+            return true;
+        }
+
+        $held->lock->release();
+        if ($held->lock->get()) {
+            $held->at = $this->clock();
+            return true;
+        }
+
+        unset($this->heldLanes[$lane]);
+        $this->warn("  Lost the download lane " . DownloadLanes::label($lane) . " to another run — stopping it here");
+        Log::warning("novel:chapter lost the download lane {$lane}: could not renew its lock, another run holds it.");
+
+        return false;
+    }
+
+    /** Release every lane this process holds and clear their Activity state. */
+    private function releaseLanes(): void
+    {
+        foreach ($this->heldLanes as $lane => $held) {
+            DownloadLanes::clearState($lane);
+            try {
+                $held->lock->release();
+            } catch (\Throwable $e) {
+                Log::error("novel:chapter could not release the download lane {$lane}: " . $e->getMessage());
+            }
+        }
+        $this->heldLanes = [];
+    }
+
+    /** Tell the Activity page which chapter a lane is on (once per chapter). */
+    private function noteLaneState(object $run): void
+    {
+        $held = $this->heldLanes[$run->laneKey] ?? null;
+        $next = $run->chapters[$run->index] ?? null;
+        if ($held === null || $next === null) {
+            return;
+        }
+
+        DownloadLanes::putState($run->laneKey, [
+            "novel_id" => (int) $run->novel->id,
+            "novel_name" => (string) $run->novel->name,
+            "chapter_id" => (int) $next->id,
+            "chapter_label" => (string) $next->label,
+            "mode" => $held->mode,
+            "started_at" => $held->started_at,
+            "done_this_run" => $held->done,
+        ]);
+    }
+
+    /** Count a downloaded chapter towards its lane's run. */
+    private function noteLaneDone(object $run, ?array $result): void
+    {
+        if (($result["ok"] ?? false) && isset($this->heldLanes[$run->laneKey])) {
+            $this->heldLanes[$run->laneKey]->done++;
+        }
     }
 
     /**
@@ -341,42 +620,34 @@ class ChapterScraper extends Command
     }
 
     /**
-     * The scheduled sweep. The politeness delay is per host: each host has a
-     * nextAllowedAt, and the loop always works the novel whose host is
-     * ready soonest, so while one host waits out its delay (HostPace: the
-     * adaptive per-host pace, or the plain random min..max) the others are
-     * fetched. The short failure pause across hosts follows only blocking
-     * failures; a content failure (404 / empty) just follows the host pace. Within a host novels run one after another in the
-     * oldest-download-first order of $ids, so per novel every rule of the
-     * sequential loop still holds (cap, backoff, rotation, circuit breaker,
-     * host cooldown at novel start). Single process: it only ever sleeps
-     * until the earliest host is ready.
+     * A lane run's sweep. The politeness delay is per lane (a lane is the
+     * host, or one Suwayomi source — DownloadLanes): each lane has a
+     * nextAllowedAt, and the loop always works the novel whose lane is
+     * ready soonest, so while one lane waits out its delay (HostPace: the
+     * adaptive per-lane pace, or the plain random min..max) the others are
+     * fetched. In production a process works one lane; the interleaving
+     * matters when several lanes share a process. The short failure pause
+     * across lanes follows only blocking failures; a content failure (404 /
+     * empty) just follows the lane pace. Within a lane novels run one after
+     * another in the oldest-download-first order of the queues, so per novel
+     * every rule of the sequential loop still holds (cap, backoff, rotation,
+     * circuit breaker, lane cooldown at novel start). It only ever sleeps
+     * until the earliest lane is ready, and stops working a lane whose lock
+     * it lost.
+     *
+     * @param  array<string, int[]>  $queues  lane => novel ids, in the run's order
      */
-    private function sweep($ids, int $cap, array &$newChapters): void
+    private function sweep(array $queues, int $cap, array &$newChapters): void
     {
-        // host => novel ids still to start, in the run's order.
-        $queues = [];
-        foreach ($ids as $id) {
-            $novel = Novel::find($id);
-            if (!$novel) {
-                continue;
-            }
-            $first = $this->pendingChapters($novel, true, 1)->first();
-            if (!$first) {
-                continue;
-            }
-            $queues[self::chapterHost($first, $novel) ?? ""][] = $id;
-        }
-
         $failureDelay = self::failureDelaySeconds((int) setting("scrape_min_delay", 30));
 
-        $current = [];       // host => run state of the novel being worked
-        $nextAllowedAt = []; // host => earliest time of its next request
-        $notBefore = 0.0;    // the failure pause, across hosts
+        $current = [];       // lane => run state of the novel being worked
+        $nextAllowedAt = []; // lane => earliest time of its next request
+        $notBefore = 0.0;    // the failure pause, across lanes
 
         try {
             while (true) {
-                $host = null;
+                $host = null; // the lane picked next
                 $readyAt = INF;
                 foreach ($queues as $h => $queue) {
                     if (!isset($current[$h]) && $queue === []) {
@@ -384,13 +655,14 @@ class ChapterScraper extends Command
                     }
                     $at = max($nextAllowedAt[$h] ?? 0.0, $notBefore);
                     if ($at < $readyAt) {
-                        $host = $h;
+                        $host = (string) $h;
                         $readyAt = $at;
                     }
                 }
                 if ($host === null) {
                     break;
                 }
+                $paceKey = $host !== DownloadLanes::NO_HOST ? $host : null;
 
                 if ($this->pastDeadline()) {
                     $this->stopAtDeadline($current);
@@ -400,7 +672,7 @@ class ChapterScraper extends Command
                 // Starting (or skipping) a novel makes no request: no wait.
                 if (!isset($current[$host])) {
                     $novel = Novel::find(array_shift($queues[$host]));
-                    if ($novel && ($run = $this->startNovel($novel, true, $cap))) {
+                    if ($novel && ($run = $this->startNovel($novel, true, $cap, $host))) {
                         $current[$host] = $run;
                     }
                     continue;
@@ -432,7 +704,7 @@ class ChapterScraper extends Command
                         break;
                     }
                     $wait = (int) ceil($readyAt - $now);
-                    Log::info("Waiting {$wait} seconds before the next chapter" . ($host !== "" ? " ({$host})" : "") . "...");
+                    Log::info("Waiting {$wait} seconds before the next chapter" . ($paceKey !== null ? " ({$run->label})" : "") . "...");
                     $this->info("  Waiting {$wait} seconds before next chapter...");
                     $this->pause($wait);
 
@@ -442,15 +714,27 @@ class ChapterScraper extends Command
                     }
                 }
 
+                // The lane lock lapsed and someone else has the lane now:
+                // leave its remaining novels to that run.
+                if (!$this->holdLane($run->laneKey)) {
+                    $run->done = true;
+                    $this->finishNovel($run);
+                    unset($current[$host]);
+                    $queues[$host] = [];
+                    continue;
+                }
+                $this->noteLaneState($run);
+
                 try {
                     $result = $this->step($run, $newChapters);
                 } catch (\Throwable $e) {
                     $this->handleNovelException($run, $e);
                     $result = null;
                     // The throw may have come after the request was sent:
-                    // the host still gets its politeness delay.
-                    $nextAllowedAt[$host] = $this->clock() + $this->hostPace()->delay($host !== "" ? $host : null);
+                    // the lane still gets its politeness delay.
+                    $nextAllowedAt[$host] = $this->clock() + $this->hostPace()->delay($paceKey);
                 }
+                $this->noteLaneDone($run, $result);
 
                 if ($result === null) {
                     $this->finishNovel($run);
@@ -459,7 +743,7 @@ class ChapterScraper extends Command
                 }
 
                 if ($result["fetched"]) {
-                    $nextAllowedAt[$host] = $this->clock() + $this->hostPace()->delay($host !== "" ? $host : null);
+                    $nextAllowedAt[$host] = $this->clock() + $this->hostPace()->delay($paceKey);
                     if (!$result["ok"] && self::isBlockingFailure($result["category"])
                         && $failureDelay > 0 && !self::circuitOpen($run->consecutiveBlocked)) {
                         $notBefore = $this->clock() + $failureDelay;
@@ -473,21 +757,27 @@ class ChapterScraper extends Command
         }
     }
 
-    /** Explicit single-novel run: fetch, wait, fetch… with no deadline. */
-    private function processNovel($novel, &$newChapters)
+    /**
+     * Explicit single-novel run: fetch, wait, fetch… with no deadline, in
+     * $lane (whose lock the caller holds).
+     */
+    private function processNovel($novel, &$newChapters, string $lane)
     {
-        $run = $this->startNovel($novel, false, 0);
+        $run = $this->startNovel($novel, false, 0, $lane);
         if ($run === null) {
             return;
         }
 
         try {
             while (true) {
-                // Same host-cooldown rule as at the start of the run.
-                if ($this->hostCooledDownMidRun($run) || !$this->renewNovelLock($run)) {
+                // Same lane-cooldown rule as at the start of the run.
+                if ($this->hostCooledDownMidRun($run) || !$this->renewNovelLock($run) || !$this->holdLane($run->laneKey)) {
                     break;
                 }
-                if (($result = $this->step($run, $newChapters)) === null) {
+                $this->noteLaneState($run);
+                $result = $this->step($run, $newChapters);
+                $this->noteLaneDone($run, $result);
+                if ($result === null) {
                     break;
                 }
                 if (!$result["fetched"]) {
@@ -500,11 +790,11 @@ class ChapterScraper extends Command
                     continue;
                 }
 
-                // Polite delay before the next chapter: the host's pace
+                // Polite delay before the next chapter: the lane's pace
                 // (HostPace; the plain random min..max with adaptive off).
                 // A content failure (404 / empty) follows the same pace; a
                 // blocking failure waits at least the failure pause.
-                $delay = $this->hostPace()->delay($run->host);
+                $delay = $this->hostPace()->delay($run->lane);
                 if ($blocking) {
                     $delay = max($delay, self::failureDelaySeconds((int) setting('scrape_min_delay', 30)));
                 }
@@ -522,11 +812,15 @@ class ChapterScraper extends Command
     }
 
     /**
-     * Take the novel's lock, load its pending chapters and check the host
+     * Take the novel's lock, load its pending chapters and check the lane
      * cooldown. Returns the run state, or null when the novel is skipped
-     * this run (lock held elsewhere, host cooling down, or an error).
+     * this run (lock held elsewhere, lane cooling down, or an error).
+     *
+     * $lane is the novel's download lane (DownloadLanes), the key of its
+     * pace, cooldown and failure count; for every source but Suwayomi it is
+     * the chapter host. Null: the chapter host.
      */
-    private function startNovel(Novel $novel, bool $sweep, int $cap): ?object
+    private function startNovel(Novel $novel, bool $sweep, int $cap, ?string $lane = null): ?object
     {
         $lock = self::novelLock((int) $novel->id);
         if (!$lock->get()) {
@@ -540,13 +834,16 @@ class ChapterScraper extends Command
             // downloaded meanwhile aren't fetched again.
             $novel->setRelation("chapters", $this->pendingChapters($novel, $sweep, $cap));
 
-            // Another novel on this host just hit a Cloudflare wall or a rate
+            // Another novel on this lane just hit a Cloudflare wall or a rate
             // limit — don't keep hammering it. Not counted as a failed run
             // (nothing was attempted).
             $host = self::novelHost($novel);
-            if ($host !== null && self::hostCoolingDown($host)) {
-                $this->warn("Skipping {$novel->name}: {$host} is cooling down after a Cloudflare challenge, rate limit or repeated failed fetches");
-                Log::warning("Skipping {$novel->name}: host {$host} is in a cooldown");
+            $laneKey = $lane ?? $host ?? DownloadLanes::NO_HOST;
+            $paceKey = $laneKey !== DownloadLanes::NO_HOST ? $laneKey : null;
+            $label = DownloadLanes::label($laneKey);
+            if ($paceKey !== null && self::hostCoolingDown($paceKey)) {
+                $this->warn("Skipping {$novel->name}: {$label} is cooling down after a Cloudflare challenge, rate limit or repeated failed fetches");
+                Log::warning("Skipping {$novel->name}: host {$label} is in a cooldown");
                 $lock->release();
                 return null;
             }
@@ -561,7 +858,13 @@ class ChapterScraper extends Command
 
         return (object) [
             "novel" => $novel,
+            // The real host (Retry-After, the "listed on …" message) …
             "host" => $host,
+            // … and the lane: the key of pace, cooldown and failure count
+            // (null without a host), its lock key and its display name.
+            "lane" => $paceKey,
+            "laneKey" => $laneKey,
+            "label" => $label,
             "lock" => $lock,
             "chapters" => $novel->chapters->values()->all(),
             "index" => 0,
@@ -688,7 +991,7 @@ class ChapterScraper extends Command
         $run->current = $item;
         $stats = &$run->stats;
         $minWords = $run->minWords;
-        $host = $run->host;
+        $lane = $run->lane;
 
         // chapterGenerator reads $chapter->novel; share the loaded model
         // instead of lazy-loading it once per chapter.
@@ -760,10 +1063,10 @@ class ChapterScraper extends Command
                 self::chapterKind($item->label, $wordCount, $minWords, $description)
             );
             $run->current = null;
-            if ($host !== null) {
-                Cache::forget(self::hostFailuresKey($host));
+            if ($lane !== null) {
+                Cache::forget(self::hostFailuresKey($lane));
             }
-            $this->hostPace()->record($host, null);
+            $this->hostPace()->record($lane, null);
             // A chapter the source had stopped serving is back: release the
             // novel's parked chapters now instead of at the next re-check. A
             // brand-new chapter downloading says nothing about the dead ones,
@@ -801,14 +1104,14 @@ class ChapterScraper extends Command
     private function failStep(object $run, \App\NovelChapter $item, string $category, ?int $wordCount, string $errorLine, string $logLine): array
     {
         $stats = &$run->stats;
-        $host = $run->host;
+        $lane = $run->lane;
 
         $attempts = self::recordFailure($item, $category);
         $run->current = null;
         $run->consecutiveBlocked = self::isBlockingFailure($category) ? $run->consecutiveBlocked + 1 : 0;
         // Any other result between two content failures breaks the run.
         $run->consecutiveContent = SourceUnavailable::isContentFailure($category) ? $run->consecutiveContent + 1 : 0;
-        $this->hostPace()->record($host, $category);
+        $this->hostPace()->record($lane, $category);
 
         if (self::isNeedsReview($attempts)) {
             // A long-dead chapter: retried on the slow cadence but kept out
@@ -821,8 +1124,8 @@ class ChapterScraper extends Command
             $stats[$category] = ($stats[$category] ?? 0) + 1;
         }
 
-        if ($host !== null) {
-            $this->noteHostFailure($host, $category);
+        if ($lane !== null) {
+            $this->noteHostFailure($lane, $category, $run->host);
         }
 
         if ($category === "short_content" && $wordCount !== null) {
@@ -857,7 +1160,7 @@ class ChapterScraper extends Command
     private function stepManga(object $run, \App\NovelChapter $item, array &$newChapters): array
     {
         $novel = $run->novel;
-        $host = $run->host;
+        $lane = $run->lane;
 
         $result = $this->downloadChapterPages($item);
 
@@ -873,10 +1176,10 @@ class ChapterScraper extends Command
             $wasUnavailable = SourceUnavailable::isContentFailure($item->last_failure_reason);
             $this->updateMangaChapter($item, $result->pages);
             $run->current = null;
-            if ($host !== null) {
-                Cache::forget(self::hostFailuresKey($host));
+            if ($lane !== null) {
+                Cache::forget(self::hostFailuresKey($lane));
             }
-            $this->hostPace()->record($host, null);
+            $this->hostPace()->record($lane, null);
             if ($wasUnavailable) {
                 SourceUnavailable::release($novel);
             }
@@ -941,45 +1244,52 @@ class ChapterScraper extends Command
     }
 
     /**
-     * Host-wide failure handling: a Cloudflare challenge or a rate limit
-     * cools the host down at once (a rate limit for its Retry-After, when
+     * Lane-wide failure handling: a Cloudflare challenge or a rate limit
+     * cools the lane down at once (a rate limit for its Retry-After, when
      * given); fetch_failed does so after HOST_FAILURE_THRESHOLD in a row on
-     * that host, counted across novels and runs.
+     * that lane, counted across novels and runs. The lane is the host for
+     * every source but Suwayomi, where it is one site behind the server.
+     * $host is the real host the Retry-After was recorded under.
      */
-    private function noteHostFailure(string $host, string $category): void
+    private function noteHostFailure(string $lane, string $category, ?string $host = null): void
     {
         if ($category === "cloudflare") {
-            self::coolDownHost($host, self::HOST_COOLDOWN_MINUTES * 60, "Cloudflare challenge");
+            self::coolDownHost($lane, self::HOST_COOLDOWN_MINUTES * 60, "Cloudflare challenge");
             return;
         }
 
         if ($category === "rate_limited") {
-            $seconds = Fetcher::pullRetryAfter($host) ?? self::HOST_COOLDOWN_MINUTES * 60;
-            self::coolDownHost($host, $seconds, "rate limit (HTTP 429/503)");
+            $seconds = Fetcher::pullRetryAfter($host ?? $lane) ?? self::HOST_COOLDOWN_MINUTES * 60;
+            self::coolDownHost($lane, $seconds, "rate limit (HTTP 429/503)");
             return;
         }
 
         if ($category === "fetch_failed") {
-            $key = self::hostFailuresKey($host);
+            $key = self::hostFailuresKey($lane);
             $count = (int) Cache::get($key, 0) + 1;
             if ($count >= self::HOST_FAILURE_THRESHOLD) {
                 Cache::forget($key);
-                self::coolDownHost($host, self::HOST_COOLDOWN_MINUTES * 60, "{$count} failed fetches in a row");
+                self::coolDownHost($lane, self::HOST_COOLDOWN_MINUTES * 60, "{$count} failed fetches in a row");
             } else {
                 Cache::put($key, $count, now()->addDay());
             }
         }
     }
 
-    private static function coolDownHost(string $host, int $seconds, string $why): void
+    /**
+     * Cool a lane down. The value is the expiry's Unix time (truthy, like
+     * the plain `true` it used to be) so the Activity page can say until when.
+     */
+    private static function coolDownHost(string $lane, int $seconds, string $why): void
     {
         if ($seconds <= 0) {
             return;
         }
 
-        Cache::put(self::hostCooldownKey($host), true, now()->addSeconds($seconds));
+        $until = now()->addSeconds($seconds);
+        Cache::put(self::hostCooldownKey($lane), $until->getTimestamp(), $until);
         $minutes = (int) ceil($seconds / 60);
-        Log::warning("{$why} from {$host}; skipping novels on it for {$minutes} minute(s).");
+        Log::warning("{$why} from " . DownloadLanes::label($lane) . "; skipping novels on it for {$minutes} minute(s).");
     }
 
     /**
@@ -1022,12 +1332,12 @@ class ChapterScraper extends Command
      */
     private function hostCooledDownMidRun(object $run): bool
     {
-        if ($run->host === null || !$this->hasNextChapter($run) || !self::hostCoolingDown($run->host)) {
+        if ($run->lane === null || !$this->hasNextChapter($run) || !self::hostCoolingDown($run->lane)) {
             return false;
         }
 
-        $this->warn("  {$run->host} is cooling down — stopping {$run->novel->name} for this run");
-        Log::warning("Stopping {$run->novel->name} mid-run: host {$run->host} went into a cooldown; remaining chapters wait for the next run.");
+        $this->warn("  {$run->label} is cooling down — stopping {$run->novel->name} for this run");
+        Log::warning("Stopping {$run->novel->name} mid-run: host {$run->label} went into a cooldown; remaining chapters wait for the next run.");
         $run->done = true;
 
         return true;
@@ -1233,10 +1543,7 @@ class ChapterScraper extends Command
     /** Host of a chapter's resolved source URL (the novel's group URL without one). */
     private static function chapterHost($chapter, $novel): ?string
     {
-        $url = $chapter ? (string) chapterSourceUrl($chapter) : (string) ($novel->group->url ?? "");
-        $host = parse_url($url, PHP_URL_HOST);
-
-        return is_string($host) && $host !== "" ? strtolower($host) : null;
+        return DownloadLanes::hostOf($chapter, $novel);
     }
 
     /**

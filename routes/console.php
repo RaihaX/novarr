@@ -101,11 +101,16 @@ $oneServer(Schedule::command('novel:toc --frequent-only')
     ->withoutOverlapping(90)
     ->runInBackground());
 
-// Download any pending chapters found by the TOC check.
+// Download any pending chapters found by the TOC check. This is the
+// dispatcher: it starts one detached `novel:chapter --lane=…` process per
+// source with due chapters (one download per source at a time, sources in
+// parallel — App\Services\DownloadLanes) and returns within seconds, so
+// its mutex is short and it runs often enough to pick up a freed source
+// soon. Each lane process guards itself with its lane lock.
 $oneServer(Schedule::command('novel:chapter')
-    ->everyTenMinutes()
+    ->everyFiveMinutes()
     ->name('download_new_chapters')
-    ->withoutOverlapping(150)
+    ->withoutOverlapping(10)
     ->runInBackground());
 
 // Verify novels against NovelUpdates and mark fully-downloaded completed series.

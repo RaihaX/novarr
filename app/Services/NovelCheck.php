@@ -174,7 +174,7 @@ class NovelCheck
             return array_merge($record, [
                 'status' => $ok ? 'done' : 'failed',
                 'finished_at' => $chapters['completed_at'] ?? now()->toIso8601String(),
-                'message' => $ok ? null : static::failureMessage($chapters),
+                'message' => $ok ? static::queuedMessage($chapters) : static::failureMessage($chapters),
             ]);
         }
 
@@ -193,6 +193,18 @@ class NovelCheck
     public static function chapterCount(int $novelId): int
     {
         return NovelChapter::where('novel_id', $novelId)->where('blacklist', 0)->count();
+    }
+
+    /**
+     * A download that did not start because another download from the same
+     * source was running (ChapterScraper's lanes): the command succeeded and
+     * its chapters wait in the queue — that sentence, else null.
+     */
+    public static function queuedMessage(array $result): ?string
+    {
+        return preg_match('/^.*Another download from .+ is running; .+ queued and will start when it finishes\.$/m', (string) ($result['output'] ?? ''), $m)
+            ? trim($m[0])
+            : null;
     }
 
     /** One plain sentence from a RunNovelCommand failure result. */
