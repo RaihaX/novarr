@@ -1,6 +1,7 @@
 --[[--
 Reading info shown in the reader's status bar and on the Novel/Home
-screens: chapters left, reading time left, clock. Pure Lua (unit tested).
+screens: chapters left, reading time left, clock, whether the reading
+position has reached the server. Pure Lua (unit tested).
 
 Time per chapter is measured on this device: active reading seconds per
 finished chapter (gaps between page turns over 5 minutes and time while
@@ -160,9 +161,10 @@ end
 
 --[[--
 Status-line parts for "15:13 · ch 969 of 1,147 · 178 left · 9 h left".
-Returns a list of {key, text}; keys: clock, ch, of, left, time.
+Returns a list of {key, text}; keys: clock, ch, of, left, time, then the
+optional sync part (see syncPart) last.
 ]]
-function ReadingInfo.statusParts(clock, n, m, chapters_left, seconds_left)
+function ReadingInfo.statusParts(clock, n, m, chapters_left, seconds_left, sync_part)
     local parts = {}
     if clock then table.insert(parts, { key = "clock", text = clock }) end
     if n then
@@ -174,7 +176,43 @@ function ReadingInfo.statusParts(clock, n, m, chapters_left, seconds_left)
     end
     local d = ReadingInfo.formatDuration(seconds_left)
     if d then table.insert(parts, { key = "time", text = string.format(_("%s left"), d) }) end
+    if sync_part and sync_part.text then table.insert(parts, sync_part) end
     return parts
+end
+
+--[[--
+The sync item of the status line. state = {queue (writes waiting),
+chapters (finished chapters among them), last_sync_at (os.time() of the
+last flush that emptied the queue, or nil)}; now: os.time(). Returns
+{key, text} or nil:
+  * writes waiting: "3 ch not synced" (finished chapters waiting) or
+    "not synced" (key "unsynced", never dropped to fit the width);
+  * nothing waiting: "synced just now" / "synced N min ago" / "synced N h
+    ago" (under 48 h) / "synced N d ago" (key "sync"); nil when no sync is
+    known yet.
+]]
+function ReadingInfo.syncPart(state, now)
+    if type(state) ~= "table" then return nil end
+    local queue = tonumber(state.queue) or 0
+    if queue > 0 then
+        local chapters = tonumber(state.chapters) or 0
+        if chapters > 0 then
+            return { key = "unsynced", text = string.format(_("%d ch not synced"), chapters) }
+        end
+        return { key = "unsynced", text = _("not synced") }
+    end
+    local at = tonumber(state.last_sync_at)
+    if not at then return nil end
+    -- A time in the future (the clock was changed) counts as just now.
+    local ago = math.max(0, (tonumber(now) or at) - at)
+    if ago < 60 then
+        return { key = "sync", text = _("synced just now") }
+    elseif ago < 3600 then
+        return { key = "sync", text = string.format(_("synced %d min ago"), math.floor(ago / 60)) }
+    elseif ago < 48 * 3600 then
+        return { key = "sync", text = string.format(_("synced %d h ago"), math.floor(ago / 3600)) }
+    end
+    return { key = "sync", text = string.format(_("synced %d d ago"), math.floor(ago / 86400)) }
 end
 
 -- "ch 969" and "of 1,147" are joined with a space, everything else with " · ".
@@ -190,7 +228,8 @@ end
 
 --[[--
 Fits the status line into `budget` pixels (measure(text) -> pixels): drops
-"of M" first, then the clock. Returns the text (nil when empty).
+"of M" first, then "synced ... ago", then the clock ("not synced" stays).
+Returns the text (nil when empty).
 ]]
 function ReadingInfo.fitStatus(parts, measure, budget)
     local function without(key)
@@ -201,6 +240,9 @@ function ReadingInfo.fitStatus(parts, measure, budget)
     local text = ReadingInfo.joinParts(parts)
     if not text or not budget or not measure or measure(text) <= budget then return text end
     parts = without("of")
+    text = ReadingInfo.joinParts(parts)
+    if not text or measure(text) <= budget then return text end
+    parts = without("sync")
     text = ReadingInfo.joinParts(parts)
     if not text or measure(text) <= budget then return text end
     parts = without("clock")

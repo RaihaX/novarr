@@ -21,11 +21,19 @@ Off, when every one of these holds (Wi-Fi on, chapters to fetch ahead not Off):
 On, only while Wi-Fi is off *because Novarr switched it off* (the reader
 needing a chapter that is not stored, and user actions, switch it on at
 once through wifi.lua's restore(), under the same "off by Novarr" rule):
+  * a sync is due (s.sync_due: woken up, or no page turned for 3 minutes)
+    and writes are queued: the reading position reaches the server soon,
+    not only after SYNC_AFTER chapters;
   * >= SYNC_AFTER chapters finished and not yet sent;
   * chapters stored ahead <= the low-water mark (25 % of the target, at
     least 10), unless the last window ended with nothing more to fetch
     (then only after EXHAUSTED_RECHECK_MS);
-  the last two not while a connect failure backs off (1, 5, 15 min).
+  none of these while a connect failure backs off (1, 5, 15 min).
+
+Going to sleep (wifi.lua's sleepSync) is not decided here: the queue is sent
+at once when connected, and on devices that keep Wi-Fi up into sleep (Kindle)
+Novarr's own switched-off Wi-Fi is switched on for at most
+SLEEP_SYNC_TIMEOUT_MS just to send it, then off again.
 
 Hysteresis comes from the two thresholds: switched on at the low-water mark,
 the buffer must be full again before the off condition holds.
@@ -45,6 +53,7 @@ WifiPolicy.STALL_IDLE_MS = 60 * 1000         -- ... and nothing gained for this 
 WifiPolicy.CONNECT_TIMEOUT_MS = 60 * 1000
 WifiPolicy.BACKOFF_S = { 60, 5 * 60, 15 * 60 }
 WifiPolicy.EXHAUSTED_RECHECK_MS = 6 * 3600 * 1000
+WifiPolicy.SLEEP_SYNC_TIMEOUT_MS = 20 * 1000 -- going to sleep: give up sending after this
 
 --- The low-water mark for a prefetch target (0 when prefetching is off).
 function WifiPolicy.lowWater(target)
@@ -68,6 +77,7 @@ function WifiPolicy.durations(scale)
         stall_idle = WifiPolicy.STALL_IDLE_MS * scale,
         connect_timeout = WifiPolicy.CONNECT_TIMEOUT_MS * scale,
         exhausted_recheck = WifiPolicy.EXHAUSTED_RECHECK_MS * scale,
+        sleep_sync_timeout = WifiPolicy.SLEEP_SYNC_TIMEOUT_MS * scale,
     }
 end
 
@@ -94,6 +104,7 @@ s (snapshot):
     off_by_novarr             Wi-Fi is off because Novarr switched it off
     on_by_novarr              Novarr switched it on in this window
     queue, finished_unsynced  queued writes, chapters finished not yet sent
+    sync_due                  why the queue should be sent soon ("woke up", "idle") or nil
     target, ahead, missing, has_list, list_refreshed, fill_blocked
     busy                      a user-started network action is running
     now, on_since, last_progress   ms
@@ -143,6 +154,9 @@ function WifiPolicy.decide(s)
     if not s.managing then return "nothing", "no Novarr chapter open" end
     if s.backoff_until and now < s.backoff_until then
         return "nothing", "waiting " .. math.ceil((s.backoff_until - now) / 1000) .. " s after a failed connection"
+    end
+    if s.sync_due and (s.queue or 0) > 0 then
+        return "on", "unsent reading position (" .. tostring(s.sync_due) .. ")"
     end
     if (s.finished_unsynced or 0) >= WifiPolicy.SYNC_AFTER then
         return "on", string.format("%d chapters read since the last sync", s.finished_unsynced)

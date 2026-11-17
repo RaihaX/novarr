@@ -119,6 +119,13 @@ from the length of the chapters (about 250 words a minute) and, once you have fi
 three chapters, uses how long you actually take (pauses longer than 5 minutes and
 time asleep don't count). Both items can be switched off in Novarr's settings.
 
+At the end of the line Novarr shows whether your reading has reached the server:
+"not synced" (or "3 ch not synced" when finished chapters are waiting) until it is
+sent, then "synced just now", "synced 12 min ago", "synced 2 h ago" and so on. It
+changes to "synced just now" as soon as something is sent, without a page turn. On a
+narrow screen "synced …" goes before the time does; "not synced" always stays. Switch
+it off with *Show sync status in the status bar* in Settings.
+
 When the device sleeps, the screen shows the cover of the novel you are reading, the
 way a Kindle does with its own books. The plugin gives each chapter the novel's cover
 and, the first time, switches KOReader's sleep screen from the "Sleeping" message to
@@ -230,7 +237,9 @@ it stays 20; the old default of 20 becomes 100.
 Offline, every screen shows what was last loaded (with a small "Offline — showing
 saved data" line), saved chapters open as usual, and what you read is remembered
 and sent to the server the next time there is a connection (or when you tap
-**Sync**). Novarr only switches Wi-Fi on by itself when it switched it off itself
+**Sync**). When there is a connection, where you are in a chapter is also sent when
+the device goes to sleep, when it wakes up and after 3 minutes without a page turn, so
+your other devices pick up where you stopped. Novarr only switches Wi-Fi on by itself when it switched it off itself
 (see below); otherwise, when *you* open Novarr or download something, KOReader asks
 to turn Wi-Fi on as it does for its other tools.
 
@@ -245,13 +254,22 @@ happen: no message, and the status line stays the same.
 
 Wi-Fi comes back **by itself**, without asking, when about 25 chapters are left
 (a quarter of the chapters saved ahead), after 20 chapters read (to send them to
-the server), when you reach a chapter that isn't saved, or when you open Novarr
-Home or another Novarr screen that needs the server. It then sends your reading,
+the server), when you wake the device or stop turning pages for 3 minutes while
+where you are hasn't been sent yet, when you reach a chapter that isn't saved, or
+when you open Novarr Home or another Novarr screen that needs the server. It then sends your reading,
 looks for new chapters, saves chapters up to 100 ahead again and switches off
 again. Turning Wi-Fi on takes a few seconds on a Kindle; you keep reading
 meanwhile (if you are waiting for the next chapter you may see "Getting the next
 chapter…"). If it can't connect, it tries again quietly after 1, 5 and then 15
 minutes.
+
+When the device goes to sleep, Novarr sends where you are first. If Wi-Fi is on, that
+happens at once. If Novarr had switched it off, on a Kindle it switches Wi-Fi on for a
+few seconds (at most 20) just to send it, and off again, while the sleep screen is
+already showing. This is best effort: a Kindle goes fully to sleep after a few seconds
+and nothing can hold it back, so if it doesn't make it, it is sent when you wake the
+device. Other e-readers switch Wi-Fi off themselves before sleeping, so there it is
+only sent when Wi-Fi was still on.
 
 Novarr only ever switches back on a Wi-Fi that *it* switched off. If you switch
 Wi-Fi off yourself (KOReader's menu), it stays off until you switch it on. If you
@@ -320,7 +338,8 @@ through Novarr is the way that stays up to date and in sync.
 - **Remove chapters after reading (keeps the last 2)** (on).
 - **Mark chapter read at its end** (on).
 - **Join chapters for smooth page turns** (on).
-- **Show reading info in the status bar** (on) and **Show clock while reading** (on).
+- **Show reading info in the status bar** (on), **Show clock while reading** (on) and
+  **Show sync status in the status bar** (on; part of the reading info line).
 - **Show covers** (on).
 - **Keep font and layout from chapter to chapter** (on).
 - **Open Novarr when KOReader starts** (on).
@@ -334,7 +353,7 @@ through Novarr is the way that stays up to date and in sync.
 
 Your Novarr server carries the latest plugin, so after the first install you don't
 need the USB cable again. In Novarr ▸ **Settings**, tap the last row (on the second Settings page),
-**Novarr plugin 1.5.0 — check for update** (with your version). Novarr asks the server and either says
+**Novarr plugin 1.6.0 — check for update** (with your version). Novarr asks the server and either says
 "Novarr is up to date" or shows the new version with **Install update**. A window shows
 the download ("Downloading update… 12 of 27") with a Cancel button. When it is done,
 choose **Restart now** (or **Later**: the new version is used the next time KOReader
@@ -349,14 +368,14 @@ Novarr also looks for an update by itself, at most once a day, when Home loads a
 device is already on Wi-Fi, or while you read before it switches Wi-Fi off (it never
 turns Wi-Fi on for this and never interrupts you).
 When there is one, Home's button reads **Settings •** and the last Settings row reads
-**Update available (1.6.0) — tap to install** (with the new version). Switch this off with *Check for plugin
+**Update available (1.7.0) — tap to install** (with the new version). Switch this off with *Check for plugin
 updates automatically* in Settings.
 
 With **Install plugin updates automatically** switched on (it is off unless you switch
 it on), Novarr installs such an update by itself: only while Novarr Home is on screen
 with no book open, the device already on Wi-Fi (it never turns Wi-Fi on for this) and
 nothing tapped for 30 seconds. It downloads and checks the update exactly as above, just
-without the progress window, then asks once: "Novarr was updated to 1.6.0" with
+without the progress window, then asks once: "Novarr was updated to 1.7.0" with
 **Restart now** or **Later**; it never restarts KOReader by itself. If the update can't
 be installed nothing changes, nothing is shown, and it is tried again the next day at the
 earliest (you can still install it from Settings).
@@ -397,7 +416,8 @@ there too). To remove the plugin completely, delete `koreader/plugins/novarr.kop
   the server"**: the server knows the chapter exists but has no text for it yet. Wait
   for Novarr to download it (see the novel's page on the website).
 - **Changes not showing on the website**: tap **Sync** on the Home screen. The
-  number in brackets is how many changes are still waiting.
+  number in brackets is how many changes are still waiting; while reading, the status
+  bar says "not synced" until they are sent.
 - **The status bar doesn't show the reading info**: the status bar may be switched
   off (Settings ▸ Status bar), or you tapped it over to another item: keep tapping the
   bottom of the page until the Novarr line comes round again.

@@ -51,6 +51,7 @@ local DEFAULTS = {
     mark_read_at_end = true,
     show_reading_info = true,
     show_clock = true,
+    show_sync_status = true,
     show_covers = true,
     open_on_start = true,
     keep_style = true,
@@ -549,13 +550,41 @@ end
 
 -- ---------------------------------------------------------------- sync
 
---- Sends pending writes now (no UI). Returns the summary.
+--[[--
+Sends pending writes now (no UI). Returns the summary. A flush that sent
+something and emptied the queue is the last sync (last_sync_at, os.time(),
+for the status line); the status line is redrawn when something was sent
+while a chapter is open.
+]]
 function Session:flushQueue(max_entries)
     if self.queue:count() == 0 then
         return { sent = 0, dropped = 0, remaining = 0 }
     end
-    return Sync.flush({ api = self.api, queue = self.queue, store = self.store, now = nowMs, log = log,
+    local r = Sync.flush({ api = self.api, queue = self.queue, store = self.store, now = nowMs, log = log,
         max_entries = max_entries, on_sent = function(entry, data) self:writeSent(entry, data) end })
+    local done = (r.sent or 0) + (r.dropped or 0)
+    if done > 0 then
+        if (r.remaining or 0) == 0 then self:set("last_sync_at", os.time()) end
+        local reader = self.reader
+        local Reading = package.loaded["novarr.reading"]
+        if reader and reader.reading and type(Reading) == "table" and Reading.refreshFooter then
+            pcall(Reading.refreshFooter, reader)
+        end
+    end
+    return r
+end
+
+--[[--
+What the status line says about syncing: {queue = writes waiting, chapters =
+finished chapters among them, last_sync_at = os.time() of the last complete
+sync or nil}.
+]]
+function Session:syncState()
+    local chapters = 0
+    for _i, e in ipairs(self.queue:list()) do
+        if (e.kind == "progress" or e.kind == "set_read") and e.read == true then chapters = chapters + 1 end
+    end
+    return { queue = self.queue:count(), chapters = chapters, last_sync_at = tonumber(self:get("last_sync_at")) }
 end
 
 -- A queued write reached the server: highlights keep the server's id (to delete them later).
@@ -1331,6 +1360,7 @@ function Session:setServer(url)
         self.store:clearStats()
         self.store:clearHighlightMap()
         self.queue:clear()
+        self:unset("last_sync_at")
         for _i, novel_id in ipairs(self.store:novelsWithDownloads()) do
             self:removeNovelDownloads(novel_id)
         end
