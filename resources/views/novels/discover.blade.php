@@ -81,23 +81,95 @@
         hiddenEl.classList.toggle('d-none', !(count > 0));
     }
 
-    // Client-side reveal: the browse endpoint returns every result at once
-    // (up to 40); render them PAGE_SIZE at a time behind "Load more".
+    // Client-side reveal: the browse endpoint returns one page of a list
+    // (up to 40); render it PAGE_SIZE at a time behind "Load more". Once
+    // it is all shown and the source said `has_more` (manga sources), the
+    // button fetches the next page (decisions in resources/js/discover-paging.js).
     const PAGE_SIZE = 20;
     const moreWrap = document.getElementById('discoverMoreWrap');
     const moreBtn = document.getElementById('discoverMore');
     let pendingItems = [];
+    // The list being paged; replaced (so in-flight fetches are dropped) by every loadList().
+    let paging = { type: null, q: '', page: 1, hasMore: false, seen: new Set(), shown: 0, hidden: 0, busy: false };
+    const pagingLib = () => window.Novarr && window.Novarr.discoverPaging;
+
+    function updateMore() {
+        const lib = pagingLib();
+        const visible = lib ? lib.showMore(pendingItems.length, paging.hasMore) : pendingItems.length > 0;
+        moreWrap.classList.toggle('d-none', !visible);
+        if (!paging.busy) {
+            moreBtn.textContent = pendingItems.length > 0 ? `Load more (${pendingItems.length})` : 'Load more';
+        }
+    }
 
     function renderNextPage() {
         pendingItems.splice(0, PAGE_SIZE).forEach(renderCard);
-        moreWrap.classList.toggle('d-none', pendingItems.length === 0);
-        moreBtn.textContent = `Load more (${pendingItems.length})`;
+        updateMore();
     }
-    moreBtn.addEventListener('click', () => {
+
+    function revealMore() {
         const firstNew = resultsEl.children.length;
         renderNextPage();
         // Keep keyboard focus in the list: move it to the first newly shown card's button.
         resultsEl.children[firstNew]?.querySelector('button, a')?.focus({ preventScroll: true });
+    }
+
+    function setMoreBusy(busy) {
+        paging.busy = busy;
+        moreBtn.disabled = busy;
+        moreBtn.setAttribute('aria-busy', busy ? 'true' : 'false');
+        if (busy) {
+            moreBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Loading…';
+        }
+        updateMore();
+    }
+
+    // Fetch the next page(s) of the current list: pages that add nothing new
+    // are followed automatically, up to AUTO_PAGES per click.
+    async function fetchMore() {
+        const lib = pagingLib();
+        const ctx = paging;
+        if (!lib || ctx.busy) return;
+        setMoreBusy(true);
+        let fetched = 0;
+        try {
+            while (true) {
+                const params = new URLSearchParams({ type: ctx.type, source: ctx.source, page: String(ctx.page + 1) });
+                if (ctx.q) params.set('q', ctx.q);
+                const response = await fetch(`{{ route('novels.discover.browse') }}?${params}`, {
+                    headers: { 'Accept': 'application/json' },
+                });
+                const data = await response.json();
+                if (ctx !== paging) return;   // the list was switched meanwhile
+                if (!data.success) throw new Error(data.message || 'Failed to load more results — try again shortly.');
+
+                fetched++;
+                ctx.page = Number(data.page) || ctx.page + 1;
+                ctx.hasMore = Boolean(data.has_more);
+                ctx.hidden += Number(data.hidden) || 0;
+                showHidden(ctx.hidden);
+                const fresh = lib.freshItems(data.items, ctx.seen);
+                if (fresh.length) {
+                    resultsEl.querySelector('.novels-empty')?.remove();
+                    ctx.shown += fresh.length;
+                    statusEl.textContent = `${ctx.shown} result${ctx.shown === 1 ? '' : 's'} from ${sourceHost()}`;
+                    pendingItems.push(...fresh);
+                }
+                if (!lib.keepFetching(fresh.length, ctx.hasMore, fetched)) break;
+            }
+        } catch (err) {
+            if (ctx === paging) Novarr.showToast(`Couldn’t load more: ${err.message}`, 'danger');
+        } finally {
+            if (ctx === paging) setMoreBusy(false);
+        }
+        if (ctx === paging && pendingItems.length) revealMore();
+    }
+
+    moreBtn.addEventListener('click', () => {
+        const lib = pagingLib();
+        const action = lib ? lib.moreAction(pendingItems.length, paging.hasMore) : (pendingItems.length ? 'reveal' : 'none');
+        if (action === 'reveal') revealMore();
+        else if (action === 'fetch') fetchMore();
     });
 
     let slowTimer = null;
@@ -146,11 +218,20 @@
         resultsEl.appendChild(li);
     }
 
+    // A new list (source / tab / search): paging starts over.
+    function resetPaging(type = null, q = '') {
+        if (paging.busy) moreBtn.disabled = false;
+        paging = { type, q, source: source(), page: 1, hasMore: false, seen: new Set(), shown: 0, hidden: 0, busy: false };
+        moreBtn.setAttribute('aria-busy', 'false');
+        pendingItems = [];
+        updateMore();
+    }
+
     async function loadList(type, q = '') {
         lastQuery = q;
         showLoading();
-        pendingItems = [];
-        moreWrap.classList.add('d-none');
+        resetPaging(type, q);
+        const ctx = paging;
 
         const params = new URLSearchParams({ type, source: source() });
         if (q) params.set('q', q);
@@ -160,6 +241,7 @@
                 headers: { 'Accept': 'application/json' },
             });
             const data = await response.json();
+            if (ctx !== paging) return;   // a newer list was asked for meanwhile
             endLoading();
 
             if (!data.success) {
@@ -170,8 +252,15 @@
 
             const hidden = Number(data.hidden) || 0;
             showHidden(hidden);
+            ctx.hidden = hidden;
+            ctx.hasMore = Boolean(data.has_more);
+            ctx.page = Number(data.page) || 1;
+            data.items.forEach(item => { if (item.url) ctx.seen.add(String(item.url)); });
+            ctx.shown = data.items.length;
 
             if (!data.items.length) {
+                // Nothing on this page, but the source may have more.
+                updateMore();
                 statusEl.textContent = '';
                 showEmpty(
                     q ? `Nothing on ${sourceHost()} matches “${q}”`
@@ -187,6 +276,7 @@
             pendingItems = data.items.slice();
             renderNextPage();
         } catch (err) {
+            if (ctx !== paging) return;
             endLoading();
             statusEl.textContent = '';
             showEmpty('Something went wrong', err.message);
@@ -381,6 +471,7 @@
             statusEl.classList.remove('d-none');
             resultsEl.innerHTML = '';
             showHidden(0);
+            resetPaging();
         } else {
             tabs.forEach((t, i) => t.classList.toggle('active', i === 0));
             loadList('popular');

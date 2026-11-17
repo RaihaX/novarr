@@ -131,7 +131,7 @@ class NewSourceDryRunTest extends GoldenTestCase
             ->assertJsonPath('hidden', 0);
         $this->getJson('/novels/discover/browse?source=dryrun&type=popular')
             ->assertOk()
-            ->assertExactJson(['success' => true, 'items' => []]);
+            ->assertExactJson(['success' => true, 'items' => [], 'has_more' => false, 'page' => 1]);
     }
 }
 

@@ -375,6 +375,97 @@ class MangaDexSourceTest extends GoldenTestCase
         $this->assertSame('https://uploads.mangadex.org/covers/32d76d19-8a05-4db0-9fc2-e0b0648fe9d0/e90bdc47-c8b9-4df7-b2c0-17641b645ee1.jpg.256.jpg', urldecode(substr($items[0]['cover'], strlen(route('discover.cover') . '?u='))));
     }
 
+    // ---- Discover paging ----------------------------------------------------------
+
+    /** The popular list's URL at an offset (page 1 carries none). */
+    private static function popularUrl(int $offset = 0): string
+    {
+        return self::API . '/manga?limit=40' . ($offset > 0 ? "&offset={$offset}" : '')
+            . '&order[followedCount]=desc&includes[]=cover_art&includes[]=author&contentRating[]=safe&contentRating[]=suggestive&availableTranslatedLanguage[]=en&hasAvailableChapters=true';
+    }
+
+    /** discover-popular.json answered at another offset / total. */
+    private static function popularPage(int $offset, int $total): string
+    {
+        $json = json_decode(FakeFetcher::body('mangadex/discover-popular.json'), true);
+
+        return json_encode(['offset' => $offset, 'total' => $total] + $json);
+    }
+
+    public function testDiscoverPagesByOffsetWithHasMoreFromTheTotal(): void
+    {
+        $source = new MangaDexSource();
+        $this->assertInstanceOf(\App\Sources\PagedDiscover::class, $source);
+        $fetcher = $this->fake([
+            self::popularUrl() => 'mangadex/discover-popular.json',     // total 86342
+            self::popularUrl(40) => self::popularPage(40, 120),
+            self::popularUrl(80) => self::popularPage(80, 120),
+        ]);
+        $this->routeReadable($fetcher, ['32d76d19-8a05-4db0-9fc2-e0b0648fe9d0' => 200, 'aa6c76f7-5f5f-46b6-a800-911145f81b9b' => 110]);
+
+        $first = $source->discoverPage('popular', null, 1);
+        $this->assertTrue($first['has_more']);
+        $this->assertSame(['Solo Leveling', 'My Dress-Up Darling'], array_column($first['items'], 'name'));
+        $this->assertSame($first['items'], $source->discover('popular'), 'discover() is page 1');
+
+        // Page 2 is its own request (not page 1's cache): offset 40, more until 120.
+        $second = $source->discoverPage('popular', null, 2);
+        $this->assertTrue($second['has_more'], '40 + 40 < 120');
+        $third = $source->discoverPage('popular', null, 3);
+        $this->assertFalse($third['has_more'], '80 + 40 = 120: the last page');
+
+        // Each page cached on its own: no further requests.
+        $this->assertSame($second, $source->discoverPage('popular', null, 2));
+        $source->discoverPage('popular', null, 1);
+        $this->assertSame([self::popularUrl(), self::popularUrl(40), self::popularUrl(80)], array_values(array_filter(
+            $fetcher->urls(), fn($u) => str_starts_with($u, self::API . '/manga?')
+        )));
+    }
+
+    public function testDiscoverPageSearchHasNoMoreWhenTheTotalFitsOnePage(): void
+    {
+        $search = self::API . '/manga?limit=40&title=tabun%20kanojo&order[relevance]=desc&includes[]=cover_art&includes[]=author&contentRating[]=safe&contentRating[]=suggestive&availableTranslatedLanguage[]=en&hasAvailableChapters=true';
+        $search2 = str_replace('limit=40&', 'limit=40&offset=40&', $search);
+        $fetcher = $this->fake([$search => 'mangadex/discover-search.json', $search2 => self::popularPage(40, 2)]);
+        $this->routeReadable($fetcher, ['18d481be-f310-4088-a9c1-de29e08990cd' => 3, '95142415-c448-4a00-966b-676925721bd7' => 1]);
+
+        $page = (new MangaDexSource())->discoverPage('search', ' tabun kanojo ', 1);
+        $this->assertFalse($page['has_more'], 'total 2');
+        $this->assertCount(2, $page['items']);
+        $this->assertSame(['items' => [], 'has_more' => false], (new MangaDexSource())->discoverPage('search', '  ', 1));
+        $this->assertSame(['items' => [], 'has_more' => false], (new MangaDexSource())->discoverPage('completed', null, 1));
+    }
+
+    public function testDiscoverPageThatLosesEveryItemToTheReadableFilterStillHasMore(): void
+    {
+        $fetcher = $this->fake([self::popularUrl(40) => self::popularPage(40, 5000)]);
+        $this->routeReadable($fetcher, ['32d76d19-8a05-4db0-9fc2-e0b0648fe9d0' => 0, 'aa6c76f7-5f5f-46b6-a800-911145f81b9b' => 0]);
+
+        $this->assertSame(['items' => [], 'has_more' => true], (new MangaDexSource())->discoverPage('popular', null, 2));
+    }
+
+    public function testDiscoverPageCapAndWindow(): void
+    {
+        $fetcher = $this->fake([self::popularUrl(1960) => self::popularPage(1960, 86342)]);
+        $this->routeReadable($fetcher, ['32d76d19-8a05-4db0-9fc2-e0b0648fe9d0' => 200, 'aa6c76f7-5f5f-46b6-a800-911145f81b9b' => 110]);
+        $source = new MangaDexSource();
+
+        $last = $source->discoverPage('popular', null, \App\Sources\PagedDiscover::MAX_PAGE);
+        $this->assertCount(2, $last['items']);
+        $this->assertFalse($last['has_more'], 'nothing past the cap');
+
+        $calls = count($fetcher->calls);
+        $this->assertSame(['items' => [], 'has_more' => false], $source->discoverPage('popular', null, \App\Sources\PagedDiscover::MAX_PAGE + 1));
+        $this->assertSame(['items' => [], 'has_more' => false], $source->discoverPage('popular', null, 0));
+        $this->assertCount($calls, $fetcher->calls, 'no request beyond the cap');
+    }
+
+    public function testDiscoverPageUnreachableIsNull(): void
+    {
+        $this->fake([self::popularUrl(40) => FakeFetcher::fail('http_503', 503)]);
+        $this->assertNull((new MangaDexSource())->discoverPage('popular', null, 2));
+    }
+
     public function testDiscoverCoverProxyServesOnlyAllowedHosts(): void
     {
         $cover = 'https://uploads.mangadex.org/covers/32d76d19-8a05-4db0-9fc2-e0b0648fe9d0/e90bdc47.jpg.256.jpg';

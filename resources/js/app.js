@@ -14,6 +14,7 @@ import { initTheme, setTheme, getTheme, cycleTheme } from './theme';
 import { focusTrap, releaseFocusTrap, openSheet, closeSheet, closeAll, initSheets } from './modal';
 import { initPalette, openPalette, closePalette } from './palette';
 import { initFunnelBanner, setFunnelState } from './funnel';
+import * as discoverPaging from './discover-paging';
 import {
     initOffline, downloadNovel, removeNovel, getLibrary,
     getNovel, isDownloaded, queuedFetch, flushQueue,
@@ -50,6 +51,8 @@ window.Novarr = {
     setTheme, getTheme, cycleTheme,
     focusTrap, releaseFocusTrap, openSheet, closeSheet, closeAll,
     openPalette, closePalette,
+    // Discover "Load more" paging decisions — see discover-paging.js
+    discoverPaging,
 };
 
 // Document-level listeners: bound once, survive Turbo body swaps.

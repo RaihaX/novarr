@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Novel;
+use App\Sources\PagedDiscover;
 use App\Sources\Source;
 use App\Sources\SourceResolver;
 
@@ -83,10 +84,44 @@ class Discover
         }
 
         $items = $source->discover($type, $query);
-        if ($items === null) {
+
+        return $items === null ? null : $this->decorate($source, $items);
+    }
+
+    /**
+     * One page (1-based) of a list, items as results(), plus whether the
+     * source has another page. A PagedDiscover source pages itself; any
+     * other source has page 1 (results()) and nothing after it. Null when
+     * the source could not be reached.
+     *
+     * @return ?array{items: array<int, array>, has_more: bool}
+     */
+    public function page(Source $source, string $type, ?string $query, int $page): ?array
+    {
+        if (!in_array($type, $source->discoverLists(), true) || $page < 1) {
+            return ['items' => [], 'has_more' => false];
+        }
+
+        if (!$source instanceof PagedDiscover) {
+            if ($page > 1) {
+                return ['items' => [], 'has_more' => false];
+            }
+            $items = $this->results($source, $type, $query);
+
+            return $items === null ? null : ['items' => $items, 'has_more' => false];
+        }
+
+        $result = $source->discoverPage($type, $query, $page);
+        if ($result === null) {
             return null;
         }
 
+        return ['items' => $this->decorate($source, $result['items']), 'has_more' => (bool) $result['has_more']];
+    }
+
+    /** Library flags and proxied covers on a source's items (see results()). */
+    private function decorate(Source $source, array $items): array
+    {
         $library = $this->libraryIndex();
         foreach ($items as &$item) {
             $item['novel_id'] = $this->match($item, $library, $source->medium());
