@@ -33,7 +33,7 @@ use Illuminate\Support\Facades\Log;
  * instance resolves URLs and lists nothing (no network on the resolution
  * path, which runs for every novel).
  */
-class SuwayomiSource extends AbstractSource implements ExpandsDiscover
+class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDiscover
 {
     public const SERIES_PATH = '#^/manga/(\d{1,18})/?$#';
     public const CHAPTER_PATH = '#^/manga/(\d{1,18})/chapter/(\d{1,9})/?$#';
@@ -717,45 +717,63 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover
     }
 
     /**
-     * Page 1 of the Suwayomi source's search or popular list. Cached:
-     * popular an hour, searches ten minutes. Null when the server (or the
-     * site behind it) could not be reached.
+     * Page 1 of the Suwayomi source's search or popular list (see
+     * discoverPage()). Null when the server (or the site behind it) could
+     * not be reached.
      */
     public function discover(string $type, ?string $query = null): ?array
     {
-        if (!in_array($type, $this->discoverLists(), true)) {
-            return [];
+        return $this->discoverPage($type, $query, 1)['items'] ?? null;
+    }
+
+    /**
+     * Page $page (1-based, Suwayomi's own paging) of the source's search
+     * or popular list; `has_more` is Suwayomi's hasNextPage (never past
+     * PagedDiscover::MAX_PAGE). Each page is cached on its own: popular an
+     * hour, searches ten minutes.
+     */
+    public function discoverPage(string $type, ?string $query, int $page): ?array
+    {
+        $none = ['items' => [], 'has_more' => false];
+        if (!in_array($type, $this->discoverLists(), true) || $page < 1 || $page > PagedDiscover::MAX_PAGE) {
+            return $none;
         }
 
-        $input = ['source' => (string) $this->sourceId, 'type' => 'POPULAR', 'page' => 1];
+        $input = ['source' => (string) $this->sourceId, 'type' => 'POPULAR', 'page' => $page];
         if ($type === 'search') {
             $query = trim((string) $query);
             if ($query === '') {
-                return [];
+                return $none;
             }
-            $input = ['source' => (string) $this->sourceId, 'type' => 'SEARCH', 'query' => $query, 'page' => 1];
+            $input = ['source' => (string) $this->sourceId, 'type' => 'SEARCH', 'query' => $query, 'page' => $page];
         }
 
         $ttl = $type === 'search' ? 600 : 3600;
-        $key = 'discover_suwayomi_v1_' . md5(json_encode([self::baseUrl(), $input]));
-        $fetch = function () use ($input) {
+        $key = 'discover_suwayomi_v2_' . md5(json_encode([self::baseUrl(), $input]));
+        $fetch = function () use ($input, $page) {
             $data = $this->graphql(self::MUTATION_FETCH_SOURCE_MANGA, ['input' => $input]);
             $mangas = $data['fetchSourceManga']['mangas'] ?? null;
+            if (!is_array($mangas)) {
+                return null;
+            }
 
-            return is_array($mangas) ? self::discoverItems($mangas) : null;
+            return [
+                'items' => self::discoverItems($mangas),
+                'has_more' => ($data['fetchSourceManga']['hasNextPage'] ?? false) === true && $page < PagedDiscover::MAX_PAGE,
+            ];
         };
 
         try {
-            $items = Cache::get($key);
-            if (is_array($items)) {
-                return $items;
+            $cached = Cache::get($key);
+            if (is_array($cached) && is_array($cached['items'] ?? null) && is_bool($cached['has_more'] ?? null)) {
+                return $cached;
             }
-            $items = $fetch();
-            if ($items !== null) {
-                Cache::put($key, $items, $ttl);
+            $result = $fetch();
+            if ($result !== null) {
+                Cache::put($key, $result, $ttl);
             }
 
-            return $items;
+            return $result;
         } catch (\Throwable $e) {
             Log::warning('Discover: cache store unavailable (' . $e->getMessage() . ') — fetching uncached');
             return $fetch();

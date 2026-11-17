@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Log;
  *   TOC        GET /manga/{id}/feed (paginated, 500 per page)
  *   metadata   GET /manga/{id}?includes[]=cover_art&includes[]=author&includes[]=artist
  *   pages      GET /at-home/server/{chapterId} → {baseUrl}/data/{hash}/{file}
- *   Discover   GET /manga (title search / followedCount order)
+ *   Discover   GET /manga (title search / followedCount order; paged by offset)
  *
  * MangaDex rules this adapter follows (api.mangadex.org/docs/2-limitations):
  * an honest User-Agent on every request (config novarr.mangadex.user_agent;
@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Log;
  * The series URL is https://mangadex.org/title/{uuid}[/slug] and a chapter's
  * https://mangadex.org/chapter/{uuid}.
  */
-class MangaDexSource extends AbstractSource implements ReportsPageFetches
+class MangaDexSource extends AbstractSource implements ReportsPageFetches, PagedDiscover
 {
     public const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
@@ -646,22 +646,41 @@ class MangaDexSource extends AbstractSource implements ReportsPageFetches
     /**
      * Search by title (relevance) or the most-followed series, in the
      * configured languages; only series with a downloadable chapter are
-     * listed. Cached: popular an hour, searches ten minutes.
-     * Null when the API could not be reached.
+     * listed. Page 1 of discoverPage(). Null when the API could not be reached.
      */
     public function discover(string $type, ?string $query = null): ?array
     {
-        $params = ['limit' => self::DISCOVER_LIMIT];
+        return $this->discoverPage($type, $query, 1)['items'] ?? null;
+    }
+
+    /**
+     * Page $page of discover()'s list: `offset` (page - 1) × DISCOVER_LIMIT.
+     * `has_more` comes from the API's `total` (capped at MAX_WINDOW and
+     * PagedDiscover::MAX_PAGE), not from the readable-filtered count, so a
+     * page that lost every item to the filter can still have more. Each
+     * page is cached on its own: popular an hour, searches ten minutes.
+     */
+    public function discoverPage(string $type, ?string $query, int $page): ?array
+    {
+        $none = ['items' => [], 'has_more' => false];
+        $offset = ($page - 1) * self::DISCOVER_LIMIT;
+        if ($page < 1 || $page > PagedDiscover::MAX_PAGE || $offset + self::DISCOVER_LIMIT > self::MAX_WINDOW) {
+            return $none;
+        }
+
+        // Page 1 carries no offset: its request (and cache key) are what
+        // discover() always sent.
+        $params = ['limit' => self::DISCOVER_LIMIT] + ($offset > 0 ? ['offset' => $offset] : []);
         if ($type === 'search') {
             $query = trim((string) $query);
             if ($query === '') {
-                return [];
+                return $none;
             }
             $params += ['title' => $query, 'order' => ['relevance' => 'desc']];
         } elseif ($type === 'popular') {
             $params += ['order' => ['followedCount' => 'desc']];
         } else {
-            return [];
+            return $none;
         }
         $params += [
             'includes' => ['cover_art', 'author'],
@@ -671,24 +690,36 @@ class MangaDexSource extends AbstractSource implements ReportsPageFetches
         ];
 
         $ttl = $type === 'search' ? 600 : 3600;
-        $key = 'discover_mangadex_v2_' . md5(self::query($params));
-        $fetch = function () use ($params) {
+        $key = 'discover_mangadex_v3_' . md5(self::query($params));
+        $fetch = function () use ($params, $offset, $page) {
             $json = $this->api('manga', $params);
+            if (!is_array($json['data'] ?? null)) {
+                return null;
+            }
+            $more = is_numeric($json['total'] ?? null)
+                ? $offset + self::DISCOVER_LIMIT < min((int) $json['total'], self::MAX_WINDOW)
+                // No total: a full page is taken to mean there may be more.
+                : count($json['data']) >= self::DISCOVER_LIMIT;
 
-            return is_array($json['data'] ?? null) ? $this->readableOnly(self::discoverItems($json['data'])) : null;
+            return [
+                'items' => $this->readableOnly(self::discoverItems($json['data'])),
+                // The next page must also fit the cap and the 10,000 window.
+                'has_more' => $more && $page < PagedDiscover::MAX_PAGE
+                    && $offset + 2 * self::DISCOVER_LIMIT <= self::MAX_WINDOW,
+            ];
         };
 
         try {
-            $items = Cache::get($key);
-            if (is_array($items)) {
-                return $items;
+            $cached = Cache::get($key);
+            if (is_array($cached) && is_array($cached['items'] ?? null) && is_bool($cached['has_more'] ?? null)) {
+                return $cached;
             }
-            $items = $fetch();
-            if ($items !== null) {
-                Cache::put($key, $items, $ttl);
+            $result = $fetch();
+            if ($result !== null) {
+                Cache::put($key, $result, $ttl);
             }
 
-            return $items;
+            return $result;
         } catch (\Throwable $e) {
             Log::warning('Discover: cache store unavailable (' . $e->getMessage() . ') — fetching uncached');
             return $fetch();

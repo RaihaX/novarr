@@ -39,7 +39,9 @@
                 "in_library": false
             }
         ],
-        "hidden": 0
+        "hidden": 0,
+        "has_more": false,
+        "page": 1
     },
     "fetches": [
         {
