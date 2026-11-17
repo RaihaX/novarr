@@ -741,7 +741,9 @@ function Wifi.restoreOnLeave(why, opts)
     unscheduleAll()
     last_key = nil
     if backoff_task then UIManager:unschedule(backoff_task) end
-    if not Wifi.enabled() or not Wifi.offByNovarr() then return false end
+    -- opts.force: the setting was just switched off (or is off after an
+    -- update) while Wi-Fi is still off by Novarr.
+    if not (Wifi.enabled() or opts.force) or not Wifi.offByNovarr() then return false end
     if Wifi.connecting then
         -- Already on its way: let it come, but no failure handling (it would switch it off again).
         if timeout_task then UIManager:unschedule(timeout_task) end
@@ -761,6 +763,16 @@ function Wifi.restoreOnLeave(why, opts)
     local ok, err = pcall(Wifi.backend.restoreNow or Wifi.backend.turnOn, opts.exiting and true or nil)
     if not ok then log("couldn't switch it on: " .. tostring(err)) end
     return ok
+end
+
+--[[--
+The setting is off but Wi-Fi is still off by Novarr (switched off in
+Settings just now, or by the 1.7.0 update): switch it on and leave it alone.
+]]
+function Wifi.releaseIfDisabled(why)
+    if Wifi.enabled() or not Wifi.offByNovarr() then return false end
+    Wifi.stop()
+    return Wifi.restoreOnLeave(why or "the setting is off", { force = true })
 end
 
 -- ---------------------------------------------------------------- debug

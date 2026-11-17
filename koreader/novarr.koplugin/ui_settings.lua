@@ -203,8 +203,24 @@ function Settings:items()
             end,
         })
     end
-    toggle("wifi_auto_off", _("Turn Wi-Fi off while reading when everything is saved"))
-    if s:get("wifi_auto_off") then
+    table.insert(items, {
+        text = _("Turn Wi-Fi off while reading when everything is saved"),
+        mandatory = onOff(s:get("wifi_auto_off")),
+        callback = function()
+            s:set("wifi_auto_off", not s:get("wifi_auto_off"))
+            -- Switched off while Novarr has Wi-Fi off: it comes back on now.
+            s.guard(function() require("novarr.wifi").releaseIfDisabled("switched off in Settings") end)
+            self:rebuild()
+        end,
+    })
+    if not s:get("wifi_auto_off") then
+        table.insert(items, {
+            text = _("Wi-Fi stays on: your place is sent as you read"),
+            dim = true,
+            select_enabled = false,
+            callback = function() end,
+        })
+    else
         local low = require("novarr.wifipolicy").lowWater(prefetch)
         table.insert(items, {
             text = prefetch > 0

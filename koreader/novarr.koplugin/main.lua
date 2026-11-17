@@ -70,6 +70,13 @@ function Novarr:init()
     Session.guard(function()
         Session:init()
         Session.plugin = self
+        -- Wi-Fi stays on (the setting is off) but Novarr had switched it off: on again.
+        local Wifi = require("novarr.wifi")
+        if not Wifi.enabled() and Wifi.offByNovarr() then
+            UIManager:scheduleIn(2, function()
+                Session.guard(function() Wifi.releaseIfDisabled("Wi-Fi stays on now") end)
+            end)
+        end
         if not Session.leftovers_checked then
             -- Once per KOReader start: remove what an interrupted plugin update left behind.
             Session.leftovers_checked = true

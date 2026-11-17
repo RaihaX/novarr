@@ -289,8 +289,10 @@ have read for 10 minutes or more, for example "Wi-Fi on 14 min of 6 h 10 min rea
 (last 7 days)". It counts the time a Novarr chapter is open and the device awake (a
 chapter left open without turning a page for over 5 minutes counts as 5 minutes).
 
-Switch all this off with *Turn Wi-Fi off while reading when everything is saved* in
-Settings; Novarr then never touches Wi-Fi.
+This is off by default since 1.7.0: Wi-Fi stays on and your place reaches the server
+as you read (every 30 seconds of reading and at the end of each chapter), so another device resumes where you stopped. Switch it on with *Turn
+Wi-Fi off while reading when everything is saved* in Settings to save battery; your
+place is then sent in batches (on sleep, on wake, after 3 minutes idle).
 
 ### Two addresses (home and away)
 
@@ -333,7 +335,7 @@ through Novarr is the way that stays up to date and in sync.
 
 - **Server address** and **Second address (away from home)**.
 - **Chapters to fetch ahead while reading**: Off, 20, 50, 100 (default) or 200.
-- **Turn Wi-Fi off while reading when everything is saved** (on), with when Wi-Fi comes
+- **Turn Wi-Fi off while reading when everything is saved** (off), with when Wi-Fi comes
   back and, once there is 10 minutes of reading, how much of it had Wi-Fi on.
 - **Remove chapters after reading (keeps the last 2)** (on).
 - **Mark chapter read at its end** (on).
@@ -353,7 +355,7 @@ through Novarr is the way that stays up to date and in sync.
 
 Your Novarr server carries the latest plugin, so after the first install you don't
 need the USB cable again. In Novarr ▸ **Settings**, tap the last row (on the second Settings page),
-**Novarr plugin 1.6.0 — check for update** (with your version). Novarr asks the server and either says
+**Novarr plugin 1.7.0 — check for update** (with your version). Novarr asks the server and either says
 "Novarr is up to date" or shows the new version with **Install update**. A window shows
 the download ("Downloading update… 12 of 27") with a Cancel button. When it is done,
 choose **Restart now** (or **Later**: the new version is used the next time KOReader

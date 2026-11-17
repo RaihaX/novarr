@@ -51,6 +51,8 @@ local Session = require("novarr.session")
 local Reading = {}
 
 Reading.SAVE_INTERVAL_MS = 30 * 1000
+Reading.LIVE_SYNC_DELAY_S = 2            -- Wi-Fi stays on: send this long after a save
+Reading.LIVE_RETRY_MS = 5 * 60 * 1000    -- ... but after a send that reached nothing, not for this long
 Reading.BACKGROUND_DELAY = 3     -- seconds after the chapter opens (send pending writes)
 Reading.PREFETCH_START_MS = 6000 -- first prefetch not before this, after the chapter is ready
 Reading.PREFETCH_STEP = 3        -- seconds between two prefetched chapters (topping up a few)
@@ -313,6 +315,33 @@ function Reading.persist(plugin)
     Session:recordProgress(r.novel_id, r.chapter_id, r.percent)
     r.dirty = false
     r.last_saved = Session.nowMs()
+    Reading.liveSync()
+end
+
+--[[--
+Wi-Fi stays on (the "turn Wi-Fi off while reading" setting is off): what was
+just queued is sent a moment later, so another device resumes here. With the
+setting on, wifi.lua's windows decide when to send. A send that reached
+nothing (away from the server) is not retried from here for LIVE_RETRY_MS:
+each try blocks reading for up to the request timeout.
+]]
+local live_task
+function Reading.liveSync()
+    if require("novarr.wifi").enabled() then return end
+    if not Session:serverUrl() or Session.queue:count() == 0 or not Session:isConnected() then return end
+    if Session.nowMs() < (Reading.live_retry_at or 0) then return end
+    live_task = live_task or function()
+        Session.guard(function()
+            local res = Session:quietFlush(50)
+            if res and (res.remaining or 0) > 0 and (res.sent or 0) + (res.dropped or 0) == 0 then
+                Reading.live_retry_at = Session.nowMs() + Reading.LIVE_RETRY_MS
+            else
+                Reading.live_retry_at = nil
+            end
+        end)
+    end
+    UIManager:unschedule(live_task)
+    UIManager:scheduleIn(Reading.LIVE_SYNC_DELAY_S, live_task)
 end
 
 -- ---------------------------------------------------------------- joined chapters
@@ -516,6 +545,7 @@ function Reading.finishChapter(plugin)
         Session:recordProgress(r.novel_id, r.chapter_id, 100)
     end
     r.dirty = false
+    Reading.liveSync()
 end
 
 --- Chapters left, time per chapter and "ch N of M" for the current chapter; refreshes the status bar.
