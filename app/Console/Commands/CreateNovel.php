@@ -127,5 +127,26 @@ class CreateNovel extends Command
         }
 
         $this->info("New Novel ID: {$object->id}");
+
+        $this->queueFirstCheck($object);
+    }
+
+    /**
+     * Fetch the chapter list and start downloading right away instead of
+     * waiting for the nightly novel:toc. Only with a real queue: on the
+     * sync connection the scrape would run inside this command.
+     */
+    private function queueFirstCheck(Novel $novel): void
+    {
+        if (config('queue.default') === 'sync') {
+            return;
+        }
+
+        try {
+            app(\App\Services\NovelCheck::class)->start($novel);
+            $this->info("  Queued: chapter list and first downloads.");
+        } catch (\Throwable $e) {
+            $this->warn("  Could not queue the first chapter check ({$e->getMessage()}); the nightly run will pick it up.");
+        }
     }
 }
