@@ -49,6 +49,10 @@ return [
         // Manga (medium 'manga'): claims only mangadex.org URLs. Listed
         // first so no group-id logic of the novel adapters ever sees one.
         'mangadex' => \App\Sources\MangaDexSource::class,
+        // Manga through the user's own Suwayomi-Server (config `suwayomi`
+        // below). Claims nothing and lists nothing until NOVARR_SUWAYOMI_URL
+        // is set; on Discover it is one entry per Suwayomi source.
+        'suwayomi' => \App\Sources\SuwayomiSource::class,
         'empirenovel' => \App\Sources\EmpireNovelSource::class,
         'novelfull' => \App\Sources\NovelFullSource::class,
         'novelarrow' => \App\Sources\NovelArrowSource::class,
@@ -206,6 +210,37 @@ return [
         // Pause between two API requests of one operation (TOC pages). The
         // documented global limit is ~5 requests/second per IP.
         'request_delay_ms' => (int) env('NOVARR_MANGADEX_REQUEST_DELAY_MS', 250),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Suwayomi-Server (App\Sources\SuwayomiSource)
+    |--------------------------------------------------------------------------
+    |
+    | Manga fetched through the user's own Suwayomi-Server over its local
+    | GraphQL API (no account). `url`: the server's base URL, e.g.
+    | http://192.168.1.37:4567 (NOVARR_SUWAYOMI_URL; empty = the source is
+    | off: it claims no URL, lists nothing on Discover and never makes a
+    | request). `languages`: the Suwayomi source languages offered on
+    | Discover (NOVARR_SUWAYOMI_LANGUAGES, comma list, default "en").
+    | `exclude_sources`: Suwayomi source names left off Discover, case-
+    | insensitive (NOVARR_SUWAYOMI_EXCLUDE_SOURCES; default MangaDex — Novarr
+    | has its own MangaDex source — and the local source). `timeout`: seconds
+    | a GraphQL call may take; a chapter list makes Suwayomi fetch from the
+    | site and can take a minute (NOVARR_SUWAYOMI_TIMEOUT, default 90).
+    |
+    */
+    'suwayomi' => [
+        'url' => rtrim(trim((string) env('NOVARR_SUWAYOMI_URL', '')), '/'),
+        'languages' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('NOVARR_SUWAYOMI_LANGUAGES', 'en'))
+        ), fn($l) => $l !== '')) ?: ['en'],
+        'exclude_sources' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('NOVARR_SUWAYOMI_EXCLUDE_SOURCES', 'MangaDex,Local source'))
+        ), fn($n) => $n !== '')),
+        'timeout' => (int) env('NOVARR_SUWAYOMI_TIMEOUT', 90),
     ],
 
     /*

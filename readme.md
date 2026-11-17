@@ -179,8 +179,21 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 | `EmpireNovelSource` | `empirenovel.com` | Paginated TOC via FlareSolverr + cookie reuse |
 | `NovelFullSource` | `novelfull.com` | AJAX chapter-list endpoint |
 | `NovelArrowSource` | NovelPing — `novelping.com` (formerly `novelarrow.com`, which now redirects there; both hosts are recognised) — and the **default** fallback | JSON api-web chapter list or page parse; browse/search results also carry a synopsis. Every outgoing URL (API, chapter pages, `images.{host}` covers) is built on `NOVARR_NOVELARROW_HOST` (config `novarr.novelarrow_host`, default `novelping.com`); migration `2026_10_04_000001` rewrote stored novelarrow URLs |
+| `SuwayomiSource` | Manga through your own [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server) (off until `NOVARR_SUWAYOMI_URL` is set) | Local GraphQL API, no account; see [Suwayomi (manga)](#suwayomi-manga) |
 
 Metadata for all sources is enriched from **NovelUpdates** (description, genres, cover, completion status), with the source's own page as a fallback.
+
+### Suwayomi (manga)
+
+`SuwayomiSource` downloads manga through a Suwayomi-Server you run yourself: Suwayomi runs the Tachiyomi/Mihon extensions and fetches from the sites, Novarr only talks to its local API (`POST {url}/api/graphql`, page images from `{url}/api/v1/…`). A series is added by its Suwayomi web-UI URL, `{url}/manga/{id}` (Discover builds it for you); the manga does not have to be in Suwayomi's library.
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `NOVARR_SUWAYOMI_URL` | Base URL of the server, e.g. `http://192.168.1.37:4567`. Empty = the source is off: it claims no URL, lists nothing on Discover and never makes a request | empty |
+| `NOVARR_SUWAYOMI_LANGUAGES` | Comma list of Suwayomi source languages offered on Discover | `en` |
+| `NOVARR_SUWAYOMI_EXCLUDE_SOURCES` | Comma list of Suwayomi source names left off Discover (case-insensitive) — Novarr has its own MangaDex source | `MangaDex,Local source` |
+
+Optional: `NOVARR_SUWAYOMI_TIMEOUT` (seconds per API call, default `90` — a chapter list makes Suwayomi fetch from the site and can take a minute). On Discover every remaining Suwayomi source is its own entry ("Suwayomi · MangaPill", key `suwayomi:{source id}`) with Search and Popular; covers are served through Novarr (`/discover/cover`), so the browser never needs to reach the server. All Suwayomi series share the server's host, so the sweep's per-host pace and cooldowns apply to them together.
 
 ### Adding a source
 
@@ -329,6 +342,7 @@ Most operational settings are editable from the **Settings** page (stored in `ap
 | `NOVARR_SNAPSHOTS_ENABLED` / `_KEEP` / `_DAYS` | Failure-snapshot retention defaults (overridable in Settings) | `true` / `5` / `14` |
 | `NOVARR_TLS_VERIFY` | TLS verification for every scraper/FlareSolverr request (keep on) | `true` |
 | `NOVARR_NOVELARROW_HOST` | Canonical host for the NovelPing (ex-novelarrow) source; API, chapter and cover URLs are built on it | `novelping.com` |
+| `NOVARR_SUWAYOMI_URL` / `_LANGUAGES` / `_EXCLUDE_SOURCES` | Manga through your own Suwayomi-Server (see [Suwayomi (manga)](#suwayomi-manga)); empty URL = off | — / `en` / `MangaDex,Local source` |
 | `NOVARR_KOREADER_PLUGIN_PATH` | Folder served to KOReader devices as the plugin update (see [Apps and JSON API](#apps-and-json-api)) | `koreader/novarr.koplugin` |
 | `TRUSTED_PROXIES` | Proxies whose `X-Forwarded-*` headers are trusted (nginx / Tailscale in front) | `*` |
 | `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER` | Must exceed the 3600 s job timeout | `3700` |

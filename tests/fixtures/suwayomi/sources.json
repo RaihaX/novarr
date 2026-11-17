@@ -1,0 +1,50 @@
+{
+  "data": {
+    "sources": {
+      "nodes": [
+        {
+          "id": "0",
+          "name": "Local source",
+          "lang": "localsourcelang",
+          "isNsfw": false,
+          "supportsLatest": true
+        },
+        {
+          "id": "2499283573021220255",
+          "name": "MangaDex",
+          "lang": "en",
+          "isNsfw": true,
+          "supportsLatest": true
+        },
+        {
+          "id": "8448310129093543312",
+          "name": "MangaPill",
+          "lang": "en",
+          "isNsfw": false,
+          "supportsLatest": true
+        },
+        {
+          "id": "1001157238479601077",
+          "name": "FlameScans.lol",
+          "lang": "en",
+          "isNsfw": false,
+          "supportsLatest": true
+        },
+        {
+          "id": "1242615521765763940",
+          "name": "Comick (Unoriginal)",
+          "lang": "vi",
+          "isNsfw": true,
+          "supportsLatest": true
+        },
+        {
+          "id": "3600219145208924541",
+          "name": "Rawkuma",
+          "lang": "ja",
+          "isNsfw": false,
+          "supportsLatest": true
+        }
+      ]
+    }
+  }
+}

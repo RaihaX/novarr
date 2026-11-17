@@ -1,0 +1,26 @@
+{
+  "data": {
+    "fetchManga": {
+      "manga": {
+        "id": 2132,
+        "title": "Hajime no Ippo",
+        "author": "George Morikawa",
+        "artist": "george morikawa",
+        "status": "ONGOING",
+        "genre": [
+          "Action",
+          "Comedy",
+          "Drama",
+          "Shounen",
+          "Sports"
+        ],
+        "description": "Throughout his childhood, Makunouchi Ippo has always been picked on.\n\n\"What is it like to be strong?\" he asks himself.\nHe wants to be strong.",
+        "thumbnailUrl": "/api/v1/manga/2132/thumbnail",
+        "sourceId": "8448310129093543312",
+        "source": {
+          "name": "MangaPill"
+        }
+      }
+    }
+  }
+}

@@ -50,7 +50,7 @@ class FakeFetcher extends Fetcher
         return ['__fail' => true, 'reason' => $reason, 'status' => $status];
     }
 
-    public function route(string $url, string|array $value): static
+    public function route(string $url, string|array|\Closure $value): static
     {
         $this->routes[$url] = $value;
         return $this;
@@ -154,6 +154,35 @@ class FakeFetcher extends Fetcher
         $value = $this->routes[$url] ?? null;
 
         return is_array($value) ? ($value['status'] ?? null) : 200;
+    }
+
+    /**
+     * POST with a JSON answer (method 'post_json_for_json'; the body and
+     * timeout are recorded so a test can assert the query and variables).
+     * The route is the URL; besides a fixture/body/fail() it may be a
+     * \Closure fn(array $body): string|array — one GraphQL endpoint answers
+     * every query, so the test picks the answer from the body.
+     */
+    public function postJsonForJson(string $url, array $body, array $headers = [], int $timeout = 30, &$status = null): ?array
+    {
+        $this->calls[] = ['method' => 'post_json_for_json', 'url' => $url, 'body' => $body, 'timeout' => $timeout];
+
+        $value = $this->routes[$url] ?? null;
+        if ($value instanceof \Closure) {
+            $value = $value($body);
+        }
+        if ($value === null) {
+            $this->unexpected[] = $url;
+            throw new UnexpectedFetch("FakeFetcher: unexpected post_json_for_json of {$url}");
+        }
+        if (is_array($value)) {
+            $status = $value['status'] ?? $value['reason'];
+            return null;
+        }
+        $status = 200;
+        $json = json_decode(self::body($value), true);
+
+        return is_array($json) ? $json : null;
     }
 
     /** Any raw client use is a network call too: fail loudly. */
