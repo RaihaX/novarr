@@ -23,7 +23,7 @@ class Presenter
     /** Novel columns a summary reads — never `description`. */
     public const SUMMARY_COLUMNS = [
         'id', 'name', 'author', 'status', 'paused_at', 'no_of_chapters',
-        'scrape_failures', 'toc_failures', 'origin', 'origin_language',
+        'scrape_failures', 'toc_failures', 'origin', 'origin_language', 'medium',
     ];
 
     /**
@@ -78,6 +78,8 @@ class Presenter
         return [
             'id' => $id,
             'name' => $novel->name,
+            // 'novel' or 'manga' (manga are listed only on request: ?medium=).
+            'medium' => (string) ($novel->medium ?: Novel::MEDIUM_NOVEL),
             'author' => $novel->author ?: null,
             'cover_url' => static::url($novel->coverUrl('md')),
             // No size above md exists (CoverThumbnails::SIZES): the original is the largest.
@@ -98,6 +100,25 @@ class Presenter
             'updated_at' => static::timestamp($a['last_download']),
             'resume_chapter_id' => $context['resume'][$id] ?? null,
         ];
+    }
+
+    /**
+     * Keep the novels of the medium a client asked for (LibraryController's
+     * ?medium=): 'novel' (the default — the iPhone app and the KOReader
+     * plugin can't show pages), 'manga' or 'all'.
+     */
+    public static function medium(\Illuminate\Http\Request $request): string
+    {
+        $request->validate(['medium' => 'nullable|in:novel,manga,all']);
+        $medium = $request->query('medium');
+
+        return in_array($medium, ['novel', 'manga', 'all'], true) ? $medium : 'novel';
+    }
+
+    /** Does a novel of $novelMedium belong in a listing for $medium? */
+    public static function inMedium(?string $novelMedium, string $medium): bool
+    {
+        return $medium === 'all' || ($novelMedium ?: Novel::MEDIUM_NOVEL) === $medium;
     }
 
     /**

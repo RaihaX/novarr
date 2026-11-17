@@ -90,6 +90,19 @@ const families = {
 };
 const margins = { s: '0px', m: '12px', l: '28px' };
 
+/**
+ * The reading theme (dark / sepia / light) recolours the whole page via a
+ * body class, so focus mode and the page gutters match the reading surface.
+ * Shared with the manga reader, which uses the same reader_theme setting.
+ */
+export function applyTheme(theme, body = document.body) {
+    body.classList.remove('reader-theme-sepia', 'reader-theme-light');
+    if (theme === 'sepia' || theme === 'light') {
+        body.classList.add('reader-theme-' + theme);
+    }
+    body.setAttribute('data-bs-theme', theme === 'dark' ? 'dark' : 'light');
+}
+
 export function applyPrefs(readerEl, store) {
     const { prefs } = store;
     // Typography is driven by custom properties on the reader root; the
@@ -102,13 +115,7 @@ export function applyPrefs(readerEl, store) {
     readerEl.style.setProperty('--rd-align', prefs.justify === '1' ? 'justify' : 'start');
     readerEl.style.setProperty('--rd-hyphens', prefs.justify === '1' ? 'auto' : 'manual');
 
-    // Theme recolours the whole page via a body class, so focus mode and
-    // the page gutters match the reading surface.
-    document.body.classList.remove('reader-theme-sepia', 'reader-theme-light');
-    if (prefs.theme === 'sepia' || prefs.theme === 'light') {
-        document.body.classList.add('reader-theme-' + prefs.theme);
-    }
-    document.body.setAttribute('data-bs-theme', prefs.theme === 'dark' ? 'dark' : 'light');
+    applyTheme(prefs.theme);
 
     document.getElementById('fontSizeLabel').textContent = prefs.font + 'px';
     document.getElementById('measureLabel').textContent = prefs.measure + 'ch';

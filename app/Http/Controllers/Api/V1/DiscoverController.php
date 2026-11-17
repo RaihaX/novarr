@@ -39,12 +39,28 @@ class DiscoverController extends Controller
         'search' => 'Search',
     ];
 
-    /** GET /api/v1/discover — the sources and their lists, default source first. */
-    public function index(Discover $discover): JsonResponse
+    /** Values of the `medium` parameter. Absent = 'novel': the existing clients read text only. */
+    public const MEDIA = ['novel', 'manga', 'all'];
+
+    /** The medium a request (or recorded browse) asks for; 'novel' unless it says manga / all. */
+    public static function medium(array|Request $input): string
     {
+        $value = $input instanceof Request ? $input->query('medium') : ($input['medium'] ?? null);
+
+        return in_array($value, self::MEDIA, true) ? $value : 'novel';
+    }
+
+    /**
+     * GET /api/v1/discover — the sources and their lists, default source
+     * first. Manga sources only with ?medium=manga or ?medium=all.
+     */
+    public function index(Request $request, Discover $discover): JsonResponse
+    {
+        $request->validate(['medium' => 'nullable|in:' . implode(',', self::MEDIA)]);
+
         $sources = [];
         $first = true;
-        foreach ($discover->sourceOptions() as $key => $option) {
+        foreach ($discover->sourceOptions(self::medium($request)) as $key => $option) {
             $lists = [];
             foreach (self::LIST_NAMES as $id => $name) {
                 if (in_array($id, $option['lists'], true)) {
@@ -71,7 +87,8 @@ class DiscoverController extends Controller
      */
     public function browse(Request $request, Discover $discover): JsonResponse
     {
-        $sources = $discover->sources();
+        $request->validate(['medium' => 'nullable|in:' . implode(',', self::MEDIA)]);
+        $sources = $discover->sourcesFor(self::medium($request));
         if ($sources === []) {
             return response()->json(['items' => [], 'page' => 1, 'has_more' => false]);
         }
@@ -100,6 +117,7 @@ class DiscoverController extends Controller
             'q' => 'required_if:type,search|nullable|string|max:100',
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|min:1|max:' . self::MAX_PER_PAGE,
+            'medium' => 'nullable|in:' . implode(',', self::MEDIA),
         ];
     }
 

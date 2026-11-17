@@ -143,7 +143,10 @@ function downloadCoverImage($imageUrl, $novelId)
 
     try {
         $httpClient = createHttpClient();
-        $response = $httpClient->request('GET', $imageUrl);
+        // MangaDex asks for an honest User-Agent, not the scraper's browser one.
+        $response = $httpClient->request('GET', $imageUrl, \App\Sources\MangaDexSource::isMangaDexHost($imageUrl)
+            ? ['headers' => \App\Sources\MangaDexSource::requestHeaders()]
+            : []);
 
         if ($response->getStatusCode() !== 200) {
             \Log::warning("downloadCoverImage non-200 status for {$imageUrl}: " . $response->getStatusCode());
@@ -255,7 +258,10 @@ function chapterSourceUrl($data)
 
     // Install-specific ids (config novarr.alternative_url_group_ids /
     // dotted_chapter_url_novel_ids; defaults [1, 3, 6] and [72]).
+    // A manga's chapter URL is the chapter's own (MangaDex): the group-id
+    // rewrite below belongs to the text sources only.
     if (
+        !(($data->novel ?? null) instanceof \App\Novel && $data->novel->isManga()) &&
         !empty($data->novel->alternative_url) &&
         \App\Sources\InstallIds::contains(\App\Sources\InstallIds::alternativeUrlGroupIds(), $data->novel->group->id ?? 0)
     ) {

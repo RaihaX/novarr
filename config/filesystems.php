@@ -45,6 +45,16 @@ return [
             'throw' => false,
         ],
 
+        // Downloaded manga pages (App\ChapterPage): {novel}/{chapter}/{page}.{ext}.
+        // Served by the app (chapters.page), never through /storage. Left
+        // out of the scheduled backup (config/backup.php): pages can be
+        // downloaded again from the source.
+        'manga' => [
+            'driver' => 'local',
+            'root' => env('NOVARR_MANGA_PATH', storage_path('app/manga')),
+            'throw' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

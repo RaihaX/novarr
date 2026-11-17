@@ -106,7 +106,7 @@ class DiscoverSearch
             return;
         }
 
-        $sources = $discover->sources();
+        $sources = Discover::ofMedium($discover->sources(), \App\Http\Controllers\Api\V1\DiscoverController::medium($record['params']));
         if ($sources === []) {
             $result = ['items' => [], 'page' => 1, 'has_more' => false];
         } elseif (isset($record['params']['source']) && !isset($sources[$record['params']['source']])) {

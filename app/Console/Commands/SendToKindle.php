@@ -28,6 +28,10 @@ class SendToKindle extends Command
             $this->error("Novel {$novelId} not found.");
             return self::FAILURE;
         }
+        if ($novel->isManga()) {
+            $this->error("Novel {$novelId} is a manga — Send to Kindle sends text ePubs only.");
+            return self::FAILURE;
+        }
 
         // One definition of the ePub path, shared with the generator, the
         // download route and OPDS, so the copies can't drift apart.

@@ -50,6 +50,8 @@ class HomeController extends Controller
             return $item + [
                 'percent' => $total > 0 ? (int) min(100, round($c['read'] / $total * 100)) : 0,
                 'unread' => $c['unread'],
+                'manga' => $item['novel']->isManga(),
+                'page_text' => $item['novel']->isManga() ? self::pageText($item['next'], (bool) $item['resume']) : null,
             ];
         }, array_slice($continue, 1, 6));
 
@@ -220,7 +222,7 @@ class HomeController extends Controller
             ->whereKey($item['next']->id)
             ->first([
                 'novel_chapters.id', 'novel_chapters.novel_id', 'novel_chapters.chapter', 'novel_chapters.book',
-                'novel_chapters.sort_key', 'novel_chapters.label', 'novel_chapters.read_progress',
+                'novel_chapters.sort_key', 'novel_chapters.label', 'novel_chapters.read_progress', 'novel_chapters.page_count',
                 'chapter_texts.word_count', 'chapter_texts.novel_chapter_id as text_id',
             ]) ?? $item['next'];
 
@@ -261,7 +263,44 @@ class HomeController extends Controller
             'book_percent' => $bookPct,
             'minutes_left' => $minutesLeft,
             'state' => NovelState::forNovel($novel, isset($attentionIds[$novel->id])),
+            // Manga: where in the chapter, in pages ("Page 12 of 34").
+            'manga' => $novel->isManga(),
+            'page_text' => $novel->isManga() ? self::pageText($chapter, (bool) $item['resume']) : null,
         ];
+    }
+
+    /**
+     * A manga chapter's resume page — the manga reader's own mapping
+     * (resources/js/manga-reader/logic.js percentToPage): progress 1–99 of
+     * N pages is page max(1, min(N, round(progress / 100 × N))). Null when
+     * there is no page count or nothing in progress.
+     */
+    public static function mangaPage($progress, $pageCount): ?int
+    {
+        $n = (int) $pageCount;
+        $p = $progress === null ? null : (int) $progress;
+        if ($n < 1 || $p === null || $p < 1 || $p > 99) {
+            return null;
+        }
+
+        return max(1, min($n, (int) round($p / 100 * $n)));
+    }
+
+    /**
+     * Continue-card text for a manga chapter: "Page 12 of 34" while in
+     * progress, "34 pages" for one not started; null without a page count.
+     */
+    public static function pageText($chapter, bool $resume): ?string
+    {
+        $n = (int) ($chapter->page_count ?? 0);
+        if ($n < 1) {
+            return null;
+        }
+        $page = $resume ? self::mangaPage($chapter->read_progress, $n) : null;
+
+        return $page !== null
+            ? 'Page ' . number_format($page) . ' of ' . number_format($n)
+            : number_format($n) . ' ' . ($n === 1 ? 'page' : 'pages');
     }
 
     /**
@@ -402,10 +441,17 @@ class HomeController extends Controller
     public function continueReading(int $limit = 8): array
     {
         // Candidate novels, most-recently-read first (ordered novel_id => last_read).
+        // Manga: a chapter is only marked read once its last page has been
+        // shown, so a manga being read has a chapter with progress and no
+        // read_at yet; its last progress write counts as reading activity
+        // (same statement: text novels only ever match on read_at).
         $recent = NovelChapter::where('status', 1)
             ->where('blacklist', 0)
-            ->whereNotNull('read_at')
-            ->selectRaw('novel_id, MAX(read_at) as last_read')
+            ->where(fn($q) => $q->whereNotNull('read_at')
+                ->orWhere(fn($m) => $m->whereIn('novel_id', Novel::mangaIdsQuery())
+                    ->whereBetween('read_progress', [1, 99])
+                    ->whereNotNull('read_progress_at')))
+            ->selectRaw('novel_id, MAX(COALESCE(read_at, read_progress_at)) as last_read')
             ->groupBy('novel_id')
             ->orderByDesc('last_read')
             ->limit($limit * 2) // over-fetch; some may be fully read
@@ -421,23 +467,33 @@ class HomeController extends Controller
         $novelIds = $recent->keys()->all();
         $novels = Novel::with('file')
             ->whereIn('id', $novelIds)
-            ->get(['id', 'name', 'author', 'status', 'paused_at', 'last_toc_count', 'translator_url'])
+            ->get(['id', 'name', 'author', 'status', 'paused_at', 'last_toc_count', 'translator_url', 'medium'])
             ->keyBy('id');
 
         // Abandoned mid-chapter? Resume it exactly where the reader left off
         // (read_progress syncs from the reader on every device): the most
-        // recently read such chapter per novel, all novels in one query.
-        $inProgress = NovelHealth::firstPerNovel($novelIds, fn($q) => $q
-            ->where('status', 1)->where('blacklist', 0)
-            ->whereNotNull('read_at')
-            ->whereNotNull('read_progress')
-            ->where('read_progress', '<', 90)
-            ->select(['id', 'novel_id', 'chapter', 'book', 'label', 'read_progress'])
-            ->orderByDesc('read_at')
-            ->orderByDesc('id'));
+        // recently read such chapter per novel, all novels in one query. A
+        // manga chapter in progress is not read yet (see above); page_count
+        // lets the cards say "Page 12 of 34".
+        $inProgress = NovelHealth::firstPerNovel($novelIds, function ($q, int $novelId) use ($novels) {
+            $q->where('status', 1)->where('blacklist', 0)
+                ->select(['id', 'novel_id', 'chapter', 'book', 'label', 'read_progress', 'page_count']);
+            if ($novels->get($novelId)?->isManga()) {
+                $q->whereNull('read_at')
+                    ->whereBetween('read_progress', [1, 99])
+                    ->whereNotNull('read_progress_at')
+                    ->orderByDesc('read_progress_at');
+            } else {
+                $q->whereNotNull('read_at')
+                    ->whereNotNull('read_progress')
+                    ->where('read_progress', '<', 90)
+                    ->orderByDesc('read_at');
+            }
+            $q->orderByDesc('id');
+        });
 
         // Otherwise the first unread in reading order.
-        $next = $this->firstUnread($novelIds, ['id', 'novel_id', 'chapter', 'book', 'label']);
+        $next = $this->firstUnread($novelIds, ['id', 'novel_id', 'chapter', 'book', 'label', 'page_count']);
 
         $items = [];
         foreach ($recent as $novelId => $lastRead) {

@@ -35,10 +35,11 @@ class LibraryController extends Controller
      * Library's default "read" sort). A fixed number of statements whatever
      * the library size.
      */
-    public function novels(): JsonResponse
+    public function novels(\Illuminate\Http\Request $request): JsonResponse
     {
+        $medium = Presenter::medium($request);
         $context = Presenter::context();
-        $novels = Presenter::loadNovels();
+        $novels = Presenter::loadNovels()->filter(fn(Novel $n) => Presenter::inMedium($n->medium, $medium));
         $ordered = NovelController::sortLibraryIds($novels->values(), $context['aggregates'], 'read');
 
         return response()->json([
@@ -47,10 +48,22 @@ class LibraryController extends Controller
     }
 
     /** GET /api/v1/home — the web Home's Continue and New chapters, plus totals. */
-    public function home(HomeController $home): JsonResponse
+    public function home(\Illuminate\Http\Request $request, HomeController $home): JsonResponse
     {
+        $medium = Presenter::medium($request);
         $continue = $home->continueShelf();
         $groups = $home->newChapterGroups($continue);
+
+        // Manga only on request (?medium=manga|all): the shelves are the web
+        // Home's, so they are filtered here.
+        $candidateIds = array_values(array_unique(array_merge(
+            array_map(fn($item) => (int) $item['novel']->id, $continue),
+            array_map(fn($g) => (int) $g['novel_id'], $groups)
+        )));
+        $media = $candidateIds === [] ? collect() : Novel::withTrashed()->whereIn('id', $candidateIds)->pluck('medium', 'id');
+        $keep = fn(int $id) => Presenter::inMedium($media->get($id), $medium);
+        $continue = array_values(array_filter($continue, fn($item) => $keep((int) $item['novel']->id)));
+        $groups = array_values(array_filter($groups, fn($g) => $keep((int) $g['novel_id'])));
         // The web page lists the novels you are reading first, then the rest.
         $groups = array_merge(
             array_values(array_filter($groups, fn($g) => $g['reading'])),
@@ -91,7 +104,9 @@ class LibraryController extends Controller
         }
 
         $out['stats'] = [
-            'novels' => count($context['reading']),
+            'novels' => $medium === 'all'
+                ? count($context['reading'])
+                : Novel::whereIn('id', array_keys($context['reading']))->where('medium', $medium)->count(),
             'chapters_downloaded' => (int) $context['totals']['downloaded'],
             'chapters_queued' => (int) $context['totals']['queued'],
         ];
@@ -140,7 +155,7 @@ class LibraryController extends Controller
         $chapters = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
             ->ordered()
-            ->select(['id', 'chapter', 'book', 'label', 'status', 'read_at', 'read_progress', 'kind', 'download_date', 'last_failure_reason'])
+            ->select(['id', 'chapter', 'book', 'label', 'status', 'read_at', 'read_progress', 'kind', 'download_date', 'last_failure_reason', 'page_count'])
             ->selectSub(
                 ChapterText::query()->select('word_count')->whereColumn('chapter_texts.novel_chapter_id', 'novel_chapters.id'),
                 'word_count'
@@ -162,6 +177,8 @@ class LibraryController extends Controller
                     'reason' => $state === 'failed' ? NovelController::failureReasonText($c->last_failure_reason) : null,
                     'downloaded_at' => Presenter::timestamp($c->download_date),
                     'word_count' => $c->word_count === null ? null : (int) $c->word_count,
+                    // Pages of a downloaded manga chapter; null for text.
+                    'page_count' => $c->page_count === null ? null : (int) $c->page_count,
                 ];
             });
 

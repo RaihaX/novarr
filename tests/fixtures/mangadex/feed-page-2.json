@@ -1,0 +1,233 @@
+{
+    "result": "ok",
+    "response": "collection",
+    "data": [
+        {
+            "id": "a0000003-0000-4000-8000-000000000003",
+            "type": "chapter",
+            "attributes": {
+                "volume": null,
+                "chapter": "3",
+                "title": "Chapter 3",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2020-06-30T00:06:48+00:00",
+                "readableAt": "2020-06-30T00:06:48+00:00",
+                "createdAt": "2020-06-30T00:06:48+00:00",
+                "updatedAt": "2020-06-30T00:06:48+00:00",
+                "version": 1,
+                "pages": 24
+            },
+            "relationships": [
+                {
+                    "id": "9348bde7-ed3e-43e7-88c6-0edcd1debb88",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "74d95af1-7492-4fca-bc44-10c9142703e8",
+                    "type": "user"
+                }
+            ]
+        },
+        {
+            "id": "a0000004-0000-4000-8000-000000000004",
+            "type": "chapter",
+            "attributes": {
+                "volume": null,
+                "chapter": "4",
+                "title": "Empty",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2020-06-30T00:07:08+00:00",
+                "readableAt": "2020-06-30T00:07:08+00:00",
+                "createdAt": "2020-06-30T00:07:08+00:00",
+                "updatedAt": "2020-06-30T00:07:08+00:00",
+                "version": 1,
+                "pages": 0
+            },
+            "relationships": [
+                {
+                    "id": "9348bde7-ed3e-43e7-88c6-0edcd1debb88",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "74d95af1-7492-4fca-bc44-10c9142703e8",
+                    "type": "user"
+                }
+            ]
+        },
+        {
+            "id": "c0000005-0000-4000-8000-000000000005",
+            "type": "chapter",
+            "attributes": {
+                "volume": null,
+                "chapter": "5",
+                "title": "Tie Later",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2020-07-05T00:00:00+00:00",
+                "readableAt": "2020-07-05T00:00:00+00:00",
+                "createdAt": "2020-07-05T00:00:00+00:00",
+                "updatedAt": "2020-07-05T00:00:00+00:00",
+                "version": 1,
+                "pages": 20
+            },
+            "relationships": [
+                {
+                    "id": "cccccccc-0000-4000-8000-000000000001",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "74d95af1-7492-4fca-bc44-10c9142703e8",
+                    "type": "user"
+                }
+            ]
+        },
+        {
+            "id": "d0000005-0000-4000-8000-000000000005",
+            "type": "chapter",
+            "attributes": {
+                "volume": null,
+                "chapter": "5",
+                "title": "Tie Earlier",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2020-07-04T00:00:00+00:00",
+                "readableAt": "2020-07-04T00:00:00+00:00",
+                "createdAt": "2020-07-04T00:00:00+00:00",
+                "updatedAt": "2020-07-04T00:00:00+00:00",
+                "version": 1,
+                "pages": 20
+            },
+            "relationships": [
+                {
+                    "id": "dddddddd-0000-4000-8000-000000000002",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "74d95af1-7492-4fca-bc44-10c9142703e8",
+                    "type": "user"
+                }
+            ]
+        },
+        {
+            "id": "b00000e1-0000-4000-8000-0000000000e1",
+            "type": "chapter",
+            "attributes": {
+                "volume": null,
+                "chapter": null,
+                "title": "Pilot",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2018-01-01T00:00:00+00:00",
+                "readableAt": "2018-01-01T00:00:00+00:00",
+                "createdAt": "2018-01-01T00:00:00+00:00",
+                "updatedAt": "2018-01-01T00:00:00+00:00",
+                "version": 1,
+                "pages": 40
+            },
+            "relationships": [
+                {
+                    "id": "11111111-2222-4333-8444-555555555555",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "74d95af1-7492-4fca-bc44-10c9142703e8",
+                    "type": "user"
+                }
+            ]
+        },
+        {
+            "id": "a00000e1-0000-4000-8000-0000000000e1",
+            "type": "chapter",
+            "attributes": {
+                "volume": null,
+                "chapter": null,
+                "title": "Pilot",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2018-06-01T00:00:00+00:00",
+                "readableAt": "2018-06-01T00:00:00+00:00",
+                "createdAt": "2018-06-01T00:00:00+00:00",
+                "updatedAt": "2018-06-01T00:00:00+00:00",
+                "version": 1,
+                "pages": 40
+            },
+            "relationships": [
+                {
+                    "id": "9348bde7-ed3e-43e7-88c6-0edcd1debb88",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "74d95af1-7492-4fca-bc44-10c9142703e8",
+                    "type": "user"
+                }
+            ]
+        },
+        {
+            "id": "a0000010-0000-4000-8000-000000000010",
+            "type": "chapter",
+            "attributes": {
+                "volume": "2",
+                "chapter": "10",
+                "title": "Ten",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2020-06-30T00:09:24+00:00",
+                "readableAt": "2020-06-30T00:09:24+00:00",
+                "createdAt": "2020-06-30T00:09:24+00:00",
+                "updatedAt": "2020-06-30T00:09:24+00:00",
+                "version": 1,
+                "pages": 19
+            },
+            "relationships": [
+                {
+                    "id": "9348bde7-ed3e-43e7-88c6-0edcd1debb88",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "74d95af1-7492-4fca-bc44-10c9142703e8",
+                    "type": "user"
+                }
+            ]
+        }
+    ],
+    "limit": 500,
+    "offset": 500,
+    "total": 507
+}

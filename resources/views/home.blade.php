@@ -65,11 +65,14 @@
             <section class="home-hero" aria-labelledby="nowReadingTitle" id="nowReading">
                 <a href="{{ $resumeUrl }}" class="home-hero-cover" tabindex="-1" aria-hidden="true">
                     {{-- Novel progress shows once, on the bar below: no cover edge here. --}}
-                    <div class="home-cover home-cover-lg">
+                    <div class="home-cover home-cover-lg{{ ($hero['manga'] ?? false) ? ' has-chip' : '' }}">
                         @if($cover = $novel->coverUrl('md'))
                             <img src="{{ $cover }}" alt="" loading="eager" fetchpriority="high" decoding="async">
                         @else
                             <span class="home-cover-title">{{ $novel->name }}</span>
+                        @endif
+                        @if($hero['manga'] ?? false)
+                            <span class="cover-chip">MANGA</span>
                         @endif
                     </div>
                 </a>
@@ -88,14 +91,25 @@
                     <div class="home-hero-pos" id="heroKicker">
                         <span>{{ $position }}</span>
                         <span class="home-hero-togo">{{ number_format($hero['to_go']) }} to go</span>
-                        @if($hero['minutes_left'])
+                        @if(!empty($hero['page_text']))
+                            <span class="home-hero-mins-short" aria-hidden="true">{{ $hero['page_text'] }}</span>
+                        @elseif($hero['minutes_left'])
                             <span class="home-hero-mins-short" aria-hidden="true">{{ $hero['minutes_left'] }} min {{ $hero['resume'] ? 'left' : 'read' }}</span>
                         @endif
                     </div>
                     <div class="home-progress" role="progressbar" aria-label="Progress through {{ $novel->name }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ $hero['book_percent'] }}" aria-valuetext="{{ $position }}">
                         <span style="width: {{ $hero['book_percent'] }}%"></span>
                     </div>
-                    @if($hero['minutes_left'])
+                    @if(!empty($hero['page_text']))
+                        {{-- Manga: pages, not minutes. --}}
+                        <p class="home-hero-mins" id="heroPages">
+                            @if($hero['resume'])
+                                {{ $hero['page_text'] }} in this chapter
+                            @else
+                                Next up: chapter {{ $chapterNo }}, {{ $hero['page_text'] }}
+                            @endif
+                        </p>
+                    @elseif($hero['minutes_left'])
                         <p class="home-hero-mins" id="heroMinutes">
                             @if($hero['resume'])
                                 {{ $hero['minutes_left'] }} min left in this chapter
@@ -200,8 +214,8 @@
             <div class="home-shelf">
                 @foreach($shelf as $item)
                     @php $n = $item['novel']; @endphp
-                    <a href="{{ route('chapters.show', $item['next']->id) }}" class="home-tile" aria-label="Continue {{ $n->name }} at chapter {{ $ch($item['next']->chapter) }}, {{ number_format($item['unread']) }} to read">
-                        <div class="home-cover">
+                    <a href="{{ route('chapters.show', $item['next']->id) }}" class="home-tile" aria-label="Continue {{ $n->name }} at chapter {{ $ch($item['next']->chapter) }}, {{ !empty($item['page_text']) && $item['resume'] ? Str::lower($item['page_text']) : number_format($item['unread']) . ' to read' }}">
+                        <div class="home-cover{{ ($item['manga'] ?? false) ? ' has-chip' : '' }}">
                             {{-- The shelf is a single row, all of it in the first screenful. --}}
                             @if($cover = $n->coverUrl('sm'))
                                 {{-- Tiles show at about 170 CSS px: offer md to 2x screens. --}}
@@ -210,10 +224,18 @@
                             @else
                                 <span class="home-cover-title">{{ $n->name }}</span>
                             @endif
+                            @if($item['manga'] ?? false)
+                                <span class="cover-chip">MANGA</span>
+                            @endif
                             <span class="home-cover-edge"><i style="width: {{ $item['percent'] }}%"></i></span>
                         </div>
                         <span class="home-tile-title">{{ $n->name }}</span>
-                        <span class="home-tile-meta"><span class="home-tile-wide">Next: </span>ch {{ $ch($item['next']->chapter) }} · {{ number_format($item['unread']) }} <span class="home-tile-wide">to read</span><span class="home-tile-narrow">left</span></span>
+                        @if(!empty($item['page_text']) && $item['resume'])
+                            {{-- Manga in progress: where in the chapter, in pages. --}}
+                            <span class="home-tile-meta">ch {{ $ch($item['next']->chapter) }} · {{ $item['page_text'] }}</span>
+                        @else
+                            <span class="home-tile-meta"><span class="home-tile-wide">Next: </span>ch {{ $ch($item['next']->chapter) }} · {{ number_format($item['unread']) }} <span class="home-tile-wide">to read</span><span class="home-tile-narrow">left</span></span>
+                        @endif
                     </a>
                 @endforeach
             </div>

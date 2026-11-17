@@ -255,6 +255,10 @@ class ChapterList {
         const title = c.downloaded
             ? `<a href="${esc(href)}" class="chapter-link">${esc(limit(c.label))}</a>`
             : `<span class="chapter-label">${esc(limit(c.label))}</span>`;
+        // Manga: a downloaded chapter's page count (null for text).
+        const pages = c.pages
+            ? ` <span class="ch-pages text-muted small ms-1">${c.pages} ${c.pages === 1 ? 'page' : 'pages'}</span>`
+            : '';
         const reason = c.state === 'failed'
             ? `<span class="ch-reason">${esc(c.reason)}${c.attempts > 1 ? ` · ${c.attempts} attempts` : ''}</span>`
             : '';
@@ -268,7 +272,7 @@ class ChapterList {
             + `<td class="ch-select"><input type="checkbox" class="form-check-input ch-check" value="${c.id}" aria-label="Select chapter ${esc(c.chapter)}"></td>`
             + `<td class="ch-num"><span class="ch-num-prefix">Ch. </span>${esc(c.chapter)}</td>`
             + (this.bookCol ? `<td class="ch-book"><span class="ch-num-prefix">Book </span>${c.book ? esc(c.book) : '—'}</td>` : '')
-            + `<td class="ch-title">${title}${c.note ? this.badges.note || '' : ''}${reason}</td>`
+            + `<td class="ch-title">${title}${pages}${c.note ? this.badges.note || '' : ''}${reason}</td>`
             + `<td class="ch-status">${status}</td>`
             + `<td class="ch-date">${esc(c.date || '—')}</td>`
             + '</tr>';

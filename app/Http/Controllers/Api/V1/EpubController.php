@@ -31,6 +31,9 @@ class EpubController extends Controller
 {
     private const NO_CHAPTERS = 'This novel has no downloaded chapters yet.';
 
+    /** ePubs are made from chapter text; a manga has page images. */
+    public const MANGA = 'This is a manga: EPUBs are made from chapter text only.';
+
     /** How long a started build counts as running without a result. */
     private const BUILD_TTL_MINUTES = 30;
 
@@ -41,6 +44,9 @@ class EpubController extends Controller
     public function show($id): JsonResponse
     {
         $novel = Novel::findOrFail($id);
+        if ($novel->isManga()) {
+            return response()->json(['message' => self::MANGA], 422);
+        }
 
         return response()->json(['epub' => $this->state($novel)]);
     }
@@ -53,6 +59,9 @@ class EpubController extends Controller
     public function build(Request $request, $id): JsonResponse
     {
         $novel = Novel::findOrFail($id);
+        if ($novel->isManga()) {
+            return response()->json(['message' => self::MANGA], 422);
+        }
 
         if (static::downloadedChapters((int) $novel->id)['count'] === 0) {
             return response()->json(['message' => self::NO_CHAPTERS], 422);

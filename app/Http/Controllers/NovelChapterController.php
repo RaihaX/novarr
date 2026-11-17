@@ -24,7 +24,18 @@ class NovelChapterController extends Controller
      */
     public function show(Request $request, $id)
     {
-        $chapter = $this->novelchapters->with(['novel:id,name', 'text'])->findOrFail($id);
+        $chapter = $this->novelchapters->with(['novel:id,name,medium'])->findOrFail($id);
+
+        // A manga chapter: the page shell for the manga reader. It is never
+        // marked read on open — the reader marks it through
+        // chapters.progress once the pages have actually been read.
+        if ($chapter->novel?->isManga()) {
+            return view('chapters.manga', [
+                'chapter' => $chapter,
+                'pages' => $chapter->status ? $chapter->pages()->get(['page', 'width', 'height']) : collect(),
+            ]);
+        }
+        $chapter->load('text');
 
         [$prev, $next] = static::neighbours($chapter);
 

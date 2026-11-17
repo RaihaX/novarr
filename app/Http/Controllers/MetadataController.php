@@ -22,6 +22,9 @@ class MetadataController extends Controller
     public function candidates($id): JsonResponse
     {
         $novel = Novel::findOrFail($id);
+        if ($novel->isManga()) {
+            return self::notForManga();
+        }
 
         try {
             $ranked = $this->searchCandidates($novel);
@@ -55,6 +58,9 @@ class MetadataController extends Controller
     public function choose(Request $request, $id): JsonResponse
     {
         $novel = Novel::findOrFail($id);
+        if ($novel->isManga()) {
+            return self::notForManga();
+        }
 
         $validated = $request->validate([
             'url' => ['required', 'string', 'max:2048', 'regex:#^https?://(www\.)?novelupdates\.com/series/[a-z0-9-]+/?$#i'],
@@ -88,5 +94,11 @@ class MetadataController extends Controller
         resolveNovelUpdatesUrl($novel->name, $novel->author, $report);
 
         return $report['candidates'] ?? [];
+    }
+
+    /** NovelUpdates lists novels only: no match is looked up for a manga. */
+    private static function notForManga(): JsonResponse
+    {
+        return response()->json(['success' => false, 'message' => 'NovelUpdates matching does not apply to manga.'], 422);
     }
 }

@@ -718,6 +718,12 @@ class NovelScraper extends Command
         // The stored text belongs to the old page — queue a re-download.
         if ($allowReset && $chapter->status && self::urlPathChanged($oldUrl, (string) $chapter->url)) {
             $chapter->status = 0;
+            // A manga chapter's pages belong to the old page too: removed
+            // now, downloaded again from the new URL.
+            if ($chapter->novel?->isManga()) {
+                \App\ChapterPage::purgeChapter($chapter);
+                $chapter->forceFill(["page_count" => null]);
+            }
             $this->warn("  Chapter {$chapter->chapter} moved to a new URL — queued for re-download");
             \Log::info(
                 "Chapter {$chapter->id} ({$chapter->label}) URL changed from \"{$oldUrl}\" to \"{$chapter->url}\"; status reset for re-download"

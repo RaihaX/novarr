@@ -58,7 +58,14 @@ class GenerateePub extends Command
         // book xN in RAM. generateEpubForNovel() loads lightweight chapter
         // metadata once and streams the bodies in id-keyed batches.
         $query = Novel::whereHas("chapters")
+            // ePubs are text: a manga has page images, no chapter text.
+            ->text()
             ->with("file"); // cover file relationship only
+
+        if ($novelId != 0 && Novel::whereKey($novelId)->manga()->exists()) {
+            $this->warn("Novel {$novelId} is a manga — ePubs are made from chapter text only.");
+            return self::SUCCESS;
+        }
 
         if ($novelId == 0) {
             $query->where("status", 1)->whereNull("epub_generated");

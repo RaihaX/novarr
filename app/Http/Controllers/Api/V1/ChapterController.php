@@ -16,7 +16,16 @@ class ChapterController extends Controller
 {
     public function show($id): JsonResponse
     {
-        $chapter = NovelChapter::with(['novel:id,name', 'text'])->findOrFail($id);
+        $chapter = NovelChapter::with(['novel:id,name,medium', 'text'])->findOrFail($id);
+
+        // A manga chapter is page images: this text endpoint has nothing to
+        // give (clients that read manga use /chapters/{id}/pages).
+        if ($chapter->novel?->isManga()) {
+            return response()->json([
+                'message' => 'This chapter belongs to a manga: it has page images, not text. Use /api/v1/chapters/' . (int) $chapter->id . '/pages.',
+                'medium' => 'manga',
+            ], 422);
+        }
 
         [$prev, $next] = NovelChapterController::neighbours($chapter, ['id', 'chapter', 'book', 'label', 'status']);
 
@@ -34,12 +43,28 @@ class ChapterController extends Controller
                 'downloaded' => (bool) $chapter->status,
                 'read' => $chapter->read_at !== null,
                 'read_progress' => $chapter->read_progress === null ? null : (int) $chapter->read_progress,
+                'page_count' => $chapter->page_count === null ? null : (int) $chapter->page_count,
                 'paragraphs' => static::paragraphs($html),
                 'html' => $html,
                 'prev' => $prev ? Presenter::chapterRef($prev, true) : null,
                 'next' => $next ? Presenter::chapterRef($next, true) : null,
             ],
         ]);
+    }
+
+    /**
+     * GET /api/v1/chapters/{id}/pages — a manga chapter's pages, the same
+     * JSON as the web pages.json (absolute URLs on the request's origin).
+     * 404 for a text chapter.
+     */
+    public function pages($id): JsonResponse
+    {
+        $chapter = NovelChapter::with('novel:id,name,medium,reading_mode')->findOrFail($id);
+        if (!$chapter->novel?->isManga()) {
+            return response()->json(['message' => 'Not a manga chapter.'], 404);
+        }
+
+        return response()->json(\App\Http\Controllers\MangaController::pagesPayload($chapter));
     }
 
     /**

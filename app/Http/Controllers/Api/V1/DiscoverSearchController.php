@@ -17,7 +17,8 @@ class DiscoverSearchController extends Controller
     /** POST /api/v1/discover/searches — 202 with the new search. */
     public function store(Request $request, Discover $discover, DiscoverSearch $searches): JsonResponse
     {
-        $data = $request->validate(DiscoverController::browseRules($discover->sources()));
+        $request->validate(['medium' => 'nullable|in:' . implode(',', DiscoverController::MEDIA)]);
+        $data = $request->validate(DiscoverController::browseRules($discover->sourcesFor(DiscoverController::medium($request->all()))));
 
         return response()->json(['search' => $searches->start($data)], 202);
     }

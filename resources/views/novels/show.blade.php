@@ -34,6 +34,7 @@
 
     $metaItems = [];
     if ($data->translator_url) $metaItems[] = ['href' => $data->translator_url, 'text' => parse_url($data->translator_url, PHP_URL_HOST)];
+    if ($data->isManga()) $metaItems[] = ['text' => 'Manga'];
     if ($originLabel = $data->originLabel()) $metaItems[] = ['text' => $originLabel];
     if ($data->group && $data->group->label) $metaItems[] = ['text' => $data->group->label];
     if ($data->language && $data->language->label) $metaItems[] = ['text' => $data->language->label];
@@ -123,13 +124,16 @@
         @if($continue_chapter_id)
             <a href="{{ route('chapters.show', $continue_chapter_id) }}" class="btn btn-primary nv-continue">
                 <x-icon name="play" :size="13" />
-                @if($read_count > 0)
-                    Continue{{ $continueLabel ? ' at ' . $continueLabel : ' reading' }}
+                @if($read_count > 0 || !empty($continue_page_number))
+                    Continue{{ $continueLabel ? ' at ' . $continueLabel : ' reading' }}{{ !empty($continue_page_number) ? ', page ' . number_format($continue_page_number) : '' }}
                 @else
                     Start reading
                 @endif
             </a>
         @endif
+        {{-- Offline copies hold chapter pages' HTML only: a manga's page
+             images are not saved, so it has no "Download for offline". --}}
+        @unless($data->isManga())
         <span id="offlineControls" data-id="{{ $data->id }}" data-total="{{ $current_chapters }}" data-unread="{{ $unread }}" class="nv-offline">
             <div class="dropdown">
                 <button type="button" id="offlineBtn" class="btn btn-secondary btn-icon-label" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Download for offline">
@@ -157,6 +161,7 @@
                 </ul>
             </div>
         </span>
+        @endunless
         <div class="dropdown">
             <button type="button" class="btn btn-secondary btn-icon" id="novelMoreBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="More actions" title="More actions">
                 <x-icon name="more-horizontal" :size="16" />
@@ -179,6 +184,8 @@
                         <span class="cmd-fail d-none">Failed</span>
                     </button>
                 </li>
+                {{-- Text-only actions: a manga has page images (no text search, ePub or Kindle). --}}
+                @unless($data->isManga())
                 <li><a href="{{ route('search.index', ['novel' => $data->id]) }}" class="dropdown-item"><x-icon name="search" :size="14" />Search the text of this novel</a></li>
                 <li><hr class="dropdown-divider"></li>
                 <li><h6 class="dropdown-header label-caption">ePub</h6></li>
@@ -201,6 +208,7 @@
                         <span class="cmd-fail d-none">Failed</span>
                     </button>
                 </li>
+                @endunless
                 <li><hr class="dropdown-divider"></li>
                 <li><button type="button" id="deleteNovel" class="dropdown-item item-danger" data-id="{{ $data->id }}" data-name="{{ $data->name }}"><x-icon name="trash-2" :size="14" />Delete novel</button></li>
             </ul>
@@ -409,6 +417,9 @@
                                 <a href="{{ route('chapters.show', $chapter->id) }}" class="chapter-link">{{ Str::limit($chapter->label, 90) }}</a>
                             @else
                                 <span class="chapter-label">{{ Str::limit($chapter->label, 90) }}</span>
+                            @endif
+                            @if($data->isManga() && $chapter->page_count)
+                                <span class="ch-pages text-muted small ms-1">{{ number_format($chapter->page_count) }} {{ $chapter->page_count === 1 ? 'page' : 'pages' }}</span>
                             @endif
                             @if($chapter->isNote())
                                 <x-status state="paused" class="ms-1" title="Author's note — a message from the author or translator, not a story chapter">Note</x-status>

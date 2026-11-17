@@ -66,6 +66,10 @@ $home-cover-phone: 96px;
     }
 }
 
+// A manga's MANGA chip (.cover-chip, bottom-right): lift the typographic
+// title clear of it.
+.home .home-cover.has-chip { padding-bottom: 26px; }
+
 .home-cover-title {
     font-family: $font-read;
     font-weight: 600;

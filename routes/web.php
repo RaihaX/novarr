@@ -62,6 +62,28 @@ Route::post('/chapters/{id}/read-through', [NovelChapterController::class, 'read
 Route::post('/chapters/{id}/progress', [NovelChapterController::class, 'progress'])->name('chapters.progress');
 Route::post('/chapters/bulk-read', [NovelChapterController::class, 'bulkRead'])->name('chapters.bulk_read');
 
+// Manga reader (App\Http\Controllers\MangaController). Page images skip the
+// session/cookie middleware: they are static, cacheable and fetched by the
+// dozen per chapter.
+$sessionless = [
+    \Illuminate\Cookie\Middleware\EncryptCookies::class,
+    \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+    \Illuminate\Session\Middleware\StartSession::class,
+    \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+    \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
+];
+Route::get('/chapters/{id}/pages.json', [\App\Http\Controllers\MangaController::class, 'pages'])->whereNumber('id')->name('chapters.pages');
+Route::get('/chapters/{id}/pages/{page}', [\App\Http\Controllers\MangaController::class, 'page'])
+    ->whereNumber(['id', 'page'])
+    ->withoutMiddleware($sessionless)
+    ->name('chapters.page');
+Route::post('/novels/{id}/reading-mode', [\App\Http\Controllers\MangaController::class, 'readingMode'])->whereNumber('id')->name('novels.reading_mode');
+
+// Discover covers from hosts that refuse hotlinking (MangaDex).
+Route::get('/discover/cover', [\App\Http\Controllers\DiscoverCoverController::class, 'show'])
+    ->withoutMiddleware($sessionless)
+    ->name('discover.cover');
+
 // Commands (status route BEFORE wildcard {command})
 Route::get('/commands', [CommandController::class, 'index'])->name('commands.index');
 Route::post('/commands/execute', [CommandController::class, 'execute'])->name('commands.execute');

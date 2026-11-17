@@ -20,6 +20,7 @@ import { initAutoScroll } from './autoscroll.js';
 import { initTts } from './tts.js';
 import { initAutoMark } from './automark.js';
 import { createWakeLock } from './wakelock.js';
+import { installReader as install } from './install.js';
 
 /**
  * Wire the reader inside `root` (#reader). Returns an idempotent teardown.
@@ -88,63 +89,13 @@ export function mount(root) {
 }
 
 /**
- * Mount the reader on each Turbo visit to a chapter page. Two guards keep it
- * to exactly one reader per page:
- *  - only roots marked data-reader-module are mounted: a chapter page cached
- *    by the service worker before the reader became a module carries its own
- *    inline copy of the reader (and only data-reader-page), and runs that;
- *  - a tab left open across a deploy can evaluate a second copy of this
- *    module (new hashed filename). The latest copy claims ownership on
- *    `win`; an older copy tears down what it mounted and stops listening.
- * Exported (with injectable doc / win / mount) for tests/js/reader.test.js.
+ * Mount the reader on each Turbo visit to a chapter page (see install.js:
+ * only roots marked data-reader-module, and only the newest copy of this
+ * module). Exported (with injectable doc / win / mount) for
+ * tests/js/reader.test.js.
  */
 export function installReader(doc, win, mountFn = mount) {
-    const owner = Symbol('novarr-reader');
-    let active = null;   // { root, teardown } for the reader on screen
-
-    const isOwner = () => win.__novarrReaderOwner === owner;
-
-    // before-cache fires only when Turbo snapshots the page (the layout sets
-    // turbo-cache-control: no-cache, so usually it won't); before-render
-    // fires on every Turbo render that replaces this page.
-    function leave() {
-        if (!active) return;
-        const { teardown } = active;
-        active = null;
-        teardown();
-    }
-
-    function boot() {
-        if (!isOwner()) { retire(); return; }
-        const root = doc.querySelector('[data-reader-module]');
-        if (root === active?.root) return;
-        // A previous reader that left without a Turbo render (shouldn't happen).
-        leave();
-        if (root) active = { root, teardown: mountFn(root) };
-    }
-
-    function claimed() {
-        if (!isOwner()) retire();
-    }
-
-    // Superseded by a newer copy: release this page and go quiet for good.
-    function retire() {
-        leave();
-        doc.removeEventListener('turbo:load', boot);
-        doc.removeEventListener('turbo:before-cache', leave);
-        doc.removeEventListener('turbo:before-render', leave);
-        doc.removeEventListener('novarr:reader-claimed', claimed);
-    }
-
-    win.__novarrReaderOwner = owner;
-    // Older copies hear this synchronously and tear down before we mount.
-    doc.dispatchEvent(new win.CustomEvent('novarr:reader-claimed'));
-    doc.addEventListener('turbo:load', boot);
-    doc.addEventListener('turbo:before-cache', leave);
-    doc.addEventListener('turbo:before-render', leave);
-    doc.addEventListener('novarr:reader-claimed', claimed);
-    boot();
-    return { boot, leave, isOwner };
+    return install(doc, win, mountFn);
 }
 
 if (typeof document !== 'undefined' && typeof window !== 'undefined') {

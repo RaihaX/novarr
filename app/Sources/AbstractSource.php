@@ -123,6 +123,20 @@ abstract class AbstractSource implements Source
         return null;
     }
 
+    /** Text novels unless an adapter says otherwise. */
+    public function medium(): string
+    {
+        return \App\Novel::MEDIUM_NOVEL;
+    }
+
+    /** No page images: a text source. */
+    public function chapterPages(string $url, ?string &$failure = null): ?array
+    {
+        $failure = null;
+
+        return null;
+    }
+
     /** No API fast path: chapters are fetched as pages. */
     public function chapterContent(string $url, ?string &$failure = null): ?array
     {

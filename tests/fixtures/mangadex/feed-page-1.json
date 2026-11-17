@@ -1,0 +1,201 @@
+{
+    "result": "ok",
+    "response": "collection",
+    "data": [
+        {
+            "id": "6f2b5712-2461-48fd-a519-c2c9cb93f0b1",
+            "type": "chapter",
+            "attributes": {
+                "volume": "1",
+                "chapter": "1",
+                "title": null,
+                "translatedLanguage": "en",
+                "externalUrl": "https://viz.com/shonenjump/-/chapter/17489",
+                "isUnavailable": false,
+                "publishAt": "2024-05-01T15:29:06+00:00",
+                "readableAt": "2024-05-01T15:29:06+00:00",
+                "createdAt": "2024-05-01T15:29:06+00:00",
+                "updatedAt": "2024-05-01T15:29:06+00:00",
+                "version": 2,
+                "pages": 0
+            },
+            "relationships": [
+                {
+                    "id": "a38fc704-90ab-452f-9336-59d84997a9ce",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "74d95af1-7492-4fca-bc44-10c9142703e8",
+                    "type": "user"
+                }
+            ]
+        },
+        {
+            "id": "73af4d8d-1532-4a72-b1b9-8f4e5cd295c9",
+            "type": "chapter",
+            "attributes": {
+                "volume": "1",
+                "chapter": "1",
+                "title": "A Dog and a Chainsaw",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2020-06-30T00:05:51+00:00",
+                "readableAt": "2020-06-30T00:05:51+00:00",
+                "createdAt": "2020-06-30T00:05:51+00:00",
+                "updatedAt": "2020-06-30T00:05:51+00:00",
+                "version": 1,
+                "pages": 53
+            },
+            "relationships": [
+                {
+                    "id": "9348bde7-ed3e-43e7-88c6-0edcd1debb88",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "f183117e-6e9a-4e3f-a4ce-08fb5d7b6021",
+                    "type": "user"
+                }
+            ]
+        },
+        {
+            "id": "b0000001-0000-4000-8000-000000000001",
+            "type": "chapter",
+            "attributes": {
+                "volume": null,
+                "chapter": "1",
+                "title": "The Dog and the Chainsaw",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2019-01-01T00:00:00+00:00",
+                "readableAt": "2019-01-01T00:00:00+00:00",
+                "createdAt": "2019-01-01T00:00:00+00:00",
+                "updatedAt": "2019-01-01T00:00:00+00:00",
+                "version": 1,
+                "pages": 20
+            },
+            "relationships": [
+                {
+                    "id": "11111111-2222-4333-8444-555555555555",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "74d95af1-7492-4fca-bc44-10c9142703e8",
+                    "type": "user"
+                }
+            ]
+        },
+        {
+            "id": "deea3463-a37e-46bc-bf88-4a7899c02c20",
+            "type": "chapter",
+            "attributes": {
+                "volume": "1",
+                "chapter": "2",
+                "title": "Pochita's Whereabouts",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2020-06-30T00:06:19+00:00",
+                "readableAt": "2020-06-30T00:06:19+00:00",
+                "createdAt": "2020-06-30T00:06:19+00:00",
+                "updatedAt": "2020-06-30T00:06:19+00:00",
+                "version": 1,
+                "pages": 26
+            },
+            "relationships": [
+                {
+                    "id": "9348bde7-ed3e-43e7-88c6-0edcd1debb88",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "f183117e-6e9a-4e3f-a4ce-08fb5d7b6021",
+                    "type": "user"
+                }
+            ]
+        },
+        {
+            "id": "b0000002-0000-4000-8000-000000000002",
+            "type": "chapter",
+            "attributes": {
+                "volume": null,
+                "chapter": "2",
+                "title": "",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2019-01-02T00:00:00+00:00",
+                "readableAt": "2019-01-02T00:00:00+00:00",
+                "createdAt": "2019-01-02T00:00:00+00:00",
+                "updatedAt": "2019-01-02T00:00:00+00:00",
+                "version": 1,
+                "pages": 18
+            },
+            "relationships": [
+                {
+                    "id": "11111111-2222-4333-8444-555555555555",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "74d95af1-7492-4fca-bc44-10c9142703e8",
+                    "type": "user"
+                }
+            ]
+        },
+        {
+            "id": "b0000025-0000-4000-8000-000000000025",
+            "type": "chapter",
+            "attributes": {
+                "volume": null,
+                "chapter": "2.5",
+                "title": "Omake",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2020-07-01T00:00:00+00:00",
+                "readableAt": "2020-07-01T00:00:00+00:00",
+                "createdAt": "2020-07-01T00:00:00+00:00",
+                "updatedAt": "2020-07-01T00:00:00+00:00",
+                "version": 1,
+                "pages": 4
+            },
+            "relationships": [
+                {
+                    "id": "11111111-2222-4333-8444-555555555555",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+                    "type": "manga"
+                },
+                {
+                    "id": "74d95af1-7492-4fca-bc44-10c9142703e8",
+                    "type": "user"
+                }
+            ]
+        }
+    ],
+    "limit": 500,
+    "offset": 0,
+    "total": 507
+}

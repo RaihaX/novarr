@@ -30,6 +30,8 @@ class VerifyCompletion extends Command
         }
 
         $novels = Novel::where("status", 0)
+            // NovelUpdates lists novels: a manga is never verified against it.
+            ->text()
             ->when($novelId !== 0, fn($q) => $q->where("id", $novelId))
             // Paused novels are skipped in the automatic sweep but still run
             // when a specific novel is requested explicitly.
