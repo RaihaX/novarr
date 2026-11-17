@@ -24,6 +24,7 @@ class SourceResolver
     /** @var array<string, class-string<Source>> what the config map defaults to */
     public const DEFAULT_SOURCES = [
         'mangadex' => MangaDexSource::class,
+        'suwayomi' => SuwayomiSource::class,
         'empirenovel' => EmpireNovelSource::class,
         'novelfull' => NovelFullSource::class,
         'novelarrow' => NovelArrowSource::class,
@@ -92,12 +93,25 @@ class SourceResolver
         return $sources;
     }
 
-    /** The adapter registered under a key, or null. */
+    /**
+     * The adapter registered under a key, or null. A Discover entry key of
+     * an ExpandsDiscover source ("suwayomi:123") gives that entry's scoped
+     * instance (null when the source no longer lists it).
+     */
     public static function get(string $key): ?Source
     {
-        $class = static::classes()[$key] ?? null;
+        $classes = static::classes();
+        if (isset($classes[$key])) {
+            return new $classes[$key]();
+        }
 
-        return $class ? new $class() : null;
+        [$base, $entry] = array_pad(explode(':', $key, 2), 2, null);
+        $class = $entry !== null && $entry !== '' ? ($classes[$base] ?? null) : null;
+        if ($class === null || !is_subclass_of($class, ExpandsDiscover::class)) {
+            return null;
+        }
+
+        return (new $class())->discoverSources()[$entry] ?? null;
     }
 
     /**
@@ -136,12 +150,26 @@ class SourceResolver
      * $medium 'novel' or 'manga' keeps only that medium; null (or 'all')
      * keeps every source.
      *
+     * A source implementing ExpandsDiscover is replaced by its entries,
+     * keyed "{key}:{entry id}", each tiered like any other source.
+     *
      * @return array<string, Source>
      */
     public static function discoverable(?string $medium = null): array
     {
-        $groups = [];
+        $candidates = [];
         foreach (static::all() as $key => $source) {
+            if ($source instanceof ExpandsDiscover) {
+                foreach ($source->discoverSources() as $entry => $scoped) {
+                    $candidates["{$key}:{$entry}"] = $scoped;
+                }
+                continue;
+            }
+            $candidates[$key] = $source;
+        }
+
+        $groups = [];
+        foreach ($candidates as $key => $source) {
             $lists = $source->discoverLists();
             if ($lists === []) {
                 continue;

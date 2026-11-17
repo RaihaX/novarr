@@ -1,0 +1,88 @@
+{
+  "data": {
+    "fetchChapters": {
+      "chapters": [
+        {
+          "id": 35142,
+          "name": "Chapter 1",
+          "chapterNumber": 1.0,
+          "sourceOrder": 1,
+          "scanlator": "Alpha",
+          "uploadDate": "1794905098000"
+        },
+        {
+          "id": 35150,
+          "name": "Chapter 1",
+          "chapterNumber": 1.0,
+          "sourceOrder": 2,
+          "scanlator": "Beta",
+          "uploadDate": "1794905090000"
+        },
+        {
+          "id": 35143,
+          "name": "Chapter 2: The Jab",
+          "chapterNumber": 2.0,
+          "sourceOrder": 3,
+          "scanlator": "Alpha",
+          "uploadDate": "1794905100000"
+        },
+        {
+          "id": 35144,
+          "name": "Ch. 2.5 - Omake",
+          "chapterNumber": 2.5,
+          "sourceOrder": 4,
+          "scanlator": "Alpha",
+          "uploadDate": "1794905101000"
+        },
+        {
+          "id": 35160,
+          "name": "Chapter 3",
+          "chapterNumber": 3.0,
+          "sourceOrder": 5,
+          "scanlator": "Gamma",
+          "uploadDate": "1794905103000"
+        },
+        {
+          "id": 35161,
+          "name": "Chapter 3",
+          "chapterNumber": 3.0,
+          "sourceOrder": 6,
+          "scanlator": "Delta",
+          "uploadDate": "1794905102000"
+        },
+        {
+          "id": 35171,
+          "name": "Chapter 4",
+          "chapterNumber": 4.0,
+          "sourceOrder": 8,
+          "scanlator": "Epsilon",
+          "uploadDate": "1794905104000"
+        },
+        {
+          "id": 35170,
+          "name": "Vol.1 Chapter 4: Tie",
+          "chapterNumber": 4.0,
+          "sourceOrder": 7,
+          "scanlator": "Zeta",
+          "uploadDate": "1794905104000"
+        },
+        {
+          "id": 35180,
+          "name": "Special: Bonus",
+          "chapterNumber": -1.0,
+          "sourceOrder": 9,
+          "scanlator": "Alpha",
+          "uploadDate": "1794905105000"
+        },
+        {
+          "id": 35181,
+          "name": "Extra",
+          "chapterNumber": -1.0,
+          "sourceOrder": 10,
+          "scanlator": null,
+          "uploadDate": "1794905106000"
+        }
+      ]
+    }
+  }
+}

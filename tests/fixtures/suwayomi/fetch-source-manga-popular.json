@@ -1,0 +1,45 @@
+{
+  "data": {
+    "fetchSourceManga": {
+      "hasNextPage": true,
+      "mangas": [
+        {
+          "id": 2201,
+          "title": "One Piece",
+          "url": "/manga/2/one-piece",
+          "thumbnailUrl": "/api/v1/manga/2201/thumbnail",
+          "inLibrary": true,
+          "status": "ONGOING",
+          "author": "Oda Eiichiro",
+          "genre": [
+            "Action",
+            "Adventure"
+          ],
+          "description": "Gol D. Roger was known as the \"Pirate King\" & more."
+        },
+        {
+          "id": 2202,
+          "title": "Solo Leveling",
+          "url": "/manga/3/solo-leveling",
+          "thumbnailUrl": "/api/v1/manga/2202/thumbnail",
+          "inLibrary": false,
+          "status": "COMPLETED",
+          "author": "",
+          "genre": [],
+          "description": ""
+        },
+        {
+          "id": 0,
+          "title": "Broken row",
+          "url": "/x",
+          "thumbnailUrl": "",
+          "inLibrary": false,
+          "status": "UNKNOWN",
+          "author": "",
+          "genre": [],
+          "description": ""
+        }
+      ]
+    }
+  }
+}

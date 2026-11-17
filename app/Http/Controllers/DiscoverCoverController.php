@@ -6,15 +6,18 @@ use App\Scraping\Fetcher;
 use App\Scraping\PageDownloader;
 use App\Sources\AbstractSource;
 use App\Sources\MangaDexSource;
+use App\Sources\SuwayomiSource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 /**
  * GET /discover/cover?u=… — a Discover result's cover, fetched by Novarr for
  * hosts that refuse hotlinked images (MangaDex serves a wrong image to any
- * browser that embeds uploads.mangadex.org). Only https URLs on the hosts in
- * config novarr.discover_cover_proxy_hosts are fetched, so this is not an
- * open proxy. A fetched cover is cached for a day.
+ * browser that embeds uploads.mangadex.org) or that the browser cannot reach
+ * (a Suwayomi-Server on the LAN). Only https URLs on the hosts in config
+ * novarr.discover_cover_proxy_hosts and Suwayomi thumbnails on the
+ * configured server are fetched, so this is not an open proxy. A fetched
+ * cover is cached for a day.
  */
 class DiscoverCoverController extends Controller
 {
@@ -23,9 +26,18 @@ class DiscoverCoverController extends Controller
 
     public const CACHE_SECONDS = 86400;
 
-    /** Is this cover URL one Discover serves through Novarr? */
+    /**
+     * Is this cover URL one Discover serves through Novarr? https on an
+     * allow-listed host, or — over plain http too — a manga thumbnail on the
+     * configured Suwayomi-Server (a LAN address the browser often cannot
+     * reach; exactly /api/v1/manga/{id}/thumbnail on that origin, nothing
+     * else on it).
+     */
     public static function proxied(string $url): bool
     {
+        if (SuwayomiSource::isThumbnailUrl($url)) {
+            return true;
+        }
         if (!preg_match('#^https://#i', $url)) {
             return false;
         }

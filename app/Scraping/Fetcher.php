@@ -539,6 +539,45 @@ class Fetcher
     }
 
     /**
+     * POST a JSON body and decode a JSON answer (a GraphQL endpoint such as
+     * Suwayomi-Server's). Returns the decoded array on a 200, else null;
+     * $status receives the HTTP status, or 'exception' when the request
+     * itself failed (transport error, timeout, undecodable body counts as
+     * the 200 it was). $timeout is the idle timeout in seconds — a GraphQL
+     * call that has the server fetch from a slow site can take a minute.
+     * Never throws.
+     *
+     * Separate from postJson(), which only reports a status with a short
+     * timeout (fire-and-forget reports).
+     *
+     * @param array<string,string> $headers
+     */
+    public function postJsonForJson(string $url, array $body, array $headers = [], int $timeout = 30, &$status = null): ?array
+    {
+        $status = null;
+
+        try {
+            $response = $this->client()->request('POST', $url, [
+                'headers' => ['Accept' => 'application/json'] + $headers,
+                'json' => $body,
+                'timeout' => max(1, $timeout),
+            ]);
+            $status = $response->getStatusCode();
+            if ($status !== 200) {
+                \Log::warning("Fetcher::postJsonForJson HTTP {$status} for {$url}");
+                return null;
+            }
+            $json = json_decode($response->getContent(false), true);
+
+            return is_array($json) ? $json : null;
+        } catch (\Throwable $e) {
+            $status = 'exception';
+            \Log::warning("Fetcher::postJsonForJson failed for {$url}: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
      * The wait a rate-limited answer asks for, from its response headers:
      * Retry-After (seconds or an HTTP date), else X-RateLimit-Retry-After
      * (MangaDex: the Unix time the window ends). Capped as parseRetryAfter().

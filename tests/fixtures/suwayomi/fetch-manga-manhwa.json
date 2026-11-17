@@ -1,0 +1,24 @@
+{
+  "data": {
+    "fetchManga": {
+      "manga": {
+        "id": 2202,
+        "title": "Solo Leveling",
+        "author": "Chugong",
+        "artist": "DUBU (REDICE STUDIO)",
+        "status": "PUBLISHING_FINISHED",
+        "genre": [
+          "Action",
+          "Manhwa",
+          "Fantasy"
+        ],
+        "description": "",
+        "thumbnailUrl": "/api/v1/manga/2202/thumbnail",
+        "sourceId": "8448310129093543312",
+        "source": {
+          "name": "MangaPill"
+        }
+      }
+    }
+  }
+}

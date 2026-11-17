@@ -1,0 +1,11 @@
+{
+  "data": {
+    "fetchChapterPages": {
+      "pages": [
+        "/api/v1/manga/2132/chapter/1/page/0",
+        "/api/v1/manga/2132/chapter/1/page/1",
+        "/api/v1/manga/2132/chapter/1/page/2"
+      ]
+    }
+  }
+}

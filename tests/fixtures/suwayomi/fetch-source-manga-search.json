@@ -1,0 +1,31 @@
+{
+  "data": {
+    "fetchSourceManga": {
+      "hasNextPage": false,
+      "mangas": [
+        {
+          "id": 2132,
+          "title": "Hajime no Ippo",
+          "url": "/manga/1063/hajime-no-ippo",
+          "thumbnailUrl": "/api/v1/manga/2132/thumbnail",
+          "inLibrary": false,
+          "status": "ONGOING",
+          "author": null,
+          "genre": [],
+          "description": null
+        },
+        {
+          "id": 2133,
+          "title": "Kindaichi 37-sai no Jikenbo",
+          "url": "/manga/4021/kindaichi-37-sai-no-jikenbo",
+          "thumbnailUrl": "/api/v1/manga/2133/thumbnail",
+          "inLibrary": false,
+          "status": "UNKNOWN",
+          "author": "",
+          "genre": [],
+          "description": ""
+        }
+      ]
+    }
+  }
+}
