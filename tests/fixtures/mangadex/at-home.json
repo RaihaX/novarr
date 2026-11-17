@@ -1,0 +1,17 @@
+{
+    "result": "ok",
+    "baseUrl": "https://cmdxd98sb0x3yprd.mangadex.network",
+    "chapter": {
+        "hash": "246a64f8b990f7f329ea1ef6430524d3",
+        "data": [
+            "1-ade7b56257417a4a57957adccc6ffa527f6c70cc2584d7632903f909563f1d94.png",
+            "2-9c915b652240a86fd369c0f6bdb1ecb60b9e0f5ed86f7d44deb8303441c5a07d.png",
+            "3-9d14c8c67046efa5cabdf080afc65691472b10880a59cb9c6a341124a6e7b496.png"
+        ],
+        "dataSaver": [
+            "1-dc27f02a6083e757f360e9ce2e9a1d61b63a18765f07ae411625a8e5e1dcdbff.jpg",
+            "2-768bd4f45bc9d83795f0af6fc955d34d62c46c2315970ed8bcb716e11aeced42.jpg",
+            "3-d0a94c302a7505474de15918021ef84ee10d356e46490dcc9b380613ea28d572.jpg"
+        ]
+    }
+}

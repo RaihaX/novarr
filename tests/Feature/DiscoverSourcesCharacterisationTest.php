@@ -75,11 +75,13 @@ class DiscoverSourcesCharacterisationTest extends GoldenTestCase
             . "        <option value=\"novelarrow\">NovelPing (novelarrow)</option>\n"
             . "        <option value=\"empirenovel\">empirenovel.com</option>\n"
             . "        <option value=\"novelfull\">novelfull.com</option>\n"
+            // Manga phase 1: MangaDex is listed after every text source (never the default).
+            . "        <option value=\"mangadex\">MangaDex (manga)</option>\n"
             . "    </select>",
             $html
         );
         $this->assertStringContainsString(
-            'const SOURCE_HOST = {"novelarrow":"novelping.com","empirenovel":"empirenovel.com","novelfull":"novelfull.com"};',
+            'const SOURCE_HOST = {"novelarrow":"novelping.com","empirenovel":"empirenovel.com","novelfull":"novelfull.com","mangadex":"mangadex.org"};',
             $html
         );
         // Popular / Completed tabs, Popular active, loaded on open.

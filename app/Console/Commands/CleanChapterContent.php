@@ -71,6 +71,11 @@ class CleanChapterContent extends Command
             return 1;
         }
 
+        if (\App\Novel::whereKey($novelId)->manga()->exists()) {
+            $this->warn("Novel {$novelId} is a manga — its chapters are page images, nothing to clean.");
+            return 0;
+        }
+
         $query = NovelChapter::with('text')
             ->where('novel_id', $novelId)
             ->where('status', 1)

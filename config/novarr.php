@@ -46,6 +46,9 @@ return [
     |
     */
     'sources' => [
+        // Manga (medium 'manga'): claims only mangadex.org URLs. Listed
+        // first so no group-id logic of the novel adapters ever sees one.
+        'mangadex' => \App\Sources\MangaDexSource::class,
         'empirenovel' => \App\Sources\EmpireNovelSource::class,
         'novelfull' => \App\Sources\NovelFullSource::class,
         'novelarrow' => \App\Sources\NovelArrowSource::class,
@@ -177,6 +180,54 @@ return [
     | Novarr reach the sites from the same public IP.
     */
     'clearance_minutes' => (int) env('NOVARR_CLEARANCE_MINUTES', 25),
+
+    /*
+    |--------------------------------------------------------------------------
+    | MangaDex (App\Sources\MangaDexSource)
+    |--------------------------------------------------------------------------
+    |
+    | Public API at api.mangadex.org (no account). `languages`: translated
+    | languages the chapter list is built from (NOVARR_MANGADEX_LANGUAGES,
+    | comma list, default "en"). MangaDex requires an honest User-Agent on
+    | every request (no browser spoofing): `user_agent`.
+    |
+    */
+    'mangadex' => [
+        'languages' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('NOVARR_MANGADEX_LANGUAGES', 'en'))
+        ), fn($l) => $l !== '')) ?: ['en'],
+        'user_agent' => env('NOVARR_MANGADEX_USER_AGENT', 'Novarr/1.0'),
+        'api' => 'https://api.mangadex.org',
+        'uploads' => 'https://uploads.mangadex.org',
+        // MangaDex@Home nodes: report every image fetched from a node that
+        // is not on mangadex.org (their documented requirement).
+        'report_url' => 'https://api.mangadex.network/report',
+        // Pause between two API requests of one operation (TOC pages). The
+        // documented global limit is ~5 requests/second per IP.
+        'request_delay_ms' => (int) env('NOVARR_MANGADEX_REQUEST_DELAY_MS', 250),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Manga page downloads (App\Scraping\PageDownloader)
+    |--------------------------------------------------------------------------
+    |
+    | max_page_bytes — largest page image kept (bytes); a bigger one fails
+    |                  the chapter's download.
+    | page_delay_ms  — pause between two page image requests. Tests set 0.
+    |
+    */
+    'manga' => [
+        'max_page_bytes' => (int) env('NOVARR_MANGA_MAX_PAGE_BYTES', 30 * 1024 * 1024),
+        'page_delay_ms' => (int) env('NOVARR_MANGA_PAGE_DELAY_MS', 200),
+    ],
+
+    /*
+    | Hosts whose Discover covers are served through Novarr
+    | (discover.cover) because the host refuses hotlinked images.
+    */
+    'discover_cover_proxy_hosts' => ['uploads.mangadex.org'],
 
     /*
     |--------------------------------------------------------------------------

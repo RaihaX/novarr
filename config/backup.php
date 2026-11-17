@@ -58,6 +58,10 @@ return [
                     // Framework caches, should anything ever write them here
                     // (storage/framework itself is outside the include).
                     storage_path('app/framework'),
+                    // Downloaded manga pages (the `manga` disk): large and
+                    // re-downloadable from the source. Same expression as
+                    // the disk root in config/filesystems.php.
+                    env('NOVARR_MANGA_PATH', storage_path('app/manga')),
                 ],
 
                 /*

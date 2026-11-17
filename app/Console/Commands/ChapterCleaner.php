@@ -24,6 +24,13 @@ class ChapterCleaner extends Command
             return 1;
         }
 
+        // A manga chapter has no text: every one would look "too short"
+        // and be reset.
+        if (\App\Novel::whereKey($novelId)->manga()->exists()) {
+            $this->warn("Novel {$novelId} is a manga — its chapters are page images, nothing to clean.");
+            return 0;
+        }
+
         $minWords = (int) setting('min_chapter_words', 250);
 
         if ($dryRun) {

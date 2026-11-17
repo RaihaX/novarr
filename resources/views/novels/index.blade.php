@@ -1,7 +1,9 @@
 @extends('layouts.app')
 
 @php
-    $hasFilters = request('search') || request()->filled('status') || request()->filled('tag') || $filter !== 'all';
+    $medium ??= 'all';
+    $hasManga ??= false;
+    $hasFilters = request('search') || request()->filled('status') || request()->filled('tag') || $filter !== 'all' || $medium !== 'all';
     // Chip / toggle links keep every other query parameter, drop the page.
     $chipUrl = fn(string $f) => request()->fullUrlWithQuery(['filter' => $f === 'all' ? null : $f, 'ids' => null, 'page' => null]);
     $chips = [
@@ -59,12 +61,22 @@
     </nav>
 
     <form method="GET" action="{{ route('novels.index') }}" class="lib-tools" role="search">
-        @foreach(['filter' => $filter === 'all' ? null : $filter, 'ids' => request('ids'), 'view' => $view, 'status' => request('status')] as $k => $v)
+        @foreach(['filter' => $filter === 'all' ? null : $filter, 'ids' => request('ids'), 'view' => $view, 'status' => request('status'), 'medium' => $medium === 'all' ? null : $medium] as $k => $v)
             @if($v !== null && $v !== '')
                 <input type="hidden" name="{{ $k }}" value="{{ $v }}">
             @endif
         @endforeach
         <input type="search" name="search" aria-label="Search library" class="form-control lib-search" placeholder="Search library…" value="{{ request('search') }}">
+        @if($hasManga)
+            {{-- Medium: offered once the library holds a manga; kept in the
+                 query string (?medium=novel|manga) like the other filters. --}}
+            <div class="btn-group segmented lib-medium" role="group" aria-label="Show novels or manga">
+                @foreach(['all' => 'All', 'novel' => 'Novels', 'manga' => 'Manga'] as $mKey => $mLabel)
+                    <a href="{{ request()->fullUrlWithQuery(['medium' => $mKey === 'all' ? null : $mKey, 'page' => null]) }}" data-medium="{{ $mKey }}"
+                       class="btn btn-secondary {{ $medium === $mKey ? 'active' : '' }}" @if($medium === $mKey) aria-current="true" @endif>{{ $mLabel }}</a>
+                @endforeach
+            </div>
+        @endif
         @if($tags->isNotEmpty())
             <select name="tag" aria-label="Filter by tag" class="form-select" onchange="this.form.requestSubmit()">
                 <option value="">All tags</option>
@@ -178,7 +190,7 @@
                             <li class="lib-tile" data-id="{{ $novel->id }}">
                                 <a href="{{ route('novels.show', $novel->id) }}" class="lib-tile-link"
                                    title="{{ $novel->name }} — {{ number_format($prog['downloaded']) }} of {{ number_format($prog['total']) }} · {{ $prog['percent'] }}% downloaded">
-                                    <x-cover :novel="$novel" :progress="$r['percent']" :flag="$flag" :chapters="$prog['total']" :eager="$eager" decorative />
+                                    <x-cover :novel="$novel" :progress="$r['percent']" :flag="$flag" :chapters="$prog['total']" :eager="$eager" :chip="$novel->isManga() ? 'MANGA' : null" decorative />
                                     <span class="lib-tile-title">{{ $novel->name }}</span>
                                     <span class="lib-tile-sub {{ $subTone }}" data-reading="{{ $r['read'] }}/{{ $r['total'] }}">{{ $sub }}</span>
                                     @if($origin)

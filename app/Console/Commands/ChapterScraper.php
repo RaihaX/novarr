@@ -133,6 +133,23 @@ class ChapterScraper extends Command
 
         $this->info("Downloading: {$chapter->novel->name} - {$chapter->label}");
         self::recordAttempt($chapter);
+
+        if ($chapter->novel->isManga()) {
+            $result = $this->downloadChapterPages($chapter);
+            if ($result->ok) {
+                $this->updateMangaChapter($chapter, $result->pages);
+                \App\Http\Helpers\CacheHelper::clearNovelCache($chapter->novel_id);
+                $this->info("  ✓ Downloaded: {$chapter->label} ({$result->pages} pages)");
+                return 0;
+            }
+
+            $category = $result->category ?: "fetch_failed";
+            self::recordFailure($chapter, $category);
+            $this->error("  ✗ The chapter's pages could not all be downloaded — not saved. " . self::failureHint($category, true)
+                . ($result->message ? " ({$result->message})" : ""));
+            return 1;
+        }
+
         $failureReason = null;
         $description = $this->generateChapterDescription($chapter, $failureReason);
         $wordCount = self::countChapterWords($description);
@@ -156,15 +173,7 @@ class ChapterScraper extends Command
             return 0;
         }
 
-        $hint = match ($failureReason) {
-            "fetch_failed" => "The chapter page could not be fetched.",
-            "cloudflare" => "The source is answering with a Cloudflare challenge.",
-            "rate_limited" => "The source is rate-limiting requests (HTTP 429/503) — try again later.",
-            "no_content" => "The page loaded but contains no chapter text.",
-            "not_found" => "The source answers 404 for this chapter — it may have been removed or renumbered there.",
-            "exception" => "The scraper hit an error while parsing the page (see the log).",
-            default => "The source may not have this chapter yet.",
-        };
+        $hint = self::failureHint($failureReason);
 
         // User-triggered, so the schedule was ignored for the fetch — but the
         // failure still counts towards the chapter's backoff.
@@ -172,6 +181,21 @@ class ChapterScraper extends Command
 
         $this->error("  ✗ Fetched only {$wordCount} words (need >{$minWords}) — not saved. {$hint}");
         return 1;
+    }
+
+    /** The single-chapter download's explanation of a failure category. */
+    private static function failureHint(?string $category, bool $manga = false): string
+    {
+        return match ($category) {
+            "fetch_failed" => $manga ? "The page list or an image could not be fetched." : "The chapter page could not be fetched.",
+            "cloudflare" => "The source is answering with a Cloudflare challenge.",
+            "rate_limited" => "The source is rate-limiting requests (HTTP 429/503) — try again later.",
+            "no_content" => $manga ? "The source lists no page images for this chapter." : "The page loaded but contains no chapter text.",
+            "not_found" => "The source answers 404 for this chapter — it may have been removed or renumbered there.",
+            "exception" => "The scraper hit an error while parsing the page (see the log).",
+            "partial_pages" => "A page image was missing, not an image, or too large.",
+            default => "The source may not have this chapter yet.",
+        };
     }
 
     private function scrapeChapters($novelId)
@@ -599,6 +623,8 @@ class ChapterScraper extends Command
             "rate_limited" => 0, // source answered 429/503
             "no_content" => 0,
             "short_content" => 0,
+            // Manga: a page image missing, invalid or too large.
+            "partial_pages" => 0,
             // Not a failure: numbered chapters accepted because their body is
             // an author/translator message. Ignored by summarizeScrapeIssue().
             "author_note" => 0,
@@ -693,6 +719,13 @@ class ChapterScraper extends Command
             return ["fetched" => false, "ok" => false, "category" => "bad_url"];
         }
 
+        // A manga chapter is page images, not text: its own download, the
+        // same bookkeeping.
+        if ($novel->isManga()) {
+            self::recordAttempt($item);
+            return $this->stepManga($run, $item, $newChapters);
+        }
+
         $failureReason = null;
         self::recordAttempt($item);
         $description = $this->generateChapterDescription($item, $failureReason);
@@ -747,6 +780,29 @@ class ChapterScraper extends Command
         // count: nothing at all vs. a stub chapter.
         $category = $failureReason ?: ($wordCount == 0 ? "no_content" : "short_content");
 
+        return $this->failStep(
+            $run,
+            $item,
+            $category,
+            $wordCount,
+            "  ✗ Skipped: Only {$wordCount} words (need >{$minWords})",
+            "Chapter skipped due to insufficient description: {$item->label} ({$wordCount} words, cause: {$category})"
+        );
+    }
+
+    /**
+     * A fetched chapter that was not kept: record the failure (backoff,
+     * attempts), feed the breakers, the host pace and the host failure
+     * count, tally the run's stats, report it, and trip the content circuit
+     * when that streak is reached. Shared by text and manga chapters.
+     *
+     * @return array{fetched: bool, ok: bool, category: ?string}
+     */
+    private function failStep(object $run, \App\NovelChapter $item, string $category, ?int $wordCount, string $errorLine, string $logLine): array
+    {
+        $stats = &$run->stats;
+        $host = $run->host;
+
         $attempts = self::recordFailure($item, $category);
         $run->current = null;
         $run->consecutiveBlocked = self::isBlockingFailure($category) ? $run->consecutiveBlocked + 1 : 0;
@@ -769,7 +825,7 @@ class ChapterScraper extends Command
             $this->noteHostFailure($host, $category);
         }
 
-        if ($category === "short_content") {
+        if ($category === "short_content" && $wordCount !== null) {
             $stats["short_min"] = $stats["short_min"] === null
                 ? $wordCount
                 : min($stats["short_min"], $wordCount);
@@ -778,17 +834,69 @@ class ChapterScraper extends Command
                 : max($stats["short_max"], $wordCount);
         }
 
-        $this->error("  ✗ Skipped: Only {$wordCount} words (need >{$minWords})");
+        $this->error($errorLine);
         $this->warn("    Cause: {$category}" . (self::isNeedsReview($attempts) ? " (needs review after {$attempts} attempts)" : ""));
-        Log::warning(
-            "Chapter skipped due to insufficient description: {$item->label} ({$wordCount} words, cause: {$category})"
-        );
+        Log::warning($logLine);
 
         if (self::circuitOpen($run->consecutiveContent, self::CONTENT_CIRCUIT_THRESHOLD)) {
             $this->tripContentCircuit($run);
         }
 
         return ["fetched" => true, "ok" => false, "category" => $category];
+    }
+
+    /**
+     * step() for a manga chapter: download every page image (all or
+     * nothing, PageDownloader). Success and failure are booked exactly as a
+     * text chapter's — status, retry state, host pace, host failures, the
+     * content circuit, parked-chapter release — with page counts instead of
+     * word counts. No chapter_texts row is written.
+     *
+     * @return array{fetched: bool, ok: bool, category: ?string}
+     */
+    private function stepManga(object $run, \App\NovelChapter $item, array &$newChapters): array
+    {
+        $novel = $run->novel;
+        $host = $run->host;
+
+        $result = $this->downloadChapterPages($item);
+
+        if ($result->ok) {
+            $this->line("  → Fetched {$result->pages} pages");
+            Log::info("Successfully downloaded chapter: {$item->label} ({$result->pages} pages, {$result->bytes} bytes)");
+            $this->info("  ✓ Downloaded: {$item->label} ({$result->pages} pages)");
+
+            $run->succeeded++;
+            $run->consecutiveBlocked = 0;
+            $run->consecutiveContent = 0;
+            // Read before updateMangaChapter() clears the failure fields.
+            $wasUnavailable = SourceUnavailable::isContentFailure($item->last_failure_reason);
+            $this->updateMangaChapter($item, $result->pages);
+            $run->current = null;
+            if ($host !== null) {
+                Cache::forget(self::hostFailuresKey($host));
+            }
+            $this->hostPace()->record($host, null);
+            if ($wasUnavailable) {
+                SourceUnavailable::release($novel);
+            }
+            $this->addChapterToArray($novel, $item, $newChapters);
+
+            return ["fetched" => true, "ok" => true, "category" => null];
+        }
+
+        $category = $result->category ?: "fetch_failed";
+        $why = $result->message ? " — {$result->message}" : "";
+        $this->line("  → Page download failed");
+
+        return $this->failStep(
+            $run,
+            $item,
+            $category,
+            null,
+            "  ✗ Skipped: the chapter's pages could not all be downloaded{$why}",
+            "Manga chapter skipped, pages not downloaded: {$item->label} (cause: {$category}{$why})"
+        );
     }
 
     /**
@@ -1364,7 +1472,7 @@ class ChapterScraper extends Command
      * @param array{bad_url?: int, fetch_failed?: int, cloudflare?: int, rate_limited?: int, no_content?: int, short_content?: int, author_note?: int, circuit_open?: int, example_bad_url?: ?string, short_min?: ?int, short_max?: ?int} $stats
      * @param ?int $minWords The configured minimum word count (null = 250).
      */
-    public static function summarizeScrapeIssue(array $stats, ?int $minWords = null): ?string
+    public static function summarizeScrapeIssue(array $stats, ?int $minWords = null, bool $manga = false): ?string
     {
         // The content circuit ended the run: a known, parked state rather
         // than a transient failure, so it is stated as such (even when the
@@ -1385,8 +1493,9 @@ class ChapterScraper extends Command
         $rateLimited = (int) ($stats["rate_limited"] ?? 0);
         $noContent = (int) ($stats["no_content"] ?? 0);
         $shortContent = (int) ($stats["short_content"] ?? 0);
+        $partialPages = (int) ($stats["partial_pages"] ?? 0);
 
-        $total = $badUrl + $fetchFailed + $notFound + $exception + $cloudflare + $rateLimited + $noContent + $shortContent;
+        $total = $badUrl + $fetchFailed + $notFound + $exception + $cloudflare + $rateLimited + $noContent + $shortContent + $partialPages;
         if ($total === 0) {
             return null;
         }
@@ -1414,7 +1523,15 @@ class ChapterScraper extends Command
         }
 
         if ($fetchFailed + $notFound === $total) {
-            return "chapter pages could not be fetched";
+            return $manga ? "chapter page images could not be fetched" : "chapter pages could not be fetched";
+        }
+
+        if ($manga && $noContent > 0) {
+            return "the source lists no page images for the pending chapters";
+        }
+
+        if ($partialPages > 0) {
+            return "some page images of the pending chapters could not be downloaded (missing, not an image, or too large)";
         }
 
         if ($noContent > 0) {
@@ -1463,7 +1580,7 @@ class ChapterScraper extends Command
             // line says what is going on and when it is re-checked. The
             // webhook hears about it at most once a week per novel, however
             // often the canary re-check trips again.
-            $issue = self::summarizeScrapeIssue($stats, $minWords);
+            $issue = self::summarizeScrapeIssue($stats, $minWords, (bool) $novel->isManga());
             $novel->scrape_failures = 0;
             $novel->last_scrape_issue = $issue;
             $novel->save();
@@ -1492,7 +1609,7 @@ class ChapterScraper extends Command
                 $novel->save();
             }
         } elseif ($failed > 0) {
-            $issue = self::summarizeScrapeIssue($stats, $minWords);
+            $issue = self::summarizeScrapeIssue($stats, $minWords, (bool) $novel->isManga());
 
             $novel->scrape_failures = $novel->scrape_failures + 1;
             $novel->last_scrape_issue = $issue;
@@ -1570,6 +1687,33 @@ class ChapterScraper extends Command
         Log::info(
             "Updated chapter ID: {$chapter->id}, status set to: {$chapter->status}"
         );
+    }
+
+    /**
+     * A manga chapter whose pages are all on disk: downloaded, its page
+     * count, retry state cleared. No body text (no chapter_texts row).
+     */
+    private function updateMangaChapter(\App\NovelChapter $chapter, int $pages): void
+    {
+        $chapter->last_attempt_at = Carbon::now();
+        $chapter->kind = null;
+        $chapter->forceFill([
+            "attempts" => 0,
+            "next_attempt_at" => null,
+            "last_failure_reason" => null,
+            "page_count" => $pages,
+        ]);
+        $chapter->status = 1;
+        $chapter->download_date = Carbon::now();
+        $chapter->save();
+
+        Log::info("Updated chapter ID: {$chapter->id}, status set to: {$chapter->status} ({$pages} pages)");
+    }
+
+    /** Download a manga chapter's pages. Protected so tests can stub the network. */
+    protected function downloadChapterPages(\App\NovelChapter $chapter): \App\Scraping\PageDownloadResult
+    {
+        return app(\App\Scraping\PageDownloader::class)->download($chapter);
     }
 
     private function addChapterToArray($novel, $chapter, &$newChapters)

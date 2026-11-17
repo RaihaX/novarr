@@ -33,7 +33,22 @@ class Novel extends Model
         "origin_language",
         "origin_source",
         "origin_type",
+        // Manga support: set at creation from the source (SourceResolver),
+        // reading_mode by the reader / metadata (never over a user's choice).
+        "medium",
+        "reading_mode",
     ];
+
+    /** In memory as in the database: a new row is a novel unless set. */
+    protected $attributes = [
+        'medium' => 'novel',
+    ];
+
+    public const MEDIUM_NOVEL = 'novel';
+    public const MEDIUM_MANGA = 'manga';
+
+    /** Reader page modes of a manga (novels.reading_mode). */
+    public const READING_MODES = ['rtl', 'ltr', 'vertical'];
 
     /** Who set a novel's origin, weakest first (see applyOrigin). */
     public const ORIGIN_SOURCES = ['inferred' => 1, 'novelupdates' => 2, 'manual' => 3];
@@ -70,6 +85,53 @@ class Novel extends Model
     public function chapters(): HasMany
     {
         return $this->hasMany(NovelChapter::class);
+    }
+
+    protected static function booted(): void
+    {
+        // Only a hard delete removes downloaded manga pages; a soft-deleted
+        // novel keeps its files so a restore brings them back.
+        static::forceDeleted(function (self $novel) {
+            ChapterPage::purgeNovel((int) $novel->id);
+        });
+    }
+
+    // ---------------------------------------------------------------------
+    // Medium: text novel or manga
+    // ---------------------------------------------------------------------
+
+    /** Is this a manga (pages, not text)? A row from before the column is a novel. */
+    public function isManga(): bool
+    {
+        return $this->medium === self::MEDIUM_MANGA;
+    }
+
+    /**
+     * Text novels only — every text-only feature (ePub, Kindle, word counts,
+     * NovelUpdates, the native clients that can't show pages yet) goes
+     * through this scope.
+     */
+    public function scopeText($query)
+    {
+        return $query->where($query->qualifyColumn('medium'), self::MEDIUM_NOVEL);
+    }
+
+    /** Manga only. */
+    public function scopeManga($query)
+    {
+        return $query->where($query->qualifyColumn('medium'), self::MEDIUM_MANGA);
+    }
+
+    /** Ids of every manga (soft-deleted ones included) — for chapter-level exclusions. */
+    public static function mangaIdsQuery()
+    {
+        return \Illuminate\Support\Facades\DB::table('novels')->select('id')->where('medium', self::MEDIUM_MANGA);
+    }
+
+    /** The novel's reading mode for the reader: its own, else left-to-right. */
+    public function effectiveReadingMode(): string
+    {
+        return in_array($this->reading_mode, self::READING_MODES, true) ? $this->reading_mode : 'ltr';
     }
 
     public function file(): MorphOne

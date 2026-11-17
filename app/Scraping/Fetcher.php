@@ -385,8 +385,7 @@ class Fetcher
             $response = $this->client()->request('GET', $url, ['headers' => $headers]);
             $status = $response->getStatusCode();
             if (self::isRateLimitStatus($status)) {
-                $retryAfter = $response->getHeaders(false)['retry-after'][0] ?? null;
-                self::recordRetryAfter($url, self::parseRetryAfter($retryAfter));
+                self::recordRetryAfter($url, self::retryAfterFromHeaders($response->getHeaders(false)));
                 return null;
             }
             self::recordRetryAfter($url, null);
@@ -421,6 +420,144 @@ class Fetcher
         $json = json_decode($body, true);
 
         return is_array($json) ? $json : null;
+    }
+
+    /**
+     * Binary GET streamed to a file (manga page images). $headers override
+     * the client's defaults (a source that needs its own User-Agent passes
+     * it here). Returns true when a 200 answer was written to $path in full;
+     * otherwise false, nothing left at $path, and $meta['reason'] says why:
+     * 'rate_limited' (429/503, Retry-After recorded for the host as for
+     * plain()), 'http_404', 'http_4xx', 'http_5xx', 'too_large' (over
+     * $maxBytes; 0 = no cap), 'empty_response' or 'exception'. $status is
+     * the HTTP status (or 'exception'). Never throws.
+     *
+     * @param array<string,string> $headers
+     * @param-out array{bytes: int, content_type: ?string, cached: bool, ms: int, reason: ?string} $meta
+     */
+    public function download(string $url, string $path, array $headers = [], int $maxBytes = 0, &$status = null, ?array &$meta = null): bool
+    {
+        $status = null;
+        $started = microtime(true);
+        $meta = ['bytes' => 0, 'content_type' => null, 'cached' => false, 'ms' => 0, 'reason' => null];
+        $finish = function (bool $ok, ?string $reason) use (&$meta, $started, $path): bool {
+            $meta['reason'] = $ok ? null : $reason;
+            $meta['ms'] = (int) round((microtime(true) - $started) * 1000);
+            if (!$ok) {
+                @unlink($path);
+            }
+
+            return $ok;
+        };
+
+        $handle = null;
+        try {
+            $response = $this->client()->request('GET', $url, [
+                'headers' => ['Accept' => 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.5'] + $headers,
+                'buffer' => false,
+            ]);
+            $status = $response->getStatusCode();
+            $responseHeaders = $response->getHeaders(false);
+
+            if (self::isRateLimitStatus($status)) {
+                self::recordRetryAfter($url, self::retryAfterFromHeaders($responseHeaders));
+                $response->cancel();
+                return $finish(false, 'rate_limited');
+            }
+            self::recordRetryAfter($url, null);
+            if ($status !== 200) {
+                $response->cancel();
+                return $finish(false, match (true) {
+                    $status === 404 => 'http_404',
+                    $status >= 500 => 'http_5xx',
+                    default => 'http_4xx',
+                });
+            }
+
+            $meta['content_type'] = $responseHeaders['content-type'][0] ?? null;
+            $meta['cached'] = str_starts_with(strtoupper((string) ($responseHeaders['x-cache'][0] ?? '')), 'HIT');
+            $length = $responseHeaders['content-length'][0] ?? null;
+            if ($maxBytes > 0 && is_numeric($length) && (int) $length > $maxBytes) {
+                $response->cancel();
+                return $finish(false, 'too_large');
+            }
+
+            $handle = fopen($path, 'wb');
+            if ($handle === false) {
+                $response->cancel();
+                return $finish(false, 'exception');
+            }
+
+            foreach ($this->client()->stream($response) as $chunk) {
+                $data = $chunk->getContent();
+                if ($data === '') {
+                    continue;
+                }
+                $meta['bytes'] += strlen($data);
+                if ($maxBytes > 0 && $meta['bytes'] > $maxBytes) {
+                    $response->cancel();
+                    fclose($handle);
+                    $handle = null;
+                    return $finish(false, 'too_large');
+                }
+                fwrite($handle, $data);
+            }
+            fclose($handle);
+            $handle = null;
+
+            return $finish($meta['bytes'] > 0, 'empty_response');
+        } catch (\Throwable $e) {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+            $status = 'exception';
+            \Log::debug("Fetcher::download failed for {$url}: " . $e->getMessage());
+            return $finish(false, 'exception');
+        }
+    }
+
+    /**
+     * POST a JSON body (best effort, e.g. MangaDex@Home's image report).
+     * Returns the HTTP status, or null when the request failed. Never throws.
+     *
+     * @param array<string,string> $headers
+     */
+    public function postJson(string $url, array $body, array $headers = []): ?int
+    {
+        try {
+            $response = $this->client()->request('POST', $url, [
+                'headers' => ['Accept' => 'application/json'] + $headers,
+                'json' => $body,
+                'timeout' => 10,
+            ]);
+
+            return $response->getStatusCode();
+        } catch (\Throwable $e) {
+            \Log::debug("Fetcher::postJson failed for {$url}: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * The wait a rate-limited answer asks for, from its response headers:
+     * Retry-After (seconds or an HTTP date), else X-RateLimit-Retry-After
+     * (MangaDex: the Unix time the window ends). Capped as parseRetryAfter().
+     *
+     * @param array<string, string[]> $headers lower-cased names, as Symfony returns them
+     */
+    public static function retryAfterFromHeaders(array $headers): ?int
+    {
+        $seconds = self::parseRetryAfter($headers['retry-after'][0] ?? null);
+        if ($seconds !== null) {
+            return $seconds;
+        }
+
+        $until = $headers['x-ratelimit-retry-after'][0] ?? null;
+        if (is_scalar($until) && ctype_digit(trim((string) $until)) && (int) $until > 1000000000) {
+            return max(0, min((int) $until - Carbon::now()->getTimestamp(), self::RETRY_AFTER_CAP_SECONDS));
+        }
+
+        return null;
     }
 
     /**
@@ -532,6 +669,19 @@ class Fetcher
         unset(self::$retryAfter[$host]);
 
         return $seconds;
+    }
+
+    /**
+     * Hand a recorded Retry-After from the host that answered (an API or
+     * image host) to the host the scraper keeps its cooldown under (the
+     * series' site host), so ChapterScraper::noteHostFailure() finds it.
+     */
+    public static function moveRetryAfter(string $fromHost, string $toHost): void
+    {
+        $seconds = self::pullRetryAfter($fromHost);
+        if ($seconds !== null) {
+            self::$retryAfter[strtolower($toHost)] = $seconds;
+        }
     }
 
     /** Remember (or, with null, clear) a host's Retry-After. */

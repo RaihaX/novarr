@@ -5,6 +5,7 @@ namespace App;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -66,6 +67,7 @@ class NovelChapter extends Model
         'sort_key' => 'float',
         'attempts' => 'integer',
         'next_attempt_at' => 'datetime',
+        'page_count' => 'integer',
     ];
 
     public function novel(): BelongsTo
@@ -77,6 +79,12 @@ class NovelChapter extends Model
     public function text(): HasOne
     {
         return $this->hasOne(ChapterText::class, 'novel_chapter_id');
+    }
+
+    /** A manga chapter's downloaded page images, in reading order. */
+    public function pages(): HasMany
+    {
+        return $this->hasMany(ChapterPage::class, 'novel_chapter_id')->orderBy('page');
     }
 
     /**
@@ -147,6 +155,11 @@ class NovelChapter extends Model
             }
             $chapter->pendingContent = null;
             $chapter->unsetRelation('text');
+        });
+
+        // A hard-deleted chapter takes its page images with it.
+        static::forceDeleted(function (self $chapter) {
+            ChapterPage::purgeChapter($chapter);
         });
     }
 

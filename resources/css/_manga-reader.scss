@@ -1,0 +1,425 @@
+// ---------------------------------------------------------------------------
+// Novarr — manga reader (resources/views/chapters/manga.blade.php,
+// resources/js/manga-reader).
+//
+// The page is the interface: a full-bleed stage on a near-black letterbox
+// (following the reading theme), and the text reader's chrome language for
+// the two auto-hiding bars — the same --rd-* tokens, .reader-ctl controls
+// and .reader-seg segmented group (see _reader.scss).
+// ---------------------------------------------------------------------------
+
+body {
+    --mr-letterbox: #07080a;
+    --mr-bar: #{rgba($bg, 0.94)};
+}
+body.reader-theme-sepia {
+    --mr-letterbox: #d6c9aa;
+    --mr-bar: rgba(236, 227, 207, 0.95);
+}
+body.reader-theme-light {
+    --mr-letterbox: #e3e6ea;
+    --mr-bar: #{rgba($bg-light, 0.95)};
+}
+
+// The reader owns the viewport; the page behind it never scrolls.
+body.mr-open {
+    overflow: hidden;
+    background: var(--mr-letterbox);
+}
+
+.mr {
+    position: fixed;
+    inset: 0;
+    z-index: 1030;
+    background: var(--mr-letterbox);
+    color: var(--rd-title);
+    overflow: hidden;
+    outline: none;
+
+    :focus-visible {
+        outline: 2px solid var(--rd-accent);
+        outline-offset: 2px;
+    }
+}
+
+// --- Stage -----------------------------------------------------------------
+.mr-stage {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    outline: none;
+}
+
+.mr-img {
+    display: block;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+
+// Paged: one page, fitted. touch-action keeps pinch-zoom and vertical
+// scrolling (tall fit-width pages) native but gives horizontal swipes and
+// double-taps to the reader.
+.mr-paged {
+    touch-action: pan-y pinch-zoom;
+    cursor: default;
+
+    .mr-zoom {
+        display: flex;
+        transform-origin: 0 0;
+        transition: transform 160ms ease;
+
+        &.is-panning { transition: none; }
+    }
+
+    .mr-img { margin: auto; }
+
+    &.fit-height {
+        .mr-zoom { height: 100%; min-width: 100%; width: max-content; }
+        .mr-img { height: 100%; width: auto; max-width: none; }
+    }
+    &.fit-width {
+        .mr-zoom { width: 100%; min-height: 100%; }
+        .mr-img { width: 100%; height: auto; }
+    }
+    &.fit-original {
+        .mr-zoom { min-width: 100%; min-height: 100%; width: max-content; }
+        .mr-img { max-width: none; }
+    }
+
+    // Wider than the screen (fit-height spread, original size): let the
+    // stage scroll sideways natively.
+    &.fit-height,
+    &.fit-original { touch-action: pan-x pan-y pinch-zoom; }
+
+    &.is-zoomed {
+        touch-action: none;
+        cursor: grab;
+        .mr-zoom { will-change: transform; }
+    }
+
+    &.at-end {
+        display: grid;
+        place-items: center;
+        padding: $s-6 $s-4;
+    }
+}
+
+// Vertical (webtoon): one centred column, no gaps.
+.mr-vertical {
+    overflow-x: hidden;
+    overflow-y: auto;
+
+    .mr-strip {
+        width: min(900px, 100%);
+        margin: 0 auto;
+    }
+
+    .mr-vpage {
+        position: relative;
+        width: 100%;
+        background: var(--rd-raise);
+
+        // Unknown size until loaded: a page-ish box so lazy loading has
+        // something to observe.
+        &.no-size { aspect-ratio: 2 / 3; }
+    }
+
+    .mr-img {
+        width: 100%;
+        height: 100%;
+    }
+
+    // Room below the card, so the last page can reach the "current" band
+    // and the card can sit mid-screen.
+    .mr-end {
+        margin: $s-6 auto 40vh;
+    }
+}
+
+// --- Per-page error + retry ------------------------------------------------
+.mr-error {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: $s-3;
+    padding: $s-4;
+    text-align: center;
+    color: var(--rd-muted);
+    background: var(--mr-letterbox);
+
+    &[hidden] { display: none; }
+
+    .mr-error-text { margin: 0; font-size: $fs-body; }
+    .mr-retry { display: inline-flex; align-items: center; gap: 6px; }
+}
+
+// --- End card --------------------------------------------------------------
+.mr-end {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: $s-2;
+    width: min(440px, 100%);
+    padding: $s-7 $s-5;
+    text-align: center;
+    color: var(--rd-title);
+    background: var(--rd-ground);
+    border: $hairline solid var(--rd-line);
+    border-radius: $radius;
+
+    &[hidden] { display: none; }
+
+    .mr-end-kicker {
+        margin: 0;
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--rd-muted);
+    }
+    .mr-end-title {
+        margin: 0 0 $s-3;
+        font-family: $font-read;
+        font-size: 22px;
+        font-weight: 600;
+        line-height: 1.3;
+    }
+    .mr-end-note { margin: 0; font-size: $fs-body; font-weight: 600; }
+    .mr-end-sub { margin: 0; font-size: $fs-caption; color: var(--rd-muted); &:empty { display: none; } }
+
+    .mr-end-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: $s-2;
+        width: 100%;
+        margin-top: $s-4;
+
+        .btn {
+            justify-content: center;
+            text-align: center;
+            white-space: normal;
+        }
+    }
+}
+
+// --- Status (loading / error / not downloaded) -----------------------------
+.mr-status {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: $s-2;
+    padding: $s-6 $s-4;
+    text-align: center;
+    color: var(--rd-muted);
+
+    &[hidden] { display: none; }
+
+    .mr-status-title { margin: 0; font-size: 17px; font-weight: 600; color: var(--rd-title); }
+    .mr-status-sub { margin: 0; font-size: $fs-body; max-width: 40ch; }
+    .mr-status-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: $s-2;
+        margin-top: $s-4;
+    }
+}
+
+// --- Chrome: top + bottom bars ---------------------------------------------
+.mr-chrome {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    background: var(--mr-bar);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    transition: transform 200ms ease, visibility 0s linear 0s;
+}
+
+.mr-top {
+    top: 0;
+    display: flex;
+    align-items: center;
+    gap: $s-4;
+    min-height: calc(#{$reader-bar} + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) max($s-4, env(safe-area-inset-right, 0px)) 0 max($s-4, env(safe-area-inset-left, 0px));
+    border-bottom: $hairline solid var(--rd-line);
+}
+
+.mr-back {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    min-width: 0;
+    max-width: 34%;
+    min-height: 36px;
+    font-size: 13px;
+    color: var(--rd-muted);
+    text-decoration: none;
+    transition: color $transition;
+
+    .mr-back-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &:hover,
+    &:focus-visible { color: var(--rd-title); }
+}
+
+.mr-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--rd-title);
+}
+
+.mr-top-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.mr-bottom {
+    bottom: 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "modes scrub end";
+    align-items: center;
+    gap: $s-4;
+    padding: $s-3 max($s-4, env(safe-area-inset-right, 0px)) calc(#{$s-3} + env(safe-area-inset-bottom, 0px)) max($s-4, env(safe-area-inset-left, 0px));
+    border-top: $hairline solid var(--rd-line);
+}
+
+// The controls row's children join the bar's grid on wide screens.
+.mr-controls { display: contents; }
+.mr-modes { grid-area: modes; }
+.mr-controls-end {
+    grid-area: end;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mr-modes button.is-active {
+    color: var(--rd-title);
+    background: var(--rd-line);
+}
+
+.mr-scrub {
+    grid-area: scrub;
+    display: flex;
+    align-items: center;
+    gap: $s-3;
+    min-width: 0;
+}
+
+.mr-counter {
+    flex-shrink: 0;
+    min-width: 6ch;
+    text-align: right;
+    font-family: $font-mono;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--rd-muted);
+}
+
+// Page slider: a plain track (no fill — in rtl the "read" side is on the
+// right) and an amber thumb.
+.mr-slider {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 28px;
+    margin: 0;
+    background: transparent;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+
+    &::-webkit-slider-runnable-track {
+        height: 3px;
+        background: var(--rd-line);
+        border-radius: 2px;
+    }
+    &::-moz-range-track {
+        height: 3px;
+        background: var(--rd-line);
+        border-radius: 2px;
+    }
+    &::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        margin-top: -6.5px;
+        border-radius: 50%;
+        background: var(--rd-amber);
+        border: 2px solid var(--rd-ground);
+    }
+    &::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--rd-amber);
+        border: 2px solid var(--rd-ground);
+    }
+    &:focus-visible { outline-offset: 0; }
+}
+
+// Auto-hidden: slid off-screen, then out of the tab order.
+.mr.is-chrome-hidden {
+    .mr-chrome { visibility: hidden; transition: transform 200ms ease, visibility 0s linear 200ms; }
+    .mr-top { transform: translateY(-100%); }
+    .mr-bottom { transform: translateY(100%); }
+}
+
+// Nothing to page through: no page controls.
+.mr.is-empty .mr-bottom { display: none; }
+
+// --- Phones -----------------------------------------------------------------
+@media (max-width: 767.98px) {
+    .mr-top { gap: $s-2; }
+    .mr-back { max-width: 30%; }
+    .mr-back-title { display: none; }
+    .mr-title { text-align: left; }
+
+    .mr-bottom {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "scrub scrub"
+            "modes end";
+        row-gap: $s-2;
+    }
+    .mr-modes { justify-self: start; }
+
+    .mr .reader-ctl-text { @include visually-hidden(); }
+    .mr .reader-ctl-icon { min-width: 36px; min-height: 36px; justify-content: center; }
+    .mr .reader-seg button { min-height: 36px; }
+    .mr #mrFit { min-height: 36px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mr-chrome,
+    .mr.is-chrome-hidden .mr-chrome,
+    .mr-paged .mr-zoom { transition: none; }
+}

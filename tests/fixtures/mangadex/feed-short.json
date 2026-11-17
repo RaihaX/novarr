@@ -1,0 +1,73 @@
+{
+    "result": "ok",
+    "response": "collection",
+    "data": [
+        {
+            "id": "fdfb18b6-8f34-4971-afa2-0f9d1e750470",
+            "type": "chapter",
+            "attributes": {
+                "volume": null,
+                "chapter": "1",
+                "title": "",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2023-07-15T17:18:40+00:00",
+                "readableAt": "2023-07-15T17:18:40+00:00",
+                "createdAt": "2023-07-15T17:18:39+00:00",
+                "updatedAt": "2023-07-15T17:19:02+00:00",
+                "version": 3,
+                "pages": 9
+            },
+            "relationships": [
+                {
+                    "id": "91035fe1-d6b0-4816-be51-b54d05d546cf",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "9bb2d279-a8d1-4c01-9ee5-b2b0674f0ae2",
+                    "type": "manga"
+                },
+                {
+                    "id": "091ce6ee-ac4e-4796-9291-f11eb80de379",
+                    "type": "user"
+                }
+            ]
+        },
+        {
+            "id": "6d04ccd5-14be-41c9-910f-28522e93721c",
+            "type": "chapter",
+            "attributes": {
+                "volume": null,
+                "chapter": "2",
+                "title": "Chapter 2",
+                "translatedLanguage": "en",
+                "externalUrl": null,
+                "isUnavailable": false,
+                "publishAt": "2023-07-26T14:18:15+00:00",
+                "readableAt": "2023-07-26T14:18:15+00:00",
+                "createdAt": "2023-07-26T11:11:34+00:00",
+                "updatedAt": "2023-11-27T23:01:26+00:00",
+                "version": 4,
+                "pages": 11
+            },
+            "relationships": [
+                {
+                    "id": "951af531-63e5-4081-9ba9-8ef35478c878",
+                    "type": "scanlation_group"
+                },
+                {
+                    "id": "9bb2d279-a8d1-4c01-9ee5-b2b0674f0ae2",
+                    "type": "manga"
+                },
+                {
+                    "id": "a0934df6-174e-41f2-9298-6e13dc410da5",
+                    "type": "user"
+                }
+            ]
+        }
+    ],
+    "limit": 500,
+    "offset": 0,
+    "total": 2
+}

@@ -108,6 +108,10 @@ class FakeFetcher extends Fetcher
     public function json(string $url, array $headers = [], &$status = null): ?array
     {
         $hit = $this->resolve('json', $url);
+        if ($headers !== []) {
+            // Only when given, so recorded call lists of older tests stay as they were.
+            $this->calls[array_key_last($this->calls)]['headers'] = $headers;
+        }
         if (is_array($hit)) {
             $status = $hit['status'] ?? $hit['reason'];
             return null;
@@ -115,6 +119,41 @@ class FakeFetcher extends Fetcher
         $status = 200;
         $json = json_decode($hit, true);
         return is_array($json) ? $json : null;
+    }
+
+    /**
+     * Binary download: the routed body (a fixture file or an inline string)
+     * is written to $path. A fail() route fails with its reason/status;
+     * $maxBytes is enforced like the real one ('too_large').
+     */
+    public function download(string $url, string $path, array $headers = [], int $maxBytes = 0, &$status = null, ?array &$meta = null): bool
+    {
+        $meta = ['bytes' => 0, 'content_type' => null, 'cached' => false, 'ms' => 0, 'reason' => null];
+        $hit = $this->resolve('download', $url);
+        $this->calls[array_key_last($this->calls)]['headers'] = $headers;
+        if (is_array($hit)) {
+            $status = $hit['status'] ?? $hit['reason'];
+            $meta['reason'] = $hit['reason'];
+            return false;
+        }
+        $status = 200;
+        if ($maxBytes > 0 && strlen($hit) > $maxBytes) {
+            $meta['reason'] = 'too_large';
+            return false;
+        }
+        file_put_contents($path, $hit);
+        $meta['bytes'] = strlen($hit);
+
+        return true;
+    }
+
+    /** Recorded only (method 'post_json'); answers 200 unless routed to fail(). */
+    public function postJson(string $url, array $body, array $headers = []): ?int
+    {
+        $this->calls[] = ['method' => 'post_json', 'url' => $url, 'body' => $body];
+        $value = $this->routes[$url] ?? null;
+
+        return is_array($value) ? ($value['status'] ?? null) : 200;
     }
 
     /** Any raw client use is a network call too: fail loudly. */
@@ -166,7 +205,7 @@ class FakeFetcher extends Fetcher
     /** Fixture file contents (absolute or tests/fixtures-relative), else the string itself. */
     public static function body(string $value): string
     {
-        if (strlen($value) < 512 && !str_contains($value, '<') && !str_starts_with(ltrim($value), '{')) {
+        if (strlen($value) < 512 && !str_contains($value, '<') && !str_starts_with(ltrim($value), '{') && !str_contains($value, "\0")) {
             $path = str_starts_with($value, '/') ? $value : dirname(__DIR__) . '/fixtures/' . $value;
             if (is_file($path)) {
                 return file_get_contents($path);

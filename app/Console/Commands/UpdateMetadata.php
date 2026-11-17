@@ -134,6 +134,14 @@ class UpdateMetadata extends Command
                 $novel->no_of_chapters = $metadata["no_of_chapters"];
             }
 
+            // A manga source suggests how its pages read; only filled in
+            // while the novel has none (never over a user's choice).
+            if (!empty($metadata["reading_mode"]) && $novel->reading_mode === null
+                && in_array($metadata["reading_mode"], Novel::READING_MODES, true)) {
+                $novel->reading_mode = $metadata["reading_mode"];
+                $this->line("    reading mode: {$novel->reading_mode}");
+            }
+
             $novel->save();
 
             if (!empty($metadata["genres"])) {

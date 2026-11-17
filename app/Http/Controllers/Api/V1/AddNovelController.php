@@ -78,8 +78,12 @@ class AddNovelController extends Controller
         $novel->name = $title;
         $novel->translator_url = $url;
         $novel->group_id = 1;
+        // Novel or manga: decided once, by the source that claims the URL.
+        $novel->medium = \App\Sources\SourceResolver::forUrl($url)->medium();
         $novel->save();
-        $novel->inferOrigin();
+        if (!$novel->isManga()) {
+            $novel->inferOrigin();
+        }
 
         return ['id' => (int) $novel->id, 'created' => true];
     }

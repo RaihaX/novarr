@@ -23,6 +23,7 @@ class SourceResolver
 
     /** @var array<string, class-string<Source>> what the config map defaults to */
     public const DEFAULT_SOURCES = [
+        'mangadex' => MangaDexSource::class,
         'empirenovel' => EmpireNovelSource::class,
         'novelfull' => NovelFullSource::class,
         'novelarrow' => NovelArrowSource::class,
@@ -126,29 +127,41 @@ class SourceResolver
     }
 
     /**
-     * Sources shown on the Discover page, keyed by source key: those with
-     * browse lists (popular / completed) first, then search-only ones, each
-     * group in registry order. The first one is the page's default.
+     * Sources shown on the Discover page, keyed by source key: text-novel
+     * sources before manga ones (a manga source must never become the
+     * page's default), and within each medium those with browse lists
+     * (popular / completed) first, then search-only ones, each group in
+     * registry order. The first one is the page's default.
+     *
+     * $medium 'novel' or 'manga' keeps only that medium; null (or 'all')
+     * keeps every source.
      *
      * @return array<string, Source>
      */
-    public static function discoverable(): array
+    public static function discoverable(?string $medium = null): array
     {
-        $browse = [];
-        $searchOnly = [];
+        $groups = [];
         foreach (static::all() as $key => $source) {
             $lists = $source->discoverLists();
             if ($lists === []) {
                 continue;
             }
-            if (array_intersect($lists, ['popular', 'completed']) !== []) {
-                $browse[$key] = $source;
-            } else {
-                $searchOnly[$key] = $source;
+            $sourceMedium = $source->medium();
+            if ($medium !== null && $medium !== 'all' && $sourceMedium !== $medium) {
+                continue;
             }
+            $tier = ($sourceMedium === \App\Novel::MEDIUM_NOVEL ? 0 : 2)
+                + (array_intersect($lists, ['popular', 'completed']) !== [] ? 0 : 1);
+            $groups[$tier][$key] = $source;
+        }
+        ksort($groups);
+
+        $ordered = [];
+        foreach ($groups as $group) {
+            $ordered += $group;
         }
 
-        return $browse + $searchOnly;
+        return $ordered;
     }
 
     /** @param array<string, Source> $sources */

@@ -43,6 +43,8 @@ export default defineConfig({
                 // reader view (not a dynamic import from app.js), so cached
                 // and downloaded chapter pages reference its hashed URL.
                 'resources/js/reader/index.js',
+                // Manga reader: same arrangement, loaded by chapters/manga.
+                'resources/js/manga-reader/index.js',
             ],
             refresh: true,
         }),

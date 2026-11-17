@@ -22,6 +22,8 @@ class ApiV1Test extends TestCase
         'id', 'name', 'author', 'cover_url', 'cover_large_url', 'state', 'completed', 'paused', 'origin', 'tags',
         'chapters_total', 'chapters_downloaded', 'chapters_read', 'chapters_new', 'read_percent', 'download_percent',
         'finished', 'last_read_at', 'updated_at', 'resume_chapter_id',
+        // Manga phase 1: 'novel' | 'manga'.
+        'medium',
     ];
 
     private const REF_KEYS = ['id', 'label', 'chapter', 'book'];
@@ -29,11 +31,15 @@ class ApiV1Test extends TestCase
     private const LIST_CHAPTER_KEYS = [
         'id', 'chapter', 'book', 'label', 'downloaded', 'read', 'read_progress', 'note', 'state', 'reason',
         'downloaded_at', 'word_count',
+        // Manga phase 1: pages of a downloaded manga chapter, null for text.
+        'page_count',
     ];
 
     private const READER_KEYS = [
         'id', 'novel_id', 'novel_name', 'label', 'chapter', 'book', 'downloaded', 'read', 'read_progress',
         'paragraphs', 'html', 'prev', 'next',
+        // Manga phase 1 (always null here: a manga chapter answers 422).
+        'page_count',
     ];
 
     private const TIMESTAMP = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/';

@@ -14,6 +14,7 @@ class OpdsController extends Controller
     public function index()
     {
         $novels = Novel::with('file')
+            ->text()
             ->whereNotNull('epub_generated')
             ->orderBy('name')
             ->get(['id', 'name', 'author', 'description', 'epub_generated', 'updated_at']);

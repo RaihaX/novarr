@@ -70,6 +70,8 @@ class CreateNovel extends Command
         $object->name = $name;
         $object->translator_url = $url;
         $object->group_id = 1;
+        // Novel or manga: decided once, by the source that claims the URL.
+        $object->medium = \App\Sources\SourceResolver::forUrl($url)->medium();
         $object->save();
 
         $source = \App\Sources\SourceResolver::for($object);
@@ -89,12 +91,19 @@ class CreateNovel extends Command
             $object->no_of_chapters = $metadata["no_of_chapters"];
         }
 
+        // A manga source suggests how its pages read; never over a choice.
+        if (!empty($metadata["reading_mode"]) && $object->reading_mode === null
+            && in_array($metadata["reading_mode"], Novel::READING_MODES, true)) {
+            $object->reading_mode = $metadata["reading_mode"];
+        }
+
         $object->save();
 
         // Origin: getMetadata() already set it when NovelUpdates matched;
         // otherwise infer from the author/source (no network, never
-        // overrides NovelUpdates).
-        if ($object->origin_source === null && ($origin = $object->inferOrigin())) {
+        // overrides NovelUpdates). Not for a manga: origin describes a
+        // translated / original web novel.
+        if (!$object->isManga() && $object->origin_source === null && ($origin = $object->inferOrigin())) {
             $this->info("  Origin: " . ($object->originLabel() ?? "unknown") . " ({$origin['reason']})");
         }
 

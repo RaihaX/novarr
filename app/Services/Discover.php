@@ -18,8 +18,8 @@ class Discover
     public const TYPES = ['search', 'popular', 'new', 'random', 'completed'];
 
     /**
-     * Sources on the Discover page, keyed by source key, in page order; the
-     * first one is the default.
+     * Sources on the Discover page, keyed by source key, in page order (text
+     * sources first); the first one is the default.
      *
      * @return array<string, Source>
      */
@@ -29,17 +29,42 @@ class Discover
     }
 
     /**
+     * sources() of one medium: 'novel' / 'manga' keeps that medium, null or
+     * 'all' every source.
+     *
+     * @return array<string, Source>
+     */
+    public function sourcesFor(?string $medium): array
+    {
+        return self::ofMedium($this->sources(), $medium);
+    }
+
+    /**
+     * @param  array<string, Source>  $sources
+     * @return array<string, Source>
+     */
+    public static function ofMedium(array $sources, ?string $medium): array
+    {
+        if ($medium === null || $medium === 'all') {
+            return $sources;
+        }
+
+        return array_filter($sources, fn(Source $source) => $source->medium() === $medium);
+    }
+
+    /**
      * The Discover source picker, in page order.
      *
-     * @return array<string, array{label: string, host: string, lists: string[]}>
+     * @return array<string, array{label: string, host: string, lists: string[], medium: string}>
      */
-    public function sourceOptions(): array
+    public function sourceOptions(?string $medium = null): array
     {
         return array_map(fn(Source $source) => [
             'label' => $source->discoverLabel(),
             'host' => $source->discoverHost(),
             'lists' => $source->discoverLists(),
-        ], $this->sources());
+            'medium' => $source->medium(),
+        ], $this->sourcesFor($medium));
     }
 
     /**
@@ -64,8 +89,16 @@ class Discover
 
         $library = $this->libraryIndex();
         foreach ($items as &$item) {
-            $item['novel_id'] = $this->match($item, $library);
+            $item['novel_id'] = $this->match($item, $library, $source->medium());
             $item['in_library'] = $item['novel_id'] !== null;
+            // A host that refuses hotlinked images: the cover comes through
+            // Novarr (after the source's cache read, so the URL is built on
+            // this request's origin).
+            foreach (['cover', 'cover_thumb'] as $key) {
+                if (!empty($item[$key]) && \App\Http\Controllers\DiscoverCoverController::proxied((string) $item[$key])) {
+                    $item[$key] = route('discover.cover', ['u' => (string) $item[$key]]);
+                }
+            }
         }
         unset($item);
 
@@ -78,14 +111,17 @@ class Discover
      * too), normalised URLs for other sources, normalised names. The first
      * (lowest id) novel wins a shared key.
      *
-     * @return array{slugs: array<string, array<string, int>>, urls: array<string, int>, names: array<string, int>}
+     * Names are kept per medium too (`names_by_medium`), so a manga is never
+     * matched to the novel of the same name (and the other way round).
+     *
+     * @return array{slugs: array<string, array<string, int>>, urls: array<string, int>, names: array<string, int>, names_by_medium: array<string, array<string, int>>}
      */
     public function libraryIndex(): array
     {
-        $index = ['slugs' => [], 'urls' => [], 'names' => []];
+        $index = ['slugs' => [], 'urls' => [], 'names' => [], 'names_by_medium' => []];
         $sources = SourceResolver::all();
 
-        foreach (Novel::query()->orderBy('id')->get(['id', 'name', 'translator_url']) as $novel) {
+        foreach (Novel::query()->orderBy('id')->get(['id', 'name', 'translator_url', 'medium']) as $novel) {
             $id = (int) $novel->id;
             $url = (string) $novel->translator_url;
             if ($url !== '') {
@@ -99,6 +135,7 @@ class Discover
             $name = self::normalizeName((string) $novel->name);
             if ($name !== '') {
                 $index['names'][$name] ??= $id;
+                $index['names_by_medium'][(string) ($novel->medium ?: Novel::MEDIUM_NOVEL)][$name] ??= $id;
             }
         }
 
@@ -107,9 +144,11 @@ class Discover
 
     /**
      * The library novel a result item (['name', 'url', …]) is, by slug, then
-     * URL, then name; null when it isn't in the library.
+     * URL, then name; null when it isn't in the library. With $medium the
+     * name match only looks at novels of that medium (the item's URL decides
+     * it when not given).
      */
-    public function match(array $item, array $library): ?int
+    public function match(array $item, array $library, ?string $medium = null): ?int
     {
         $url = (string) ($item['url'] ?? '');
         if ($url !== '') {
@@ -125,8 +164,16 @@ class Discover
         }
 
         $name = self::normalizeName((string) ($item['name'] ?? ''));
+        if ($name === '') {
+            return null;
+        }
 
-        return $name !== '' ? ($library['names'][$name] ?? null) : null;
+        $medium ??= $url !== '' ? SourceResolver::forUrl($url)->medium() : null;
+        if ($medium !== null && isset($library['names_by_medium'])) {
+            return $library['names_by_medium'][$medium][$name] ?? null;
+        }
+
+        return $library['names'][$name] ?? null;
     }
 
     /** Scheme, "www.", case and a trailing "/" or "_" don't make a different novel. */

@@ -42,6 +42,24 @@ interface Source
     public function name(): string;
 
     /**
+     * What this source serves: 'novel' (chapter text) or 'manga' (page
+     * images). A novel's `medium` is set from it when the novel is created.
+     */
+    public function medium(): string;
+
+    /**
+     * The page images of a manga chapter, in reading order. Null: this
+     * source serves no pages (every text source). Otherwise a list of
+     * ['url' => string, 'headers' => array<string,string>]; [] with $failure
+     * set when the list could not be had: 'rate_limited', 'not_found',
+     * 'no_content' or 'fetch_failed' (ChapterScraper's categories, so a dead
+     * chapter parks and a rate limit backs off as for text).
+     *
+     * @return ?array<int, array{url: string, headers: array<string, string>}>
+     */
+    public function chapterPages(string $url, ?string &$failure = null): ?array;
+
+    /**
      * Optional API fast path for a chapter. Null: this source has no fast
      * path for this URL (the page is fetched and extracted). Otherwise the
      * chapter's "<p>…</p>" paragraphs; [] when the fast path came back

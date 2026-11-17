@@ -35,7 +35,9 @@ class NovelOrigin extends Command
         $fetch = !$this->option("no-fetch");
         $delay = max(0.0, (float) $this->option("delay"));
 
-        $query = Novel::query()->orderBy("id");
+        // Origin (translated / original web novel) is not a manga property:
+        // a manga is never inferred or looked up on NovelUpdates.
+        $query = Novel::query()->text()->orderBy("id");
         if ($novelId > 0) {
             $query->where("id", $novelId);
         }

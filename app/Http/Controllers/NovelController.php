@@ -35,6 +35,7 @@ class NovelController extends Controller
 
     public function download_epub($id, Request $request) {
         $object = $this->novels->findOrFail($id);
+        abort_if($object->isManga(), 404, 'A manga has no ePub: ePubs are made from chapter text.');
 
         // Same sanitised name the generator writes (reserved characters
         // stripped, "Unknown" for a missing author).
@@ -78,7 +79,7 @@ class NovelController extends Controller
         $chapters = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
             ->ordered()
-            ->get(['id', 'chapter', 'book', 'label', 'status', 'read_at', 'kind', 'download_date', 'attempts', 'last_failure_reason'])
+            ->get(['id', 'chapter', 'book', 'label', 'status', 'read_at', 'kind', 'download_date', 'attempts', 'last_failure_reason', 'page_count'])
             ->map(fn($c) => [
                 'id' => $c->id,
                 'chapter' => $c->chapter,
@@ -92,6 +93,8 @@ class NovelController extends Controller
                 'review' => !$c->status && (int) $c->attempts >= NovelChapter::REVIEW_ATTEMPTS,
                 'attempts' => $c->status ? 0 : (int) $c->attempts,
                 'date' => $c->download_date?->format('Y-m-d H:i'),
+                // Manga: pages of a downloaded chapter (null for text).
+                'pages' => $c->page_count === null ? null : (int) $c->page_count,
             ]);
 
         return response()->json(['chapters' => $chapters]);
@@ -110,6 +113,7 @@ class NovelController extends Controller
         'not_found' => 'The source answers 404 for this chapter; it may have been removed or renumbered there.',
         'exception' => 'The scraper hit an error while reading the page.',
         'source_missing' => 'The source no longer lists this chapter.',
+        'partial_pages' => 'Some page images could not be downloaded (missing, not an image, or too large).',
     ];
 
     public static function failureReasonText(?string $reason): string
@@ -220,8 +224,23 @@ class NovelController extends Controller
             'attention' => array_values(array_intersect(array_keys($attentionIds), array_keys($reading))),
             'finished' => array_keys(array_filter($reading, fn($r) => $r['finished'])),
         ];
-        // Origin chips: translated web novels vs original English ones.
-        $origins = Novel::whereIn('origin', ['translated', 'original'])->pluck('origin', 'id');
+        // Origin chips: translated web novels vs original English ones. The
+        // same statement says whether the library holds a manga.
+        $flagged = Novel::where(fn($q) => $q->whereIn('origin', ['translated', 'original'])
+            ->orWhere('medium', Novel::MEDIUM_MANGA))
+            ->get(['id', 'origin', 'medium']);
+        $origins = $flagged->filter(fn($n) => in_array($n->origin, ['translated', 'original'], true))->pluck('origin', 'id');
+        $hasManga = $flagged->contains(fn($n) => $n->medium === Novel::MEDIUM_MANGA);
+
+        // Medium (All / Novels / Manga): only offered — and only applied —
+        // once the library holds at least one manga.
+        $medium = $request->query('medium');
+        if (!$hasManga || !in_array($medium, [Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA], true)) {
+            $medium = 'all';
+        }
+        if ($medium !== 'all') {
+            $query->where('medium', $medium);
+        }
         foreach (['translated', 'original'] as $origin) {
             $sets[$origin] = array_values(array_intersect(
                 array_keys($origins->filter(fn($o) => $o === $origin)->all()),
@@ -279,6 +298,8 @@ class NovelController extends Controller
             'view' => $view,
             'sort' => $sort,
             'filter' => $filter,
+            'medium' => $medium,
+            'hasManga' => $hasManga,
             'offlinePending' => $offlinePending,
             'chipCounts' => $chipCounts,
             'totals' => $totals,
@@ -455,7 +476,7 @@ class NovelController extends Controller
         $pageIds = array_slice($orderedIds, ($page - 1) * $perPage, $perPage);
 
         $novels = $pageIds === [] ? collect() : Novel::with('file')
-            ->select(['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures', 'origin', 'origin_language'])
+            ->select(['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures', 'origin', 'origin_language', 'medium'])
             ->whereIn('id', $pageIds)
             ->get()
             ->keyBy('id');
@@ -791,10 +812,17 @@ class NovelController extends Controller
             $object->alternative_url = $request->alternative_url;
         }
 
+        // Novel or manga: decided once, by the source that claims the URL.
+        $object->medium = $object->translator_url
+            ? \App\Sources\SourceResolver::forUrl((string) $object->translator_url)->medium()
+            : Novel::MEDIUM_NOVEL;
+
         $object->save();
 
-        // Origin guess from the form's author / URLs (no network).
-        $object->inferOrigin();
+        // Origin guess from the form's author / URLs (no network); not for a manga.
+        if (!$object->isManga()) {
+            $object->inferOrigin();
+        }
 
         if ( $request->hasFile('image') ) {
             $storedPath = $request->file('image')->store('', ['disk' => 'public']);
@@ -824,10 +852,35 @@ class NovelController extends Controller
         $chapters = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
             ->ordered()
-            ->paginate(self::CHAPTERS_PER_PAGE, ['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'download_date', 'read_at', 'kind', 'attempts', 'last_failure_reason']);
+            ->paginate(self::CHAPTERS_PER_PAGE, ['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'download_date', 'read_at', 'kind', 'attempts', 'last_failure_reason', 'page_count']);
+
+        // Manga: a chapter is only marked read at its last page, so the one
+        // being read has progress and no read_at — "Continue" resumes it
+        // (the reader then opens on the saved page).
+        $continuePage = null;
+        if ($data->isManga()) {
+            $reading = NovelChapter::where('novel_id', $id)
+                ->where('blacklist', 0)
+                ->where('status', 1)
+                ->whereNull('read_at')
+                ->whereBetween('read_progress', [1, 99])
+                ->whereNotNull('read_progress_at')
+                ->orderByDesc('read_progress_at')
+                ->first(['id', 'chapter', 'book', 'sort_key', 'number', 'part', 'read_progress', 'page_count']);
+            if ($reading) {
+                $stats['continue_chapter_id'] = $reading->id;
+                $stats['continue_number'] = $reading->displayNumber() ?: null;
+                $stats['continue_index'] = NovelChapter::where('novel_id', $id)
+                    ->where('blacklist', 0)
+                    ->relativeTo($reading, '<')
+                    ->count();
+                $continuePage = HomeController::mangaPage($reading->read_progress, $reading->page_count);
+            }
+        }
 
         return view('novels.show', [
             'data' => $data,
+            'continue_page_number' => $continuePage,
             'synopsis' => $this->cleanSynopsis($data->description, $data->name),
             'chapters' => $chapters,
             'new_chapters' => $stats['new_chapters'],
