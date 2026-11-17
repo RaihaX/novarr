@@ -304,6 +304,12 @@ class MangaDexSourceTest extends GoldenTestCase
         $popular = self::API . '/manga?limit=40&order[followedCount]=desc&includes[]=cover_art&includes[]=author&contentRating[]=safe&contentRating[]=suggestive&availableTranslatedLanguage[]=en&hasAvailableChapters=true';
         $search = self::API . '/manga?limit=40&title=tabun%20kanojo&order[relevance]=desc&includes[]=cover_art&includes[]=author&contentRating[]=safe&contentRating[]=suggestive&availableTranslatedLanguage[]=en&hasAvailableChapters=true';
         $fetcher = $this->fake([$popular => 'mangadex/discover-popular.json', $search => 'mangadex/discover-search.json']);
+        $checks = $this->routeReadable($fetcher, [
+            '32d76d19-8a05-4db0-9fc2-e0b0648fe9d0' => 200,
+            'aa6c76f7-5f5f-46b6-a800-911145f81b9b' => 110,
+            '18d481be-f310-4088-a9c1-de29e08990cd' => 3,
+            '95142415-c448-4a00-966b-676925721bd7' => 1,
+        ]);
 
         $items = $source->discover('popular');
         $this->assertSame(['Solo Leveling', 'My Dress-Up Darling'], array_column($items, 'name'));
@@ -322,15 +328,41 @@ class MangaDexSourceTest extends GoldenTestCase
 
         // Cached: a second popular read makes no request.
         $source->discover('popular');
-        $this->assertSame([$popular, $search], $fetcher->urls());
+        $this->assertSame([$popular, $checks[0], $checks[1], $search, $checks[2], $checks[3]], $fetcher->urls());
 
         $this->assertSame([], $source->discover('completed'));
+    }
+
+    /** Route the per-series "has downloadable chapters" checks; returns their URLs. */
+    private function routeReadable($fetcher, array $totals): array
+    {
+        $urls = [];
+        foreach ($totals as $id => $total) {
+            $urls[] = $url = self::API . '/chapter?' . MangaDexSource::query(MangaDexSource::readableParams($id));
+            $fetcher->route($url, is_array($total) ? $total : json_encode(['result' => 'ok', 'data' => [], 'total' => $total]));
+        }
+
+        return $urls;
+    }
+
+    public function testDiscoverHidesSeriesWithNothingToDownload(): void
+    {
+        // MangaDex still lists English for a series whose chapters were
+        // taken down; a failed check keeps the item.
+        $popular = self::API . '/manga?limit=40&order[followedCount]=desc&includes[]=cover_art&includes[]=author&contentRating[]=safe&contentRating[]=suggestive&availableTranslatedLanguage[]=en&hasAvailableChapters=true';
+        $fetcher = $this->fake([$popular => 'mangadex/discover-popular.json']);
+        $this->routeReadable($fetcher, ['32d76d19-8a05-4db0-9fc2-e0b0648fe9d0' => 0, 'aa6c76f7-5f5f-46b6-a800-911145f81b9b' => 110]);
+        $this->assertSame(['My Dress-Up Darling'], array_column((new MangaDexSource())->discover('popular'), 'name'));
+
+        \Illuminate\Support\Facades\Cache::flush();
+        $this->routeReadable($fetcher, ['32d76d19-8a05-4db0-9fc2-e0b0648fe9d0' => \Tests\Support\FakeFetcher::fail('http_503', 503)]);
+        $this->assertSame(['Solo Leveling', 'My Dress-Up Darling'], array_column((new MangaDexSource())->discover('popular'), 'name'));
     }
 
     public function testDiscoverCoversAreProxiedAndMangaNeverMatchesANovelOfTheSameName(): void
     {
         $popular = self::API . '/manga?limit=40&order[followedCount]=desc&includes[]=cover_art&includes[]=author&contentRating[]=safe&contentRating[]=suggestive&availableTranslatedLanguage[]=en&hasAvailableChapters=true';
-        $this->fake([$popular => 'mangadex/discover-popular.json']);
+        $this->routeReadable($this->fake([$popular => 'mangadex/discover-popular.json']), ['32d76d19-8a05-4db0-9fc2-e0b0648fe9d0' => 200, 'aa6c76f7-5f5f-46b6-a800-911145f81b9b' => 110]);
         Novel::create(['name' => 'Solo Leveling', 'group_id' => 1, 'translator_url' => 'https://novelping.com/novel/solo-leveling']);
         $manga = Novel::create(['name' => 'Something Else', 'group_id' => 1, 'translator_url' => 'https://mangadex.org/title/aa6c76f7-5f5f-46b6-a800-911145f81b9b/my-dress-up-darling']);
         $manga->forceFill(['medium' => 'manga'])->save();
