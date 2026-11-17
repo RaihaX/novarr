@@ -302,6 +302,29 @@ class MangaReaderApiTest extends TestCase
         $this->assertContains('User-Agent: Novarr/1.0', $fake->coverRequests[0]['headers']);
     }
 
+    public function testNovelCreateQueuesTheFirstChapterCheck(): void
+    {
+        $id = '9bb2d279-a8d1-4c01-9ee5-b2b0674f0ae2';
+        Storage::fake('public');
+        config(['filesystems.disks.public.root' => Storage::disk('public')->path('')]);
+        $this->coverFetcher([
+            "https://api.mangadex.org/manga/{$id}?includes[]=cover_art&includes[]=author&includes[]=artist" => 'mangadex/manga.json',
+        ]);
+        Novel::whereKey($this->manga->id)->forceDelete();
+        config(['queue.default' => 'database']);
+        \Illuminate\Support\Facades\Bus::fake();
+
+        $this->assertSame(0, Artisan::call('novel:create', ['name' => 'Giving Love Advice', 'url' => "https://mangadex.org/title/{$id}"]), Artisan::output());
+
+        $novel = Novel::where('name', 'Giving Love Advice')->firstOrFail();
+        \Illuminate\Support\Facades\Bus::assertChained([
+            fn(\App\Jobs\RunNovelCommand $job) => true,
+            fn(\App\Jobs\RunNovelCommand $job) => true,
+            \App\Jobs\FinishNovelCheck::class,
+        ]);
+        $this->assertSame('running', app(\App\Services\NovelCheck::class)->state($novel->id)['status']);
+    }
+
     public function testMetadataNeverOverwritesAChosenReadingMode(): void
     {
         $id = '9bb2d279-a8d1-4c01-9ee5-b2b0674f0ae2';
