@@ -190,7 +190,24 @@ function Novarr:onDocumentRerendered()
 end
 
 function Novarr:onSuspend()
+    Session.asleep = true -- no status-bar redraws over the sleep screen
+    -- The reading position first: saved locally and queued, so the sleep sync sends it.
+    if self.reading then
+        Session.guard(function()
+            local Reading = require("novarr.reading")
+            Reading.pauseTimer(self)
+            Reading.persist(self)
+            Reading.unscheduleIdle(self)
+        end)
+    end
     if Session.plugin == self then
+        Session.guard(function()
+            -- Another plugin instance holds the open chapter: its position too.
+            local reader = Session.reader
+            if reader and reader ~= self and reader.reading then require("novarr.reading").persist(reader) end
+        end)
+        -- Send it before sleeping (best effort; see wifi.lua), then KOReader's sleep handling as before.
+        Session.guard(function() require("novarr.wifi").sleepSync() end)
         Session.guard(function() require("novarr.wifi").onSuspend() end)
         -- Checks for new chapters stop looking while asleep (only when one was started).
         local Checks = package.loaded["novarr.checks"]
@@ -198,15 +215,10 @@ function Novarr:onSuspend()
         local Discover = package.loaded["novarr.ui_discover"]
         if type(Discover) == "table" then Session.guard(Discover.onSuspend) end
     end
-    if not self.reading then return end
-    Session.guard(function()
-        local Reading = require("novarr.reading")
-        Reading.pauseTimer(self)
-        Reading.persist(self)
-    end)
 end
 
 function Novarr:onResume()
+    Session.asleep = nil
     if Session.plugin == self then
         Session.guard(function()
             -- Woken up: the next request checks the home address again.
@@ -215,6 +227,12 @@ function Novarr:onResume()
             if not self.resume_task then
                 self.resume_task = Session.wrap(function()
                     require("novarr.wifi").onResume()
+                    -- Already connected (Wi-Fi not managed, or left on): send the
+                    -- reading position now. A connection that comes later sends
+                    -- it in onNetworkConnected.
+                    if Session.queue and Session.queue:count() > 0 and Session:isConnected() then
+                        Session:flushSoon(0.5)
+                    end
                     local Checks = package.loaded["novarr.checks"]
                     if type(Checks) == "table" then Checks.onResume() end
                     local Discover = package.loaded["novarr.ui_discover"]

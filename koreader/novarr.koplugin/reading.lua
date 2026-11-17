@@ -7,6 +7,15 @@ chapter path; for any other document the plugin does nothing.
   the server's (or local) progress.
 * Progress is tracked in memory on page turns, saved locally and queued at
   most every 30 s, and on close / suspend.
+* It reaches the server soon, not only at the next online window: going to
+  sleep sends it (wifi.lua's sleepSync, best effort), waking up asks for a
+  sync, and so does a pause: 3 minutes without a page turn (IDLE_SYNC_MS;
+  one timer per pause, started by a page turn, never a recurring poll)
+  saves the position and sends the queue when connected, or with Wi-Fi
+  switched off by Novarr asks for it to come on (Wifi.requestSync).
+* The status line ends with the sync state ("not synced", "3 ch not
+  synced", "synced 5 min ago"; setting show_sync_status), redrawn after a
+  flush that sent something.
 * A few seconds after opening, if (and only if) the device is already
   connected: quietly send pending writes, then prefetch the next chapters
   (up to the "chapters to fetch ahead" setting, 100 by default), one per
@@ -49,6 +58,7 @@ Reading.PREFETCH_FAST_STEP = 0.5 -- seconds between two when many are missing
 Reading.PREFETCH_FAST_ABOVE = 10 -- "many": more than this many chapters missing
 Reading.PREFETCH_QUIET_MS = 1500 -- never fetch this soon after a page turn
 Reading.PREFETCH_LOG_EVERY = 10  -- one log line per this many prefetched chapters
+Reading.IDLE_SYNC_MS = 3 * 60 * 1000 -- no page turn for this long: save and send the position
 
 local function UI() return require("novarr.ui_common") end
 local footerOf -- (status bar section)
@@ -143,6 +153,10 @@ function Reading.attach(plugin, novel_id, chapter_id, group)
     plugin.prefetch_task = function()
         Session.guard(Reading.prefetchStep, plugin)
     end
+    plugin.idle_task = function()
+        Session.guard(Reading.idleSync, plugin)
+    end
+    plugin.idle_scheduled = false
 end
 
 -- ---------------------------------------------------------------- progress
@@ -278,6 +292,11 @@ function Reading.onMove(plugin)
     Reading.timeTick(plugin)
     local p = Reading.currentPercent(plugin)
     r.last_turn = Session.nowMs()
+    -- One idle timer per pause: started here, it re-arms itself while pages turn.
+    if not plugin.idle_scheduled and plugin.idle_task then
+        plugin.idle_scheduled = true
+        UIManager:scheduleIn(Reading.IDLE_SYNC_MS / 1000, plugin.idle_task)
+    end
     if not p or p == r.percent then return end
     if r.timer then ReadingInfo.tick(r.timer, os.time()) end
     r.percent = p
@@ -506,10 +525,7 @@ function Reading.chapterInfo(plugin)
     r.per_chapter = Session:secondsPerChapter(r.novel_id)
     local cl = Session:chapterList(r.novel_id)
     if cl then r.ordinal, r.ordinal_of = Model.ordinal(cl.list, r.chapter_id) end
-    local footer = footerOf(plugin)
-    if plugin.footer_func and footer and footer.onUpdateFooter then
-        pcall(footer.onUpdateFooter, footer, true)
-    end
+    Reading.refreshFooter(plugin)
 end
 
 --[[--
@@ -763,6 +779,15 @@ function Reading.addFooter(plugin)
     end
 end
 
+--- Redraws the status bar now (chapter info changed, a flush sent something). Not while asleep.
+function Reading.refreshFooter(plugin)
+    if Session.asleep then return end
+    local footer = footerOf(plugin)
+    if plugin.footer_func and footer and footer.onUpdateFooter then
+        pcall(footer.onUpdateFooter, footer, true)
+    end
+end
+
 function Reading.removeFooter(plugin)
     local footer = footerOf(plugin)
     if plugin.footer_func and footer and footer.removeAdditionalFooterContent then
@@ -794,7 +819,11 @@ function Reading.footerText(plugin)
         end
     end
     local secs = ReadingInfo.secondsLeft(r.per_chapter, r.left, r.percent)
-    local parts = ReadingInfo.statusParts(clock, r.ordinal, r.ordinal_of, r.left, secs)
+    local sync_part
+    if Session:get("show_sync_status") then
+        sync_part = ReadingInfo.syncPart(Session:syncState(), os.time())
+    end
+    local parts = ReadingInfo.statusParts(clock, r.ordinal, r.ordinal_of, r.left, secs, sync_part)
     local measure, budget = Reading.footerMeasure(plugin)
     return ReadingInfo.fitStatus(parts, measure, budget)
 end
@@ -965,6 +994,44 @@ function Reading.background(plugin)
     end
     if window then window.background_done = true end
     if managing then Wifi().evaluate("background done") end
+end
+
+--[[--
+The idle timer fired: pages turned since -> wait for the rest of the
+period; otherwise (a pause of IDLE_SYNC_MS) save the position and send the
+queue when connected, or ask for Wi-Fi when Novarr switched it off. The
+next page turn starts a new timer.
+]]
+function Reading.idleSync(plugin)
+    local r = plugin.reading
+    if not r then
+        plugin.idle_scheduled = false
+        return
+    end
+    local since = r.last_turn and Session.nowMs() - r.last_turn or Reading.IDLE_SYNC_MS
+    if since < Reading.IDLE_SYNC_MS then
+        UIManager:scheduleIn((Reading.IDLE_SYNC_MS - since) / 1000 + 0.1, plugin.idle_task)
+        return
+    end
+    plugin.idle_scheduled = false
+    Reading.persist(plugin)
+    if not Session:serverUrl() or Session.queue:count() == 0 then return end
+    local managing = Wifi().managing()
+    if Session:isConnected() then
+        local res = Session:quietFlush(50)
+        if managing then
+            if res and (res.sent or 0) + (res.dropped or 0) > 0 then Wifi().progress() end
+            Wifi().evaluate("idle sync")
+        end
+    elseif managing then
+        Wifi().requestSync("idle")
+    end
+end
+
+--- Stops the idle timer (sleep, close); the next page turn starts a new one.
+function Reading.unscheduleIdle(plugin)
+    if plugin.idle_task then UIManager:unschedule(plugin.idle_task) end
+    plugin.idle_scheduled = false
 end
 
 --- Seconds between two prefetched chapters: short when the run started with many missing.
@@ -1191,6 +1258,7 @@ end
 function Reading.unschedule(plugin)
     if plugin.background_task then UIManager:unschedule(plugin.background_task) end
     if plugin.prefetch_task then UIManager:unschedule(plugin.prefetch_task) end
+    Reading.unscheduleIdle(plugin)
 end
 
 function Reading.onClose(plugin)

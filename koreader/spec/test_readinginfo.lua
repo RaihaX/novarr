@@ -95,3 +95,56 @@ T.it("status line fits the width: drop 'of M' first, then the clock", function()
     T.eq(RI.fitStatus(parts, measure, 20), "ch 969 \194\183 178 left \194\183 9 h left")
     T.eq(RI.fitStatus(parts, nil, 1), full) -- no measure: unchanged
 end)
+
+T.it("sync part: writes waiting", function()
+    T.eq(RI.syncPart({ queue = 3, chapters = 2 }, 1000), { key = "unsynced", text = "2 ch not synced" })
+    T.eq(RI.syncPart({ queue = 1, chapters = 0, last_sync_at = 990 }, 1000), { key = "unsynced", text = "not synced" })
+    T.eq(RI.syncPart({ queue = 1 }, 1000), { key = "unsynced", text = "not synced" }, "chapters unknown")
+end)
+
+T.it("sync part: queue empty, last sync known", function()
+    local at = 100000
+    local function text(ago) return RI.syncPart({ queue = 0, chapters = 0, last_sync_at = at }, at + ago).text end
+    T.eq(RI.syncPart({ queue = 0, last_sync_at = at }, at).key, "sync")
+    T.eq(text(0), "synced just now")
+    T.eq(text(59), "synced just now")
+    T.eq(text(60), "synced 1 min ago")
+    T.eq(text(59 * 60 + 59), "synced 59 min ago")
+    T.eq(text(60 * 60), "synced 1 h ago")
+    T.eq(text(47 * 3600), "synced 47 h ago")
+    T.eq(text(48 * 3600 - 1), "synced 47 h ago")
+    T.eq(text(48 * 3600), "synced 2 d ago")
+    T.eq(text(10 * 86400 + 5), "synced 10 d ago")
+    T.eq(text(-3600), "synced just now", "a time in the future (clock changed)")
+end)
+
+T.it("sync part: nothing known", function()
+    T.eq(RI.syncPart({ queue = 0, chapters = 0 }, 1000), nil)
+    T.eq(RI.syncPart({}, 1000), nil)
+    T.eq(RI.syncPart(nil, 1000), nil)
+end)
+
+T.it("status line with the sync part last", function()
+    local sp = RI.syncPart({ queue = 2, chapters = 1 }, 0)
+    local parts = RI.statusParts("15:13", 969, 1147, 178, 9 * 3600, sp)
+    T.eq(parts[#parts].key, "unsynced")
+    T.eq(RI.joinParts(parts), "15:13 \194\183 ch 969 of 1,147 \194\183 178 left \194\183 9 h left \194\183 1 ch not synced")
+    T.eq(RI.joinParts(RI.statusParts(nil, nil, nil, nil, nil, { key = "sync", text = "synced just now" })), "synced just now")
+    T.eq(#RI.statusParts("15:13", 969, 1147, 178, 9 * 3600, nil), 5, "no sync part")
+end)
+
+T.it("status line fits the width: of, then synced, then the clock; 'not synced' stays", function()
+    local measure = function(t) return #t end
+    local synced = { key = "sync", text = "synced 5 min ago" }
+    local parts = RI.statusParts("15:13", 969, 1147, 178, 9 * 3600, synced)
+    local full = RI.joinParts(parts)
+    T.eq(RI.fitStatus(parts, measure, #full), full)
+    local no_of = "15:13 \194\183 ch 969 \194\183 178 left \194\183 9 h left \194\183 synced 5 min ago"
+    T.eq(RI.fitStatus(parts, measure, #full - 1), no_of)
+    local no_sync = "15:13 \194\183 ch 969 \194\183 178 left \194\183 9 h left"
+    T.eq(RI.fitStatus(parts, measure, #no_of - 1), no_sync)
+    T.eq(RI.fitStatus(parts, measure, #no_sync - 1), "ch 969 \194\183 178 left \194\183 9 h left")
+
+    local unsynced = RI.statusParts("15:13", 969, 1147, 178, 9 * 3600, { key = "unsynced", text = "not synced" })
+    T.eq(RI.fitStatus(unsynced, measure, 10), "ch 969 \194\183 178 left \194\183 9 h left \194\183 not synced")
+end)

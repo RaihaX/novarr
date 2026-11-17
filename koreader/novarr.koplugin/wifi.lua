@@ -23,6 +23,23 @@ NetworkMgr:enableWifi(cb) without user interaction. A connection that does
 not come within CONNECT_TIMEOUT is a failure: quiet, logged, retried after
 1, 5, then 15 minutes.
 
+The reading position is not left waiting for the next window:
+  * Waking up, or 3 minutes without a page turn (reading.lua), with writes
+    queued: requestSync() marks a sync as due (wifipolicy's sync_due), so
+    Wi-Fi switched off by Novarr comes on for an ordinary window.
+  * Going to sleep: sleepSync() sends the queue at once when connected
+    (setting on or off). When Novarr has Wi-Fi switched off and the device
+    keeps running into sleep with Wi-Fi restore (Kindle: KOReader's
+    scheduled tasks go on for some seconds after the Suspend event, until
+    the kernel suspends, which nothing can delay), the radio is switched on
+    just to send it and off again afterwards, whatever happened, within
+    SLEEP_SYNC_TIMEOUT. That is best effort, its own small state
+    (Wifi.sleep): no online window, no failure count or backoff, and
+    wifi_off_by_novarr stays set throughout. Waking up, leaving the book or
+    the reader closing cancel what is left of it. Elsewhere (Kobo...)
+    KOReader switches Wi-Fi off itself before Suspend, so only the connected
+    case applies.
+
 The backend is injectable (Wifi.setBackend) so the autopilot can emulate
 Wi-Fi on the desktop, with a connect delay and failures.
 ]]
@@ -41,6 +58,8 @@ local Wifi = {
     failures = 0,
     backoff_until = nil,
     exhausted_at = nil,
+    sync_due = nil,                      -- why the queue should be sent soon (wifipolicy's sync_due)
+    sleep = nil,                         -- {since}: sending before sleep, Wi-Fi switched on for it
     last = nil,                          -- {action, reason, at}
     events = {},                         -- recent switches, for dumps
 }
@@ -78,6 +97,11 @@ Wifi.realBackend = {
     busy = function()
         local NM = networkMgr()
         return NM.pending_connection or NM.pending_connectivity_check or false
+    end,
+    -- Kindle: Wi-Fi is restored without a scan list, and stays up into sleep.
+    hasWifiRestore = function()
+        local Device = require("device")
+        return Device.hasWifiRestore and Device:hasWifiRestore() and true or false
     end,
     turnOff = function(cb)
         networkMgr():disableWifi(cb, true)
@@ -127,15 +151,18 @@ end
 --[[--
 A pretend Wi-Fi for the desktop (autopilot): on/off in memory, connecting
 takes `delay` seconds, the next `fail` attempts never connect. Sends the
-NetworkConnected / NetworkDisconnected events KOReader would.
+NetworkConnected / NetworkDisconnected events KOReader would. Acts as a
+device with Wi-Fi restore (a Kindle) unless opts.restore is false.
 ]]
 function Wifi.fakeBackend(opts)
     opts = opts or {}
     local Event = require("ui/event")
-    local b = { name = "fake", on = opts.on ~= false, delay = opts.delay or 2, fail = opts.fail or 0, attempts = 0 }
+    local b = { name = "fake", on = opts.on ~= false, delay = opts.delay or 2, fail = opts.fail or 0, attempts = 0,
+        restore = opts.restore ~= false }
     b.isOn = function() return b.on end
     b.isConnected = function() return b.on end
     b.busy = function() return false end
+    b.hasWifiRestore = function() return b.restore end
     b.turnOff = function(cb)
         b.on = false
         UIManager:scheduleIn(0.5, function()
@@ -190,6 +217,8 @@ end
 
 local function newWindow()
     Wifi.window = { on_since = now(), last_progress = now() }
+    -- The window's own work (Reading.background) sends the queue.
+    Wifi.sync_due = nil
 end
 
 --- Something was gained in this online window (a chapter stored, writes sent).
@@ -212,11 +241,16 @@ local function observe()
         setOffByNovarr(false)
         Wifi.on_by_novarr = false
     end
-    if on then
-        -- Whoever switched it on, it is not "off by Novarr" any more.
+    if Wifi.sleep then
+        -- Switched on only to send before sleep: still Novarr's, no window.
+        return on
+    end
+    if on and Wifi.m.pending ~= "off" then
+        -- Whoever switched it on, it is not "off by Novarr" any more
+        -- (unless Novarr is switching it off right now).
         setOffByNovarr(false)
         if not Wifi.window then newWindow() end
-    else
+    elseif not on then
         Wifi.window = nil
     end
     return on
@@ -240,20 +274,13 @@ local function busy(Session)
     return #Session.menus > 0
 end
 
-local function finishedUnsynced(Session)
-    local n = 0
-    for _i, e in ipairs(Session.queue:list()) do
-        if (e.kind == "progress" or e.kind == "set_read") and e.read == true then n = n + 1 end
-    end
-    return n
-end
-
 --- The snapshot wifipolicy.decide() works on.
 function Wifi.snapshot()
     local Session = S()
     local r = Session.reader and Session.reader.reading
     local target = tonumber(Session:get("prefetch")) or 0
     local w = Wifi.window or {}
+    local sync = Session:syncState()
     local s = {
         enabled = Wifi.enabled(),
         managing = Wifi.managing(),
@@ -262,8 +289,9 @@ function Wifi.snapshot()
         connecting = Wifi.connecting ~= nil,
         off_by_novarr = Wifi.offByNovarr(),
         on_by_novarr = Wifi.on_by_novarr,
-        queue = Session.queue:count(),
-        finished_unsynced = finishedUnsynced(Session),
+        queue = sync.queue,
+        finished_unsynced = sync.chapters,
+        sync_due = Wifi.sync_due,
         target = target,
         busy = busy(Session),
         now = now(),
@@ -290,6 +318,7 @@ end
 -- ---------------------------------------------------------------- timers
 
 local tick_task, flush_task, timeout_task, backoff_task
+local sleep_task -- the sleep sync's timeout: never cancelled by unscheduleAll()
 
 local function scheduleTick(s)
     if not tick_task then
@@ -445,8 +474,14 @@ local last_key
 --- Looks at everything and switches Wi-Fi off or on when the rules say so.
 function Wifi.evaluate(why)
     if not Wifi.enabled() then return end
+    -- Sending before sleep: that owns the radio until it is done or cancelled.
+    if Wifi.sleep then return end
     observe()
     local s = Wifi.snapshot()
+    if s.queue == 0 then
+        Wifi.sync_due = nil
+        s.sync_due = nil
+    end
     local action, reason, flags = Policy.decide(s)
     Wifi.last = { action = action, reason = reason, at = s.now, why = why }
     if action == "off" then
@@ -503,6 +538,21 @@ function Wifi.restore(reason, fn, on_fail, opts)
     return true
 end
 
+--[[--
+Asks for the queue to be sent soon (woken up, idle): with Wi-Fi switched off
+by Novarr while reading, it comes on (wifipolicy's sync_due). Nothing is due
+with an empty queue. Evaluates either way.
+]]
+function Wifi.requestSync(reason)
+    local Session = S()
+    if Session.queue and Session.queue:count() > 0 then
+        Wifi.sync_due = reason
+    else
+        Wifi.sync_due = nil
+    end
+    Wifi.evaluate(reason)
+end
+
 --- Whether Novarr may switch Wi-Fi on without asking now.
 function Wifi.canRestore()
     if not Wifi.enabled() or not Wifi.offByNovarr() then return false end
@@ -531,18 +581,112 @@ end
 
 function Wifi.onNetworkConnected()
     if not Wifi.enabled() then return end
+    if Wifi.sleep then return end -- the sleep sync's connection (sleepConnected sends)
     if Wifi.connecting then
         connected()
         return
     end
     local had = Wifi.window ~= nil
     observe()
-    if not had then Wifi.windowStart() end
+    -- Also when the window opened before the connection came (the radio was
+    -- already on at wake-up): its work has not run yet.
+    if not had or (Wifi.window and not Wifi.window.background_done) then Wifi.windowStart() end
 end
 
 function Wifi.onNetworkDisconnected()
     if not Wifi.enabled() then return end
     Wifi.evaluate("network disconnected")
+end
+
+-- ---------------------------------------------------------------- sleep sync
+
+local function sleepElapsed()
+    return Wifi.sleep and now() - Wifi.sleep.since or 0
+end
+
+-- The sleep sync is over (sent, failed or timed out): the radio goes off again, still Novarr's.
+local function sleepDone(outcome)
+    if not Wifi.sleep then return end
+    local elapsed = sleepElapsed()
+    Wifi.sleep = nil
+    if sleep_task then UIManager:unschedule(sleep_task) end
+    log(string.format("going to sleep: %s after %d ms; switching off again", outcome, elapsed))
+    event("sleep_off", outcome)
+    Wifi.window = nil
+    Wifi.on_by_novarr = false
+    Wifi.m.pending = "off"
+    setOffByNovarr(true)
+    local ok, err = pcall(Wifi.backend.turnOff, function()
+        S().guard(observe)
+    end)
+    if not ok then log("couldn't switch it off: " .. tostring(err)) end
+end
+
+local function sleepConnected()
+    if not Wifi.sleep then return end
+    local res = S():quietFlush(50)
+    if res then
+        sleepDone(string.format("sent %d, %d left", (res.sent or 0) + (res.dropped or 0), res.remaining or 0))
+    else
+        sleepDone("not connected")
+    end
+end
+
+-- Waking up, leaving the book, the reader closing: what is left of the sleep sync is dropped.
+local function cancelSleep(why)
+    if not Wifi.sleep then return false end
+    log(string.format("going to sleep: sending cut short after %d ms (%s)", sleepElapsed(), why))
+    event("sleep_cancel", why)
+    Wifi.sleep = nil
+    if sleep_task then UIManager:unschedule(sleep_task) end
+    return true
+end
+
+--[[--
+Going to sleep (Suspend, before Wifi.onSuspend): sends the queued writes.
+Connected: at once (whatever the setting). Wi-Fi switched off by Novarr
+with the setting on, on a device with Wi-Fi restore (Kindle, where
+KOReader's tasks run on for a few seconds into sleep): the radio is switched
+on just for this and off again afterwards (see the header). Otherwise
+(Wi-Fi off by the user, no Wi-Fi restore) nothing happens. Never shows
+anything.
+]]
+function Wifi.sleepSync()
+    local Session = S()
+    if not Session:serverUrl() or not Session.queue or Session.queue:count() == 0 then return end
+    if Wifi.sleep then return end
+    if Session:isConnected() then
+        local t0 = now()
+        local res = Session:quietFlush(50)
+        if res then
+            log(string.format("going to sleep: sent %d, %d left (%d ms)",
+                (res.sent or 0) + (res.dropped or 0), res.remaining or 0, now() - t0))
+        end
+        return
+    end
+    -- A switch-on already under way: Wifi.onSuspend leaves it alone.
+    if Wifi.connecting then return end
+    if not Wifi.enabled() or not Wifi.offByNovarr() then return end
+    if not (Wifi.backend.hasWifiRestore and Wifi.backend.hasWifiRestore()) then return end
+    observe() -- switched on by the user meanwhile: the flag is cleared there
+    if not Wifi.offByNovarr() or Wifi.backend.isOn() then return end
+    local d = Policy.durations(Wifi.scale)
+    log(string.format("going to sleep with %d write(s) unsent: switching on to send them", Session.queue:count()))
+    event("sleep_on", "going to sleep")
+    Wifi.sleep = { since = now() }
+    Wifi.m.pending = "on"
+    if not sleep_task then
+        sleep_task = function()
+            S().guard(function()
+                if not Wifi.sleep then return end
+                if S():isConnected() then sleepConnected() else sleepDone("no connection in time") end
+            end)
+        end
+    end
+    UIManager:unschedule(sleep_task)
+    UIManager:scheduleIn(d.sleep_sync_timeout / 1000, sleep_task)
+    local ok, err = pcall(Wifi.backend.turnOn, function() S().guard(sleepConnected) end)
+    if not ok then sleepDone("couldn't switch on: " .. tostring(err)) end
 end
 
 function Wifi.onSuspend()
@@ -555,13 +699,28 @@ function Wifi.onSuspend()
 end
 
 function Wifi.onResume()
+    local had_sleep = cancelSleep("woke up")
     if not Wifi.enabled() then return end
     Wifi.m.expected = nil
-    Wifi.evaluate("resume")
+    if had_sleep and Wifi.backend.isOn() then
+        -- The sleep sync's Wi-Fi is on: an ordinary online window from here
+        -- (the flag is cleared and the window started in observe()).
+        observe()
+        Wifi.on_by_novarr = true
+        if Wifi.managing() then Wifi.windowStart() end
+        return
+    end
+    local Session = S()
+    if Session.queue and Session.queue:count() > 0 then
+        Wifi.requestSync("woke up")
+    else
+        Wifi.evaluate("resume")
+    end
 end
 
 --- The reader closed (not a switch to the next file): stop managing (restoreOnLeave follows).
 function Wifi.stop()
+    cancelSleep("reader closed")
     unscheduleAll()
     last_key = nil
 end
@@ -578,6 +737,7 @@ Returns true when Wi-Fi was switched on.
 ]]
 function Wifi.restoreOnLeave(why, opts)
     opts = opts or {}
+    cancelSleep(tostring(why))
     unscheduleAll()
     last_key = nil
     if backoff_task then UIManager:unschedule(backoff_task) end
@@ -619,6 +779,8 @@ function Wifi.dump()
         failures = Wifi.failures,
         backoff_until = Wifi.backoff_until,
         exhausted_at = Wifi.exhausted_at,
+        sync_due = Wifi.sync_due,
+        sleep = Wifi.sleep,
         queue = s.queue,
         busy = s.busy,
         finished_unsynced = s.finished_unsynced,
