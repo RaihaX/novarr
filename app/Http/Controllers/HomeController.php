@@ -121,11 +121,23 @@ class HomeController extends Controller
     public static function stats(): array
     {
         return Cache::remember('dashboard_stats', 60, function () {
-            $novels = Novel::query()
-                ->selectRaw('SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) as active,
+            // Active / completed per library (Novels, Manga): Activity links
+            // each figure to the library that lists exactly those series.
+            $byMedium = [];
+            foreach ([Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA] as $medium) {
+                $byMedium[$medium] = ['active' => 0, 'completed' => 0];
+            }
+            $rows = Novel::query()
+                ->selectRaw('medium, SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) as active,
                     SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as completed')
+                ->groupBy('medium')
                 ->toBase()
-                ->first();
+                ->get();
+            foreach ($rows as $row) {
+                $medium = $row->medium === Novel::MEDIUM_MANGA ? Novel::MEDIUM_MANGA : Novel::MEDIUM_NOVEL;
+                $byMedium[$medium]['active'] += (int) $row->active;
+                $byMedium[$medium]['completed'] += (int) $row->completed;
+            }
 
             // Rolling 24 hours (Activity's "/ 24H" chip) and since local
             // midnight (the strip's "chapters today") in one pass: midnight
@@ -138,8 +150,9 @@ class HomeController extends Controller
                 ->first();
 
             return [
-                'active' => (int) ($novels->active ?? 0),
-                'completed' => (int) ($novels->completed ?? 0),
+                'active' => array_sum(array_column($byMedium, 'active')),
+                'completed' => array_sum(array_column($byMedium, 'completed')),
+                'by_medium' => $byMedium,
                 'pending' => NovelChapter::where('status', 0)->where('blacklist', 0)->count(),
                 'downloaded_today' => (int) ($downloads->downloaded_today ?? 0),
                 'today' => (int) ($downloads->today ?? 0),

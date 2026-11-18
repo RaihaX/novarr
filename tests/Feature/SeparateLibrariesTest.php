@@ -344,4 +344,31 @@ class SeparateLibrariesTest extends TestCase
         $this->assertStringContainsString('href="' . e(route('novels.index', ['medium' => 'manga'])) . '" class="btn btn-secondary">Cancel</a>', $html);
         $this->assertStringNotContainsString('name="medium"', $html, 'no medium form field');
     }
+
+    public function testActivityCountsActiveAndCompletedPerLibrary(): void
+    {
+        $this->series('Novel A');
+        $this->series('Novel B', false, ['status' => 1]);
+        Cache::flush();
+
+        // No manga yet: only the novel figures, each opening the Novels library.
+        $html = $this->get(route('activity.index'))->assertOk()->getContent();
+        $this->assertStringContainsString('data-summary="active-novel"', $html);
+        $this->assertStringNotContainsString('data-summary="active-manga"', $html);
+
+        $this->series('Manga A', true);
+        $this->series('Manga B', true);
+        $this->series('Manga C', true, ['status' => 1]);
+        Cache::flush();
+
+        $stats = \App\Http\Controllers\HomeController::stats();
+        $this->assertSame(['active' => 1, 'completed' => 1], $stats['by_medium']['novel']);
+        $this->assertSame(['active' => 2, 'completed' => 1], $stats['by_medium']['manga']);
+        $this->assertSame(3, $stats['active']);
+        $this->assertSame(2, $stats['completed']);
+
+        $html = $this->get(route('activity.index'))->assertOk()->getContent();
+        $this->assertMatchesRegularExpression('/medium=manga&amp;status=0"[^>]*data-summary="active-manga"><span[^>]*>2</', $html);
+        $this->assertMatchesRegularExpression('/medium=novel&amp;status=1"[^>]*data-summary="completed-novel"><span[^>]*>1</', $html);
+    }
 }
