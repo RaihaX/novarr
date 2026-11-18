@@ -580,8 +580,11 @@ function chapterGenerator($data, ?string &$failureReason = null)
         $fetcher = app(\App\Scraping\Fetcher::class);
         $fetchReason = null;
         $fetchVia = null;
-        $html = $fetcher->page($novelUrl, $fetchReason, $fetchVia);
-        \Log::debug("ChapterGenerator fetched {$novelUrl} via " . ($fetchVia ?? 'unknown') . ($html === null ? ' (failed)' : ''));
+        // NovelPing serves the chapter page at another address than the
+        // stored chapter URL (see NovelArrowSource::readerPageUrl()).
+        $pageUrl = \App\Sources\NovelArrowSource::readerPageUrl($novelUrl) ?? $novelUrl;
+        $html = $fetcher->page($pageUrl, $fetchReason, $fetchVia);
+        \Log::debug("ChapterGenerator fetched {$pageUrl} via " . ($fetchVia ?? 'unknown') . ($html === null ? ' (failed)' : ''));
 
         if ($html === null) {
             \Log::warning("ChapterGenerator failed to fetch URL: {$novelUrl} (" . ($fetchReason ?? 'unknown') . ")");
