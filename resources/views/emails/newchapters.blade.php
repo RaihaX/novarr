@@ -27,6 +27,9 @@
     $continue = $v['continue'];
     $stats = $v['stats'];
     $novels = $v['novels'];
+    $manga = $v['manga'];
+    // The "New chapters" figure counts novel chapters; manga has its own.
+    $novelChapters = max(0, (int) $stats['new_chapters'] - (int) $stats['manga_chapters']);
     $completed = $v['completed'];
     $attention = $v['attention'];
     $links = $v['links'];
@@ -52,12 +55,13 @@
 
     $preheader = collect([
         $stats['new_chapters'] ? number_format($stats['new_chapters']) . ' new chapters' : null,
+        $stats['manga_updated'] ? number_format($stats['manga_updated']) . ' manga updated' : null,
         $stats['completed'] ? $stats['completed'] . ' completed' : null,
         $stats['attention'] ? $stats['attention'] . ' need attention' : null,
         $continue ? 'Continue ' . $continue['name'] : null,
     ])->filter()->implode(' · ');
 
-    // Stat tiles: 3 + 2 so they survive a 320px viewport.
+    // Stat tiles: 3 + 2 (3 + 3 with manga) so they survive a 320px viewport.
     $tile = function (string $name, $value, string $tone) {
         return ['name' => $name, 'value' => $value, 'tone' => $tone];
     };
@@ -72,6 +76,9 @@
             $tile('Needs attention', $stats['attention'], '#F0B429'),
         ],
     ];
+    if ((int) $stats['manga_updated'] > 0) {
+        array_unshift($tiles[1], $tile('Manga updated', $stats['manga_updated'], '#E8EBF0'));
+    }
 @endphp
 <body class="nv-ground" style="margin: 0; padding: 0; width: 100%; background-color: #0F1216; color: #E8EBF0; font-family: {{ $sans }}; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%;">
 
@@ -167,7 +174,7 @@
                     </tr>
                 @endif
 
-                {{-- ── Stats strip: 3 + 2 tiles, mono figures, muted when zero ── --}}
+                {{-- ── Stats strip: 3 + 2 (or 3 + 3) tiles, mono figures, muted when zero ── --}}
                 <tr>
                     <td bgcolor="#0F1216" class="nv-ground" style="background-color: #0F1216; padding: 20px 20px 4px;">
                         @if ($v['since'])
@@ -206,88 +213,27 @@
 
                         {{-- New chapters: one row per novel --}}
                         @if (count($novels) > 0)
-                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                                {!! $spacer(20) !!}
-                                <tr>
-                                    <td style="padding-bottom: 12px;">
-                                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                                            <tr>
-                                                <td class="nv-text" style="{{ $h2 }}">New chapters</td>
-                                                <td align="right" class="nv-muted" style="font-family: {{ $mono }}; font-size: 11px; letter-spacing: 0.06em; color: #8B95A5; white-space: nowrap;">{{ number_format($stats['new_chapters']) }} IN {{ number_format($stats['novels_updated']) }} {{ (int) $stats['novels_updated'] === 1 ? 'NOVEL' : 'NOVELS' }}</td>
-                                            </tr>
-                                        </table>
-                                    </td>
-                                </tr>
-                            </table>
+                            @include('emails.newchapters_section', [
+                                'title' => 'New chapters',
+                                'figure' => number_format($novelChapters) . ' IN ' . number_format($stats['novels_updated']) . ' ' . ((int) $stats['novels_updated'] === 1 ? 'NOVEL' : 'NOVELS'),
+                                'rows' => $novels,
+                                'more' => $v['more_novels'],
+                                'one' => 'novel',
+                                'many' => 'novels',
+                            ])
+                        @endif
 
-                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#161A20" class="nv-surface" style="background-color: #161A20; border: 1px solid #262D38; border-collapse: separate;">
-                                @foreach ($novels as $novel)
-                                    @php
-                                        $pct = $novel['percent'];
-                                    @endphp
-                                    <tr>
-                                        <td bgcolor="#161A20" class="nv-surface" style="background-color: #161A20; padding: 14px 16px 14px; {{ $loop->first ? '' : 'border-top: 1px solid #262D38;' }}" data-novel-row="{{ $novel['id'] }}">
-                                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                                                <tr>
-                                                    <td style="font-family: {{ $serif }}; font-size: 16px; line-height: 1.35; font-weight: 700; color: #E8EBF0;">
-                                                        @if ($novel['url'])
-                                                            <a class="nv-text" href="{{ $novel['url'] }}" style="color: #E8EBF0; text-decoration: none;">{{ $novel['name'] }}</a>
-                                                        @else
-                                                            <span class="nv-text" style="color: #E8EBF0;">{{ $novel['name'] }}</span>
-                                                        @endif
-                                                        @if (($novel['notes'] ?? 0) > 0)
-                                                            &nbsp;<span style="{{ $chipNote }}">Author's note</span>
-                                                        @endif
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td class="nv-muted" style="padding-top: 4px; font-family: {{ $mono }}; font-size: 12px; line-height: 1.55; color: #8B95A5;">
-                                                        {{ \App\Mail\NewChapters::chapterRange($novel) }} · <span style="color: #E8EBF0;">{{ number_format($novel['count']) }} new</span>@if ($novel['source']) <span style="white-space: nowrap;">· {{ $novel['source'] }}</span>@endif @if (!empty($novel['origin'])) <span style="white-space: nowrap;">· {{ $novel['origin'] }}</span>@endif
-                                                    </td>
-                                                </tr>
-                                                @if ($pct !== null)
-                                                    {{-- Reading progress (read ÷ total, as on Home): 4px amber bar on #1C222A. --}}
-                                                    <tr>
-                                                        <td style="padding-top: 10px;">
-                                                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#1C222A" style="width: 100%; background-color: #1C222A; border-collapse: collapse;">
-                                                                <tr>
-                                                                    @if ($pct > 0)
-                                                                        <td width="{{ $pct }}%" height="4" bgcolor="#F0B429" style="width: {{ $pct }}%; height: 4px; background-color: #F0B429; font-size: 1px; line-height: 1px; mso-line-height-rule: exactly;">&nbsp;</td>
-                                                                    @endif
-                                                                    @if ($pct < 100)
-                                                                        <td width="{{ 100 - $pct }}%" height="4" bgcolor="#1C222A" style="width: {{ 100 - $pct }}%; height: 4px; background-color: #1C222A; font-size: 1px; line-height: 1px; mso-line-height-rule: exactly;">&nbsp;</td>
-                                                                    @endif
-                                                                </tr>
-                                                            </table>
-                                                        </td>
-                                                    </tr>
-                                                    <tr>
-                                                        <td style="padding-top: 8px;">
-                                                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                                                                <tr>
-                                                                    <td class="nv-muted" style="font-family: {{ $mono }}; font-size: 11px; letter-spacing: 0.06em; color: #8B95A5; white-space: nowrap;">{{ $pct }}% READ</td>
-                                                                    @if ($novel['read_from_url'])
-                                                                        <td align="right" style="font-family: {{ $sans }}; font-size: 13px; font-weight: 600;">
-                                                                            <a class="nv-link" href="{{ $novel['read_from_url'] }}" style="color: #8EA2FF; text-decoration: none; white-space: nowrap;">Read from {{ \App\Mail\NewChapters::chapterNumber($novel['read_from']) }} &rarr;</a>
-                                                                        </td>
-                                                                    @endif
-                                                                </tr>
-                                                            </table>
-                                                        </td>
-                                                    </tr>
-                                                @endif
-                                            </table>
-                                        </td>
-                                    </tr>
-                                @endforeach
-                                @if ($v['more_novels'] > 0)
-                                    <tr>
-                                        <td bgcolor="#161A20" class="nv-surface" style="background-color: #161A20; padding: 12px 16px; border-top: 1px solid #262D38; font-family: {{ $sans }}; font-size: 13px;">
-                                            <a class="nv-link" href="{{ $links['activity'] }}" style="color: #8EA2FF; text-decoration: none;">+{{ number_format($v['more_novels']) }} more {{ $v['more_novels'] === 1 ? 'novel' : 'novels' }} on Activity &rarr;</a>
-                                        </td>
-                                    </tr>
-                                @endif
-                            </table>
+                        {{-- Manga: the same rows, in their own section --}}
+                        @if (count($manga) > 0)
+                            @include('emails.newchapters_section', [
+                                'title' => 'Manga',
+                                'gap' => count($novels) > 0 ? 28 : 20,
+                                'figure' => number_format($stats['manga_chapters']) . ' IN ' . number_format($stats['manga_updated']) . ' MANGA',
+                                'rows' => $manga,
+                                'more' => $v['more_manga'],
+                                'one' => 'manga',
+                                'many' => 'manga',
+                            ])
                         @endif
 
                         {{-- Completed --}}
@@ -362,7 +308,7 @@
                             </table>
                         @endif
 
-                        @if (count($novels) === 0 && count($completed) === 0 && count($attention) === 0)
+                        @if (count($novels) === 0 && count($manga) === 0 && count($completed) === 0 && count($attention) === 0)
                             <p class="nv-muted" style="margin: 20px 0 0; font-family: {{ $sans }}; font-size: 14px; line-height: 1.55; color: #8B95A5;">Nothing new in this period.</p>
                         @endif
 

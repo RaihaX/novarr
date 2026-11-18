@@ -77,9 +77,16 @@ class NewChapters extends Mailable
 
         $newChapters = array_sum(array_column($novels, 'count')) ?: count($chapters);
 
+        // Novels and manga get their own sections. A row without a medium
+        // (older callers, the legacy shape) is a novel.
+        $manga = array_values(array_filter($novels, fn($row) => ($row['medium'] ?? 'novel') === 'manga'));
+        $novels = array_values(array_filter($novels, fn($row) => ($row['medium'] ?? 'novel') !== 'manga'));
+
         $stats = ($data['stats'] ?? []) + [
             'new_chapters' => $newChapters,
             'novels_updated' => count($novels),
+            'manga_updated' => count($manga),
+            'manga_chapters' => array_sum(array_column($manga, 'count')),
             'completed' => count($completed),
             'queued' => null,
             'attention' => count($attention),
@@ -91,6 +98,8 @@ class NewChapters extends Mailable
             'stats' => $stats,
             'novels' => array_slice($novels, 0, self::NOVEL_LIMIT),
             'more_novels' => max(0, count($novels) - self::NOVEL_LIMIT),
+            'manga' => array_slice($manga, 0, self::NOVEL_LIMIT),
+            'more_manga' => max(0, count($manga) - self::NOVEL_LIMIT),
             'completed' => $completed,
             'attention' => $attention,
             'summary_time' => $legacy ? setting('summary_time', '08:00') : ($data['summary_time'] ?? setting('summary_time', '08:00')),
@@ -123,8 +132,8 @@ class NewChapters extends Mailable
     }
 
     /**
-     * "Novarr · 382 new chapters in 12 novels · 1 completed · 3 need attention",
-     * zero parts omitted.
+     * "Novarr · 382 new chapters in 12 novels and 4 manga · 1 completed ·
+     * 3 need attention", zero parts omitted.
      */
     protected function summarySubject(?array $view = null): string
     {
@@ -135,8 +144,13 @@ class NewChapters extends Mailable
 
         if (($n = (int) $s['new_chapters']) > 0) {
             $novels = (int) $s['novels_updated'];
+            $manga = (int) ($s['manga_updated'] ?? 0);
+            $in = array_filter([
+                $novels > 0 ? number_format($novels) . ' ' . $plural($novels, 'novel', 'novels') : null,
+                $manga > 0 ? number_format($manga) . ' manga' : null, // same in the plural
+            ]);
             $parts[] = number_format($n) . ' new ' . $plural($n, 'chapter', 'chapters')
-                . ($novels > 0 ? ' in ' . number_format($novels) . ' ' . $plural($novels, 'novel', 'novels') : '');
+                . ($in ? ' in ' . implode(' and ', $in) : '');
         }
 
         if (($n = (int) $s['completed']) > 0) {

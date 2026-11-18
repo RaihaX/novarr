@@ -6,6 +6,7 @@ use App\Http\Controllers\HomeController;
 use App\Mail\NewChapters;
 use App\Novel;
 use App\NovelChapter;
+use App\Services\DownloadLanes;
 use App\Services\NovelHealth;
 use App\Setting;
 use Carbon\Carbon;
@@ -66,9 +67,13 @@ class EmailSummary extends Command
             }
         }
 
+        $manga = array_values(array_filter($novels, fn($row) => $row['medium'] === Novel::MEDIUM_MANGA));
         $stats = [
+            // New chapters counts both media; the per-medium figures split it.
             'new_chapters' => array_sum(array_column($novels, 'count')),
-            'novels_updated' => count($novels),
+            'novels_updated' => count($novels) - count($manga),
+            'manga_updated' => count($manga),
+            'manga_chapters' => array_sum(array_column($manga, 'count')),
             'completed' => count($completed),
             'queued' => NovelChapter::where('status', 0)->where('blacklist', 0)->count(),
             'attention' => count($attention),
@@ -94,7 +99,8 @@ class EmailSummary extends Command
         Setting::put(self::LAST_SENT_KEY, $now->toIso8601String());
         Setting::put(self::ATTENTION_HASH_KEY, $attentionHash);
 
-        $summary = "{$stats['new_chapters']} chapter(s) in {$stats['novels_updated']} novel(s), "
+        $summary = "{$stats['new_chapters']} chapter(s) in {$stats['novels_updated']} novel(s)"
+            . ($stats['manga_updated'] > 0 ? " and {$stats['manga_updated']} manga" : '') . ", "
             . "{$stats['completed']} completed, {$stats['attention']} needing attention";
         Log::info("Sent chapter summary email to {$to}: {$summary}.");
         $this->info("Summary sent to {$to}: {$summary}.");
@@ -161,9 +167,11 @@ class EmailSummary extends Command
 
     /**
      * One row per novel with chapters downloaded in the window, most new
-     * chapters first. The first NOVEL_LIMIT rows are enriched with reading
-     * progress (read ÷ total, the home page's definition) and the first
-     * unread downloaded chapter; the rest only feed the counts.
+     * chapters first, tagged with its medium (the email lists novels and
+     * manga in separate sections). The first NOVEL_LIMIT rows of each medium
+     * are enriched with reading progress (read ÷ total, the home page's
+     * definition) and the first unread downloaded chapter; the rest only
+     * feed the counts.
      */
     private function novelRows(Carbon $since): array
     {
@@ -180,9 +188,11 @@ class EmailSummary extends Command
             return [];
         }
 
-        $novels = Novel::whereIn('id', $groups->pluck('novel_id')->all())
-            ->get(['id', 'name', 'translator_url', 'last_toc_count', 'origin', 'origin_language', 'medium'])
+        $novels = Novel::with('group:id,url')
+            ->whereIn('id', $groups->pluck('novel_id')->all())
+            ->get(['id', 'name', 'translator_url', 'last_toc_count', 'origin', 'origin_language', 'medium', 'source_ref', 'group_id'])
             ->keyBy('id');
+        $lanes = app(DownloadLanes::class);
 
         $rows = [];
         foreach ($groups as $g) {
@@ -191,14 +201,21 @@ class EmailSummary extends Command
                 continue;
             }
             $host = parse_url((string) $novel->translator_url, PHP_URL_HOST);
+            $source = $host ? preg_replace('/^www\./', '', $host) : null;
+            if ($novel->isManga()) {
+                // Every Suwayomi series shares the server's host: name the
+                // source behind it instead ("Suwayomi · MangaFox"). No request.
+                $source = $this->mangaSource($lanes, $novel) ?? $source;
+            }
             $rows[] = [
                 'id' => $novel->id,
                 'name' => $novel->name,
                 'url' => route('novels.show', $novel->id),
-                'source' => $host ? preg_replace('/^www\./', '', $host) : null,
+                'medium' => $novel->isManga() ? Novel::MEDIUM_MANGA : Novel::MEDIUM_NOVEL,
+                'source' => $source,
                 // "Translated (KO)" / "Original" / null — appended to the subline.
-                // A manga says so instead (it has no origin).
-                'origin' => $novel->isManga() ? 'Manga' : $novel->originShortLabel(),
+                // A manga has no origin (its own section says what it is).
+                'origin' => $novel->isManga() ? null : $novel->originShortLabel(),
                 'count' => (int) $g->new_count,
                 'notes' => (int) $g->notes,
                 'first' => (float) $g->first_chapter,
@@ -212,8 +229,17 @@ class EmailSummary extends Command
 
         usort($rows, fn($a, $b) => [$b['count'], $a['name']] <=> [$a['count'], $b['name']]);
 
-        // Enrich the rendered rows: one grouped count query + one lookup each.
-        $shown = array_slice(array_column($rows, 'id'), 0, self::NOVEL_LIMIT);
+        // Enrich the rendered rows (the first NOVEL_LIMIT of each medium):
+        // one grouped count query + one lookup each.
+        $seen = [];
+        $enrich = [];
+        foreach ($rows as $i => $row) {
+            $seen[$row['medium']] = ($seen[$row['medium']] ?? 0) + 1;
+            if ($seen[$row['medium']] <= self::NOVEL_LIMIT) {
+                $enrich[$i] = true;
+            }
+        }
+        $shown = array_values(array_map(fn($i) => $rows[$i]['id'], array_keys($enrich)));
         $counts = NovelChapter::whereIn('novel_id', $shown)
             ->where('blacklist', 0)
             ->selectRaw('novel_id, COUNT(*) as total, SUM(CASE WHEN read_at IS NOT NULL THEN 1 ELSE 0 END) as read_count')
@@ -222,7 +248,7 @@ class EmailSummary extends Command
             ->keyBy('novel_id');
 
         foreach ($rows as $i => &$row) {
-            if ($i < self::NOVEL_LIMIT) {
+            if (isset($enrich[$i])) {
                 $c = $counts->get($row['id']);
                 $total = max($row['_toc'], (int) ($c->total ?? 0));
                 $row['percent'] = $total > 0 ? (int) min(100, round((int) ($c->read_count ?? 0) / $total * 100)) : 0;
@@ -242,6 +268,18 @@ class EmailSummary extends Command
         unset($row);
 
         return $rows;
+    }
+
+    /** Readable source of a manga from its download lane; null when it has none. */
+    private function mangaSource(DownloadLanes $lanes, Novel $novel): ?string
+    {
+        $lane = $lanes->laneFor($novel, null, false);
+        if ($lane === DownloadLanes::NO_HOST) {
+            return null;
+        }
+        $label = DownloadLanes::label($lane);
+
+        return $label !== '' ? $label : null;
     }
 
     private function completedNovels(Carbon $since): array

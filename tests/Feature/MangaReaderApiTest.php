@@ -467,7 +467,9 @@ class MangaReaderApiTest extends TestCase
         })->call(new \App\Console\Commands\EmailSummary());
 
         $row = collect($rows)->firstWhere('id', $this->manga->id);
-        $this->assertSame('Manga', $row['origin']);
+        // Its own "Manga" section says so; the row carries the medium, not an origin tag.
+        $this->assertSame('manga', $row['medium']);
+        $this->assertNull($row['origin']);
     }
 
     public function testStatsCountMangaChaptersButNoWords(): void

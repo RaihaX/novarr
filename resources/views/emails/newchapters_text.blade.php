@@ -16,11 +16,12 @@ Chapter {{ number_format($v['continue']['index']) }} of {{ number_format($v['con
 Resume: {!! $v['continue']['url'] ?? route('continue') !!}
 @endif
 
-New chapters: {{ $fig($s['new_chapters']) }} · Novels updated: {{ $fig($s['novels_updated']) }} · Completed: {{ $fig($s['completed']) }} · Queued: {{ $fig($s['queued']) }} · Needs attention: {{ $fig($s['attention']) }}
-@if (count($v['novels']) > 0)
+New chapters: {{ $fig($s['new_chapters']) }} · Novels updated: {{ $fig($s['novels_updated']) }}{!! (int) $s['manga_updated'] > 0 ? ' · Manga updated: ' . $fig($s['manga_updated']) : '' !!} · Completed: {{ $fig($s['completed']) }} · Queued: {{ $fig($s['queued']) }} · Needs attention: {{ $fig($s['attention']) }}
+@foreach ([['NEW CHAPTERS', $v['novels'], $v['more_novels'], 'novel', 'novels'], ['MANGA', $v['manga'], $v['more_manga'], 'manga', 'manga']] as [$heading, $rows, $more, $one, $many])
+@if (count($rows) > 0)
 
-NEW CHAPTERS
-@foreach ($v['novels'] as $novel)
+{{ $heading }}
+@foreach ($rows as $novel)
 
 - {!! $novel['name'] !!}{!! ($novel['notes'] ?? 0) > 0 ? " [Author's note]" : '' !!}
   {{ \App\Mail\NewChapters::chapterRange($novel) }} · {{ number_format($novel['count']) }} new{!! $novel['source'] ? ' · ' . $novel['source'] : '' !!}{!! !empty($novel['origin']) ? ' · ' . $novel['origin'] : '' !!}
@@ -33,11 +34,12 @@ NEW CHAPTERS
   {!! $novel['url'] !!}
 @endif
 @endforeach
-@if ($v['more_novels'] > 0)
+@if ($more > 0)
 
-+{{ number_format($v['more_novels']) }} more {{ $v['more_novels'] === 1 ? 'novel' : 'novels' }} on Activity: {!! $v['links']['activity'] !!}
++{{ number_format($more) }} more {{ $more === 1 ? $one : $many }} on Activity: {!! $v['links']['activity'] !!}
 @endif
 @endif
+@endforeach
 @if (count($v['completed']) > 0)
 
 COMPLETED
