@@ -539,6 +539,28 @@ class EmailSummaryTest extends TestCase
         $this->assertSame('other.test,stuck.test', (string) Setting::get(EmailSummary::STALLED_NOTIFIED_KEY));
     }
 
+    public function test_the_hourly_check_tells_the_webhook_and_sends_no_email(): void
+    {
+        Carbon::setTestNow('2026-11-17 08:00:00');
+        Mail::fake();
+        Setting::put('summary_email', 'reader@example.test');
+        $webhook = $this->recordWebhook();
+        $this->stalledNovel('Stuck One', 'stuck.test', 3);
+
+        $this->artisan('novel:email-summary --stalled-only')
+            ->expectsOutput('1 source(s) not downloading.')
+            ->assertSuccessful();
+
+        $this->assertCount(1, $webhook->messages);
+        Mail::assertNothingSent();
+        $this->assertNull(Setting::get(EmailSummary::LAST_SENT_KEY));
+
+        // The morning email after it does not repeat the alert.
+        $this->seedAttention([]);
+        $this->artisan('novel:email-summary')->assertSuccessful();
+        $this->assertCount(1, $webhook->messages);
+    }
+
     public function test_the_webhook_runs_without_an_email_and_never_fails_the_command(): void
     {
         Carbon::setTestNow('2026-11-17 08:00:00');
