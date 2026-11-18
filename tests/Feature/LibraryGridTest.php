@@ -50,8 +50,10 @@ class LibraryGridTest extends TestCase
             $c->forceFill([
                 'status' => $n <= $downloaded ? 1 : 0,
                 'download_date' => $n <= $downloaded ? ($downloadedAt ?? now()->subDays(10)) : null,
-                'read_at' => $n <= $read ? ($readAt ?? now()->subDays(2)) : null,
             ])->saveQuietly();
+            if ($n <= $read) {
+                $this->markRead($c, null, $readAt ?? now()->subDays(2));
+            }
         }
     }
 
@@ -160,8 +162,7 @@ class LibraryGridTest extends TestCase
         // A chip that matches nothing gets its own empty copy.
         NovelChapter::query()->update(['download_date' => now()->subYear()]);
         // A direct DB write bypasses the model/controller hooks that bust these.
-        Cache::forget('library_reading_v1');
-        Cache::forget(\App\Http\Helpers\CacheHelper::LIBRARY_AGGREGATES_KEY);
+        \App\Http\Helpers\CacheHelper::clearNovelCache(0);
         $this->assertStringContainsString('You’re caught up', $only('new'));
     }
 

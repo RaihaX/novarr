@@ -4,16 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Bookmark;
 use App\NovelChapter;
+use App\Support\CurrentReader;
 use Illuminate\Http\Request;
 
 class BookmarkController extends Controller
 {
     /**
-     * All bookmarks, grouped by novel, newest first within each group.
+     * The reader's bookmarks, grouped by novel, newest first within each group.
      */
-    public function index()
+    public function index(CurrentReader $reader)
     {
         $bookmarks = Bookmark::with(['novel:id,name', 'chapter:id,chapter,label'])
+            ->where('user_id', $reader->id())
             ->orderByDesc('created_at')
             ->get()
             ->filter(fn($b) => $b->novel !== null && $b->chapter !== null);
@@ -26,7 +28,7 @@ class BookmarkController extends Controller
     /**
      * Save a highlight from the reader.
      */
-    public function store(Request $request)
+    public function store(Request $request, CurrentReader $reader)
     {
         $data = $request->validate([
             'chapter_id' => 'required|integer|exists:novel_chapters,id',
@@ -37,6 +39,7 @@ class BookmarkController extends Controller
         $chapter = NovelChapter::findOrFail($data['chapter_id']);
 
         $bookmark = Bookmark::create([
+            'user_id' => $reader->id(),
             'novel_id' => $chapter->novel_id,
             'novel_chapter_id' => $chapter->id,
             'excerpt' => trim($data['excerpt']),
@@ -46,9 +49,9 @@ class BookmarkController extends Controller
         return response()->json(['success' => true, 'id' => $bookmark->id]);
     }
 
-    public function destroy($id)
+    public function destroy(CurrentReader $reader, $id)
     {
-        Bookmark::findOrFail($id)->delete();
+        Bookmark::where('user_id', $reader->id())->findOrFail($id)->delete();
 
         return response()->json(['success' => true]);
     }

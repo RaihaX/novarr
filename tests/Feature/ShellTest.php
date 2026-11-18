@@ -38,8 +38,10 @@ class ShellTest extends TestCase
         $chapter->description = '<p>Body of chapter ' . $n . '.</p>';
         $chapter->status = 1;
         $chapter->download_date = now();
-        $chapter->read_at = $read ? now() : null;
         $chapter->save();
+        if ($read) {
+            $this->markRead($chapter);
+        }
 
         return $chapter;
     }

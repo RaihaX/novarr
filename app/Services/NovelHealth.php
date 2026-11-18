@@ -230,7 +230,8 @@ class NovelHealth
         }
 
         $member = function (int $novelId) use ($perNovel) {
-            $query = NovelChapter::where('novel_id', $novelId);
+            // Qualified: a member may join chapter_reads, which has a novel_id too.
+            $query = NovelChapter::where('novel_chapters.novel_id', $novelId);
             $perNovel($query, $novelId);
 
             return $query->limit(1);

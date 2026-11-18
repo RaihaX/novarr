@@ -10,6 +10,7 @@ use App\Http\Controllers\NovelController;
 use App\Novel;
 use App\NovelChapter;
 use App\Scraping\SourceUnavailable;
+use App\Services\ReadState;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 
@@ -155,13 +156,15 @@ class LibraryController extends Controller
         $chapters = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
             ->ordered()
-            ->select(['id', 'chapter', 'book', 'label', 'status', 'read_at', 'read_progress', 'kind', 'download_date', 'last_failure_reason', 'page_count'])
+            ->select(['id', 'chapter', 'book', 'label', 'status', 'kind', 'download_date', 'last_failure_reason', 'page_count'])
             ->selectSub(
                 ChapterText::query()->select('word_count')->whereColumn('chapter_texts.novel_chapter_id', 'novel_chapters.id'),
                 'word_count'
             )
-            ->get()
-            ->map(function (NovelChapter $c) {
+            ->get();
+        app(ReadState::class)->load($chapters, null, (int) $id);
+
+        $chapters = $chapters->map(function (NovelChapter $c) {
                 $state = NovelController::chapterState($c);
 
                 return [
@@ -170,8 +173,8 @@ class LibraryController extends Controller
                     'book' => (int) $c->book,
                     'label' => Presenter::label($c),
                     'downloaded' => (bool) $c->status,
-                    'read' => $c->read_at !== null,
-                    'read_progress' => $c->read_progress === null ? null : (int) $c->read_progress,
+                    'read' => $c->isRead(),
+                    'read_progress' => $c->readProgress(),
                     'note' => $c->isNote(),
                     'state' => $state,
                     'reason' => $state === 'failed' ? NovelController::failureReasonText($c->last_failure_reason) : null,

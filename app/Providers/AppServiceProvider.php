@@ -41,5 +41,9 @@ class AppServiceProvider extends ServiceProvider
         // connections) are reused across chapter fetches. Tests swap it with
         // app()->instance().
         $this->app->singleton(\App\Scraping\Fetcher::class);
+
+        // Whose read state this request / job uses: rebuilt per request
+        // under Octane and per job in queue workers (scoped, never a singleton).
+        $this->app->scoped(\App\Support\CurrentReader::class);
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Bookmark;
 use App\Http\Controllers\Controller;
 use App\NovelChapter;
+use App\Support\CurrentReader;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -12,7 +13,8 @@ use Illuminate\Validation\Rule;
 
 /**
  * Highlights for the native apps: the website's bookmarks (App\Bookmark,
- * BookmarkController) — an excerpt of a chapter plus an optional note.
+ * BookmarkController) — an excerpt of a chapter plus an optional note. Each
+ * reader sees and changes only their own.
  */
 class HighlightController extends Controller
 {
@@ -40,6 +42,7 @@ class HighlightController extends Controller
 
         // One row past the page tells whether another page follows.
         $rows = static::query()
+            ->where('user_id', static::readerId())
             ->whereHas('novel')
             ->whereHas('chapter')
             ->when(isset($data['novel_id']), fn($q) => $q->where('novel_id', (int) $data['novel_id']))
@@ -74,7 +77,8 @@ class HighlightController extends Controller
         $excerpt = trim($data['excerpt']);
         $note = trim($data['note'] ?? '') ?: null;
 
-        $existing = Bookmark::where('novel_chapter_id', $chapter->id)->where('excerpt', $excerpt)->orderBy('id')->first();
+        $userId = static::readerId();
+        $existing = Bookmark::where('user_id', $userId)->where('novel_chapter_id', $chapter->id)->where('excerpt', $excerpt)->orderBy('id')->first();
         if ($existing !== null) {
             if ($request->has('note') && $note !== $existing->note) {
                 $existing->update(['note' => $note]);
@@ -84,6 +88,7 @@ class HighlightController extends Controller
         }
 
         $bookmark = Bookmark::create([
+            'user_id' => $userId,
             'novel_id' => $chapter->novel_id,
             'novel_chapter_id' => $chapter->id,
             'excerpt' => $excerpt,
@@ -96,9 +101,15 @@ class HighlightController extends Controller
     /** DELETE /api/v1/highlights/{id} — 204, also when it is already gone. */
     public function destroy($id): Response
     {
-        Bookmark::whereKey($id)->delete();
+        Bookmark::where('user_id', static::readerId())->whereKey($id)->delete();
 
         return response()->noContent();
+    }
+
+    /** The current reader, resolved per request. */
+    private static function readerId(): int
+    {
+        return app(CurrentReader::class)->id();
     }
 
     /** Bookmarks with what present() reads, eager loaded. */

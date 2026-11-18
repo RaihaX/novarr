@@ -57,7 +57,7 @@ class MangaUiTest extends TestCase
             'status' => $downloaded ? 1 : 0,
             'download_date' => $downloaded ? now()->subDay() : null,
             'page_count' => $novel->isManga() && $downloaded ? 34 : null,
-        ], $attrs))->saveQuietly();
+        ], $this->takeReadState($c, $attrs)))->saveQuietly();
 
         return $c;
     }
@@ -109,9 +109,9 @@ class MangaUiTest extends TestCase
     public function testAMangaChapterInProgressIsTheHeroWithItsPage(): void
     {
         $manga = $this->novel('Comic Hero', true);
-        $this->chapter($manga, 1, ['read_at' => now()->subDay(), 'read_progress' => 100]);
+        $this->chapter($manga, 1, ['read_at' => now()->subDay(), 'progress' => 100]);
         // Chapter 2: half read, not marked read yet (the reader marks it at its last page).
-        $c2 = $this->chapter($manga, 2, ['read_progress' => 50, 'read_progress_at' => now()]);
+        $c2 = $this->chapter($manga, 2, ['progress' => 50, 'progress_at' => now()]);
         $this->chapter($manga, 3);
 
         $html = $this->get(route('home'))->assertOk()->getContent();
@@ -128,7 +128,7 @@ class MangaUiTest extends TestCase
     {
         // Nothing has a read_at yet: only progress on chapter 1.
         $manga = $this->novel('Comic Fresh', true);
-        $c1 = $this->chapter($manga, 1, ['read_progress' => 9, 'read_progress_at' => now()]);
+        $c1 = $this->chapter($manga, 1, ['progress' => 9, 'progress_at' => now()]);
         $this->chapter($manga, 2);
 
         $html = $this->get(route('home'))->assertOk()->getContent();
@@ -143,16 +143,16 @@ class MangaUiTest extends TestCase
     {
         // The hero: a text novel read most recently.
         $text = $this->novel('Text Lead');
-        $this->chapter($text, 1, ['read_at' => now(), 'read_progress' => 40]);
+        $this->chapter($text, 1, ['read_at' => now(), 'progress' => 40]);
         $this->chapter($text, 2);
 
         // Shelf: a manga in progress and a manga between chapters.
         $mid = $this->novel('Comic Mid', true);
-        $this->chapter($mid, 1, ['read_at' => now()->subDays(2), 'read_progress' => 100]);
-        $midC2 = $this->chapter($mid, 2, ['read_progress' => 35, 'read_progress_at' => now()->subHour()]);
+        $this->chapter($mid, 1, ['read_at' => now()->subDays(2), 'progress' => 100]);
+        $midC2 = $this->chapter($mid, 2, ['progress' => 35, 'progress_at' => now()->subHour()]);
 
         $between = $this->novel('Comic Between', true);
-        $this->chapter($between, 1, ['read_at' => now()->subDays(3), 'read_progress' => 100]);
+        $this->chapter($between, 1, ['read_at' => now()->subDays(3), 'progress' => 100]);
         $this->chapter($between, 2);
 
         $html = $this->get(route('home'))->assertOk()->getContent();
@@ -186,8 +186,8 @@ class MangaUiTest extends TestCase
     public function testTheMangaNovelPageContinuesTheChapterInProgress(): void
     {
         $manga = $this->novel('Comic Page', true);
-        $this->chapter($manga, 1, ['read_at' => now()->subDay(), 'read_progress' => 100]);
-        $c2 = $this->chapter($manga, 2, ['read_progress' => 50, 'read_progress_at' => now()]);
+        $this->chapter($manga, 1, ['read_at' => now()->subDay(), 'progress' => 100]);
+        $c2 = $this->chapter($manga, 2, ['progress' => 50, 'progress_at' => now()]);
         $this->chapter($manga, 3, [], false);
 
         $html = $this->get(route('novels.show', $manga->id))->assertOk()->getContent();
@@ -241,6 +241,6 @@ class MangaUiTest extends TestCase
             $this->assertStringContainsString('data-mode="' . $mode . '"', $html);
         }
         $this->assertStringContainsString('aria-label="Back to Comic Shell"', $html);
-        $this->assertNull($c->fresh()->read_at);
+        $this->assertNull($this->readAtOf($c));
     }
 }

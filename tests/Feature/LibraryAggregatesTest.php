@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\NovelController;
 use App\Http\Helpers\CacheHelper;
 use App\Novel;
 use App\NovelChapter;
@@ -59,9 +60,11 @@ class LibraryAggregatesTest extends TestCase
             'status' => $downloaded ? 1 : 0,
             'blacklist' => $blacklist ? 1 : 0,
             'download_date' => $downloaded ? $this->base->copy()->addHours($downloadedAt ?? 0) : null,
-            'read_at' => $readAt !== null ? $this->base->copy()->addHours($readAt) : null,
             'deleted_at' => $deleted ? $this->base : null,
         ])->saveQuietly();
+        if ($readAt !== null) {
+            $this->markRead($c, null, $this->base->copy()->addHours($readAt));
+        }
 
         return $c;
     }
@@ -88,7 +91,7 @@ class LibraryAggregatesTest extends TestCase
         $n['partly'] = $this->novel('Gamma Partly Downloaded', 20, ['origin' => 'translated']);
         $this->chapters($n['partly'], 10, 3, 1, 30, 20);
 
-        // A blacklisted chapter read last: MAX(read_at) for the read sort
+        // A blacklisted chapter read last: the latest read for the read sort
         // counted it, the source/downloaded counts did not.
         $n['blacklist'] = $this->novel('Delta Blacklisted', 0);
         $this->chapters($n['blacklist'], 6, 4, 2, 10, 5);
@@ -185,7 +188,7 @@ class LibraryAggregatesTest extends TestCase
         }
 
         // Chip sets, as index() builds them from the (unchanged) reading cache.
-        $reading = Cache::get('library_reading_v1')['reading'];
+        $reading = NovelController::libraryReading()['reading'];
         $attentionIds = \App\Services\NovelHealth::attentionIds();
         $sets = [
             'reading' => array_keys(array_filter($reading, fn($r) => $r['read'] > 0 && !$r['finished'])),
@@ -213,7 +216,13 @@ class LibraryAggregatesTest extends TestCase
                 NovelChapter::select('download_date')->whereColumn('novel_id', 'novels.id')->orderByDesc('download_date')->limit(1)
             ),
             'name' => $query->orderBy('name'),
-            default => $query->orderByDesc(NovelChapter::selectRaw('MAX(read_at)')->whereColumn('novel_id', 'novels.id')),
+            // The owner's latest read of a not soft-deleted chapter (was MAX(read_at) over the novel's chapters).
+            default => $query->orderByDesc(DB::table('chapter_reads as r')
+                ->join('novel_chapters as c', 'c.id', '=', 'r.novel_chapter_id')
+                ->whereNull('c.deleted_at')
+                ->where('r.user_id', $this->owner()->id)
+                ->whereColumn('r.novel_id', 'novels.id')
+                ->selectRaw('MAX(r.read_at)')),
         };
         $query->orderBy('name');
 
@@ -308,7 +317,7 @@ class LibraryAggregatesTest extends TestCase
 
         foreach (['grid', 'table'] as $view) {
             foreach (self::SORTS as $sort) {
-                Cache::forget('library_reading_v1');
+                Cache::forget(CacheHelper::libraryReadingKey($this->owner()->id));
                 Cache::forget(CacheHelper::LIBRARY_AGGREGATES_KEY);
 
                 DB::flushQueryLog();
@@ -335,8 +344,9 @@ class LibraryAggregatesTest extends TestCase
         }
     }
 
-    public function test_opening_a_chapter_or_toggling_read_invalidates_the_aggregates(): void
+    public function test_opening_a_chapter_or_toggling_read_invalidates_the_readers_index_only(): void
     {
+        $key = CacheHelper::libraryReadingKey($this->owner()->id);
         $a = $this->novel('Aaa Read Before');
         $this->chapters($a, 3, 3, 1, 10, 0);
         $b = $this->novel('Bbb Read Later');
@@ -347,26 +357,32 @@ class LibraryAggregatesTest extends TestCase
 
         $this->assertSame([$a->id, $b->id], $order()); // warms the cache
         $this->assertTrue(Cache::has(CacheHelper::LIBRARY_AGGREGATES_KEY));
+        $this->assertTrue(Cache::has($key));
 
-        // Opening a downloaded chapter marks it read now: b becomes the most recent.
+        // Opening a downloaded chapter marks it read now: b becomes the most
+        // recent. Only the reader's index is dropped; the chapter counts,
+        // the same for everyone, stay.
         $this->get(route('chapters.show', $target->id))->assertOk();
-        $this->assertFalse(Cache::has(CacheHelper::LIBRARY_AGGREGATES_KEY));
+        $this->assertFalse(Cache::has($key));
+        $this->assertTrue(Cache::has(CacheHelper::LIBRARY_AGGREGATES_KEY));
         $this->assertSame([$b->id, $a->id], $order());
 
         // Toggling it unread again puts b back last.
         $this->post(route('chapters.toggle_read', $target->id))->assertOk();
-        $this->assertFalse(Cache::has(CacheHelper::LIBRARY_AGGREGATES_KEY));
+        $this->assertFalse(Cache::has($key));
         $this->assertSame([$a->id, $b->id], $order());
     }
 
     public function test_clear_novel_cache_forgets_the_aggregates(): void
     {
+        $key = CacheHelper::libraryReadingKey($this->owner()->id);
         Cache::put(CacheHelper::LIBRARY_AGGREGATES_KEY, ['x'], 60);
-        Cache::put('library_reading_v1', ['x'], 60);
+        $this->assertSame(['x'], CacheHelper::rememberForReader($key, CacheHelper::epoch(), 60, fn() => ['x']));
 
         CacheHelper::clearNovelCache(123);
 
         $this->assertFalse(Cache::has(CacheHelper::LIBRARY_AGGREGATES_KEY));
-        $this->assertFalse(Cache::has('library_reading_v1'));
+        // The reader's entry is stale: computed under the previous epoch.
+        $this->assertSame(['fresh'], CacheHelper::rememberForReader($key, CacheHelper::epoch(), 60, fn() => ['fresh']));
     }
 }

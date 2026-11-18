@@ -55,7 +55,7 @@ class ChapterProgressStaleWriteTest extends TestCase
 
     private function stamp(NovelChapter $chapter): string
     {
-        return Carbon::parse($chapter->fresh()->read_progress_at)->format('Y-m-d H:i:s');
+        return Carbon::parse($this->readStateOf($chapter)?->progress_at)->format('Y-m-d H:i:s');
     }
 
     public function test_a_live_write_applies_and_records_now(): void
@@ -65,7 +65,7 @@ class ChapterProgressStaleWriteTest extends TestCase
 
         $this->progress($chapter, ['progress' => 40])->assertOk()->assertJson(['success' => true]);
 
-        $this->assertSame(40, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(40, (int) $this->progressOf($chapter));
         $this->assertSame('2026-11-14 12:00:00', $this->stamp($chapter));
     }
 
@@ -81,7 +81,7 @@ class ChapterProgressStaleWriteTest extends TestCase
             ->assertOk()
             ->assertJson(['success' => true]);
 
-        $this->assertSame(80, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(80, (int) $this->progressOf($chapter));
         $this->assertSame('2026-11-14 12:00:00', $this->stamp($chapter));
     }
 
@@ -94,12 +94,12 @@ class ChapterProgressStaleWriteTest extends TestCase
         Carbon::setTestNow('2026-11-14 13:00:00');
         $this->progress($chapter, ['progress' => 60, 'age' => 45 * self::MIN])->assertOk();
 
-        $this->assertSame(60, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(60, (int) $this->progressOf($chapter));
         $this->assertSame('2026-11-14 12:15:00', $this->stamp($chapter));
 
         // A second queued write recorded between the two (12:10) is now stale.
         $this->progress($chapter, ['progress' => 45, 'age' => 50 * self::MIN])->assertOk();
-        $this->assertSame(60, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(60, (int) $this->progressOf($chapter));
     }
 
     public function test_the_client_clock_does_not_matter(): void
@@ -113,7 +113,7 @@ class ChapterProgressStaleWriteTest extends TestCase
 
         Carbon::setTestNow('2026-11-14 12:00:30');
         $this->progress($chapter, ['progress' => 10])->assertOk();
-        $this->assertSame(10, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(10, (int) $this->progressOf($chapter));
     }
 
     public function test_age_is_capped_at_thirty_days(): void
@@ -122,7 +122,7 @@ class ChapterProgressStaleWriteTest extends TestCase
         $chapter = $this->chapter();
 
         $this->progress($chapter, ['progress' => 50, 'age' => 400 * 24 * 60 * self::MIN])->assertOk();
-        $this->assertSame(50, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(50, (int) $this->progressOf($chapter));
         $this->assertSame('2026-10-15 12:00:00', $this->stamp($chapter));
     }
 
@@ -137,7 +137,7 @@ class ChapterProgressStaleWriteTest extends TestCase
         }
         $this->postJson(route('chapters.toggle_read', $chapter->id), ['age' => -5])
             ->assertStatus(422)->assertJsonValidationErrors('age');
-        $this->assertNull($chapter->fresh()->read_at, 'a rejected toggle changed nothing');
+        $this->assertNull($this->readAtOf($chapter), 'a rejected toggle changed nothing');
     }
 
     public function test_a_stale_position_still_carries_its_read_mark(): void
@@ -145,14 +145,15 @@ class ChapterProgressStaleWriteTest extends TestCase
         Carbon::setTestNow('2026-11-14 12:00:00');
         $chapter = $this->chapter();
         $this->progress($chapter, ['progress' => 90])->assertOk();
-        $chapter->forceFill(['read_at' => null])->saveQuietly();
+        $state = $this->readStateOf($chapter);
+        $this->setReadState($chapter, ['read_at' => null, 'progress' => $state->progress, 'progress_at' => $state->progress_at]);
 
         $this->progress($chapter, ['progress' => 5, 'read' => true, 'age' => 60 * self::MIN])
             ->assertOk()
             ->assertJson(['read' => true]);
 
-        $fresh = $chapter->fresh();
-        $this->assertSame(90, (int) $fresh->read_progress);
+        $fresh = $this->readStateOf($chapter);
+        $this->assertSame(90, (int) $fresh->progress);
         $this->assertNotNull($fresh->read_at);
     }
 
@@ -163,14 +164,14 @@ class ChapterProgressStaleWriteTest extends TestCase
 
         // Marked read on another device at 12:00...
         $this->postJson(route('chapters.toggle_read', $chapter->id))->assertOk();
-        $this->assertSame(100, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(100, (int) $this->progressOf($chapter));
 
         // ...then at 12:05 a phone replays a scroll position from 11:50.
         Carbon::setTestNow('2026-11-14 12:05:00');
         $this->progress($chapter, ['progress' => 30, 'age' => 15 * self::MIN])
             ->assertOk()->assertJson(['success' => true]);
 
-        $this->assertSame(100, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(100, (int) $this->progressOf($chapter));
     }
 
     /**
@@ -183,7 +184,7 @@ class ChapterProgressStaleWriteTest extends TestCase
         Carbon::setTestNow('2026-11-14 08:00:00');
         $chapter = $this->chapter();
         $this->postJson(route('chapters.toggle_read', $chapter->id))->assertOk(); // read online
-        $this->assertNotNull($chapter->fresh()->read_at);
+        $this->assertNotNull($this->readAtOf($chapter));
 
         Carbon::setTestNow('2026-11-14 10:05:00');
         $this->postJson(route('chapters.toggle_read', $chapter->id), ['age' => 65 * self::MIN])
@@ -191,9 +192,9 @@ class ChapterProgressStaleWriteTest extends TestCase
         $this->assertSame('2026-11-14 09:00:00', $this->stamp($chapter));
         $this->progress($chapter, ['progress' => 40, 'age' => 60 * self::MIN])->assertOk();
 
-        $fresh = $chapter->fresh();
+        $fresh = $this->readStateOf($chapter);
         $this->assertNull($fresh->read_at);
-        $this->assertSame(40, (int) $fresh->read_progress);
+        $this->assertSame(40, (int) $fresh->progress);
         $this->assertSame('2026-11-14 09:05:00', $this->stamp($chapter));
     }
 
@@ -206,7 +207,7 @@ class ChapterProgressStaleWriteTest extends TestCase
         $this->assertSame('2026-11-14 09:00:00', $this->stamp($chapter));
         $this->progress($chapter, ['progress' => 40, 'age' => 60 * self::MIN])->assertOk();
 
-        $this->assertSame(40, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(40, (int) $this->progressOf($chapter));
     }
 
     public function test_bulk_read_stamps_its_recorded_time(): void
@@ -218,7 +219,7 @@ class ChapterProgressStaleWriteTest extends TestCase
             ->assertOk();
         $this->assertSame('2026-11-14 09:00:00', $this->stamp($chapter));
         $this->progress($chapter, ['progress' => 40, 'age' => 60 * self::MIN])->assertOk();
-        $this->assertSame(40, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(40, (int) $this->progressOf($chapter));
 
         // Without age a bulk mark is "now".
         $this->postJson(route('chapters.bulk_read'), ['ids' => [$chapter->id], 'read' => true])->assertOk();

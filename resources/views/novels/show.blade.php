@@ -405,7 +405,7 @@
                 @forelse($chapters as $chapter)
                     @php
                         $state = \App\Http\Controllers\NovelController::chapterState($chapter);
-                        $isRead = $chapter->read_at !== null;
+                        $isRead = $chapter->isRead();
                         $isCurrent = (int) $chapter->id === (int) $continue_chapter_id;
                         $review = $state !== 'downloaded' && (int) ($chapter->attempts ?? 0) >= \App\NovelChapter::REVIEW_ATTEMPTS;
                     @endphp
@@ -443,7 +443,7 @@
                                 <x-status state="queued" />
                             @endif
                             @if($isRead)
-                                <span class="ch-read" title="Read {{ $chapter->read_at->format('Y-m-d H:i') }}"><x-icon name="check" :size="13" :stroke="2.25" />Read</span>
+                                <span class="ch-read" title="Read {{ $chapter->readAt()->format('Y-m-d H:i') }}"><x-icon name="check" :size="13" :stroke="2.25" />Read</span>
                             @endif
                         </td>
                         <td class="ch-date">{{ $chapter->download_date ? $chapter->download_date->format('Y-m-d H:i') : '—' }}</td>

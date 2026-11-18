@@ -44,7 +44,7 @@ class NovelPageRedesignTest extends TestCase
             'label' => "Chapter {$n}",
             'url' => "https://example.test/{$novel->id}/c-{$n}",
         ]);
-        $chapter->forceFill(array_merge(['status' => 1, 'download_date' => now()->subDay()], $attrs))->saveQuietly();
+        $chapter->forceFill(array_merge(['status' => 1, 'download_date' => now()->subDay()], $this->takeReadState($chapter, $attrs)))->saveQuietly();
 
         return $chapter;
     }
@@ -187,16 +187,16 @@ class NovelPageRedesignTest extends TestCase
         // The page used to send anchor_id: null with scope=all, which the
         // validator rejected (422), so "Mark all chapters read" did nothing.
         foreach ([['anchor_id' => null], []] as $extra) {
-            NovelChapter::where('novel_id', $novel->id)->update(['read_at' => null]);
+            \Illuminate\Support\Facades\DB::table('chapter_reads')->where('novel_id', $novel->id)->delete();
             $this->postJson(route('chapters.bulk_read'), ['read' => true, 'scope' => 'all', 'novel_id' => $novel->id] + $extra)
                 ->assertOk()
                 ->assertJson(['success' => true, 'count' => 2]);
-            $this->assertSame(2, NovelChapter::where('novel_id', $novel->id)->whereNotNull('read_at')->count());
+            $this->assertSame(2, $this->readCount($novel->id));
         }
 
         $this->postJson(route('chapters.bulk_read'), ['read' => false, 'scope' => 'all', 'novel_id' => $novel->id, 'anchor_id' => null])
             ->assertOk();
-        $this->assertSame(0, NovelChapter::where('novel_id', $novel->id)->whereNotNull('read_at')->count());
+        $this->assertSame(0, $this->readCount($novel->id));
 
         // An anchored scope still needs its anchor.
         $this->postJson(route('chapters.bulk_read'), ['read' => true, 'scope' => 'up_to', 'novel_id' => $novel->id, 'anchor_id' => null])

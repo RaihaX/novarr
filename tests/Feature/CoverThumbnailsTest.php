@@ -290,8 +290,7 @@ class CoverThumbnailsTest extends TestCase
                     'url' => "https://www.novelfull.test/{$base}/chapter-{$n}",
                 ])->forceFill(['status' => 1, 'download_date' => now(), 'description' => '<p>words</p>'])->save();
             }
-            NovelChapter::where('novel_id', $novel->id)->where('chapter', 1)->first()
-                ->forceFill(['read_at' => $name === 'Hero' ? now() : now()->subDay(), 'read_progress' => 100])->save();
+            $this->markRead(NovelChapter::where('novel_id', $novel->id)->where('chapter', 1)->first(), null, $name === 'Hero' ? now() : now()->subDay(), 100);
         }
 
         $html = $this->get(route('home'))->assertOk()->getContent();
