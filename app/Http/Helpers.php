@@ -623,7 +623,7 @@ function chapterGenerator($data, ?string &$failureReason = null)
         if ($fetchVia === 'plain' && !chapterParagraphsLookComplete($result)) {
             \Log::info("ChapterGenerator: plain fetch of {$novelUrl} gave " . (count($result) === 0 ? 'no' : 'short') . " content; retrying once via FlareSolverr");
             $retryReason = null;
-            $retryHtml = $fetcher->html($novelUrl, $retryReason);
+            $retryHtml = $fetcher->html($pageUrl, $retryReason);
             if ($retryHtml !== null && !\App\Scraping\Fetcher::isCloudflareChallenge($retryHtml)) {
                 $retryResult = $extract($retryHtml);
                 if (chapterParagraphsLookComplete($retryResult)) {
