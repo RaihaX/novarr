@@ -14,7 +14,7 @@
                 "chapters": 3207,
                 "in_library": true,
                 "library_match": "source",
-                "novel_url": "http://localhost/novels/1"
+                "novel_url": "http://localhost/novels/{id}"
             },
             {
                 "name": "Lord of the Mysteries",
@@ -26,7 +26,7 @@
                 "status": "Completed",
                 "in_library": true,
                 "library_match": "title",
-                "novel_url": "http://localhost/novels/5"
+                "novel_url": "http://localhost/novels/{id}"
             },
             {
                 "name": "A Free Novel",
@@ -37,7 +37,7 @@
                 "description": "",
                 "in_library": true,
                 "library_match": "source",
-                "novel_url": "http://localhost/novels/2"
+                "novel_url": "http://localhost/novels/{id}"
             }
         ],
         "hidden": 0,

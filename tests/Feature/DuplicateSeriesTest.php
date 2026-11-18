@@ -358,7 +358,7 @@ class DuplicateSeriesTest extends TestCase
 
         DB::enableQueryLog();
         $response = $this->getJson('/novels/discover/browse?type=search&q=x&source=novelarrow&medium=novel')->assertOk();
-        $novelQueries = array_filter(DB::getQueryLog(), fn(array $q) => str_contains($q['query'], '"novels"'));
+        $novelQueries = array_filter(DB::getQueryLog(), fn(array $q) => preg_match('/from [`"]novels[`"]/', $q['query']) === 1);
         DB::disableQueryLog();
 
         $items = collect($response->json('items'))->keyBy('name');

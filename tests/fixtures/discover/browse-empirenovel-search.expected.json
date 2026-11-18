@@ -12,7 +12,7 @@
                 "status": "Ongoing",
                 "in_library": true,
                 "library_match": "title",
-                "novel_url": "http://localhost/novels/1"
+                "novel_url": "http://localhost/novels/{id}"
             },
             {
                 "name": "Shadow Hunter",
@@ -23,7 +23,7 @@
                 "status": "Completed",
                 "in_library": true,
                 "library_match": "source",
-                "novel_url": "http://localhost/novels/3"
+                "novel_url": "http://localhost/novels/{id}"
             },
             {
                 "name": "No Summary",

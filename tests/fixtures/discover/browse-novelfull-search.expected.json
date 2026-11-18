@@ -10,7 +10,7 @@
                 "author": "Guiltythree",
                 "in_library": true,
                 "library_match": "source",
-                "novel_url": "http://localhost/novels/4"
+                "novel_url": "http://localhost/novels/{id}"
             },
             {
                 "name": "To Be a Power in the Shadows!",
