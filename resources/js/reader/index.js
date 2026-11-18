@@ -19,6 +19,7 @@ import { initHighlights } from './highlights.js';
 import { initAutoScroll } from './autoscroll.js';
 import { initTts } from './tts.js';
 import { initAutoMark } from './automark.js';
+import { planLatest, initLatest } from './latest.js';
 import { createWakeLock } from './wakelock.js';
 import { installReader as install } from './install.js';
 
@@ -54,6 +55,8 @@ export function mount(root) {
     initChrome(ctx);
     initNavigation(ctx);
     ctx.applyPrefs();
+    // Before initProgress: its restore follows the "latest position" plan.
+    planLatest(ctx);
     const cleanups = [initProgress(ctx)];
     const continuousCleanup = initContinuous(ctx);
     cleanups.push(initToc(ctx));
@@ -62,6 +65,7 @@ export function mount(root) {
     initAutoScroll(ctx);
     initTts(ctx);
     initAutoMark(ctx);
+    initLatest(ctx);
 
     // ---- Teardown: leaving this page via Turbo ----
     // Runs on turbo:before-cache / turbo:before-render (see below), while

@@ -31,14 +31,14 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var handlers: [String: Handler] = [:]
 
     /// Returns a client whose requests go to `handler`.
-    static func client(_ handler: @escaping Handler) -> APIClient {
+    static func client(device: DeviceIdentity? = nil, _ handler: @escaping Handler) -> APIClient {
         let host = "stub-\(UUID().uuidString.lowercased()).test"
         lock.withLock { handlers[host] = handler }
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubURLProtocol.self]
         config.urlCache = nil
         let base = URL(string: "http://\(host)") ?? URL(fileURLWithPath: "/")
-        return APIClient(baseURL: base, session: URLSession(configuration: config))
+        return APIClient(baseURL: base, session: URLSession(configuration: config), device: device)
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }

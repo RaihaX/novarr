@@ -157,9 +157,12 @@ class NovelChapter extends Model
             $chapter->unsetRelation('text');
         });
 
-        // A hard-deleted chapter takes its page images with it.
+        // A hard-deleted chapter takes its page images with it, and the
+        // series' reading position when it points here. A soft-deleted one
+        // keeps the row; ReadingPositions::latest() reads it as null.
         static::forceDeleted(function (self $chapter) {
             ChapterPage::purgeChapter($chapter);
+            ReadingPosition::where('novel_chapter_id', $chapter->id)->delete();
         });
     }
 

@@ -84,7 +84,8 @@ class MangaReaderApiTest extends TestCase
         $c = $this->chapters[2];
         $json = $this->getJson(route('chapters.pages', $c->id))->assertOk()->json();
 
-        $this->assertSame(['chapter', 'pages', 'prev', 'next', 'reading_mode'], array_keys($json));
+        // latest_position: the web reader's copy only (see ReadingPositionTest).
+        $this->assertSame(['chapter', 'pages', 'prev', 'next', 'reading_mode', 'latest_position'], array_keys($json));
         $this->assertSame([
             'id' => $c->id, 'novel_id' => $this->manga->id, 'label' => 'Chapter 2', 'number' => 2,
             'page_count' => 2, 'read' => false, 'progress' => null,
@@ -230,7 +231,8 @@ class MangaReaderApiTest extends TestCase
 
         // The pages endpoint: pages.json with absolute URLs.
         $pages = $this->getJson("/api/v1/chapters/{$c->id}/pages")->assertOk()->json();
-        $this->assertSame($this->getJson(route('chapters.pages', $c->id))->json(), $pages);
+        // The same body as the web's pages.json, less the web reader's latest_position.
+        $this->assertSame(array_diff_key($this->getJson(route('chapters.pages', $c->id))->json(), ['latest_position' => 1]), $pages);
         $this->assertMatchesRegularExpression('#^https?://[^/]+/chapters/' . $c->id . '/pages/1$#', $pages['pages'][0]['url']);
 
         $textChapter = NovelChapter::create(['novel_id' => $this->text->id, 'chapter' => 1, 'label' => 'Chapter 1', 'url' => 'https://novelping.com/chapter/a/1']);

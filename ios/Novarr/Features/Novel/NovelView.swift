@@ -135,7 +135,7 @@ struct NovelView: View {
                     .padding(.vertical, 12)
                     .foregroundStyle(.white)
                     .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                NavigationLink(value: ReaderRoute(novelId: model.novelId, chapterId: resume)) { EmptyView() }
+                NavigationLink(value: ReaderRoute(novelId: model.novelId, chapterId: resume, offerLatest: true)) { EmptyView() }
                     .opacity(0)
             }
             .accessibilityElement(children: .combine)
@@ -232,7 +232,7 @@ struct NovelView: View {
                 Text("No chapters match “\(model.chapterSearch)”.").foregroundStyle(.secondary)
             }
             ForEach(visible) { chapter in
-                NavigationLink(value: ReaderRoute(novelId: model.novelId, chapterId: chapter.id)) {
+                NavigationLink(value: ReaderRoute(novelId: model.novelId, chapterId: chapter.id, offerLatest: true)) {
                     ChapterRow(chapter: chapter, isOffline: model.cachedIDs.contains(chapter.id))
                 }
                 .swipeActions(edge: .leading) {

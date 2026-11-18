@@ -49,7 +49,7 @@ struct HomeView: View {
         if let first = items.first {
             VStack(alignment: .leading, spacing: 16) {
                 SectionTitle("Continue reading")
-                NavigationLink(value: ReaderRoute(novelId: first.novel.id, chapterId: first.chapter.id)) {
+                NavigationLink(value: ReaderRoute(novelId: first.novel.id, chapterId: first.chapter.id, offerLatest: true)) {
                     HeroCard(item: first, large: sizeClass == .regular)
                 }
                 .buttonStyle(.plain)
@@ -58,7 +58,7 @@ struct HomeView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(alignment: .top, spacing: 14) {
                             ForEach(items.dropFirst()) { item in
-                                NavigationLink(value: ReaderRoute(novelId: item.novel.id, chapterId: item.chapter.id)) {
+                                NavigationLink(value: ReaderRoute(novelId: item.novel.id, chapterId: item.chapter.id, offerLatest: true)) {
                                     ShelfItem(item: item)
                                         .frame(width: sizeClass == .regular ? 130 : 108)
                                 }
@@ -86,7 +86,7 @@ struct HomeView: View {
                 ForEach(items) { item in
                     Group {
                         if let first = item.firstChapter {
-                            NavigationLink(value: ReaderRoute(novelId: item.novel.id, chapterId: first.id)) {
+                            NavigationLink(value: ReaderRoute(novelId: item.novel.id, chapterId: first.id, offerLatest: true)) {
                                 NewChaptersRow(item: item)
                             }
                         } else {

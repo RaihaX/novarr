@@ -393,6 +393,15 @@ body.mr-open {
     .mr-bottom { transform: translateY(100%); }
 }
 
+// "Latest position" banner (see _reader.scss): under the top bar, clear of
+// the page slider; it stays put when the chrome auto-hides.
+.mr .reader-latest {
+    position: absolute;
+    top: calc(#{$reader-bar} + env(safe-area-inset-top, 0px) + #{$s-3});
+    bottom: auto;
+    z-index: 3;
+}
+
 // Nothing to page through: no page controls.
 .mr.is-empty .mr-bottom { display: none; }
 

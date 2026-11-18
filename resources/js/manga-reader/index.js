@@ -13,8 +13,14 @@ import { createWakeLock } from '../reader/wakelock.js';
 import { initToc } from '../reader/toc.js';
 import {
     FIT_LABELS, MODE_LABELS, normaliseMode, nextMode, nextFit, defaultFit,
-    resumePage, keyAction, pageToSlider, sliderToPage, pageLabel,
+    resumePage, keyAction, pageToSlider, sliderToPage, pageLabel, percentToPage,
 } from './logic.js';
+import { getDevice } from '../device.js';
+import {
+    planLatest, consumeAccepted, consumeInReaderNav, markInReaderNav, markAccepted,
+    rememberAnswered, markLocalWrite, promptText,
+} from '../reader/latest-position.js';
+import { showLatestPrompt } from '../reader/latest-prompt.js';
 import { createProgress, readLocalPosition } from './progress.js';
 import { createPagedView } from './paged.js';
 import { createVerticalView } from './vertical.js';
@@ -41,6 +47,28 @@ function safeStorage() {
     }
 }
 
+/** sessionStorage, or null when site data is blocked. */
+function safeSession() {
+    try {
+        const s = window.sessionStorage;
+        s.getItem('novarr');
+        return s;
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * The page a "Go to latest" percent opens at: 0 → the first page, 100 →
+ * the last (finished), else the page the percent stands for.
+ */
+export function pageForLatest(pct, count) {
+    if (!(count > 0)) return 1;
+    if (pct >= 100) return count;
+    if (!(pct > 0)) return 1;
+    return percentToPage(pct, count);
+}
+
 function csrf() {
     return document.querySelector('meta[name="csrf-token"]')?.content || '';
 }
@@ -52,6 +80,15 @@ export function mount(root) {
     const chapterId = parseInt(ds.chapterId, 10);
     const novelId = parseInt(ds.novelId, 10);
     const storage = safeStorage();
+    const session = safeSession();
+
+    // "Latest position" prompt: read this open's one-use markers now, before
+    // the pages load. `accepted`: "Go to latest" on another page brought us
+    // here (open at that percent). `inReaderNav`: the reader's own next /
+    // previous chapter navigation (never prompts).
+    const openedAt = Date.now();
+    const latestAccepted = consumeAccepted(session, chapterId, openedAt);
+    const latestInReaderNav = consumeInReaderNav(session, chapterId, openedAt);
 
     const $ = (id) => document.getElementById(id);
     const stage = $('mrStage');
@@ -112,6 +149,17 @@ export function mount(root) {
         if (window.Turbo) window.Turbo.visit(url);
         else window.location.href = url;
     }
+    // Next / previous chapter from inside the reader: the destination does
+    // not offer the latest-position prompt.
+    function visitAdjacent(url) {
+        if (!url) return;
+        markInReaderNav(session, url);
+        visit(url);
+    }
+    document.addEventListener('click', (e) => {
+        const a = e.target.closest?.('a[data-end-next], a[data-reader-nav]');
+        if (a?.href) markInReaderNav(session, a.href);
+    }, { capture: true, signal });
 
     // ---- Wake lock: held while reading, dropped after a long idle ----
     const wake = createWakeLock();
@@ -136,8 +184,9 @@ export function mount(root) {
         statusEl.hidden = true;
         statusEl.replaceChildren();
     }
-    function link(href, text, cls = 'btn btn-secondary') {
+    function link(href, text, cls = 'btn btn-secondary', readerNav = false) {
         const a = document.createElement('a');
+        if (readerNav) a.dataset.readerNav = '';
         a.href = href;
         a.className = cls;
         a.textContent = text;
@@ -182,8 +231,8 @@ export function mount(root) {
             case 'last': view.last(); break;
             case 'screenDown': view.screen(1); break;
             case 'screenUp': view.screen(-1); break;
-            case 'prevChapter': if (data?.prev) visit(chapterUrl(data.prev.id)); break;
-            case 'nextChapter': if (data?.next) visit(chapterUrl(data.next.id)); break;
+            case 'prevChapter': if (data?.prev) visitAdjacent(chapterUrl(data.prev.id)); break;
+            case 'nextChapter': if (data?.next) visitAdjacent(chapterUrl(data.next.id)); break;
             case 'fullscreen': toggleFullscreen(); break;
             case 'mode': setMode(nextMode(mode)); break;
             case 'showChrome': setChromeHidden(false); break;
@@ -299,7 +348,7 @@ export function mount(root) {
                 ...common,
                 mode,
                 fit: effectiveFit(),
-                onBeforeFirst: () => { if (data.prev) visit(chapterUrl(data.prev.id, '?page=last')); },
+                onBeforeFirst: () => { if (data.prev) visitAdjacent(chapterUrl(data.prev.id, '?page=last')); },
             });
             view.show(startPage);
             root.focus({ preventScroll: true });
@@ -322,8 +371,8 @@ export function mount(root) {
                 const actions = document.createElement('div');
                 actions.className = 'mr-status-actions';
                 actions.append(link(ds.novelUrl, 'Back to ' + (ds.novelName || 'the novel'), 'btn btn-primary'));
-                if (json.prev) actions.append(link(chapterUrl(json.prev.id), 'Previous: ' + json.prev.label));
-                if (json.next) actions.append(link(chapterUrl(json.next.id), 'Next: ' + json.next.label));
+                if (json.prev) actions.append(link(chapterUrl(json.prev.id), 'Previous: ' + json.prev.label, undefined, true));
+                if (json.next) actions.append(link(chapterUrl(json.next.id), 'Next: ' + json.next.label, undefined, true));
                 box.append(actions);
             });
             return;
@@ -339,21 +388,74 @@ export function mount(root) {
             url.searchParams.delete('page');
             history.replaceState(history.state, '', url.pathname + url.search + url.hash);
         }
-        const start = resumePage({
-            query,
-            progress: json.chapter.progress,
-            read: json.chapter.read,
-            count,
-            local: readLocalPosition(storage, chapterId),
+        const local = readLocalPosition(storage, chapterId);
+
+        // The series' latest position rides in pages.json (just fetched).
+        const position = json.latest_position ?? null;
+        const positionAt = Date.now();
+        const plan = planLatest({
+            position,
+            device: getDevice(),
+            chapterId,
+            novelId,
+            storage,
+            localProgress: local && local.pct !== undefined ? Number(local.pct) : null,
+            elapsedMs: Date.now() - positionAt,
+            accepted: latestAccepted,
+            // An explicit ?page= link is a deliberate place: no prompt.
+            inReaderNav: latestInReaderNav || query !== null,
+            online: navigator.onLine !== false,
         });
+
+        let start;
+        if (latestAccepted !== null) {
+            start = pageForLatest(latestAccepted, count);
+        } else if (plan.offer && plan.sameChapter) {
+            // Offering another device's place in this chapter: don't also
+            // jump there unasked — this device's own page, else page 1.
+            start = resumePage({ query, progress: local?.pct ?? null, read: json.chapter.read, count, local });
+        } else {
+            start = resumePage({ query, progress: json.chapter.progress, read: json.chapter.read, count, local });
+        }
 
         progress = createProgress({
             chapterId, url: ds.progressUrl, stored: json.chapter.progress, read: json.chapter.read,
             count, signal, storage,
+            onWrite: () => markLocalWrite(storage, novelId),
         });
         render(start);
         // Chrome starts visible; the first page turn hides it.
         setChromeHidden(false);
+
+        if (plan.offer) offerLatest(position, positionAt, plan.sameChapter);
+    }
+
+    function offerLatest(position, positionAt, sameChapter) {
+        const ageNow = (Number(position.age_seconds) || 0) + (Date.now() - positionAt) / 1000;
+        showLatestPrompt({
+            host: root,
+            text: promptText(position, ageNow),
+            signal,
+            announcer: announce,
+            escBlocked: () => !!document.querySelector('.offcanvas.show, .modal.show'),
+            onStay: () => {
+                rememberAnswered(storage, novelId, position);
+                // Reading on here should make this device the latest, even
+                // short of the other device's (higher) percent.
+                if (sameChapter) progress?.allowLower();
+            },
+            onGo: () => {
+                rememberAnswered(storage, novelId, position);
+                const pct = Math.max(0, Math.min(100, Number(position.progress) || 0));
+                if (sameChapter) {
+                    progress?.allowLower();
+                    view?.show(pageForLatest(pct, count), { user: true });
+                    return;
+                }
+                markAccepted(session, position);
+                visit(position.url);
+            },
+        });
     }
 
     async function load() {

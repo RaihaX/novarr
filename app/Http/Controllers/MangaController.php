@@ -6,6 +6,7 @@ use App\ChapterPage;
 use App\Http\Controllers\Api\V1\Presenter;
 use App\Novel;
 use App\NovelChapter;
+use App\Services\ReadingPositions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -59,7 +60,14 @@ class MangaController extends Controller
         $chapter = NovelChapter::with('novel:id,name,medium,reading_mode')->findOrFail($id);
         abort_unless($chapter->novel?->isManga(), 404, 'Not a manga chapter.');
 
-        return response()->json(static::pagesPayload($chapter));
+        // The web reader's own copy also carries the series' latest position
+        // (any device), so it needs no extra request for the "go there?"
+        // prompt. Fetching pages records nothing, so this is always the
+        // position from before the reader opened. Not in the API's payload:
+        // native clients ask GET /api/v1/novels/{id}/position.
+        return response()->json(static::pagesPayload($chapter) + [
+            'latest_position' => app(ReadingPositions::class)->latestForWeb((int) $chapter->novel_id),
+        ]);
     }
 
     /**

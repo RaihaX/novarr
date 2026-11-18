@@ -623,6 +623,88 @@ body.reader-playbar-open .reader-col { padding-bottom: 140px; }
     .reader-playbar-group:first-child { padding-right: 40px; }
 }
 
+// --- "Latest position" banner (resources/js/reader/latest-prompt.js) -------
+// "Chapter 124 · 40% was read on Kindle 2 hours ago. Go there?" Docked to the
+// bottom edge like the playback bar, in the reading theme's own colours;
+// position: fixed, so it never shifts the text or the scroll position. The
+// manga reader moves it under its top bar (_manga-reader.scss).
+.reader-latest {
+    position: fixed;
+    left: 50%;
+    bottom: calc(#{$s-4} + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    z-index: 1031;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2 $s-4;
+    width: max-content;
+    max-width: min(560px, calc(100vw - #{$s-5}));
+    padding: $s-3 $s-3 $s-3 $s-4;
+    font-family: $font-ui;
+    font-size: 13px;
+    line-height: 1.45;
+    background: var(--rd-raise);
+    border: $hairline solid var(--rd-border);
+    border-left: 2px solid var(--rd-amber);
+    border-radius: $radius;
+    color: var(--rd-title);
+    animation: reader-fade 160ms ease-out;
+}
+
+.reader-latest-text {
+    flex: 1 1 16rem;
+    min-width: 0;
+    margin: 0;
+}
+
+.reader-latest-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.reader-latest-btn {
+    min-height: 36px;
+    padding: 0 $s-3;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--rd-title);
+    background: transparent;
+    border: $hairline solid var(--rd-border);
+    border-radius: $radius;
+    transition: color $transition, background-color $transition, border-color $transition;
+
+    &:hover { background: var(--rd-line); }
+
+    &.is-primary {
+        color: var(--rd-accent-fg);
+        background: var(--rd-accent);
+        border-color: var(--rd-accent);
+
+        &:hover { background: var(--rd-accent-hover); border-color: var(--rd-accent-hover); }
+        &:active { background: var(--rd-accent-press); border-color: var(--rd-accent-press); }
+    }
+}
+
+// Above the playback bar when both are up.
+body.reader-playbar-open .reader-latest { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+
+@include media-breakpoint-down(md) {
+    .reader-latest {
+        left: $s-2;
+        right: $s-2;
+        transform: none;
+        width: auto;
+        max-width: none;
+    }
+    body.reader-playbar-open .reader-latest { bottom: calc(132px + env(safe-area-inset-bottom, 0px)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .reader-latest { animation: none; }
+}
+
 // --- Chapter drawer (offcanvas TOC) ----------------------------------------
 // The drawer keeps the app's dark surface ($offcanvas-bg-color) whatever the
 // reading theme, so it uses the static tokens rather than --rd-*.

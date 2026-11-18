@@ -54,8 +54,20 @@ struct ReaderView: View {
         .toolbar { toolbar }
         .statusBarHidden(chromeHidden)
         .animation(.easeInOut(duration: 0.2), value: chromeHidden)
+        .overlay(alignment: .bottom) {
+            if let offer = model.latestOffer {
+                LatestPositionBanner(
+                    message: offer.message, theme: theme,
+                    onGo: { Task { await model.acceptLatestOffer(app: app) } },
+                    onStay: { model.declineLatestOffer(app: app) })
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: model.latestOffer)
         .sheet(isPresented: $showSettings) { ReaderSettingsSheet() }
         .task { await model.load(app: app) }
+        // Concurrent with loading: never delays opening the chapter.
+        .task { await model.checkLatestPosition(app: app) }
         .onDisappear { Task { await model.leave(app: app) } }
         // A check found chapters after this one: offer "Next chapter" without reloading the page.
         .onChange(of: app.checks.revision(for: model.novelId)) {
@@ -104,6 +116,10 @@ struct ReaderView: View {
             .scrollPosition(id: $topParagraph, anchor: .top)
             .onChange(of: topParagraph) { _, index in
                 if let index, index >= 0 { model.scrolled(toParagraph: index, app: app) }
+            }
+            .onChange(of: model.scrollRequest) { _, request in
+                guard let request else { return }
+                withAnimation { proxy.scrollTo(request.index, anchor: .top) }
             }
             .contentShape(Rectangle())
             .onTapGesture { chromeHidden.toggle() }

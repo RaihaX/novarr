@@ -89,7 +89,7 @@ final class NovelModel {
     func setRead(_ chapter: ChapterListItem, read: Bool, app: AppModel) async {
         apply(read: read) { $0.id == chapter.id }
         await persistLocalState(app: app)
-        await app.record(.setRead(chapterId: chapter.id, read: read))
+        await app.record(.setRead(chapterId: chapter.id, read: read), novelId: novelId)
         await app.store?.updateChapterState(id: chapter.id, novelId: novelId, progress: read ? 100 : 0, read: read)
         await refreshDetailIfOnline(app: app)
     }
@@ -108,7 +108,7 @@ final class NovelModel {
             apply(read: request.read) { ids.contains($0.id) }
         }
         await persistLocalState(app: app)
-        await app.record(.bulkRead(request))
+        await app.record(.bulkRead(request), novelId: novelId)
         await refreshDetailIfOnline(app: app)
     }
 

@@ -4,6 +4,7 @@
 // window.Novarr.queuedFetch otherwise, which parks the write in the offline
 // queue when there is no connection.
 import { pageToPercent, shouldSaveProgress } from './logic.js';
+import { appendDeviceFields, deviceHeaders } from '../device.js';
 
 const SAVE_DELAY_MS = 1500;
 const localKey = (id) => 'manga_pos_' + id;
@@ -26,8 +27,9 @@ export function readLocalPosition(storage, chapterId) {
  * @param {boolean} o.read       the chapter is already read
  * @param {number} o.count       pages in the chapter
  * @param {AbortSignal} o.signal this visit's lifetime
+ * @param {() => void} [o.onWrite] this device wrote progress (latest-position bookkeeping)
  */
-export function createProgress({ chapterId, url, stored, read, count, signal, storage }) {
+export function createProgress({ chapterId, url, stored, read, count, signal, storage, onWrite = () => {} }) {
     let serverPct = stored === null || stored === undefined ? null : Number(stored);
     let readSent = !!read;
     let pending = null;      // percent waiting to be sent
@@ -37,9 +39,11 @@ export function createProgress({ chapterId, url, stored, read, count, signal, st
 
     function send(body, onPageHide = false) {
         if (signal.aborted) return;
+        onWrite();
         if (onPageHide && navigator.sendBeacon && navigator.onLine !== false) {
             const form = new FormData();
             Object.entries(body).forEach(([k, v]) => form.append(k, v === true ? '1' : String(v)));
+            appendDeviceFields(form);
             navigator.sendBeacon(url, form);
             return;
         }
@@ -51,7 +55,7 @@ export function createProgress({ chapterId, url, stored, read, count, signal, st
         // app.js failed to load: a plain fetch (progress is CSRF-exempt).
         fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...deviceHeaders() },
             body: JSON.stringify(body),
         }).catch(() => {});
     }
@@ -93,6 +97,7 @@ export function createProgress({ chapterId, url, stored, read, count, signal, st
 
     function saveLocal(page, pct) {
         try { storage?.setItem(localKey(chapterId), JSON.stringify({ page, pct })); } catch (e) { /* storage blocked */ }
+        onWrite();
     }
 
     /** The last page has been displayed: 100% and read, sent right away. */
@@ -111,6 +116,8 @@ export function createProgress({ chapterId, url, stored, read, count, signal, st
         markRead,
         flush,
         get movedBack() { return movedBack; },
+        /** Let the next pages save below the server's percent (as after moving back). */
+        allowLower() { movedBack = true; },
         get serverPct() { return serverPct; },
         cancel() { clearTimeout(timer); timer = null; },
     };

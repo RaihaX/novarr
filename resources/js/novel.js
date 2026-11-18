@@ -20,6 +20,7 @@
  */
 import { showToast } from './toast';
 import { confirmDialog } from './confirm';
+import { deviceHeaders } from './device';
 
 const BATCH = 100;
 const LABEL_LIMIT = 90;
@@ -355,6 +356,7 @@ class ChapterList {
                 'X-CSRF-TOKEN': csrf(),
                 Accept: 'application/json',
                 'Content-Type': 'application/json',
+                ...deviceHeaders(),
             },
             body: JSON.stringify(body),
         });

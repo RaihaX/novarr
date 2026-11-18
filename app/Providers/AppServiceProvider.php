@@ -17,6 +17,10 @@ class AppServiceProvider extends ServiceProvider
     {
         Paginator::useBootstrapFive();
 
+        // The device id/name cookies are written by the reader's JS, so they
+        // are plain text: decrypting them would blank them.
+        \Illuminate\Cookie\Middleware\EncryptCookies::except(\App\Services\ReadingPositions::COOKIES);
+
         // Turbo compares the tracked <head> assets on every visit and does a
         // full page load when they change, so a tab left open across a deploy
         // picks up the new bundles instead of mixing two builds (e.g. two

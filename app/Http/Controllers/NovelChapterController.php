@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\NovelChapter;
 use App\Http\Helpers\CacheHelper;
+use App\Services\ReadingPositions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -14,9 +15,12 @@ class NovelChapterController extends Controller
 
     protected $novelchapters;
 
-    public function __construct(NovelChapter $novelchapters)
+    protected ReadingPositions $positions;
+
+    public function __construct(NovelChapter $novelchapters, ReadingPositions $positions)
     {
         $this->novelchapters = $novelchapters;
+        $this->positions = $positions;
     }
 
     /**
@@ -47,9 +51,17 @@ class NovelChapterController extends Controller
         $background = $this->isBackgroundFetch($request);
         $unread = $chapter->status && $chapter->read_at === null;
 
+        // Where the series was read last BEFORE this open, so the page can
+        // offer to jump there; then this open becomes the latest position
+        // (opening a chapter in the web reader is reading it here).
+        $latestPosition = $this->positions->latestForWeb((int) $chapter->novel_id);
+
         if (!$background && $unread) {
             $chapter->forceFill(['read_at' => now()])->saveQuietly();
             CacheHelper::clearNovelCache($chapter->novel_id);
+        }
+        if (!$background && $chapter->status) {
+            $this->positions->record($chapter, $chapter->read_progress ?? 0, now(), $this->positions->device($request));
         }
 
         return view('chapters.show', [
@@ -73,6 +85,9 @@ class NovelChapterController extends Controller
                 'hasContent' => (bool) $chapter->rawText(),
                 'prev' => $prev ? ['id' => $prev->id, 'chapter' => $prev->chapter, 'label' => $prev->label, 'url' => route('chapters.show', $prev->id)] : null,
                 'next' => $next ? ['id' => $next->id, 'chapter' => $next->chapter, 'label' => $next->label, 'url' => route('chapters.show', $next->id)] : null,
+                // The series' latest position (any device) as it was before
+                // this open; see ReadingPositions::latest().
+                'latest_position' => $latestPosition,
             ],
         ]);
     }
@@ -134,6 +149,7 @@ class NovelChapterController extends Controller
         $recordedAt = $this->recordedAt($request);
         $chapter = $this->novelchapters->findOrFail($id);
         $this->applyRead($chapter, $chapter->read_at === null, $recordedAt);
+        $this->recordReadMark($request, $chapter, $recordedAt);
 
         return response()->json([
             'success' => true,
@@ -151,8 +167,17 @@ class NovelChapterController extends Controller
         $recordedAt = $this->recordedAt($request);
         $chapter = $this->novelchapters->findOrFail($id);
         $this->applyRead($chapter, $read, $recordedAt);
+        $this->recordReadMark($request, $chapter, $recordedAt);
 
         return response()->json(['success' => true, 'read' => $chapter->read_at !== null]);
+    }
+
+    /** A mark READ is "finished it here"; marking unread says nothing about where the reader is. */
+    private function recordReadMark(Request $request, NovelChapter $chapter, Carbon $recordedAt): void
+    {
+        if ($chapter->read_at !== null) {
+            $this->positions->record($chapter, 100, $recordedAt, $this->positions->device($request));
+        }
     }
 
     private function applyRead(NovelChapter $chapter, bool $read, Carbon $recordedAt): void
@@ -196,11 +221,14 @@ class NovelChapterController extends Controller
         $chapter = $this->novelchapters->findOrFail($id);
 
         $fill = [];
+        $stale = false;
         if (isset($data['progress'])) {
             $storedAt = $chapter->read_progress_at ? Carbon::parse($chapter->read_progress_at) : null;
             if (!$storedAt || !$at->lt($storedAt)) {
                 $fill['read_progress'] = $data['progress'];
                 $fill['read_progress_at'] = $at;
+            } else {
+                $stale = true;
             }
         }
         $markRead = !empty($data['read']) && $chapter->status && $chapter->read_at === null;
@@ -213,6 +241,13 @@ class NovelChapterController extends Controller
         }
         if ($markRead) {
             CacheHelper::clearNovelCache($chapter->novel_id);
+        }
+
+        // The series' latest position follows this write unless the write
+        // was itself too old for the chapter (record() also checks its age
+        // against the series' stored position).
+        if (!$stale && (isset($data['progress']) || !empty($data['read']))) {
+            $this->positions->record($chapter, $chapter->read_progress ?? 0, $at, $this->positions->device($request));
         }
 
         return response()->json(['success' => true, 'read' => $chapter->read_at !== null]);

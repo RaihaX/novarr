@@ -33,12 +33,16 @@ final class AppModel {
     /// "Check for new chapters" runs, watched app-wide.
     let checks = ChapterChecks()
 
+    /// This install's identity, sent with read-state writes.
+    let device: DeviceIdentity
+
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let monitor = NWPathMonitor()
     @ObservationIgnored private let log = Logger(subsystem: "studio.visns.novarr", category: "App")
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        device = DeviceIdentity.loadOrCreate(defaults: defaults, name: DeviceIdentity.currentName())
         checks.onChaptersChanged = { [weak self] _ in self?.libraryChanged() }
         // Also honours `-serverURL http://…` as a launch argument (argument domain).
         if let raw = defaults.string(forKey: Self.serverDefaultsKey), let url = ServerURL.normalize(raw) {
@@ -64,7 +68,7 @@ final class AppModel {
     private func configure(_ url: URL) {
         checks.cancelAll()
         serverURL = url
-        client = APIClient(baseURL: url)
+        client = APIClient(baseURL: url, device: device)
         let directory = OfflineStore.directory(for: url)
         store = OfflineStore(root: directory)
         let queue = WriteQueue(fileURL: directory.appending(path: OfflineStore.writeQueueFileName))
@@ -117,9 +121,9 @@ final class AppModel {
     // MARK: Writes
 
     /// Queues a read-state write (persisted immediately) and tries to send it.
-    func record(_ write: PendingWrite.Kind) async {
+    func record(_ write: PendingWrite.Kind, novelId: Int? = nil) async {
         guard let queue else { return }
-        await queue.enqueue(write)
+        await queue.enqueue(write, novelId: novelId)
         pendingWrites = await queue.count
         switch write {
         case .progress(_, _, let read) where !read: break
@@ -145,6 +149,28 @@ final class AppModel {
         default:
             break
         }
+    }
+
+    /// Read-state writes for a series still waiting to be sent, by when they were recorded.
+    func unsentWriteTimes(novelId: Int) async -> [Date] {
+        guard let queue else { return [] }
+        return await queue.items
+            .filter { $0.novelId == novelId && $0.kind.movesPosition }
+            .map(\.recordedAt)
+    }
+
+    // MARK: Latest position prompt
+
+    private var latestDeclines: LatestPositionDeclines {
+        LatestPositionDeclines(defaults: defaults, server: serverURL)
+    }
+
+    func declinedLatestPosition(novelId: Int) -> Date? {
+        latestDeclines.declinedAt(novelId: novelId)
+    }
+
+    func declineLatestPosition(at: Date, novelId: Int) {
+        latestDeclines.decline(at, novelId: novelId)
     }
 
     // MARK: Library changes
