@@ -35,6 +35,9 @@ class NovelCheck
      */
     public const STALE_AFTER_MINUTES = 180;
 
+    /** Minutes the check's own download runs at most; the scheduled downloader takes the rest. */
+    public const DOWNLOAD_MINUTES = 10;
+
     /** How long a finished (done / failed) check is remembered. */
     public const KEEP_HOURS = 24;
 
@@ -96,7 +99,10 @@ class NovelCheck
         try {
             Bus::chain([
                 new RunNovelCommand('novel:toc', ['novel' => $novelId], $record['toc_job_id']),
-                new RunNovelCommand('novel:chapter', ['novel' => $novelId], $record['chapter_job_id']),
+                // A check answers "anything new?": a short download, then the
+                // scheduled downloader takes over (a big new series would
+                // otherwise hold the queue's only worker for an hour).
+                new RunNovelCommand('novel:chapter', ['novel' => $novelId, '--max-minutes' => self::DOWNLOAD_MINUTES], $record['chapter_job_id']),
                 new FinishNovelCheck($novelId, $record['check_id']),
             ])->onQueue('commands')->dispatch();
         } catch (\Throwable $e) {

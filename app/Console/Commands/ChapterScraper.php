@@ -90,7 +90,8 @@ class ChapterScraper extends Command
 
     protected $signature = "novel:chapter {novel=0}"
         . " {--chapter= : Download a single chapter by its id}"
-        . " {--lane=* : Download the due chapters of this download lane (one source); started by the scheduled dispatcher}";
+        . " {--lane=* : Download the due chapters of this download lane (one source); started by the scheduled dispatcher}"
+        . " {--max-minutes=0 : Stop a single-novel run after this many minutes; the scheduled downloader takes the rest (0 = no limit)}";
     protected $description = "Scrape new chapters for each novel.";
 
     public function __construct()
@@ -143,6 +144,11 @@ class ChapterScraper extends Command
         }
 
         Log::info("Starting chapter scraping for novel ID: $novelId");
+
+        // A queued run (RunNovelCommand) must end before its job timeout:
+        // what is left stays queued for the scheduled downloader.
+        $this->maxRunMinutes = max(0, (int) $this->option("max-minutes"));
+        $this->deadlineAt = $this->maxRunMinutes > 0 ? $this->clock() + $this->maxRunMinutes * 60 : null;
 
         $newChapters = $this->scrapeChapters($novelId);
 
@@ -777,8 +783,10 @@ class ChapterScraper extends Command
     }
 
     /**
-     * Explicit single-novel run: fetch, wait, fetch… with no deadline, in
-     * $lane (whose lock the caller holds).
+     * Explicit single-novel run: fetch, wait, fetch… in $lane (whose lock
+     * the caller holds). No deadline unless --max-minutes is given: then it
+     * stops before the next chapter once the time is up, and the chapters
+     * left stay queued for the scheduled downloader.
      */
     private function processNovel($novel, &$newChapters, string $lane)
     {
@@ -791,6 +799,15 @@ class ChapterScraper extends Command
             while (true) {
                 // Same lane-cooldown rule as at the start of the run.
                 if ($this->hostCooledDownMidRun($run) || !$this->renewNovelLock($run) || !$this->holdLane($run->laneKey)) {
+                    break;
+                }
+                if ($this->pastDeadline()) {
+                    $left = $novel->chapters()->where("status", 0)->where("blacklist", 0)->count();
+                    if ($left > 0) {
+                        $line = "Stopped after {$this->maxRunMinutes} minutes: {$left} chapter(s) of {$novel->name} stay queued and the scheduled downloader continues with them.";
+                        $this->info($line);
+                        Log::info("{$line} (novel ID {$novel->id})");
+                    }
                     break;
                 }
                 $this->noteLaneState($run);

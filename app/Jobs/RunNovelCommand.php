@@ -13,8 +13,9 @@ use Illuminate\Support\Facades\Artisan;
 /**
  * Runs an artisan command in the background for the web UI. A real job class
  * (rather than a queued Closure) means the failed_jobs payload is readable —
- * the command and params show up in the Health failed-job detail — and the
- * generous timeout lets long scrapes finish.
+ * the command and params show up in the Health failed-job detail. The
+ * timeout is generous, and a single-novel download ends itself before it
+ * (DOWNLOAD_MINUTES).
  */
 class RunNovelCommand implements ShouldQueue
 {
@@ -23,6 +24,16 @@ class RunNovelCommand implements ShouldQueue
     /** Long enough for a full TOC/chapter scrape. */
     public int $timeout = 3600;
     public int $tries = 1;
+
+    /**
+     * Minutes a queued single-novel download runs at most. A new series with
+     * hundreds of chapters takes hours at a polite pace: instead of being
+     * killed at $timeout (a failed job, and the rest of its chain never
+     * runs), the command stops by itself and the scheduled downloader takes
+     * the chapters left. Well under $timeout: one slow chapter and its wait
+     * must still fit.
+     */
+    public const DOWNLOAD_MINUTES = 45;
 
     /** Set once handle() runs; tells the overlap guard the job wasn't skipped. */
     private bool $ran = false;
@@ -101,12 +112,27 @@ class RunNovelCommand implements ShouldQueue
         return null;
     }
 
+    /**
+     * The params the command runs with: a single-novel novel:chapter gets a
+     * time limit (DOWNLOAD_MINUTES) unless the dispatcher set one. Pure —
+     * unit tested.
+     */
+    public static function commandParams(string $command, array $params): array
+    {
+        if ($command === 'novel:chapter' && (int) ($params['novel'] ?? 0) > 0
+            && empty($params['--chapter']) && !array_key_exists('--max-minutes', $params)) {
+            $params['--max-minutes'] = self::DOWNLOAD_MINUTES;
+        }
+
+        return $params;
+    }
+
     public function handle(): void
     {
         $this->ran = true;
 
         try {
-            $exitCode = Artisan::call($this->artisanCommand, $this->params);
+            $exitCode = Artisan::call($this->artisanCommand, self::commandParams($this->artisanCommand, $this->params));
             $output = Artisan::output();
 
             // Keep the tail only — some commands (novel:info) emit megabytes.

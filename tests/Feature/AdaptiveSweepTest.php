@@ -160,6 +160,21 @@ class AdaptiveSweepTest extends TestCase
         $this->assertSame(array_merge(array_fill(0, 9, 30), [26, 26, 26]), $this->scraper->pauses);
     }
 
+    public function testExplicitRunStopsAtItsTimeLimitAndLeavesTheRestQueued(): void
+    {
+        $this->fixedDelays(30, 30);
+        $novel = $this->novel('Huge', 'a.test', 12);
+
+        Artisan::call('novel:chapter', ['novel' => $novel->id, '--max-minutes' => 2]);
+
+        // One chapter every 30 s: at 0, 30, 60, 90 and 120 s; the next would start after the 2 minutes.
+        $this->assertCount(5, $this->scraper->fetches);
+        $this->assertSame(7, NovelChapter::where('novel_id', $novel->id)->where('status', 0)->count());
+        $this->assertStringContainsString('7 chapter(s) of Huge stay queued', Artisan::output());
+        // The novel's lock is free again for the scheduled downloader.
+        $this->assertTrue(ChapterScraper::novelLock($novel->id)->get());
+    }
+
     public function testSweepPaceStopsAtTheFastestDelay(): void
     {
         Setting::put('scrape_min_delay', 20);
