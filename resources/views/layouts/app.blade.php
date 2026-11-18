@@ -83,9 +83,14 @@
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('home') ? 'active' : '' }}" @if(request()->routeIs('home')) aria-current="page" @endif href="{{ route('home') }}">Home</a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('novels.*') ? 'active' : '' }}" @if(request()->routeIs('novels.*')) aria-current="page" @endif href="{{ route('novels.index') }}">Library</a>
-                    </li>
+                    {{-- Two libraries on one route: the item of the medium this
+                         page belongs to (LibraryMedium::current()) is active. --}}
+                    @php $navMedium = request()->routeIs('novels.*') ? \App\Http\Helpers\LibraryMedium::current() : null; @endphp
+                    @foreach(['novel' => 'Novels', 'manga' => 'Manga'] as $navKey => $navLabel)
+                        <li class="nav-item">
+                            <a class="nav-link {{ $navMedium === $navKey ? 'active' : '' }}" @if($navMedium === $navKey) aria-current="page" @endif href="{{ route('novels.index', ['medium' => $navKey]) }}" data-nav-medium="{{ $navKey }}">{{ $navLabel }}</a>
+                        </li>
+                    @endforeach
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('library') ? 'active' : '' }}" @if(request()->routeIs('library')) aria-current="page" @endif href="{{ route('library') }}" title="Novels saved on this device for offline reading">Offline</a>
                     </li>

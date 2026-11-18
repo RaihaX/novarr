@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Novel;
 use App\NovelChapter;
 use App\Http\Helpers\CacheHelper;
+use App\Http\Helpers\LibraryMedium;
 use App\Console\Commands\GenerateePub;
 
 use Illuminate\Http\Request;
@@ -203,6 +204,12 @@ class NovelController extends Controller
             $query->whereHas('tags', fn($q) => $q->where('tags.id', $request->tag));
         }
 
+        // Library: Novels or Manga (?medium=, else the one remembered in the
+        // session, novels by default). Everything on the page — list, header
+        // summary, chips, shelves — belongs to that medium only.
+        $medium = LibraryMedium::resolve($request);
+        $query->where('medium', $medium);
+
         // --- Reading index -------------------------------------------------
         // One grouped pass over the chapter table gives every novel's read /
         // new / TOC counts: it feeds the chip counts, the chip filters and the
@@ -212,9 +219,13 @@ class NovelController extends Controller
         // Whole-table aggregates: cached briefly so a big library doesn't pay
         // for them on every page/filter change; CacheHelper::clearNovelCache()
         // drops the cache whenever a chapter's read/download state changes.
-        $cached = static::libraryReading();
-        $reading = $cached['reading'];
-        $totals = $cached['totals'];
+        // Both caches are library-wide; one statement (this medium's ids, with
+        // the origin the chips need) scopes them to the library shown.
+        $members = Novel::where('medium', $medium)->get(['id', 'origin']);
+        $memberIds = array_flip($members->pluck('id')->map(fn($id) => (int) $id)->all());
+        $reading = array_intersect_key(static::libraryReading()['reading'], $memberIds);
+        $aggregates = static::libraryAggregates();
+        $totals = static::libraryTotals(array_intersect_key($aggregates, $memberIds));
 
         $attentionIds = \App\Services\NovelHealth::attentionIds();
 
@@ -224,26 +235,12 @@ class NovelController extends Controller
             'attention' => array_values(array_intersect(array_keys($attentionIds), array_keys($reading))),
             'finished' => array_keys(array_filter($reading, fn($r) => $r['finished'])),
         ];
-        // Origin chips: translated web novels vs original English ones. The
-        // same statement says whether the library holds a manga.
-        $flagged = Novel::where(fn($q) => $q->whereIn('origin', ['translated', 'original'])
-            ->orWhere('medium', Novel::MEDIUM_MANGA))
-            ->get(['id', 'origin', 'medium']);
-        $origins = $flagged->filter(fn($n) => in_array($n->origin, ['translated', 'original'], true))->pluck('origin', 'id');
-        $hasManga = $flagged->contains(fn($n) => $n->medium === Novel::MEDIUM_MANGA);
-
-        // Medium (All / Novels / Manga): only offered — and only applied —
-        // once the library holds at least one manga.
-        $medium = $request->query('medium');
-        if (!$hasManga || !in_array($medium, [Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA], true)) {
-            $medium = 'all';
-        }
-        if ($medium !== 'all') {
-            $query->where('medium', $medium);
-        }
-        foreach (['translated', 'original'] as $origin) {
+        // Origin chips (translated web novels vs original English ones) only
+        // apply to text novels: the Manga library has none.
+        $originChips = $medium === Novel::MEDIUM_NOVEL ? ['translated', 'original'] : [];
+        foreach ($originChips as $origin) {
             $sets[$origin] = array_values(array_intersect(
-                array_keys($origins->filter(fn($o) => $o === $origin)->all()),
+                $members->where('origin', $origin)->pluck('id')->map(fn($id) => (int) $id)->all(),
                 array_keys($reading)
             ));
         }
@@ -252,7 +249,7 @@ class NovelController extends Controller
         // Chip filter. "Offline" lives in this browser's IndexedDB, so the
         // page script resolves it and comes back with ?filter=offline&ids=….
         $filter = $request->query('filter');
-        if (!in_array($filter, ['reading', 'new', 'attention', 'offline', 'finished', 'translated', 'original'], true)) {
+        if (!in_array($filter, ['reading', 'new', 'attention', 'offline', 'finished', ...$originChips], true)) {
             $filter = 'all';
         }
         $offlinePending = false;
@@ -271,7 +268,6 @@ class NovelController extends Controller
         }
         session(['novels_sort' => $sort]);
 
-        $aggregates = static::libraryAggregates();
         $candidates = $query->orderBy('name')->orderBy('id')->get();
         $orderedIds = static::sortLibraryIds($candidates, $aggregates, $sort);
 
@@ -299,7 +295,7 @@ class NovelController extends Controller
             'sort' => $sort,
             'filter' => $filter,
             'medium' => $medium,
-            'hasManga' => $hasManga,
+            'originChips' => $originChips,
             'offlinePending' => $offlinePending,
             'chipCounts' => $chipCounts,
             'totals' => $totals,
@@ -370,6 +366,27 @@ class NovelController extends Controller
                 ],
             ];
         });
+    }
+
+    /**
+     * Downloaded and queued chapter totals over some novels' aggregates
+     * (libraryAggregates(), already narrowed to one library): the same
+     * figures as libraryReading()'s library-wide totals — non-blacklisted
+     * chapters, downloaded or still waiting.
+     *
+     * @param  array<int, array{downloaded:int, source:int}>  $aggregates
+     * @return array{downloaded:int, queued:int}
+     */
+    public static function libraryTotals(array $aggregates): array
+    {
+        $downloaded = 0;
+        $queued = 0;
+        foreach ($aggregates as $a) {
+            $downloaded += $a['downloaded'];
+            $queued += $a['source'] - $a['downloaded'];
+        }
+
+        return ['downloaded' => $downloaded, 'queued' => $queued];
     }
 
     /**
@@ -500,15 +517,22 @@ class NovelController extends Controller
         ]);
     }
 
-    public function create()
+    /**
+     * Manual add, opened from one library (?medium=, else the remembered
+     * one). The created series' medium still comes from its URL's source.
+     */
+    public function create(Request $request)
     {
-        return view('novels.create');
+        return view('novels.create', ['medium' => LibraryMedium::resolve($request)]);
     }
 
     public function edit($id)
     {
+        $novel = $this->novels->with('tags')->findOrFail($id);
+        LibraryMedium::share($novel->medium);
+
         return view('novels.edit', [
-            'novel' => $this->novels->with('tags')->findOrFail($id),
+            'novel' => $novel,
             'groups' => \App\Group::orderBy('label')->get(['id', 'label']),
         ]);
     }
@@ -844,6 +868,8 @@ class NovelController extends Controller
     public function show($id)
     {
         $data = $this->novels->with(['file', 'group', 'language', 'tags'])->findOrFail($id);
+        // The desktop nav highlights this series' library.
+        LibraryMedium::share($data->medium);
 
         $stats = $this->novelStats($id);
 

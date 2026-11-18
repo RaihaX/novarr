@@ -68,6 +68,8 @@ class DiscoverSourcesCharacterisationTest extends GoldenTestCase
 
     public function testPageRendersTheSourcePickerInTheOriginalOrder(): void
     {
+        // Separate libraries: "Add novel" (the default) offers the text
+        // sources only, "Add manga" the manga ones (MangaDex).
         $html = $this->get('/novels/discover')->assertOk()->getContent();
 
         $this->assertStringContainsString(
@@ -75,14 +77,19 @@ class DiscoverSourcesCharacterisationTest extends GoldenTestCase
             . "        <option value=\"novelarrow\">NovelPing (novelarrow)</option>\n"
             . "        <option value=\"empirenovel\">empirenovel.com</option>\n"
             . "        <option value=\"novelfull\">novelfull.com</option>\n"
-            // Manga phase 1: MangaDex is listed after every text source (never the default).
-            . "        <option value=\"mangadex\">MangaDex (manga)</option>\n"
             . "    </select>",
             $html
         );
         $this->assertStringContainsString(
-            'const SOURCE_HOST = {"novelarrow":"novelping.com","empirenovel":"empirenovel.com","novelfull":"novelfull.com","mangadex":"mangadex.org"};',
+            'const SOURCE_HOST = {"novelarrow":"novelping.com","empirenovel":"empirenovel.com","novelfull":"novelfull.com"};',
             $html
+        );
+        $manga = $this->get('/novels/discover?medium=manga')->assertOk()->getContent();
+        $this->assertStringContainsString(
+            "<select id=\"discoverSource\" class=\"form-select\" aria-label=\"Source\">\n"
+            . "        <option value=\"mangadex\">MangaDex (manga)</option>\n"
+            . "    </select>",
+            $manga
         );
         // Popular / Completed tabs, Popular active, loaded on open.
         $this->assertStringContainsString(

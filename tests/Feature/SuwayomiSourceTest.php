@@ -537,7 +537,7 @@ class SuwayomiSourceTest extends GoldenTestCase
         $this->discoverUpstream();
         $key = 'suwayomi:' . self::MANGAPILL;
 
-        $html = $this->get('/novels/discover')->assertOk()->getContent();
+        $html = $this->get('/novels/discover?medium=manga')->assertOk()->getContent();
         $this->assertStringContainsString("<option value=\"{$key}\">Suwayomi · MangaPill</option>", $html);
         $this->assertStringContainsString('"' . $key . '":"192.168.1.37:4567"', $html);
 

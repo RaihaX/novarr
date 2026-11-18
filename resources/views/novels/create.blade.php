@@ -1,20 +1,26 @@
 @extends('layouts.app')
 
-@section('title', 'Add novel')
+@php
+    $medium ??= \App\Novel::MEDIUM_NOVEL;
+    $mediumNoun = \App\Http\Helpers\LibraryMedium::noun($medium);
+    $libraryUrl = route('novels.index', ['medium' => $medium]);
+@endphp
+
+@section('title', 'Add ' . $mediumNoun)
 
 @section('content')
 <div class="novel-form-column">
-    <a href="{{ route('novels.index') }}" class="back-link">
+    <a href="{{ $libraryUrl }}" class="back-link">
         <x-icon name="chevron-left" :size="14" :stroke="1.5" /> Back to library
     </a>
 
     <div class="page-head">
         <div class="page-head-titles">
             <span class="page-head-kicker">Manual entry</span>
-            <h1 class="page-title mb-0">Add novel</h1>
+            <h1 class="page-title mb-0">Add {{ $mediumNoun }}</h1>
         </div>
         <div class="page-head-actions">
-            <a href="{{ route('novels.discover') }}" class="btn btn-secondary">Browse sources</a>
+            <a href="{{ route('novels.discover', ['medium' => $medium]) }}" class="btn btn-secondary">Browse sources</a>
         </div>
     </div>
 
@@ -88,7 +94,7 @@
 
             <div class="novel-form-actions">
                 <button type="submit" class="btn btn-primary">Create novel</button>
-                <a href="{{ route('novels.index') }}" class="btn btn-secondary">Cancel</a>
+                <a href="{{ $libraryUrl }}" class="btn btn-secondary">Cancel</a>
             </div>
         </div>
     </form>

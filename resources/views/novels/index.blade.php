@@ -1,11 +1,17 @@
 @extends('layouts.app')
 
 @php
-    $medium ??= 'all';
-    $hasManga ??= false;
-    $hasFilters = request('search') || request()->filled('status') || request()->filled('tag') || $filter !== 'all' || $medium !== 'all';
-    // Chip / toggle links keep every other query parameter, drop the page.
-    $chipUrl = fn(string $f) => request()->fullUrlWithQuery(['filter' => $f === 'all' ? null : $f, 'ids' => null, 'page' => null]);
+    use App\Http\Helpers\LibraryMedium;
+
+    $originChips ??= [];
+    $hasFilters = request('search') || request()->filled('status') || request()->filled('tag') || $filter !== 'all';
+    $libraryTitle = LibraryMedium::title($medium);
+    $mediumNoun = LibraryMedium::noun($medium);
+    // Chip / toggle links keep every other query parameter and the library
+    // (medium, explicit so a link never depends on the session), drop the page.
+    $chipUrl = fn(string $f) => request()->fullUrlWithQuery(['filter' => $f === 'all' ? null : $f, 'ids' => null, 'page' => null, 'medium' => $medium]);
+    // Switching library keeps the view and sort only.
+    $mediumUrl = fn(string $m) => route('novels.index', ['medium' => $m, 'view' => $view, 'sort' => $sort]);
     $chips = [
         'all' => ['All', null, null],
         'reading' => ['Reading', null, null],
@@ -13,21 +19,25 @@
         'attention' => ['Needs attention', $chipCounts['attention'], 'tone-warning'],
         'offline' => ['Offline', null, null],
         'finished' => ['Finished', null, null],
-        'translated' => ['Translated', $chipCounts['translated'] ?? null, null],
-        'original' => ['Original', $chipCounts['original'] ?? null, null],
     ];
+    // Translated / Original only exist in the Novels library.
+    foreach (['translated' => 'Translated', 'original' => 'Original'] as $originKey => $originLabel) {
+        if (in_array($originKey, $originChips, true)) {
+            $chips[$originKey] = [$originLabel, $chipCounts[$originKey] ?? null, null];
+        }
+    }
     $sorts = ['read' => 'Last read', 'name' => 'Name', 'updated' => 'Updated', 'progress' => 'Progress'];
 @endphp
 
-@section('title', 'Library')
+@section('title', $libraryTitle)
 
 @section('content')
 <div class="lib-page" data-view="{{ $view }}" data-filter="{{ $filter }}" @if($offlinePending) data-offline-pending @endif>
 <div class="page-head lib-head">
     <div class="page-head-titles">
-        <h1 class="page-title mb-0">Library</h1>
+        <h1 class="page-title mb-0">{{ $libraryTitle }}</h1>
         <p class="lib-summary mb-0">
-            <span class="mono-num">{{ number_format($chipCounts['all']) }}</span> {{ Str::plural('novel', $chipCounts['all']) }}
+            <span class="mono-num">{{ number_format($chipCounts['all']) }}</span> {{ LibraryMedium::countNoun($medium, $chipCounts['all']) }}
             · <span class="mono-num">{{ number_format($totals['downloaded']) }}</span> chapters downloaded
             @if($totals['queued'] > 0)
                 · <span class="mono-num">{{ number_format($totals['queued']) }}</span> queued
@@ -38,7 +48,7 @@
         </p>
     </div>
     <div class="page-head-actions">
-        <a href="{{ route('novels.discover') }}" class="btn btn-primary">+ Add novel</a>
+        <a href="{{ route('novels.discover', ['medium' => $medium]) }}" class="btn btn-primary">+ Add {{ $mediumNoun }}</a>
         @if($view === 'grid')
             <button type="button" class="btn btn-secondary" id="libSelect" aria-pressed="false">Select</button>
         @endif
@@ -61,22 +71,20 @@
     </nav>
 
     <form method="GET" action="{{ route('novels.index') }}" class="lib-tools" role="search">
-        @foreach(['filter' => $filter === 'all' ? null : $filter, 'ids' => request('ids'), 'view' => $view, 'status' => request('status'), 'medium' => $medium === 'all' ? null : $medium] as $k => $v)
+        @foreach(['filter' => $filter === 'all' ? null : $filter, 'ids' => request('ids'), 'view' => $view, 'status' => request('status'), 'medium' => $medium] as $k => $v)
             @if($v !== null && $v !== '')
                 <input type="hidden" name="{{ $k }}" value="{{ $v }}">
             @endif
         @endforeach
-        <input type="search" name="search" aria-label="Search library" class="form-control lib-search" placeholder="Search library…" value="{{ request('search') }}">
-        @if($hasManga)
-            {{-- Medium: offered once the library holds a manga; kept in the
-                 query string (?medium=novel|manga) like the other filters. --}}
-            <div class="btn-group segmented lib-medium" role="group" aria-label="Show novels or manga">
-                @foreach(['all' => 'All', 'novel' => 'Novels', 'manga' => 'Manga'] as $mKey => $mLabel)
-                    <a href="{{ request()->fullUrlWithQuery(['medium' => $mKey === 'all' ? null : $mKey, 'page' => null]) }}" data-medium="{{ $mKey }}"
-                       class="btn btn-secondary {{ $medium === $mKey ? 'active' : '' }}" @if($medium === $mKey) aria-current="true" @endif>{{ $mLabel }}</a>
-                @endforeach
-            </div>
-        @endif
+        <input type="search" name="search" aria-label="Search {{ LibraryMedium::plural($medium) }}" class="form-control lib-search" placeholder="Search {{ LibraryMedium::plural($medium) }}…" value="{{ request('search') }}">
+        {{-- Library: Novels or Manga, remembered in the session; switching
+             keeps the view and sort and starts the filters over. --}}
+        <div class="btn-group segmented lib-medium" role="group" aria-label="Library">
+            @foreach(['novel' => 'Novels', 'manga' => 'Manga'] as $mKey => $mLabel)
+                <a href="{{ $mediumUrl($mKey) }}" data-medium="{{ $mKey }}"
+                   class="btn btn-secondary {{ $medium === $mKey ? 'active' : '' }}" @if($medium === $mKey) aria-current="true" @endif>{{ $mLabel }}</a>
+            @endforeach
+        </div>
         @if($tags->isNotEmpty())
             <select name="tag" aria-label="Filter by tag" class="form-select" onchange="this.form.requestSubmit()">
                 <option value="">All tags</option>
@@ -94,11 +102,11 @@
             </select>
         </label>
         <div class="btn-group segmented lib-viewtoggle" role="group" aria-label="View">
-            <a href="{{ request()->fullUrlWithQuery(['view' => 'grid', 'page' => null]) }}" data-view-choice="grid"
+            <a href="{{ request()->fullUrlWithQuery(['view' => 'grid', 'page' => null, 'medium' => $medium]) }}" data-view-choice="grid"
                class="btn btn-secondary {{ $view === 'grid' ? 'active' : '' }}" @if($view === 'grid') aria-current="true" @endif>
                 <x-icon name="layout-grid" :size="14" /> Grid
             </a>
-            <a href="{{ request()->fullUrlWithQuery(['view' => 'table', 'page' => null]) }}" data-view-choice="table"
+            <a href="{{ request()->fullUrlWithQuery(['view' => 'table', 'page' => null, 'medium' => $medium]) }}" data-view-choice="table"
                class="btn btn-secondary {{ $view === 'table' ? 'active' : '' }}" @if($view === 'table') aria-current="true" @endif>
                 <x-icon name="list" :size="14" /> Table
             </a>
@@ -122,7 +130,7 @@
     {{-- Cover-forward grid: whole-tile links, reading progress on the cover's
          bottom edge, a corner flag only for exceptions. --}}
     @if($novels->isEmpty())
-        @include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter])
+        @include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter, 'medium' => $medium])
     @else
         @php
             $blank = ['read' => 0, 'new' => 0, 'total' => 0, 'percent' => 0, 'finished' => false];
@@ -206,7 +214,7 @@
         </div>
         @if($novels->hasPages())
             <div class="lib-fit-foot">
-                {{ $novels->appends(request()->query())->links() }}
+                {{ $novels->appends(array_merge(request()->query(), ['medium' => $medium]))->links() }}
             </div>
         @endif
         </div>
@@ -254,7 +262,7 @@
                 </a>
             </div>
         @empty
-            @include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter])
+            @include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter, 'medium' => $medium])
         @endforelse
     </div>
 
@@ -340,7 +348,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="9">@include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter])</td>
+                        <td colspan="9">@include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter, 'medium' => $medium])</td>
                     </tr>
                 @endforelse
             </tbody>
@@ -348,7 +356,7 @@
     </div>
     @if($novels->hasPages())
         <div class="dash-panel-foot">
-            {{ $novels->appends(request()->query())->links() }}
+            {{ $novels->appends(array_merge(request()->query(), ['medium' => $medium]))->links() }}
         </div>
     @endif
 </div>

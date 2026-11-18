@@ -64,44 +64,39 @@ class MangaUiTest extends TestCase
 
     // ---- Library: medium filter ---------------------------------------------
 
-    public function testTheMediumFilterIsHiddenWithoutAManga(): void
+    public function testTheMediumControlIsShownWithoutAManga(): void
     {
+        // Separate libraries: the Novels | Manga control is always there, and
+        // ?medium=manga is applied even when the library holds no manga.
         $this->novel('Only Text');
 
         $html = $this->get(route('novels.index', ['medium' => 'manga']))->assertOk()->getContent();
 
-        $this->assertStringNotContainsString('data-medium=', $html);
-        $this->assertStringNotContainsString('name="medium"', $html);
-        // An unusable ?medium= is ignored: the text novel is still listed.
-        $this->assertStringContainsString('Only Text', $html);
+        $this->assertStringContainsString('data-medium="novel"', $html);
+        $this->assertStringContainsString('data-medium="manga"', $html);
+        $this->assertStringNotContainsString('data-medium="all"', $html);
+        $this->assertStringNotContainsString('Only Text', $html);
     }
 
-    public function testTheMediumFilterNarrowsTheLibraryAndStaysInTheQueryString(): void
+    public function testTheMediumControlSwitchesLibrariesAndStaysInTheQueryString(): void
     {
         $this->novel('Text Novel One');
         $this->novel('Comic Two', true);
 
-        $all = $this->get(route('novels.index'))->assertOk()->getContent();
-        $this->assertStringContainsString('aria-label="Show novels or manga"', $all);
-        foreach (['all', 'novel', 'manga'] as $m) {
-            $this->assertStringContainsString('data-medium="' . $m . '"', $all);
-        }
-        $this->assertMatchesRegularExpression('/data-medium="all"\s+class="btn btn-secondary active"/', $all);
-        $this->assertStringContainsString('Text Novel One', $all);
-        $this->assertStringContainsString('Comic Two', $all);
-        $this->assertStringContainsString('MANGA', $all, 'the Library chip');
+        $novels = $this->get(route('novels.index'))->assertOk()->getContent();
+        $this->assertStringContainsString('aria-label="Library"', $novels);
+        $this->assertMatchesRegularExpression('/data-medium="novel"\s+class="btn btn-secondary active"/', $novels);
+        $this->assertStringContainsString('Text Novel One', $novels);
+        $this->assertStringNotContainsString('Comic Two', $novels);
 
         $manga = $this->get(route('novels.index', ['medium' => 'manga']))->assertOk()->getContent();
         $this->assertStringContainsString('Comic Two', $manga);
         $this->assertStringNotContainsString('Text Novel One', $manga);
+        $this->assertStringContainsString('MANGA', $manga, 'the Library chip');
         $this->assertMatchesRegularExpression('/data-medium="manga"\s+class="btn btn-secondary active"/', $manga);
         // Kept by the search form and the other controls.
         $this->assertStringContainsString('<input type="hidden" name="medium" value="manga">', $manga);
         $this->assertStringContainsString('medium=manga&amp;view=table', $manga);
-
-        $novels = $this->get(route('novels.index', ['medium' => 'novel']))->assertOk()->getContent();
-        $this->assertStringContainsString('Text Novel One', $novels);
-        $this->assertStringNotContainsString('Comic Two', $novels);
 
         // Combined with a chip and the table view.
         $table = $this->get(route('novels.index', ['medium' => 'manga', 'view' => 'table']))->assertOk()->getContent();
