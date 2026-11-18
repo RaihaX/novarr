@@ -50,7 +50,7 @@ function Chapters:items()
             mandatory = marks ~= "" and marks or nil,
             dim = c.downloaded == false or nil,
             chapter_id = id,
-            callback = function() s:openChapter(novel_id, id) end,
+            callback = function() s:openChapter(novel_id, id, { check_position = true }) end,
         }
     end
     local resume = s:resumeChapter(novel_id)

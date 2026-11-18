@@ -45,6 +45,7 @@ local T = require("ffi/util").template
 
 local Groups = require("novarr.groups")
 local Model = require("novarr.model")
+local Position = require("novarr.position")
 local ReadingInfo = require("novarr.readinginfo")
 local Session = require("novarr.session")
 
@@ -64,6 +65,14 @@ Reading.IDLE_SYNC_MS = 3 * 60 * 1000 -- no page turn for this long: save and sen
 
 local function UI() return require("novarr.ui_common") end
 local footerOf -- (status bar section)
+
+--- Same file paths, also when one of them went through realpath (History).
+local function samePath(a, b)
+    if not a or not b then return false end
+    if a == b then return true end
+    local tail = "chapters/[^/]+/[^/]+$"
+    return a:match(tail) ~= nil and a:match(tail) == b:match(tail)
+end
 
 -- ---------------------------------------------------------------- attach
 
@@ -217,12 +226,21 @@ end
 function Reading.onReady(plugin)
     local r = plugin.reading
     if not r then return end
+    -- Opened by KOReader itself (start-up, History, the file browser): not
+    -- through Session:openFile, and not this file reopened by a re-render.
+    local by_koreader = not samePath(Session.opening_path, r.path) and not samePath(Session.reloading_path, r.path)
+    Session.reloading_path = nil
     Session.switching = false
     Session.return_to = nil
     Session.opening_path = nil
     local _read, progress = Reading.knownProgress(r)
+    -- "Go to latest" (position.lua) opened this chapter: its place wins over KOReader's saved one.
+    local forced = not r.group and Position.takeForced(Session, r.novel_id, r.chapter_id) or nil
     if r.group then
         Reading.placeInGroup(plugin)
+    elseif forced then
+        logger.info("Novarr: chapter", r.chapter_id, "at the latest position,", forced, "%")
+        plugin.ui:handleEvent(Event:new("GotoPercent", forced))
     elseif Session.open_at_end and Session.open_at_end == r.path then
         -- Opened by paging back from the next chapter: show the last page,
         -- whatever position KOReader had saved. Nothing is marked: progress
@@ -263,6 +281,8 @@ function Reading.onReady(plugin)
     end
     UIManager:unschedule(plugin.background_task)
     UIManager:scheduleIn(Reading.BACKGROUND_DELAY, plugin.background_task)
+    -- Was it read further on another device? (A check due, or KOReader opened it; position.lua.)
+    Session.guard(Position.chapterReady, r.novel_id, by_koreader)
     Reading.logTiming(r)
 end
 
@@ -468,14 +488,6 @@ function Reading.pageForPercent(plugin, i, percent)
     return Groups.pageForPercent(L.pages[i], tops, L.ys[i], end_ys[i], percent)
 end
 
---- Same file paths, also when one of them went through realpath (History).
-local function samePath(a, b)
-    if not a or not b then return false end
-    if a == b then return true end
-    local tail = "chapters/[^/]+/[^/]+$"
-    return a:match(tail) ~= nil and a:match(tail) == b:match(tail)
-end
-
 --[[--
 On opening a group file: go to the chapter the plugin opened it for
 (Session.group_target). KOReader's own saved position wins when the file is
@@ -491,7 +503,13 @@ function Reading.placeInGroup(plugin)
     if target and not samePath(target.path, r.path) then target = nil end
     Reading.layout(plugin)
     local here = Reading.where(plugin)
-    if target and r.group.index[target.chapter_id] then
+    local forced = target and Position.takeForced(Session, r.novel_id, target.chapter_id) or nil
+    if target and r.group.index[target.chapter_id] and forced then
+        -- "Go to latest" (position.lua): the other device's place, whatever KOReader had saved.
+        Reading.goToProgress(plugin, target.chapter_id, forced, true)
+        logger.info("Novarr: chapter", target.chapter_id, "at the latest position,", forced, "%")
+        here = Reading.where(plugin)
+    elseif target and r.group.index[target.chapter_id] then
         local keep = not target.at_end and r.had_position and target.decision ~= "rebuild"
             and here and r.group.ids[here.index] == target.chapter_id
         if keep then
@@ -507,6 +525,31 @@ function Reading.placeInGroup(plugin)
     end
     r.chapter_id = r.group.ids[here and here.index or 1]
     r.left, r.ordinal, r.ordinal_of = nil, nil, nil
+end
+
+--[[--
+Moves to `progress` (0..100) of a chapter in the open document: the open
+chapter file, or a chapter of the open group file ("Go to latest"). In a
+group file 100 is the chapter's last page (not the start of the next one).
+placing: called while the file is being placed (onReady), before tracking starts.
+]]
+function Reading.goToProgress(plugin, chapter_id, progress, placing)
+    local r = plugin.reading
+    if not r then return false end
+    progress = math.max(0, math.min(100, tonumber(progress) or 0))
+    if r.group then
+        if not r.group.index[chapter_id] then return false end
+        if progress >= 100 then
+            Reading.goInside(plugin, chapter_id, { at_end = true })
+        else
+            Reading.goInside(plugin, chapter_id, { percent = progress })
+        end
+        if not placing and r.ready then Reading.trackGroup(plugin) end
+        return true
+    end
+    if r.chapter_id ~= chapter_id then return false end
+    plugin.ui:handleEvent(Event:new("GotoPercent", progress))
+    return true
 end
 
 --- Jumps to a chapter of the open group file (menu, chapter list). Returns true when it is there.
@@ -1286,6 +1329,7 @@ function Reading.onEnd(plugin)
 end
 
 function Reading.unschedule(plugin)
+    Position.unschedule(plugin)
     if plugin.background_task then UIManager:unschedule(plugin.background_task) end
     if plugin.prefetch_task then UIManager:unschedule(plugin.prefetch_task) end
     Reading.unscheduleIdle(plugin)
@@ -1316,11 +1360,14 @@ function Reading.onClose(plugin)
     -- Leaving the book (not the next Novarr file, not a reload of this one):
     -- Wi-Fi that Novarr switched off comes back on (wifi.lua).
     if not Session.switching and not r.reloading then
+        Session.guard(Position.leave)
         Session.guard(function()
             Wifi().stop()
             Wifi().restoreOnLeave("left the book")
         end)
     end
+    -- A re-render reopens this file: that is not KOReader opening a book (Reading.onReady).
+    Session.reloading_path = r.reloading and r.path or nil
     if Session.reader == plugin then Session.reader = nil end
     plugin.reading = nil
 end

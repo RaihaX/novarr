@@ -22,6 +22,7 @@ local ChapterDoc = require("novarr.chapterdoc")
 local Groups = require("novarr.groups")
 local Json = require("novarr.json")
 local Model = require("novarr.model")
+local Position = require("novarr.position")
 local Queue = require("novarr.queue")
 local ReadingInfo = require("novarr.readinginfo")
 local Store = require("novarr.store")
@@ -59,6 +60,7 @@ local DEFAULTS = {
     auto_update_install = false,
     join_chapters = true,
     group_size = Groups.DEFAULT_SIZE,
+    position_prompt = true, -- ask to go to the latest place read on another device (position.lua)
 }
 
 local purgeSidecar -- defined with the removal functions below
@@ -93,6 +95,10 @@ function Session:init()
         log = log,
     })
     self:migrateSettings()
+    -- This device, as the server sees it (the "read on another device" question).
+    self.device_id, self.device_name = Position.identity(self.settings, {
+        model = Session.deviceModel(), random_bytes = Position.urandom,
+    })
     self.address = Address.new({
         probe = function(base) return self:probeAddress(base) end,
         now = nowMs,
@@ -140,10 +146,33 @@ function Session:migrateSettings()
     if changed then self.settings:flush() end
 end
 
+--- KOReader's model name of this device ("KindlePaperWhite5"), or nil.
+function Session.deviceModel()
+    local ok, Device = pcall(require, "device")
+    if not ok or type(Device) ~= "table" then return nil end
+    local okm, model = pcall(function() return Device.model end)
+    return okm and type(model) == "string" and model or nil
+end
+
+--[[--
+Sets this device's name (Settings): the cleaned name (Position.cleanName)
+is kept in the setting device_name; nothing left removes it (back to the
+model name). The API client sends the new name from the next request on.
+Returns the name in use.
+]]
+function Session:setDeviceName(text)
+    local name = Position.cleanName(text)
+    if name then self:set("device_name", name) else self:unset("device_name") end
+    self.device_id, self.device_name = Position.identity(self.settings, { model = Session.deviceModel() })
+    self:rebuildApi()
+    return self.device_name
+end
+
 --- Points the API client at the configured address(es); keeps the remembered active one.
 function Session:rebuildApi()
     self.address:configure(self:get("server_url"), self:get("server_url_away"), self:get("server_active"))
-    self.api = Api.new({ base_url = self:get("server_url"), router = self.address, log = log })
+    self.api = Api.new({ base_url = self:get("server_url"), router = self.address, log = log,
+        device = { id = self.device_id, name = self.device_name } })
 end
 
 --- Whether `base` answers as a Novarr server within the probe timeout (no Wi-Fi prompt).
@@ -427,13 +456,14 @@ end
 
 --[[--
 One tap on a novel (Home, Library): open its resume chapter straight away,
-or the Novel screen when there is nothing to resume.
+or the Novel screen when there is nothing to resume. Once it is open, the
+server is asked whether another device read further (position.lua).
 ]]
 function Session:openNovel(novel_id)
     local summary = self:novelSummary(novel_id) or { id = novel_id }
     local action, chapter_id = Model.tapTarget(summary, self:resumeChapter(novel_id, summary))
     if action == "open" then
-        return self:openChapter(novel_id, chapter_id)
+        return self:openChapter(novel_id, chapter_id, { check_position = true })
     end
     self:showNovel(novel_id)
 end
@@ -921,10 +951,19 @@ end
 --[[--
 Opens a chapter: the stored copy right away, else fetched (with the Wi-Fi
 prompt), else a clear message. opts.from_reader: called from the reader.
+opts.check_position: opened from Novarr's screens (a novel, Continue, the
+chapter list): asks first whether another device read further, or once
+connected (position.lua). Next/previous chapter while reading never asks.
 ]]
 function Session:openChapter(novel_id, chapter_id, opts)
     local UI = require("novarr.ui_common")
     opts = opts or {}
+    if opts.check_position and novel_id then
+        -- A fresh open from the screens: whatever was due before is replaced.
+        Position.clearDue(self)
+        -- The question is showing: its answer opens the reader (once).
+        if Position.beforeOpen(novel_id, chapter_id, opts) then return true end
+    end
     local path = novel_id and self.store:chapterPath(novel_id, chapter_id)
     if path and lfs.attributes(path, "mode") == "file" then
         self.opened_from_novarr = true
@@ -1024,7 +1063,14 @@ function Session:openJoined(novel_id, chapter_id, opts)
     local r = reader and reader.reading
     if r and r.group and r.novel_id == novel_id and r.group.index[chapter_id] then
         self:closeAllMenus()
-        require("novarr.reading").jumpTo(reader, chapter_id, { at_end = opts.at_end, resume = true })
+        local forced = Position.takeForced(self, novel_id, chapter_id)
+        if forced then
+            require("novarr.reading").goToProgress(reader, chapter_id, forced)
+        else
+            require("novarr.reading").jumpTo(reader, chapter_id, { at_end = opts.at_end, resume = true })
+        end
+        -- No document opens, so no onReady: a latest-position check due for this novel runs from here.
+        Position.chapterReady(novel_id, false)
         return true
     end
     local g, why = self:prepareGroup(novel_id, chapter_id)
@@ -1368,6 +1414,7 @@ function Session:setServer(url)
         self.store:clearHighlightMap()
         self.queue:clear()
         self:unset("last_sync_at")
+        self:unset("position_declined")
         for _i, novel_id in ipairs(self.store:novelsWithDownloads()) do
             self:removeNovelDownloads(novel_id)
         end
@@ -1665,7 +1712,10 @@ function Session:dumpState()
             update_available_build = self:get("update_available_build"),
             update_available_version = self:get("update_available_version"),
             update_checked_at = self:get("update_checked_at"),
+            position_prompt = self:get("position_prompt"),
+            device_name = self.settings:readSetting("device_name"),
         },
+        position = Position.dump(self),
         plugin = {
             version = Api.VERSION,
             dir = self.plugin_dir,

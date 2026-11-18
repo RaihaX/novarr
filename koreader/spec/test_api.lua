@@ -297,3 +297,104 @@ T.it("highlights list: GET with novel_id, page, per_page", function()
     T.eq(api:highlights(42, 2, 50).page, 2)
     T.eq(log[1].url, "http://h/api/v1/highlights?novel_id=42&page=2&per_page=50")
 end)
+
+-- ---------------------------------------------------------------- device headers (1.8.0)
+
+local DEVICE = { id = "k_AbCdEfGhIjKlMnOpQrStUv", name = "Kindle PaperWhite 5" }
+
+T.it("every write carries X-Novarr-Device and X-Novarr-Device-Name; bodies unchanged", function()
+    local transport, log = fake({ default = json(200, { success = true, highlight = { id = 3 } }) })
+    local api = Api.new({ base_url = "http://h", transport = transport, device = DEVICE })
+    api:sendWrite({ kind = "progress", chapter_id = 5, progress = 40 }, 12)
+    api:sendWrite({ kind = "set_read", chapter_id = 9, read = true }, 7)
+    api:sendWrite({ kind = "bulk_read", bulk = { read = true, scope = "all", novel_id = 2 } }, 8)
+    api:sendWrite({ kind = "highlight", chapter_id = 5, excerpt = "x", hkey = "k" }, 1)
+    T.eq(#log, 4)
+    for i = 1, 4 do
+        T.eq(log[i].headers["X-Novarr-Device"], DEVICE.id, "request " .. i)
+        T.eq(log[i].headers["X-Novarr-Device-Name"], "Kindle PaperWhite 5", "request " .. i)
+        T.contains(log[i].headers["User-Agent"], "NovarrKOReader/")
+    end
+    T.eq(Json.decode(log[1].body), { progress = 40, age = 12 })
+    T.eq(Json.decode(log[2].body), { read = true, age = 7 })
+end)
+
+T.it("reads do not carry the device headers", function()
+    local transport, log = fake({ json(200, { novels = {} }) })
+    local api = Api.new({ base_url = "http://h", transport = transport, device = DEVICE })
+    api:novels()
+    T.eq(log[1].headers["X-Novarr-Device"], nil)
+end)
+
+T.it("no device (or an invalid id): writes work as before, without the headers", function()
+    for _, device in ipairs({ false, { id = "short" }, { id = "bad id with spaces" } }) do
+        local transport, log = fake({ json(200, { success = true }) })
+        local api = Api.new({ base_url = "http://h", transport = transport, device = device or nil })
+        T.truthy(api:sendWrite({ kind = "progress", chapter_id = 5, progress = 40 }, 0))
+        T.eq(log[1].headers["X-Novarr-Device"], nil)
+        T.eq(log[1].headers["X-Novarr-Device-Name"], nil)
+    end
+end)
+
+T.it("device name header: printable ASCII, at most 40 characters, left out when empty", function()
+    local transport, log = fake({ default = json(200, { success = true }) })
+    local api = Api.new({ base_url = "http://h", transport = transport,
+        device = { id = DEVICE.id, name = "  Kindle\n" .. string.rep("x", 60) } })
+    api:sendWrite({ kind = "progress", chapter_id = 5, progress = 1 }, 0)
+    T.eq(log[1].headers["X-Novarr-Device-Name"], ("Kindle" .. string.rep("x", 60)):sub(1, 40))
+    api.device = { id = DEVICE.id, name = "\226\128\162" }
+    api:sendWrite({ kind = "progress", chapter_id = 5, progress = 1 }, 0)
+    T.eq(log[2].headers["X-Novarr-Device"], DEVICE.id)
+    T.eq(log[2].headers["X-Novarr-Device-Name"], nil)
+end)
+
+T.it("writes queued by 1.7.0 (no device in the entry) get the headers when replayed", function()
+    local Queue = require("novarr.queue")
+    local Sync = require("novarr.sync")
+    local saved = {
+        { kind = "progress", chapter_id = 5, novel_id = 1, progress = 30, at = 1000, seq = 1 },
+        { kind = "set_read", chapter_id = 6, novel_id = 1, read = true, at = 2000, seq = 2 },
+    }
+    local q = Queue.new({ load = function() return saved end, save = function() end, now = function() return 5000 end })
+    local transport, log = fake({ default = json(200, { success = true }) })
+    local api = Api.new({ base_url = "http://h", transport = transport, device = DEVICE })
+    local r = Sync.flush({ api = api, queue = q, now = function() return 5000 end })
+    T.eq(r.sent, 2)
+    T.eq(log[1].headers["X-Novarr-Device"], DEVICE.id)
+    T.eq(log[2].headers["X-Novarr-Device"], DEVICE.id)
+    T.eq(Json.decode(log[1].body), { progress = 30, age = 4000 })
+end)
+
+-- ---------------------------------------------------------------- latest position
+
+T.it("position: GET novels/{id}/position with a short timeout", function()
+    local p = { chapter_id = 123, chapter_label = "Chapter 124: The Gate", chapter_number = "124", progress = 40,
+        downloaded = true, device_id = "w_12345678", device_name = "iPhone", at = "2026-11-18T02:10:00+00:00",
+        age_seconds = 7200 }
+    local transport, log = fake({ json(200, { position = p }) })
+    local api = Api.new({ base_url = "http://h", transport = transport, device = DEVICE })
+    local got = api:position(7)
+    T.eq(log[1].method, "GET")
+    T.eq(log[1].url, "http://h/api/v1/novels/7/position")
+    T.truthy(log[1].block_timeout <= 3)
+    T.truthy(log[1].total_timeout <= 3)
+    T.eq(got.chapter_id, 123)
+    T.eq(got.age_seconds, 7200)
+end)
+
+T.it("position: null, an older server (404) -> false; offline / garbage -> nil, err", function()
+    local api = Api.new({ base_url = "http://h", transport = fake({ json(200, { position = Json.null }) }) })
+    T.eq(api:position(7), false)
+    api = Api.new({ base_url = "http://h", transport = fake({ { status = 404, headers = {}, body = '{"message":"Not Found"}' } }) })
+    T.eq(api:position(7), false)
+    api = Api.new({ base_url = "http://h", transport = fake({ "offline" }) })
+    local p, e = api:position(7)
+    T.eq(p, nil)
+    T.eq(e.kind, "offline")
+    api = Api.new({ base_url = "http://h", transport = fake({ json(200, { position = { chapter_id = "x" } }) }) })
+    p, e = api:position(7)
+    T.eq(p, nil)
+    T.eq(e.kind, "server")
+    api = Api.new({ base_url = "http://h", transport = fake({ { status = 500, headers = {}, body = "" } }) })
+    T.eq(api:position(7), nil)
+end)
