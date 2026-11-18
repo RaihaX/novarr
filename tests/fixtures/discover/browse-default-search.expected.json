@@ -12,7 +12,9 @@
                 "description": "Growing up in poverty. Sunny.",
                 "status": "Ongoing",
                 "chapters": 3207,
-                "in_library": true
+                "in_library": true,
+                "library_match": "source",
+                "novel_url": "http://localhost/novels/1"
             },
             {
                 "name": "Lord of the Mysteries",
@@ -22,7 +24,9 @@
                 "author": "Cuttlefish",
                 "description": "",
                 "status": "Completed",
-                "in_library": true
+                "in_library": true,
+                "library_match": "title",
+                "novel_url": "http://localhost/novels/5"
             },
             {
                 "name": "A Free Novel",
@@ -31,7 +35,9 @@
                 "cover_thumb": "",
                 "author": "Someone",
                 "description": "",
-                "in_library": true
+                "in_library": true,
+                "library_match": "source",
+                "novel_url": "http://localhost/novels/2"
             }
         ],
         "hidden": 0,

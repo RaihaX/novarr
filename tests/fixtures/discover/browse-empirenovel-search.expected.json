@@ -10,7 +10,9 @@
                 "author": "",
                 "description": "Growing up in poverty, Sunny never expected anything good from life. However, even he did not anticipate being chosen by the Nightmare Spell.",
                 "status": "Ongoing",
-                "in_library": false
+                "in_library": true,
+                "library_match": "title",
+                "novel_url": "http://localhost/novels/1"
             },
             {
                 "name": "Shadow Hunter",
@@ -19,7 +21,9 @@
                 "author": "",
                 "description": "A hunter & his shadow.",
                 "status": "Completed",
-                "in_library": true
+                "in_library": true,
+                "library_match": "source",
+                "novel_url": "http://localhost/novels/3"
             },
             {
                 "name": "No Summary",
@@ -27,7 +31,9 @@
                 "cover": "https://www.empirenovel.com/uploads/novel/no-summary/cover/cover_250x350.jpg",
                 "author": "",
                 "description": "",
-                "in_library": false
+                "in_library": false,
+                "library_match": null,
+                "novel_url": null
             }
         ],
         "hidden": 0,

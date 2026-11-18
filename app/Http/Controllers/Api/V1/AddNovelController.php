@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Helpers\CacheHelper;
 use App\Jobs\RunNovelCommand;
 use App\Novel;
-use App\Services\Discover;
+use App\Services\DuplicateSeries;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,24 +25,40 @@ use Illuminate\Support\Facades\Log;
  * {id}` on the `commands` queue, which does the same metadata, genre and
  * cover work for an existing novel. As on the web, the chapter list is not
  * scraped yet (POST /api/v1/novels/{id}/check does that).
+ *
+ * Duplicates (DuplicateSeries): the same source page answers the library
+ * novel (200, already_in_library: true), as before. The same title in the
+ * medium from another source answers 409 {message, duplicate: {id, title,
+ * source}}, unless the request carries force=1 (two works can share a title).
  */
 class AddNovelController extends Controller
 {
-    public function store(Request $request, Discover $discover): JsonResponse
+    public function store(Request $request, DuplicateSeries $duplicates): JsonResponse
     {
         $data = $request->validate([
             'title' => 'required|string|max:255',
             'url' => 'required|url|max:2048',
+            'force' => 'nullable|boolean',
         ]);
         $title = trim($data['title']);
         $url = trim($data['url']);
+        $force = $request->boolean('force');
 
         // The decision and the insert are made under one lock, so two taps
         // on "Add" cannot both create the novel.
         try {
-            $result = Cache::lock('api_add_novel_lock', 10)->block(5, fn() => $this->findOrCreate($discover, $title, $url));
+            $result = Cache::lock('api_add_novel_lock', 10)->block(5, fn() => $this->findOrCreate($duplicates, $title, $url, $force));
         } catch (LockTimeoutException) {
             return response()->json(['message' => 'Another novel is being added right now. Try again in a moment.'], 503);
+        }
+
+        if (isset($result['duplicate'])) {
+            Log::info('Refused to add a duplicate series from the API', ['title' => $title, 'url' => $url, 'existing' => $result['duplicate']->id]);
+
+            return response()->json([
+                'message' => DuplicateSeries::message($result['duplicate']),
+                'duplicate' => DuplicateSeries::describe($result['duplicate']),
+            ], 409);
         }
 
         if ($result['created']) {
@@ -61,25 +77,30 @@ class AddNovelController extends Controller
     }
 
     /**
-     * The library novel this title/URL already is (Discover's in-library
-     * match: source slug, URL, then name), else a new one saved as
-     * novel:create saves it.
+     * The library novel this URL already is (the same source page), else the
+     * series of the same title it would duplicate (unless forced), else a
+     * new one saved as novel:create saves it.
      *
-     * @return array{id: int, created: bool}
+     * @return array{id?: int, created?: bool, duplicate?: Novel}
      */
-    private function findOrCreate(Discover $discover, string $title, string $url): array
+    private function findOrCreate(DuplicateSeries $duplicates, string $title, string $url, bool $force): array
     {
-        $existing = $discover->match(['name' => $title, 'url' => $url], $discover->libraryIndex());
-        if ($existing !== null) {
-            return ['id' => $existing, 'created' => false];
+        // Novel or manga: decided once, by the source that claims the URL.
+        $medium = DuplicateSeries::mediumFor($url);
+
+        $existing = $duplicates->find($title, $medium, [], $url);
+        if ($existing !== null && $existing['by'] === DuplicateSeries::BY_SOURCE) {
+            return ['id' => (int) $existing['novel']->id, 'created' => false];
+        }
+        if ($existing !== null && !$force) {
+            return ['duplicate' => $existing['novel']];
         }
 
         $novel = new Novel();
         $novel->name = $title;
         $novel->translator_url = $url;
         $novel->group_id = 1;
-        // Novel or manga: decided once, by the source that claims the URL.
-        $novel->medium = \App\Sources\SourceResolver::forUrl($url)->medium();
+        $novel->medium = $medium;
         $novel->save();
         if (!$novel->isManga()) {
             $novel->inferOrigin();

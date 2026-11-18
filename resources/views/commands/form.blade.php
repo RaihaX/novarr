@@ -54,6 +54,14 @@
                         </div>
                     @endif
 
+                    @if(in_array('force', $config['params']))
+                        <div class="form-row form-check form-switch">
+                            <input type="checkbox" name="force" id="force" class="form-check-input" value="1">
+                            <label for="force" class="form-check-label">Add anyway</label>
+                            <div class="form-text">Add it even when a series with the same title is already in the library (two different works can share a title).</div>
+                        </div>
+                    @endif
+
                     @if(in_array('dry_run', $config['params']))
                         <div class="form-row form-check form-switch">
                             <input type="checkbox" name="dry_run" id="dry_run" class="form-check-input" value="1">

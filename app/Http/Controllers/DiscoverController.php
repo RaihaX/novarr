@@ -114,8 +114,11 @@ class DiscoverController extends Controller
             ], 502);
         }
 
-        // The page only needs the in_library flag.
+        // A library item links to the series it is (`novel_url`); how it
+        // matched (`library_match`: "source" or "title") decides whether the
+        // page offers "Add anyway" (only for a title match from another source).
         $items = array_map(function (array $item) {
+            $item['novel_url'] = $item['novel_id'] !== null ? route('novels.show', $item['novel_id']) : null;
             unset($item['novel_id']);
             return $item;
         }, $result['items']);

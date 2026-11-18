@@ -7,6 +7,7 @@ use App\NovelChapter;
 use App\Http\Helpers\CacheHelper;
 use App\Http\Helpers\LibraryMedium;
 use App\Console\Commands\GenerateePub;
+use App\Services\DuplicateSeries;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -770,7 +771,27 @@ class NovelController extends Controller
             'language_id' => 'nullable|integer|exists:languages,id',
             'unique_id' => 'nullable|string|max:255',
             'image' => 'nullable|image|max:10240',
+            'force' => 'nullable|boolean',
         ]);
+
+        // Already in the library (DuplicateSeries)? Back to the form, which
+        // names and links the existing series. A title match can be added
+        // anyway (force — two works can share a title); the same source
+        // page cannot.
+        $medium = $request->filled('translator_url')
+            ? \App\Sources\SourceResolver::forUrl((string) $request->translator_url)->medium()
+            : Novel::MEDIUM_NOVEL;
+        $existing = app(DuplicateSeries::class)->find((string) $request->name, $medium, [], $request->input('translator_url'));
+        if ($existing !== null && ($existing['by'] === DuplicateSeries::BY_SOURCE || !$request->boolean('force'))) {
+            $novel = $existing['novel'];
+
+            return redirect()->route('novels.create', ['medium' => $medium])
+                ->withInput($request->except(['image', 'force']))
+                ->with('duplicate', DuplicateSeries::describe($novel) + [
+                    'url' => route('novels.show', $novel->id),
+                    'match' => $existing['by'],
+                ]);
+        }
 
         $object = $this->novels;
 

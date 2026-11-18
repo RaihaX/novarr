@@ -34,6 +34,21 @@
         </div>
     @endif
 
+    {{-- Refused as a duplicate (DuplicateSeries): name and link the existing series. --}}
+    @php($duplicate = session('duplicate'))
+    @if($duplicate)
+        <div class="alert alert-warning" id="duplicateSeries" role="alert">
+            <p class="mb-1">
+                <a href="{{ $duplicate['url'] }}">“{{ $duplicate['title'] }}”</a> is already in your library{{ $duplicate['source'] ? ' (from ' . $duplicate['source'] . ')' : '' }}.
+            </p>
+            @if($duplicate['match'] === \App\Services\DuplicateSeries::BY_TITLE)
+                <p class="mb-0">If this is a different work with the same title, choose <strong>Add anyway</strong>.</p>
+            @else
+                <p class="mb-0">It has the same source URL, so it was not added again.</p>
+            @endif
+        </div>
+    @endif
+
     <form method="POST" action="{{ route('novels.store') }}" enctype="multipart/form-data">
         @csrf
 
@@ -73,16 +88,16 @@
                         <label for="status" class="form-label">Status</label>
                         <select name="status" id="status" class="form-select">
                             <option value="0">Active</option>
-                            <option value="1">Completed</option>
+                            <option value="1" @selected(old('status') == '1')>Completed</option>
                         </select>
                     </div>
                     <div class="field field-third">
                         <label for="no_of_chapters" class="form-label">Total chapters</label>
-                        <input type="number" name="no_of_chapters" id="no_of_chapters" class="form-control" value="0" min="0">
+                        <input type="number" name="no_of_chapters" id="no_of_chapters" class="form-control" value="{{ old('no_of_chapters', 0) }}" min="0">
                     </div>
                     <div class="field field-third">
                         <label class="form-label">Tags</label>
-                        @include('partials.tag-picker', ['selectedIds' => []])
+                        @include('partials.tag-picker', ['selectedIds' => array_map('intval', (array) old('tags', []))])
                     </div>
                     <div class="field field-full">
                         <label for="translator_url" class="form-label">Translator URL</label>
@@ -94,6 +109,12 @@
 
             <div class="novel-form-actions">
                 <button type="submit" class="btn btn-primary">Create novel</button>
+                @if($duplicate)
+                    <a href="{{ $duplicate['url'] }}" class="btn btn-secondary">Open existing</a>
+                    @if($duplicate['match'] === \App\Services\DuplicateSeries::BY_TITLE)
+                        <button type="submit" name="force" value="1" class="btn btn-secondary" id="addAnyway">Add anyway</button>
+                    @endif
+                @endif
                 <a href="{{ $libraryUrl }}" class="btn btn-secondary">Cancel</a>
             </div>
         </div>

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Novel;
+use App\Services\DuplicateSeries;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
@@ -103,7 +104,8 @@ class CommandController extends Controller
             'name' => 'Create Novel',
             'description' => 'Create a new novel from URL',
             'command' => 'novel:create',
-            'params' => ['name', 'url'],
+            // force: add even when a series of the same title is in the library.
+            'params' => ['name', 'url', 'force'],
         ],
         'queue_health' => [
             'name' => 'Queue Health Check',
@@ -148,6 +150,10 @@ class CommandController extends Controller
             return $error;
         }
 
+        if ($error = $this->duplicateSeriesError($commandConfig, $request)) {
+            return $error;
+        }
+
         $artisanCommand = $commandConfig['command'];
         $params = $this->buildParams($request, $commandConfig);
 
@@ -186,6 +192,11 @@ class CommandController extends Controller
         }
 
         if ($error = $this->missingNovelError($this->commands[$command], $request->input('novel_id'))) {
+            return $error;
+        }
+
+        // Before the rate limit: a refused duplicate queues nothing.
+        if ($error = $this->duplicateSeriesError($this->commands[$command], $request)) {
             return $error;
         }
 
@@ -232,6 +243,9 @@ class CommandController extends Controller
         }
         if (in_array('dedupe', $commandConfig['params']) && $request->boolean('dedupe')) {
             $params['--dedupe'] = true;
+        }
+        if (in_array('force', $commandConfig['params']) && $request->boolean('force')) {
+            $params['--force'] = true;
         }
 
         Log::info("Queuing async command: {$artisanCommand}", ['job_id' => $jobId, 'params' => $params]);
@@ -281,8 +295,48 @@ class CommandController extends Controller
         if (in_array('dedupe', $commandConfig['params']) && $request->boolean('dedupe')) {
             $params['--dedupe'] = true;
         }
+        if (in_array('force', $commandConfig['params']) && $request->boolean('force')) {
+            $params['--force'] = true;
+        }
 
         return $params;
+    }
+
+    /**
+     * novel:create refuses a series already in the library (DuplicateSeries)
+     * before anything runs or is queued: 409 naming the existing series,
+     * with `duplicate` {id, title, source, url, match}. A title match
+     * ("title") may be added anyway with force=1; the same source page
+     * ("source") never is.
+     */
+    protected function duplicateSeriesError(array $commandConfig, Request $request): ?\Illuminate\Http\JsonResponse
+    {
+        if ($commandConfig['command'] !== 'novel:create') {
+            return null;
+        }
+
+        $name = trim((string) $request->input('name', ''));
+        $url = trim((string) $request->input('url', ''));
+        if ($name === '') {
+            return null;
+        }
+
+        $existing = app(DuplicateSeries::class)->find($name, DuplicateSeries::mediumFor($url), [], $url);
+        if ($existing === null || ($existing['by'] === DuplicateSeries::BY_TITLE && $request->boolean('force'))) {
+            return null;
+        }
+
+        $novel = $existing['novel'];
+        Log::info('Refused to add a series already in the library', ['name' => $name, 'url' => $url, 'existing' => $novel->id, 'by' => $existing['by']]);
+
+        return response()->json([
+            'success' => false,
+            'message' => DuplicateSeries::message($novel),
+            'duplicate' => DuplicateSeries::describe($novel) + [
+                'url' => route('novels.show', $novel->id),
+                'match' => $existing['by'],
+            ],
+        ], 409);
     }
 
     /**

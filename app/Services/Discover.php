@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Novel;
 use App\Sources\PagedDiscover;
 use App\Sources\Source;
 use App\Sources\SourceResolver;
@@ -154,13 +153,21 @@ class Discover
         return ['items' => $this->decorate($source, $result['items']), 'has_more' => (bool) $result['has_more']];
     }
 
-    /** Library flags and proxied covers on a source's items (see results()). */
+    /**
+     * Library flags and proxied covers on a source's items (see results()).
+     * The library is read once for the whole list (libraryIndex()), so
+     * marking a page of results is one query. `library_match` says how an
+     * item matched: "source" (the same page) or "title" (the same title of
+     * the medium, from any source) — DuplicateSeries.
+     */
     private function decorate(Source $source, array $items): array
     {
         $library = $this->libraryIndex();
         foreach ($items as &$item) {
-            $item['novel_id'] = $this->match($item, $library, $source->medium());
+            $match = $this->libraryMatch($item, $library, $source->medium());
+            $item['novel_id'] = $match['id'] ?? null;
             $item['in_library'] = $item['novel_id'] !== null;
+            $item['library_match'] = $match['by'] ?? null;
             // A host that refuses hotlinked images: the cover comes through
             // Novarr (after the source's cache read, so the URL is built on
             // this request's origin).
@@ -176,74 +183,40 @@ class Discover
     }
 
     /**
-     * Library lookup sets, each mapping a key to a novel id: per-source slugs
-     * (Source::librarySlug() — for NovelPing either host, legacy novelbin
-     * too), normalised URLs for other sources, normalised names. The first
-     * (lowest id) novel wins a shared key.
+     * The library in one query, for any number of match() calls: per-source
+     * slugs, normalised URLs and normalised titles per medium
+     * (DuplicateSeries::index()).
      *
-     * Names are kept per medium too (`names_by_medium`), so a manga is never
-     * matched to the novel of the same name (and the other way round).
-     *
-     * @return array{slugs: array<string, array<string, int>>, urls: array<string, int>, names: array<string, int>, names_by_medium: array<string, array<string, int>>}
+     * @return array{slugs: array<string, array<string, int>>, urls: array<string, int>, titles: array<string, array<string, int>>}
      */
     public function libraryIndex(): array
     {
-        $index = ['slugs' => [], 'urls' => [], 'names' => [], 'names_by_medium' => []];
-        $sources = SourceResolver::all();
-
-        foreach (Novel::query()->orderBy('id')->get(['id', 'name', 'translator_url', 'medium']) as $novel) {
-            $id = (int) $novel->id;
-            $url = (string) $novel->translator_url;
-            if ($url !== '') {
-                $index['urls'][self::normalizeUrl($url)] ??= $id;
-                foreach ($sources as $key => $source) {
-                    if (($slug = $source->librarySlug($url, stored: true)) !== null) {
-                        $index['slugs'][$key][$slug] ??= $id;
-                    }
-                }
-            }
-            $name = self::normalizeName((string) $novel->name);
-            if ($name !== '') {
-                $index['names'][$name] ??= $id;
-                $index['names_by_medium'][(string) ($novel->medium ?: Novel::MEDIUM_NOVEL)][$name] ??= $id;
-            }
-        }
-
-        return $index;
+        return app(DuplicateSeries::class)->index();
     }
 
     /**
-     * The library novel a result item (['name', 'url', …]) is, by slug, then
-     * URL, then name; null when it isn't in the library. With $medium the
-     * name match only looks at novels of that medium (the item's URL decides
-     * it when not given).
+     * The library novel a result item (['name', 'url', optional
+     * 'alt_titles', …]) is: the same source page, else the same title in
+     * the medium (DuplicateSeries::match()); null when it isn't in the
+     * library. The item URL's source decides the medium when not given.
      */
     public function match(array $item, array $library, ?string $medium = null): ?int
     {
+        return $this->libraryMatch($item, $library, $medium)['id'] ?? null;
+    }
+
+    /**
+     * match() and how it matched.
+     *
+     * @return ?array{id: int, by: string}
+     */
+    public function libraryMatch(array $item, array $library, ?string $medium = null): ?array
+    {
         $url = (string) ($item['url'] ?? '');
-        if ($url !== '') {
-            foreach ($library['slugs'] as $key => $slugs) {
-                $slug = SourceResolver::get($key)?->librarySlug($url);
-                if ($slug !== null && isset($slugs[$slug])) {
-                    return $slugs[$slug];
-                }
-            }
-            if (isset($library['urls'][self::normalizeUrl($url)])) {
-                return $library['urls'][self::normalizeUrl($url)];
-            }
-        }
-
-        $name = self::normalizeName((string) ($item['name'] ?? ''));
-        if ($name === '') {
-            return null;
-        }
-
         $medium ??= $url !== '' ? SourceResolver::forUrl($url)->medium() : null;
-        if ($medium !== null && isset($library['names_by_medium'])) {
-            return $library['names_by_medium'][$medium][$name] ?? null;
-        }
+        $titles = array_merge([(string) ($item['name'] ?? '')], array_map('strval', (array) ($item['alt_titles'] ?? [])));
 
-        return $library['names'][$name] ?? null;
+        return app(DuplicateSeries::class)->match($library, $medium, $titles, $url);
     }
 
     /** Scheme, "www.", case and a trailing "/" or "_" don't make a different novel. */

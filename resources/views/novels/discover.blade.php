@@ -397,7 +397,11 @@
 
         const btn = card.querySelector('.disc-add');
         if (item.in_library) {
-            markAdded(btn, 'In library');
+            // Already in the library, from this source or (same title)
+            // another one: link to that series. A title match may still be a
+            // different work, so it can be added anyway.
+            markAdded(btn, 'In library', item.novel_url || null);
+            if (item.library_match === 'title') addAnywayButton(card, item);
         } else {
             btn.setAttribute('aria-label', `Add ${item.name} to library`);
             btn.title = 'Add to library';
@@ -442,7 +446,33 @@
         el.querySelector('.disc-add-label').textContent = label;
     }
 
-    async function addNovel(btn, item) {
+    // "Add anyway" under a result whose title is already in the library
+    // from another source: asks first, then adds with force.
+    function addAnywayButton(card, item) {
+        const meta = card.querySelector('.disc-meta');
+        const anyway = document.createElement('button');
+        anyway.type = 'button';
+        anyway.className = 'disc-more disc-add-anyway';
+        anyway.textContent = 'Add anyway';
+        anyway.title = `A series titled like “${item.name}” is already in your library`;
+        anyway.addEventListener('click', async () => {
+            const ok = await Novarr.confirmDialog(
+                `A series titled like “${item.name}” is already in your library. Add this one as well? Only do this if it is a different work.`,
+                { title: 'Already in your library', confirmText: 'Add anyway' }
+            );
+            if (!ok) return;
+            const btn = card.querySelector('.disc-add');
+            const fresh = document.createElement('button');
+            fresh.type = 'button';
+            fresh.className = 'disc-add';
+            btn.replaceWith(fresh);
+            anyway.remove();
+            addNovel(fresh, item, true);
+        });
+        meta.after(anyway);
+    }
+
+    async function addNovel(btn, item, force = false) {
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span class="disc-add-label">Adding…</span>';
 
@@ -456,7 +486,35 @@
                 command: 'create_novel',
                 name: item.name,
                 url: item.url,
+                ...(force ? { force: 1 } : {}),
             });
+
+            // Refused before queueing: the series is already in the library
+            // (the same page, or the same title from another source).
+            if (result.duplicate) {
+                const dup = result.duplicate;
+                if (dup.match === 'title' && !force) {
+                    const ok = await Novarr.confirmDialog(
+                        `${result.message} Add “${item.name}” anyway? Only do this if it is a different work.`,
+                        { title: 'Already in your library', confirmText: 'Add anyway', cancelText: 'Keep existing' }
+                    );
+                    if (ok) {
+                        addNovel(btn, item, true);
+                        return;
+                    }
+                }
+                markAdded(btn, 'In library', dup.url);
+                Novarr.showToast(result.message, 'warning');
+                return;
+            }
+
+            // novel:create skipped it after all (added meanwhile).
+            const skipped = (result.output || '').match(/Skipped:.*Existing ID:\s*(\d+)/);
+            if (skipped) {
+                markAdded(btn, 'In library', `/novels/${skipped[1]}`);
+                Novarr.showToast(`"${item.name}" is already in your library.`, 'warning');
+                return;
+            }
 
             if (result.success && !(result.output || '').includes('cancelled')) {
                 // Command prints "New Novel ID: 70" — link straight to it.
