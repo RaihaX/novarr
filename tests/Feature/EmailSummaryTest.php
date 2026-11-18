@@ -7,6 +7,7 @@ use App\Mail\NewChapters;
 use App\Novel;
 use App\NovelChapter;
 use App\Setting;
+use App\Sources\SuwayomiSource;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -257,5 +258,117 @@ class EmailSummaryTest extends TestCase
 
             return true;
         });
+    }
+
+    /** A Suwayomi manga on source $sourceRef (the server URL is set for the test; no request is made). */
+    private function manga(string $name, int $mangaId, string $sourceRef = '1234567890'): Novel
+    {
+        config(['novarr.suwayomi.url' => 'http://suwayomi.test:4567']);
+        $novel = $this->novel($name, [
+            'translator_url' => SuwayomiSource::seriesUrl($mangaId),
+            'source_ref' => $sourceRef,
+        ]);
+        $novel->forceFill(['medium' => Novel::MEDIUM_MANGA])->save();
+
+        return $novel;
+    }
+
+    public function test_manga_get_their_own_section_and_figures(): void
+    {
+        Mail::fake();
+        $s = $this->seedLibrary();
+        $one = $this->manga('One Punch Scroll', 10);
+        foreach ([20, 21, 22] as $n) {
+            $this->chapter($one, $n, now()->subHour());
+        }
+        $two = $this->manga('Two Blade Comic', 11);
+        $this->chapter($two, 5, now()->subHour());
+
+        $this->artisan('novel:email-summary')->assertSuccessful();
+
+        Mail::assertSent(NewChapters::class, function (NewChapters $mail) use ($s, $one, $two) {
+            $mail->assertHasSubject('Novarr · 10 new chapters in 2 novels and 2 manga · 1 completed · 1 needs attention');
+
+            $view = $mail->viewData();
+            $this->assertSame(['Alpha Saga', 'Beta Chronicle'], array_column($view['novels'], 'name'));
+            $this->assertSame(['One Punch Scroll', 'Two Blade Comic'], array_column($view['manga'], 'name'));
+            $this->assertSame(['manga', 'manga'], array_column($view['manga'], 'medium'));
+            $this->assertSame(0, $view['more_manga']);
+            $this->assertSame(10, $view['stats']['new_chapters']);
+            $this->assertSame(2, $view['stats']['novels_updated']);
+            $this->assertSame(2, $view['stats']['manga_updated']);
+            $this->assertSame(4, $view['stats']['manga_chapters']);
+
+            // The lane label names the source, not the server's host; no "Manga" origin tag.
+            $this->assertSame('Suwayomi · #1234567890', $view['manga'][0]['source']);
+            $this->assertNull($view['manga'][0]['origin']);
+            // Manga rows are enriched too.
+            $this->assertSame(0, $view['manga'][0]['percent']);
+            $this->assertSame(20.0, $view['manga'][0]['read_from']);
+
+            $html = $mail->render();
+            $this->assertSame(4, substr_count($html, 'data-novel-row='));
+            $this->assertStringContainsString('6 IN 2 NOVELS', $html);
+            $this->assertStringContainsString('4 IN 2 MANGA', $html);
+            $this->assertStringContainsString('Manga updated', $html);
+            $this->assertStringContainsString('Suwayomi · #1234567890', $html);
+            $this->assertStringNotContainsString('suwayomi.test', $html);
+            $manga = strpos($html, '>Manga</td>');
+            $this->assertNotFalse($manga);
+            $this->assertLessThan($manga, strpos($html, 'data-novel-row="' . $s['beta']->id . '"'));
+            $this->assertGreaterThan($manga, strpos($html, 'data-novel-row="' . $one->id . '"'));
+            $this->assertGreaterThan($manga, strpos($html, 'data-novel-row="' . $two->id . '"'));
+
+            $mail->assertSeeInText('Manga updated: 2');
+            $mail->assertSeeInText("MANGA\n\n- One Punch Scroll");
+
+            return true;
+        });
+    }
+
+    public function test_a_manga_only_day_is_news(): void
+    {
+        Mail::fake();
+        Setting::put('summary_email', 'reader@example.test');
+        $this->seedAttention([]);
+        $this->chapter($this->manga('Solo Manga', 12), 1, now()->subHour());
+
+        $this->artisan('novel:email-summary')->assertSuccessful();
+
+        Mail::assertSent(NewChapters::class, function (NewChapters $mail) {
+            $mail->assertHasSubject('Novarr · 1 new chapter in 1 manga');
+            $html = $mail->render();
+            $this->assertStringNotContainsString('New chapters</td>', $html);
+            $this->assertStringContainsString('>Manga</td>', $html);
+            $this->assertStringContainsString('1 IN 1 MANGA', $html);
+            $this->assertStringNotContainsString('Nothing new in this period', $html);
+            $mail->assertDontSeeInText('NEW CHAPTERS');
+            $mail->assertSeeInText('Solo Manga');
+
+            return true;
+        });
+    }
+
+    public function test_manga_rows_without_stats_are_split_and_counted(): void
+    {
+        $row = fn(string $name, ?string $medium, int $count) => array_filter([
+            'id' => null, 'name' => $name, 'url' => null, 'source' => null, 'medium' => $medium,
+            'count' => $count, 'notes' => 0, 'first' => 1.0, 'last' => (float) $count,
+            'percent' => null, 'read_from' => null, 'read_from_url' => null,
+        ], fn($v, $k) => $k !== 'medium' || $v !== null, ARRAY_FILTER_USE_BOTH);
+
+        $mail = new NewChapters([
+            'since' => now()->subDay(), 'chapters' => [], 'completed' => [], 'attention' => [],
+            'novels' => [$row('Old Caller Novel', null, 3), $row('Some Manga', 'manga', 2)],
+        ]);
+
+        $view = $mail->viewData();
+        $this->assertSame(['Old Caller Novel'], array_column($view['novels'], 'name'));
+        $this->assertSame(['Some Manga'], array_column($view['manga'], 'name'));
+        $this->assertSame(1, $view['stats']['novels_updated']);
+        $this->assertSame(1, $view['stats']['manga_updated']);
+        $this->assertSame(2, $view['stats']['manga_chapters']);
+        $mail->render();
+        $mail->assertHasSubject('Novarr · 5 new chapters in 1 novel and 1 manga');
     }
 }
