@@ -54,8 +54,18 @@ function Settings.askServer(session, on_saved)
             local function save()
                 UIManager:close(dialog)
                 session:setServer(url)
+                -- Whether this server needs sign-in (auth.lua): kept for it.
+                session:noteMeta(meta)
                 UI.notify(T(_("Connected to Novarr at %1"), url))
                 if on_saved then Session.guard(on_saved) end
+                if session:needsLink() then
+                    UI.confirm({
+                        text = _("This Novarr server needs sign-in. Link this Kindle to your account now?"),
+                        ok_text = _("Link this Kindle"),
+                        cancel_text = _("Later"),
+                        ok = function() require("novarr.ui_auth").link(session, function() session:refreshScreens() end) end,
+                    })
+                end
             end
             local old = session:serverUrl()
             local same_server = url == session:get("server_url_away")
@@ -129,6 +139,7 @@ function Settings.askAwayServer(session, on_saved)
             closer()
             if meta then
                 done(dialog, url)
+                session:noteMeta(meta) -- the same server: what it says about sign-in holds
             elseif e.kind == "offline" then
                 saveAnyway(T(_("Couldn't reach a server at %1 right now."), url))
             else
@@ -194,6 +205,29 @@ function Settings:items()
             select_enabled = false,
             callback = function() end,
         })
+    end
+    -- The account (only when the server requires sign-in: auth.lua's accountRows).
+    local UIAuth = require("novarr.ui_auth")
+    for _i, row in ipairs(require("novarr.auth").accountRows(s.settings, s:serverUrl())) do
+        if row.id == "link" then
+            table.insert(items, {
+                text = _("Link this Kindle"),
+                mandatory = _("not linked"),
+                bold = true,
+                callback = function() UIAuth.link(s, function() self:rebuild() end) end,
+            })
+        elseif row.id == "account" then
+            table.insert(items, {
+                text = T(_("Account: %1"), row.name or _("linked")),
+                mandatory = row.role == "reader" and _("reader") or nil,
+                callback = function() UIAuth.showAccount(s) end,
+            })
+        elseif row.id == "unlink" then
+            table.insert(items, {
+                text = _("Unlink this Kindle"),
+                callback = function() UIAuth.unlink(s, function() self:rebuild() end) end,
+            })
+        end
     end
     local prefetch = tonumber(s:get("prefetch")) or 0
     table.insert(items, {

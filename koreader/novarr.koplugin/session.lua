@@ -18,6 +18,7 @@ local T = require("ffi/util").template
 
 local Address = require("novarr.address")
 local Api = require("novarr.api")
+local Auth = require("novarr.auth")
 local ChapterDoc = require("novarr.chapterdoc")
 local Groups = require("novarr.groups")
 local Json = require("novarr.json")
@@ -172,7 +173,13 @@ end
 function Session:rebuildApi()
     self.address:configure(self:get("server_url"), self:get("server_url_away"), self:get("server_active"))
     self.api = Api.new({ base_url = self:get("server_url"), router = self.address, log = log,
-        device = { id = self.device_id, name = self.device_name } })
+        device = { id = self.device_id, name = self.device_name },
+        -- The token is read at each request: linking or unlinking needs no rebuild.
+        auth = {
+            token = function() return self:authToken() end,
+            blocked = function() return self:needsLink() end,
+            on_unauthenticated = function(e) self:onUnauthenticated(e) end,
+        } })
 end
 
 --- Whether `base` answers as a Novarr server within the probe timeout (no Wi-Fi prompt).
@@ -180,7 +187,138 @@ function Session:probeAddress(base)
     if not base or Api.isOffline() then return false end
     local api = Api.new({ base_url = base, log = log })
     local meta = api:meta({ block_timeout = Address.PROBE_TIMEOUT, total_timeout = Address.PROBE_TIMEOUT })
+    -- Both addresses are this server: what it says about sign-in is kept.
+    if meta then self:noteMeta(meta) end
     return meta ~= nil
+end
+
+-- ---------------------------------------------------------------- account (auth.lua)
+
+--- The bearer token held for this server, or nil.
+function Session:authToken()
+    return Auth.token(self.settings, self:serverUrl())
+end
+
+--- The linked account {id, name, username, role}, or nil.
+function Session:authUser()
+    return Auth.user(self.settings, self:serverUrl())
+end
+
+--- Whether this server requires sign-in (meta said so, or a 401 came).
+function Session:authRequired()
+    return Auth.required(self.settings, self:serverUrl())
+end
+
+--- Sign-in required and no token: nothing is sent until this Kindle is linked.
+function Session:needsLink()
+    return Auth.needsLink(self.settings, self:serverUrl())
+end
+
+--- "admin" or "reader" ("admin" whenever sign-in is not required).
+function Session:role()
+    return Auth.role(self.settings, self:serverUrl())
+end
+
+function Session:allows(action)
+    return Auth.allows(self:role(), action)
+end
+
+--[[--
+/api/v1/meta of this server answered: keeps whether sign-in is required.
+No longer required: nothing is blocked any more (a held token is kept, and
+still sent).
+]]
+function Session:noteMeta(meta)
+    local server = self:serverUrl()
+    if not server then return end
+    if Auth.setRequired(self.settings, server, Auth.requiredFromMeta(meta)) then
+        log("Novarr: the server " .. (Auth.requiredFromMeta(meta) and "requires" or "does not require") .. " sign-in")
+    end
+end
+
+--[[--
+Asks this server's meta (short timeouts) when sign-in is not known yet, or
+while this Kindle is blocked waiting to be linked (the server may have
+switched sign-in off). Called by user actions only (Home's refresh, Link).
+Returns meta or nil.
+]]
+function Session:refreshAuthState(force)
+    local server = self:serverUrl()
+    if not server then return nil end
+    if not force and Auth.known(self.settings, server) and not self:needsLink() then return nil end
+    local meta = self.api:meta({ block_timeout = 5, total_timeout = 8 })
+    if meta then self:noteMeta(meta) end
+    return meta
+end
+
+--[[--
+A 401 from Novarr (api.lua's on_unauthenticated): the token is forgotten,
+sign-in is marked required (so nothing more is sent until linked: no retry
+storm), the queue is left as it is, and the user is told once, a moment
+later, with a way to link (unless an error message already said it:
+errorText marks that).
+]]
+function Session:onUnauthenticated(e)
+    local server = self:serverUrl()
+    if not server then return end
+    local had = Auth.forget(self.settings, server)
+    Auth.setRequired(self.settings, server, true)
+    log("Novarr: the server answered 401" .. (had and ", forgetting the token" or "") ..
+        (e and e.message and (": " .. e.message) or "") .. "; nothing is sent until this Kindle is linked again")
+    if self.auth_told then return end
+    if not self.auth_notice_task then
+        self.auth_notice_task = function()
+            Session.guard(function()
+                if self.auth_told or not self:needsLink() then return end
+                if Session.asleep then
+                    UIManager:scheduleIn(30, self.auth_notice_task)
+                    return
+                end
+                self.auth_told = true
+                self:refreshScreens()
+                require("novarr.ui_auth").notifyUnlinked(self)
+            end)
+        end
+    end
+    UIManager:unschedule(self.auth_notice_task)
+    UIManager:scheduleIn(1, self.auth_notice_task)
+end
+
+--- Linked (pairing): keeps the token and the account, then sends what waited.
+function Session:linked(token, user)
+    Auth.link(self.settings, self:serverUrl(), token, user)
+    self.auth_told = false
+    log("Novarr: linked to the account of " .. tostring(user and user.name))
+    self:refreshScreens()
+    if self.queue:count() > 0 then self:flushSoon(1) end
+end
+
+--[[--
+Unlink: DELETE /auth/token (best effort, only when connected; its answer
+does not matter), then the token is forgotten here. Sign-in stays required,
+so nothing is sent until this Kindle is linked again.
+]]
+function Session:unlink()
+    if self:authToken() and self:isConnected() then
+        local _ok, e = self.api:revokeToken()
+        if e then log("Novarr: revoking the token on the server failed (" .. tostring(e.kind) .. "), forgetting it here anyway") end
+    end
+    Auth.forget(self.settings, self:serverUrl())
+    self.auth_told = true -- the user did it: no "not linked" notice
+    self:refreshScreens()
+end
+
+--[[--
+Headers for a URL the server gave (the EPUB download): the bearer token,
+only when the URL is on one of this server's addresses (never sent
+anywhere else). Returns a table (empty without a token).
+]]
+function Session:authHeadersFor(url)
+    local bearer = Auth.bearer(self:authToken())
+    if bearer and self.address and type(url) == "string" and self.address:owns(url) then
+        return { ["Authorization"] = bearer }
+    end
+    return {}
 end
 
 --- The address requests use now (the home one unless a second one is set and in use).
@@ -283,6 +421,14 @@ function Session:errorText(e)
         return T(_("%1 answered, but it isn't a Novarr server (or its API isn't available)."), server)
     elseif kind == "not_found" then
         return _("The server doesn't know this item any more (it may have been removed).")
+    elseif kind == "unauthenticated" then
+        -- The message says how to link: the "not linked" notice is not needed any more.
+        self.auth_told = true
+        return _("This Kindle isn't linked to your Novarr account (or the link was removed).\n\nLink it in Novarr → Settings → Link this Kindle. Your reading on this Kindle is kept and sent once it is linked.")
+    elseif kind == "forbidden" then
+        return e.message or _("Your Novarr account isn't allowed to do this.")
+    elseif kind == "server" and e.message == "login page" then
+        return _("The Novarr server sent an answer that doesn't make sense. Is something else (a login page or a proxy) in the way?")
     elseif kind == "invalid" then
         if e.message then
             return T(_("The server refused the request: %1"), e.message)
@@ -597,6 +743,11 @@ function Session:flushQueue(max_entries)
     if self.queue:count() == 0 then
         return { sent = 0, dropped = 0, remaining = 0 }
     end
+    -- Not linked: nothing can be sent; the writes wait (no request at all).
+    if self:needsLink() then
+        return { sent = 0, dropped = 0, remaining = self.queue:count(), stalled = true,
+            error = Api.err("unauthenticated", nil, "not linked") }
+    end
     local r = Sync.flush({ api = self.api, queue = self.queue, store = self.store, now = nowMs, log = log,
         max_entries = max_entries, on_sent = function(entry, data) self:writeSent(entry, data) end })
     local done = (r.sent or 0) + (r.dropped or 0)
@@ -704,7 +855,7 @@ end
 
 --- Sends pending writes in a few seconds when already connected (never prompts).
 function Session:flushSoon(delay)
-    if not self:isConnected() then return end
+    if not self:isConnected() or self:needsLink() then return end
     if not self.flush_soon_task then
         self.flush_soon_task = function()
             Session.guard(function()
@@ -724,6 +875,11 @@ end
 function Session:syncNow(done)
     local UI = require("novarr.ui_common")
     if not self:serverUrl() then return end
+    if self:needsLink() then
+        -- Nothing can be sent before this Kindle is linked: offer that instead.
+        require("novarr.ui_auth").offerLink(self, done)
+        return
+    end
     local function run()
         local closer = UI.loading(_("Syncing with Novarr…"))
         -- The user tapped Sync: is the home address back?
@@ -750,6 +906,8 @@ end
 --- Quiet background flush: only when already connected, never prompts.
 function Session:quietFlush(max_entries)
     if self.queue:count() == 0 or not self:serverUrl() or not self:isConnected() then return end
+    -- Not linked: background syncs stop until it is (the queue is kept).
+    if self:needsLink() then return end
     local r = self:flushQueue(max_entries or 50)
     log(string.format("Novarr: background sync sent %d, dropped %d, %d left", r.sent or 0, r.dropped or 0, r.remaining or 0))
     return r
@@ -1407,7 +1565,12 @@ function Session:setServer(url)
     if away and away == url then
         -- The second address becomes the home one: the same server, nothing is cleared.
         self:unset("server_url_away")
+        -- The account link is the same server's: it follows the home address.
+        Auth.moveServer(self.settings, old, url)
     elseif old and old ~= url then
+        -- A different server: its account link (and whether it needs one) is not this one's.
+        Auth.clear(self.settings)
+        self.auth_told = false
         self.store:clearCache()
         self.store:clearOverlays()
         self.store:clearStats()
@@ -1716,6 +1879,12 @@ function Session:dumpState()
             device_name = self.settings:readSetting("device_name"),
         },
         position = Position.dump(self),
+        -- Never the token itself.
+        auth = (function()
+            local u = self:authUser()
+            return { required = self:authRequired(), linked = self:authToken() ~= nil, needs_link = self:needsLink(),
+                role = self:role(), user = u and u.name or nil, told = self.auth_told or nil }
+        end)(),
         plugin = {
             version = Api.VERSION,
             dir = self.plugin_dir,

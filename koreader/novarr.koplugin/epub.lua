@@ -50,10 +50,13 @@ Epub.fileName = function(_unused, name) return ChapterDoc.epubFileName(name) end
 
 -- Streams url into a file (make_sink opens it, once per attempt) with the
 -- EPUB timeouts, through the session (address in use, proxy). Returns code, headers or nil, err.
+-- The EPUB endpoint needs the account's token (auth.lua): sent only to this server's addresses.
 local function fetchTo(session, url, make_sink)
     if Api.isOffline() then return nil, "simulated offline" end
+    local headers = { ["User-Agent"] = "NovarrKOReader/" .. Api.VERSION, ["Accept"] = "application/epub+zip" }
+    for k, v in pairs(session:authHeadersFor(url)) do headers[k] = v end
     local res, err = session:fetchUrl(url, {
-        headers = { ["User-Agent"] = "NovarrKOReader/" .. Api.VERSION, ["Accept"] = "application/epub+zip" },
+        headers = headers,
         block_timeout = Epub.BLOCK_TIMEOUT, total_timeout = Epub.TOTAL_TIMEOUT,
     }, make_sink)
     if not res then return nil, tostring(err) end
@@ -194,6 +197,13 @@ function Epub.fetchFile(session, novel_id, novel_name, epub)
         logger.warn("Novarr: EPUB download failed", code, got, size)
         if code == 404 then
             UI.info(_("The EPUB disappeared from the server before it could be downloaded. Try again."))
+        elseif code == 401 then
+            -- Signed out by the server: as for any API request (auth.lua).
+            local e = Api.err("unauthenticated", 401)
+            session:onUnauthenticated(e)
+            UI.info(session:errorText(e))
+        elseif code == 403 then
+            UI.info(session:errorText(Api.err("forbidden", 403)))
         elseif code and code ~= 200 then
             UI.info(session:errorText({ kind = code >= 500 and "server" or "invalid", status = code }))
         else

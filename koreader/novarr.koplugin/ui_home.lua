@@ -81,7 +81,12 @@ function Home:items()
     local s = self.session
     local data, fetched_at = s:cached("novels")
     local items = {}
-    if s.last_errors.novels then
+    local needs_link = s:needsLink()
+    if needs_link then
+        -- Sign-in required and not linked (auth.lua): the Link button replaces Sync.
+        table.insert(items, { kind = "note", text = _("This Kindle isn't linked to your Novarr account: tap Link."),
+            select_enabled = false, callback = function() end })
+    elseif s.last_errors.novels then
         table.insert(items, { kind = "note", text = _("Offline — showing saved data from") .. " " .. UI.timeText(fetched_at),
             select_enabled = false, callback = function() end })
     end
@@ -102,16 +107,29 @@ function Home:items()
     local function button(text, cb)
         table.insert(items, { kind = "button", text = text, callback = cb })
     end
-    button(_("Library"), function() require("novarr.ui_library").show(s) end)
-    button(_("Discover"), function() require("novarr.ui_discover").show(s) end)
-    button(_("Downloads"), function() require("novarr.ui_downloads").show(s) end)
-    local pending = s.queue:count()
-    button(pending > 0 and T(_("Sync (%1)"), pending) or _("Sync"), function()
-        s:syncNow(function() self:refresh(true) end)
-    end)
-    -- A quiet dot when the daily check found a plugin update (no popup).
-    local update = require("novarr.ui_update").available(s)
-    button(update and _("Settings •") or _("Settings"), function() require("novarr.ui_settings").show(s) end)
+    -- Which buttons: auth.lua (readers get no Discover; Link instead of Sync while not linked).
+    for _i, id in ipairs(require("novarr.auth").homeButtons(s:role(), needs_link)) do
+        if id == "library" then
+            button(_("Library"), function() require("novarr.ui_library").show(s) end)
+        elseif id == "discover" then
+            button(_("Discover"), function() require("novarr.ui_discover").show(s) end)
+        elseif id == "downloads" then
+            button(_("Downloads"), function() require("novarr.ui_downloads").show(s) end)
+        elseif id == "sync" then
+            local pending = s.queue:count()
+            button(pending > 0 and T(_("Sync (%1)"), pending) or _("Sync"), function()
+                s:syncNow(function() self:refresh(true) end)
+            end)
+        elseif id == "link" then
+            button(_("Link"), function()
+                require("novarr.ui_auth").link(s, function() self:refresh(true) end)
+            end)
+        elseif id == "settings" then
+            -- A quiet dot when the daily check found a plugin update (no popup).
+            local update = require("novarr.ui_update").available(s)
+            button(update and _("Settings •") or _("Settings"), function() require("novarr.ui_settings").show(s) end)
+        end
+    end
     return items
 end
 
@@ -124,6 +142,14 @@ function Home:refresh(quiet)
     local s = self.session
     local function run()
         local closer = (not quiet) and UI.loading(_("Loading…"))
+        -- Sign-in: learnt once from meta, and asked again while not linked
+        -- (the server may have switched it off). Not linked: nothing else is asked.
+        s:refreshAuthState()
+        if s:needsLink() then
+            if closer then closer() end
+            self:rebuild()
+            return
+        end
         -- Our own pending marks go first so the server's answer includes them.
         if s.queue:count() > 0 then s:flushQueue() end
         local _data, e = s:fetchInto("novels", function(etag) return s.api:novels(etag) end, true)
@@ -136,7 +162,10 @@ function Home:refresh(quiet)
             if hero then s:refreshChapterList(hero.id) end
         end
         if closer then closer() end
-        if e and e.kind ~= "offline" then
+        if e and e.kind == "unauthenticated" then
+            -- Signed out by the server just now: offer linking (once) instead of an error.
+            if not s.auth_told then require("novarr.ui_auth").offerLink(s, function() self:refresh(true) end) end
+        elseif e and e.kind ~= "offline" then
             UI.info(s:errorText(e))
         end
         self:rebuild()

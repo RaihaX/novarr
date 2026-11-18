@@ -109,6 +109,9 @@ s (snapshot):
     queue, finished_unsynced  queued writes, chapters finished not yet sent
     sync_due                  why the queue should be sent soon ("woke up", "idle") or nil
     position_due              a latest-position check waits for a connection (position.lua)
+    not_linked                sign-in required and this Kindle not linked (auth.lua): Wi-Fi is
+                              never switched on for the reading (queue and fill are zeroed /
+                              blocked by the caller too)
     target, ahead, missing, has_list, list_refreshed, fill_blocked
     busy                      a user-started network action is running
     now, on_since, last_progress   ms
@@ -156,6 +159,8 @@ function WifiPolicy.decide(s)
     -- Wi-Fi is off.
     if not s.off_by_novarr then return "nothing", "Wi-Fi was not switched off by Novarr" end
     if not s.managing then return "nothing", "no Novarr chapter open" end
+    -- Not linked to the account (auth.lua): nothing could be sent or fetched.
+    if s.not_linked then return "nothing", "this Kindle is not linked to the Novarr account" end
     if s.backoff_until and now < s.backoff_until then
         return "nothing", "waiting " .. math.ceil((s.backoff_until - now) / 1000) .. " s after a failed connection"
     end
