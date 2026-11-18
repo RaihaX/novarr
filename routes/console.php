@@ -150,6 +150,13 @@ $oneServer(Schedule::command('backup:run')
     ->runInBackground()
     ->onFailure($backupFailed('backup:run')));
 
+// Failed jobs older than two weeks are history, not something to act on:
+// dropped so the Health page's Failed jobs list only shows what is recent.
+$oneServer(Schedule::command('queue:prune-failed --hours=336')
+    ->dailyAt('04:05')
+    ->name('prune_failed_jobs')
+    ->withoutOverlapping(30));
+
 // Self-heal cover thumbnails (covers/sm, covers/md): generates any that are
 // missing, e.g. after a restore or a cover written by an older release.
 Schedule::command('covers:thumbs')

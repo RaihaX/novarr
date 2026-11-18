@@ -15,7 +15,8 @@ class NewChapters extends Mailable
 
     /**
      * Payload: ['since', 'chapters', 'completed', 'attention'] plus, from the
-     * daily summary, ['continue', 'stats', 'novels', 'summary_time']. A flat
+     * daily summary, ['continue', 'stats', 'novels', 'summary_time',
+     * 'stalled' (DownloadLanes::stalled() rows; missing = none)]. A flat
      * list of chapter rows (the legacy shape) is still accepted.
      */
     public $mailData;
@@ -50,6 +51,7 @@ class NewChapters extends Mailable
         $chapters = $legacy ? $data : ($data['chapters'] ?? []);
         $completed = $legacy ? [] : ($data['completed'] ?? []);
         $attention = $legacy ? [] : ($data['attention'] ?? []);
+        $stalled = $legacy ? [] : array_values((array) ($data['stalled'] ?? []));
         $novels = $legacy ? null : ($data['novels'] ?? null);
 
         // Older callers send only flat chapter rows: fold them into one row
@@ -90,6 +92,7 @@ class NewChapters extends Mailable
             'completed' => count($completed),
             'queued' => null,
             'attention' => count($attention),
+            'stalled' => count($stalled),
         ];
 
         return [
@@ -102,6 +105,7 @@ class NewChapters extends Mailable
             'more_manga' => max(0, count($manga) - self::NOVEL_LIMIT),
             'completed' => $completed,
             'attention' => $attention,
+            'stalled' => $stalled,
             'summary_time' => $legacy ? setting('summary_time', '08:00') : ($data['summary_time'] ?? setting('summary_time', '08:00')),
             'date' => now()->timezone(config('app.timezone')),
             'links' => [
@@ -133,7 +137,7 @@ class NewChapters extends Mailable
 
     /**
      * "Novarr · 382 new chapters in 12 novels and 4 manga · 1 completed ·
-     * 3 need attention", zero parts omitted.
+     * 3 need attention · 1 source not downloading", zero parts omitted.
      */
     protected function summarySubject(?array $view = null): string
     {
@@ -159,6 +163,10 @@ class NewChapters extends Mailable
 
         if (($n = (int) $s['attention']) > 0) {
             $parts[] = $n . ' ' . $plural($n, 'needs', 'need') . ' attention';
+        }
+
+        if (($n = (int) ($s['stalled'] ?? 0)) > 0) {
+            $parts[] = $n . ' ' . $plural($n, 'source', 'sources') . ' not downloading';
         }
 
         return 'Novarr · ' . ($parts ? implode(' · ', $parts) : 'Nothing new');

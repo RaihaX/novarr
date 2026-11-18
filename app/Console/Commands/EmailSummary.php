@@ -20,6 +20,8 @@ class EmailSummary extends Command
     /** Settings that make the summary stateful between runs. */
     public const LAST_SENT_KEY = 'summary_last_sent_at';
     public const ATTENTION_HASH_KEY = 'summary_attention_hash';
+    /** Sorted, comma-joined lanes the webhook was last told are stalled. */
+    public const STALLED_NOTIFIED_KEY = 'stalled_lanes_notified';
 
     /** Novel rows rendered in full (links, progress); the rest are counted. */
     public const NOVEL_LIMIT = 25;
@@ -32,6 +34,13 @@ class EmailSummary extends Command
 
     public function handle()
     {
+        // Stalled sources go to the webhook whether or not an email follows.
+        $stalled = $this->stalledLanes();
+        if ($stalled !== null) {
+            $this->notifyStalled($stalled);
+        }
+        $stalled ??= [];
+
         $to = $this->option("to") ?: setting("summary_email", config("mail.summary_email"));
 
         if (empty($to)) {
@@ -49,12 +58,12 @@ class EmailSummary extends Command
         // Same cache key/TTL as the home page, so the email and the dashboard
         // agree (and the scheduler's 5-minute warm-up is reused).
         $attention = array_values(Cache::remember('dashboard_attention', 900, fn() => app(NovelHealth::class)->needingAttention()));
-        $attentionHash = $this->attentionHash($attention);
+        $attentionHash = $this->attentionHash($attention, $stalled);
 
         $hasNews = !empty($novels) || !empty($completed);
 
         if (!$hasNews) {
-            if (empty($attention)) {
+            if (empty($attention) && empty($stalled)) {
                 // Clear the hash so the same problem re-appearing later is news again.
                 Setting::put(self::ATTENTION_HASH_KEY, '');
                 $this->info("Nothing new since {$since->toDateTimeString()} — no email sent.");
@@ -62,7 +71,7 @@ class EmailSummary extends Command
             }
 
             if ($attentionHash === (string) setting(self::ATTENTION_HASH_KEY, '')) {
-                $this->info("Only unchanged attention items since {$since->toDateTimeString()} — no email sent.");
+                $this->info("Only unchanged attention items / stalled sources since {$since->toDateTimeString()} — no email sent.");
                 return 0;
             }
         }
@@ -77,6 +86,7 @@ class EmailSummary extends Command
             'completed' => count($completed),
             'queued' => NovelChapter::where('status', 0)->where('blacklist', 0)->count(),
             'attention' => count($attention),
+            'stalled' => count($stalled),
         ];
 
         try {
@@ -85,6 +95,7 @@ class EmailSummary extends Command
                 "chapters" => $chapters,
                 "completed" => $completed,
                 "attention" => $attention,
+                "stalled" => $stalled,
                 "continue" => $this->continueBlock(),
                 "stats" => $stats,
                 "novels" => $novels,
@@ -101,10 +112,63 @@ class EmailSummary extends Command
 
         $summary = "{$stats['new_chapters']} chapter(s) in {$stats['novels_updated']} novel(s)"
             . ($stats['manga_updated'] > 0 ? " and {$stats['manga_updated']} manga" : '') . ", "
-            . "{$stats['completed']} completed, {$stats['attention']} needing attention";
+            . "{$stats['completed']} completed, {$stats['attention']} needing attention, "
+            . "{$stats['stalled']} source(s) not downloading";
         Log::info("Sent chapter summary email to {$to}: {$summary}.");
         $this->info("Summary sent to {$to}: {$summary}.");
         return 0;
+    }
+
+    /**
+     * Stalled download lanes (DownloadLanes::stalled()); null when they
+     * cannot be worked out (the webhook's remembered set is then kept).
+     */
+    private function stalledLanes(): ?array
+    {
+        try {
+            return app(DownloadLanes::class)->stalled();
+        } catch (\Throwable $e) {
+            Log::warning('Could not work out stalled download sources: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Tell the webhook once per new set of stalled lanes (remembered in
+     * STALLED_NOTIFIED_KEY, cleared when nothing is stalled, so the same
+     * lane stalling again later is news). Never fails the command.
+     */
+    private function notifyStalled(array $stalled): void
+    {
+        try {
+            $lanes = array_column($stalled, 'lane');
+            sort($lanes, SORT_STRING);
+            $key = implode(',', $lanes);
+
+            if ($key === (string) setting(self::STALLED_NOTIFIED_KEY, '')) {
+                return;
+            }
+
+            if ($stalled !== []) {
+                $plural = fn(int $n, string $one, string $many) => number_format($n) . ' ' . ($n === 1 ? $one : $many);
+                $message = implode("\n", array_map(
+                    fn($row) => "Novarr: {$row['label']} has " . $plural($row['queued'], 'chapter', 'chapters')
+                        . ' waiting and has downloaded nothing for ' . $plural($row['hours'], 'hour', 'hours') . '.',
+                    $stalled
+                ));
+                $this->sendWebhook($message);
+            }
+
+            Setting::put(self::STALLED_NOTIFIED_KEY, $key);
+        } catch (\Throwable $e) {
+            Log::warning('Stalled-source webhook failed: ' . $e->getMessage());
+        }
+    }
+
+    /** The webhook call, apart so tests can observe it. */
+    protected function sendWebhook(string $message): void
+    {
+        notify_webhook($message);
     }
 
     /**
@@ -343,14 +407,21 @@ class EmailSummary extends Command
         ];
     }
 
-    /** Order-independent fingerprint of the attention set ("id:reason" lines). */
-    private function attentionHash(array $attention): string
+    /**
+     * Order-independent fingerprint of the attention set ("id:reason" lines)
+     * and the stalled lanes ("lane:{lane}" lines). Without stalled lanes it
+     * is the attention set's fingerprint alone, as before.
+     */
+    private function attentionHash(array $attention, array $stalled = []): string
     {
-        if ($attention === []) {
+        if ($attention === [] && $stalled === []) {
             return '';
         }
 
         $lines = array_map(fn($a) => ($a['id'] ?? '') . ':' . ($a['reason'] ?? ''), $attention);
+        foreach ($stalled as $lane) {
+            $lines[] = 'lane:' . $lane['lane'];
+        }
         sort($lines, SORT_STRING);
 
         return sha1(implode("\n", $lines));

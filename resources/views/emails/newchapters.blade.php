@@ -32,6 +32,7 @@
     $novelChapters = max(0, (int) $stats['new_chapters'] - (int) $stats['manga_chapters']);
     $completed = $v['completed'];
     $attention = $v['attention'];
+    $stalled = $v['stalled'] ?? [];
     $links = $v['links'];
 
     // Brand tokens (design_handoff_novarr_brand). No web fonts, no classes in
@@ -58,6 +59,7 @@
         $stats['manga_updated'] ? number_format($stats['manga_updated']) . ' manga updated' : null,
         $stats['completed'] ? $stats['completed'] . ' completed' : null,
         $stats['attention'] ? $stats['attention'] . ' need attention' : null,
+        !empty($stats['stalled']) ? $stats['stalled'] . ' ' . ((int) $stats['stalled'] === 1 ? 'source' : 'sources') . ' not downloading' : null,
         $continue ? 'Continue ' . $continue['name'] : null,
     ])->filter()->implode(' · ');
 
@@ -267,6 +269,34 @@
                             </table>
                         @endif
 
+                        {{-- Sources not downloading (DownloadLanes::stalled()): same panel as Needs attention --}}
+                        @if (count($stalled) > 0)
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                                {!! $spacer(28) !!}
+                                <tr>
+                                    <td style="padding-bottom: 12px;">
+                                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                                            <tr>
+                                                <td class="nv-text" style="{{ $h2 }}">Sources not downloading</td>
+                                                <td align="right" style="font-family: {{ $sans }}; font-size: 13px; font-weight: 600; white-space: nowrap;">
+                                                    <a class="nv-link" href="{{ $links['activity'] }}" style="color: #8EA2FF; text-decoration: none;">View activity &rarr;</a>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#161A20" class="nv-surface" style="background-color: #161A20; border: 1px solid #262D38; border-left: 2px solid #F0B429; border-collapse: separate;">
+                                @foreach ($stalled as $lane)
+                                    <tr data-stalled-lane="{{ $lane['lane'] }}">
+                                        <td bgcolor="#161A20" class="nv-surface" style="background-color: #161A20; padding: 12px 16px; {{ $loop->first ? '' : 'border-top: 1px solid #262D38;' }}">
+                                            <div style="font-family: {{ $sans }}; font-size: 14px; line-height: 1.4;"><span class="nv-text" style="color: #E8EBF0; font-weight: 600;">{{ $lane['label'] }}</span><span style="color: #D8DDE6;"> — {{ number_format($lane['queued']) }} {{ (int) $lane['queued'] === 1 ? 'chapter' : 'chapters' }} waiting, nothing downloaded for {{ number_format($lane['hours']) }} {{ (int) $lane['hours'] === 1 ? 'hour' : 'hours' }}</span></div>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </table>
+                        @endif
+
                         {{-- Needs attention: panel with the 2px amber left rule --}}
                         @if (count($attention) > 0)
                             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
@@ -308,7 +338,7 @@
                             </table>
                         @endif
 
-                        @if (count($novels) === 0 && count($manga) === 0 && count($completed) === 0 && count($attention) === 0)
+                        @if (count($novels) === 0 && count($manga) === 0 && count($completed) === 0 && count($attention) === 0 && count($stalled) === 0)
                             <p class="nv-muted" style="margin: 20px 0 0; font-family: {{ $sans }}; font-size: 14px; line-height: 1.55; color: #8B95A5;">Nothing new in this period.</p>
                         @endif
 

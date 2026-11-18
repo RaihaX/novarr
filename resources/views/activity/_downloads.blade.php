@@ -53,6 +53,9 @@
                             @else
                                 <x-status state="queued">Waiting</x-status>
                             @endif
+                            @if(!empty($row['stalled']))
+                                <small data-stalled title="No chapter of these series downloaded for {{ $row['stalled_hours'] }} hours while chapters wait"><x-status state="attention" as="text">· nothing downloaded for {{ number_format($row['stalled_hours']) }} h</x-status></small>
+                            @endif
                         </td>
                         <td class="cell-num">{{ number_format($row['queued']) }}</td>
                         <td class="cell-num">{{ number_format($row['retrying']) }}</td>
