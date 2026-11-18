@@ -4,6 +4,8 @@
     $medium ??= \App\Novel::MEDIUM_NOVEL;
     $mediumNoun = \App\Http\Helpers\LibraryMedium::noun($medium);
     $manualUrl = route('novels.create', ['medium' => $medium]);
+    $chooseSourcesUrl = route('settings.index') . '#discover-sources';
+    $allHidden ??= false;
 @endphp
 
 @section('title', 'Add ' . $mediumNoun)
@@ -25,11 +27,20 @@
 </div>
 
 @if($sources === [])
-{{-- No discoverable source of this medium: nothing to pick or browse. --}}
+{{-- No discoverable source of this medium (or every one is hidden in Settings): nothing to pick or browse. --}}
 <div class="novels-empty" id="discoverNoSources">
+    @if($allHidden)
+    <span class="novels-empty-title">All {{ $mediumNoun }} sources are hidden.</span>
+    @else
     <span class="novels-empty-title">No {{ $mediumNoun }} sources are set up.</span>
+    @endif
     <p class="novels-empty-body">You can still add a {{ $mediumNoun }} by its URL.</p>
-    <div class="novels-empty-actions"><a class="btn btn-secondary" href="{{ $manualUrl }}">Add manually</a></div>
+    <div class="novels-empty-actions">
+        @if($allHidden)
+        <a class="btn btn-secondary" href="{{ $chooseSourcesUrl }}" id="discoverChooseSources">Choose sources</a>
+        @endif
+        <a class="btn btn-secondary" href="{{ $manualUrl }}">Add manually</a>
+    </div>
 </div>
 @else
 <div class="filter-bar mb-4">
@@ -38,6 +49,7 @@
         <option value="{{ $key }}">{{ $option['label'] }}</option>
 @endforeach
     </select>
+    <a href="{{ $chooseSourcesUrl }}" class="small" id="discoverChooseSources">Choose sources</a>
     <div class="btn-group segmented" role="group" aria-label="Browse mode" id="discoverTabs">
         <button type="button" class="btn btn-secondary discover-tab active" data-type="popular">Popular</button>
         <button type="button" class="btn btn-secondary discover-tab" data-type="new">New</button>

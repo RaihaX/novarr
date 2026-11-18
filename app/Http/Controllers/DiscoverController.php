@@ -26,16 +26,28 @@ class DiscoverController extends Controller
         $medium = LibraryMedium::resolve($request);
         $sources = $this->sourceOptions($medium);
 
+        // Nothing left to pick because every source of the medium is hidden
+        // (Settings → Sources when adding), as opposed to none set up.
+        $allHidden = false;
+        if ($sources === []) {
+            $discover = app(Discover::class);
+            $hidden = $discover->hiddenKeys();
+            $allHidden = $hidden !== []
+                && array_intersect_key(Discover::ofMedium($discover->allSources(), $medium), array_flip($hidden)) !== [];
+        }
+
         return view('novels.discover', [
             'medium' => $medium,
             'sources' => $sources,
+            'allHidden' => $allHidden,
             'sourceHosts' => array_map(fn($option) => $option['host'], $sources),
             'sourceLists' => array_map(fn($option) => $option['lists'], $sources),
         ]);
     }
 
     /**
-     * The Discover source picker, in page order (SourceResolver::discoverable()).
+     * The Discover source picker, in page order (SourceResolver::discoverable()
+     * minus the sources hidden in Settings — Discover::sources()).
      *
      * @return array<string, array{label: string, host: string, lists: string[], medium: string}>
      */

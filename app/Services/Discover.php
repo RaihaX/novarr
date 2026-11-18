@@ -19,14 +19,49 @@ class Discover
     public const TYPES = ['search', 'popular', 'new', 'random', 'completed'];
 
     /**
+     * Setting: JSON array of source keys left off Discover ("Sources when
+     * adding" on the Settings page). Hidden rather than shown is stored, so
+     * a source installed later appears by default.
+     */
+    public const HIDDEN_SETTING = 'discover_hidden_sources';
+
+    /**
      * Sources on the Discover page, keyed by source key, in page order (text
-     * sources first); the first one is the default.
+     * sources first); the first one is the default. Hidden sources
+     * (hiddenKeys()) are left out.
      *
      * @return array<string, Source>
      */
     public function sources(): array
     {
+        return array_diff_key($this->allSources(), array_flip($this->hiddenKeys()));
+    }
+
+    /**
+     * Every discoverable source, hidden ones included (the Settings page's
+     * source picker).
+     *
+     * @return array<string, Source>
+     */
+    public function allSources(): array
+    {
         return SourceResolver::discoverable();
+    }
+
+    /**
+     * The source keys hidden from Discover. A missing or malformed setting
+     * is []; unknown (stale) keys are kept but match nothing.
+     *
+     * @return string[]
+     */
+    public function hiddenKeys(): array
+    {
+        $decoded = json_decode((string) setting(self::HIDDEN_SETTING, ''), true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter($decoded, fn($key) => is_string($key) && $key !== '')));
     }
 
     /**

@@ -2,8 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Novel;
 use App\Scraping\NovelUpdatesMatcher;
+use App\Services\Discover;
 use App\Setting;
+use App\Sources\SourceResolver;
+use App\Sources\SuwayomiSource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
@@ -182,7 +186,79 @@ class SettingsController extends Controller
             $fields[$key] = $meta;
         }
 
-        return view('settings.index', ['fields' => $fields]);
+        return view('settings.index', ['fields' => $fields] + $this->discoverSourceGroups());
+    }
+
+    /** Most characters a posted Discover source key may have ("suwayomi:" + a 20-digit id fits easily). */
+    public const SOURCE_KEY_MAX = 191;
+
+    /**
+     * "Sources when adding": every discoverable source (Discover::allSources(),
+     * so no network beyond what the Discover page itself does) grouped by
+     * medium in page order, each ticked unless hidden; plus whether
+     * Suwayomi is registered but listed no sources (down or not configured).
+     *
+     * @return array{discoverGroups: array<string, array{title: string, rows: array<int, array{key: string, label: string, host: ?string, shown: bool}>}>, suwayomiMissing: bool}
+     */
+    protected function discoverSourceGroups(): array
+    {
+        $discover = app(Discover::class);
+        $all = $discover->allSources();
+        $hidden = array_flip($discover->hiddenKeys());
+
+        $groups = [
+            Novel::MEDIUM_NOVEL => ['title' => 'Novels', 'rows' => []],
+            Novel::MEDIUM_MANGA => ['title' => 'Manga', 'rows' => []],
+        ];
+        foreach ($all as $key => $source) {
+            $medium = $source->medium();
+            if (!isset($groups[$medium])) {
+                continue;
+            }
+            $label = $source->discoverLabel();
+            $host = $source->discoverHost();
+            $groups[$medium]['rows'][] = [
+                'key' => (string) $key,
+                'label' => $label,
+                'host' => $host !== '' && $host !== $label ? $host : null,
+                'shown' => !isset($hidden[$key]),
+            ];
+        }
+
+        // Suwayomi expands into "{key}:{id}" entries; none means its list
+        // could not be loaded (server down, not configured).
+        $suwayomiMissing = false;
+        foreach (SourceResolver::classes() as $registryKey => $class) {
+            if (is_a($class, SuwayomiSource::class, true)) {
+                $prefix = $registryKey . ':';
+                $suwayomiMissing = array_filter(array_keys($all), fn($key) => str_starts_with((string) $key, $prefix)) === [];
+                break;
+            }
+        }
+
+        return ['discoverGroups' => $groups, 'suwayomiMissing' => $suwayomiMissing];
+    }
+
+    /**
+     * The hidden-source list after a save: of the keys offered on the form
+     * (and still known), the unticked ones are hidden and the ticked ones
+     * shown; every other key (not offered, e.g. Suwayomi was unreachable
+     * when the page rendered, or no longer known) keeps its previous state.
+     *
+     * @param  string[]  $offered
+     * @param  string[]  $shown
+     * @return string[]
+     */
+    protected function hiddenSourcesAfterSave(array $offered, array $shown): array
+    {
+        $discover = app(Discover::class);
+        $offered = array_values(array_intersect(array_unique($offered), array_map('strval', array_keys($discover->allSources()))));
+        $shown = array_flip($shown);
+
+        $kept = array_values(array_diff($discover->hiddenKeys(), $offered));
+        $newlyHidden = array_values(array_filter($offered, fn($key) => !isset($shown[$key])));
+
+        return array_values(array_unique([...$kept, ...$newlyHidden]));
     }
 
     public function update(Request $request)
@@ -213,6 +289,11 @@ class SettingsController extends Controller
             'snapshots_days' => 'nullable|integer|min:1|max:90',
             'snapshots_enabled' => 'nullable',
             'auto_kindle' => 'nullable',
+            // "Sources when adding": every key offered on the form, and the ticked ones.
+            'discover_offered' => 'nullable|array',
+            'discover_offered.*' => 'string|max:' . self::SOURCE_KEY_MAX,
+            'discover_shown' => 'nullable|array',
+            'discover_shown.*' => 'string|max:' . self::SOURCE_KEY_MAX,
         ], [
             'scrape_max_delay.gte' => 'The max delay must be greater than or equal to the min delay.',
             'scrape_fastest_delay.min' => 'The fastest delay must be at least ' . \App\Scraping\HostPace::MIN_FASTEST . ' seconds.',
@@ -244,6 +325,14 @@ class SettingsController extends Controller
             } else {
                 Setting::put($key, $data[$key] ?? null);
             }
+        }
+
+        // Only when the form offered sources (unticked boxes are not posted,
+        // so hidden = offered − ticked); otherwise the list is left alone.
+        if (!empty($data['discover_offered'])) {
+            Setting::put(Discover::HIDDEN_SETTING, json_encode(
+                $this->hiddenSourcesAfterSave($data['discover_offered'], $data['discover_shown'] ?? [])
+            ));
         }
 
         return redirect()->route('settings.index')->with('status', 'Settings saved.');
