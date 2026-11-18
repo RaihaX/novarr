@@ -71,6 +71,45 @@
                         </fieldset>
                     @endforeach
 
+                    {{-- Sources when adding: unticked = hidden from Discover (Add novel / Add manga). --}}
+                    @php
+                        // After a failed save, show what was posted rather than what is stored.
+                        $postedOffered = old('discover_offered');
+                        $postedShown = (array) old('discover_shown', []);
+                    @endphp
+                    <fieldset class="form-fieldset" id="discover-sources">
+                        <legend>Sources when adding</legend>
+                        <div class="form-text mb-3">Untick a source to leave it out of Add novel / Add manga. Series you already have from it keep downloading.</div>
+
+                        @foreach($discoverGroups as $medium => $group)
+                            @php $filterable = count($group['rows']) > 8; @endphp
+                            <div class="form-row discover-source-group" data-ds-group="{{ $medium }}">
+                                <span class="form-label d-block">{{ $group['title'] }}</span>
+                                @if($filterable)
+                                    <div class="d-flex flex-wrap gap-2 mb-2">
+                                        <button type="button" class="btn btn-secondary btn-sm" data-ds-all="1">Show all</button>
+                                        <button type="button" class="btn btn-secondary btn-sm" data-ds-all="0">Hide all</button>
+                                        <input type="search" class="form-control form-control-sm" style="max-width: 16rem;" data-ds-filter placeholder="Filter {{ strtolower($group['title']) }} sources…" aria-label="Filter {{ strtolower($group['title']) }} sources">
+                                    </div>
+                                @endif
+                                @forelse($group['rows'] as $row)
+                                    @php $id = 'ds-' . $medium . '-' . $loop->index; @endphp
+                                    <div class="form-check discover-source-row" data-ds-text="{{ mb_strtolower($row['label'] . ' ' . ($row['host'] ?? '')) }}">
+                                        <input type="hidden" name="discover_offered[]" value="{{ $row['key'] }}">
+                                        <input type="checkbox" class="form-check-input" name="discover_shown[]" id="{{ $id }}" value="{{ $row['key'] }}"
+                                               @checked(is_array($postedOffered) ? in_array($row['key'], $postedShown, true) : $row['shown'])>
+                                        <label class="form-check-label" for="{{ $id }}">{{ $row['label'] }}@if($row['host']) <span class="text-muted small">{{ $row['host'] }}</span>@endif</label>
+                                    </div>
+                                @empty
+                                    <div class="form-text">No {{ strtolower($group['title']) }} sources are set up.</div>
+                                @endforelse
+                                @if($medium === \App\Novel::MEDIUM_MANGA && $suwayomiMissing)
+                                    <div class="form-text" id="discoverSuwayomiMissing">The Suwayomi sources could not be loaded right now.</div>
+                                @endif
+                            </div>
+                        @endforeach
+                    </fieldset>
+
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary">Save settings</button>
                         <button type="button" id="testEmail" class="btn btn-secondary">Send test email</button>
@@ -149,6 +188,22 @@
             const hidden = input.type === 'password';
             input.type = hidden ? 'text' : 'password';
             btn.textContent = hidden ? 'Hide' : 'Show';
+        });
+    });
+
+    // "Sources when adding": Show all / Hide all and the filter box, per group.
+    document.querySelectorAll('.discover-source-group').forEach(group => {
+        const rows = () => group.querySelectorAll('.discover-source-row');
+        group.querySelectorAll('[data-ds-all]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const on = btn.dataset.dsAll === '1';
+                rows().forEach(row => { row.querySelector('input[type="checkbox"]').checked = on; });
+            });
+        });
+        const filter = group.querySelector('[data-ds-filter]');
+        filter?.addEventListener('input', () => {
+            const needle = filter.value.trim().toLowerCase();
+            rows().forEach(row => row.classList.toggle('d-none', needle !== '' && !row.dataset.dsText.includes(needle)));
         });
     });
 
