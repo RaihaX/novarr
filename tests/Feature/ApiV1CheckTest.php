@@ -102,7 +102,7 @@ class ApiV1CheckTest extends TestCase
         $record = $this->record($novel);
         Bus::assertChained([
             fn(RunNovelCommand $job) => $job->artisanCommand === 'novel:toc' && $job->params === ['novel' => $novel->id] && $job->jobId === $record['toc_job_id'],
-            fn(RunNovelCommand $job) => $job->artisanCommand === 'novel:chapter' && $job->params === ['novel' => $novel->id] && $job->jobId === $record['chapter_job_id'],
+            fn(RunNovelCommand $job) => $job->artisanCommand === 'novel:chapter' && $job->params === ['novel' => $novel->id, '--max-minutes' => \App\Services\NovelCheck::DOWNLOAD_MINUTES] && $job->jobId === $record['chapter_job_id'],
             fn(FinishNovelCheck $job) => $job->novelId === $novel->id && $job->checkId === $record['check_id'],
         ]);
         Bus::assertDispatched(RunNovelCommand::class, fn($job) => $job->queue === 'commands');

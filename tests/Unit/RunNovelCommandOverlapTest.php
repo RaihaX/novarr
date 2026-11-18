@@ -96,4 +96,17 @@ class RunNovelCommandOverlapTest extends TestCase
 
         $held->release();
     }
+
+    public function testASingleNovelDownloadGetsATimeLimit(): void
+    {
+        $limit = RunNovelCommand::DOWNLOAD_MINUTES;
+        $this->assertLessThan(60, $limit + 10, 'ends well before the job timeout');
+        $this->assertSame(['novel' => 5, '--max-minutes' => $limit], RunNovelCommand::commandParams('novel:chapter', ['novel' => 5]));
+        // The dispatcher's own limit wins.
+        $this->assertSame(['novel' => 5, '--max-minutes' => 10], RunNovelCommand::commandParams('novel:chapter', ['novel' => 5, '--max-minutes' => 10]));
+        // Not for one chapter, the full dispatcher run, or other commands.
+        $this->assertSame(['--chapter' => 9], RunNovelCommand::commandParams('novel:chapter', ['--chapter' => 9]));
+        $this->assertSame(['novel' => 0], RunNovelCommand::commandParams('novel:chapter', ['novel' => 0]));
+        $this->assertSame(['novel' => 5], RunNovelCommand::commandParams('novel:toc', ['novel' => 5]));
+    }
 }
