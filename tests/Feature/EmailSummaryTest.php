@@ -9,6 +9,7 @@ use App\NovelChapter;
 use App\Setting;
 use App\Sources\SuwayomiSource;
 use Carbon\Carbon;
+use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
@@ -370,5 +371,197 @@ class EmailSummaryTest extends TestCase
         $this->assertSame(2, $view['stats']['manga_chapters']);
         $mail->render();
         $mail->assertHasSubject('Novarr · 5 new chapters in 1 novel and 1 manga');
+    }
+
+    // ---- Stalled sources -----------------------------------------------------
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
+    /** A novel on $host whose $count pending chapters have been due for $hours hours. */
+    private function stalledNovel(string $name, string $host, int $count, int $hours = 7): Novel
+    {
+        $novel = $this->novel($name, ['translator_url' => "https://{$host}/" . \Illuminate\Support\Str::slug($name)]);
+        for ($n = 1; $n <= $count; $n++) {
+            $this->chapter($novel, $n, null, ['url' => "https://{$host}/{$novel->id}/chapter-{$n}"])
+                ->forceFill(['created_at' => now()->subHours($hours)])->saveQuietly();
+        }
+
+        return $novel;
+    }
+
+    /** Swap in the command with its webhook call recorded instead of sent. */
+    private function recordWebhook(): object
+    {
+        $command = new class extends EmailSummary {
+            public array $messages = [];
+
+            protected function sendWebhook(string $message): void
+            {
+                $this->messages[] = $message;
+            }
+        };
+        $this->app[Kernel::class]->registerCommand($command);
+
+        return $command;
+    }
+
+    public function test_a_stalled_source_alone_is_news_once_until_another_stalls(): void
+    {
+        Carbon::setTestNow('2026-11-17 08:00:00');
+        Mail::fake();
+        Setting::put('summary_email', 'reader@example.test');
+        $this->seedAttention([]);
+        $this->stalledNovel('Stuck One', 'stuck.test', 3);
+
+        $this->artisan('novel:email-summary')->assertSuccessful();
+        Mail::assertSent(NewChapters::class, function (NewChapters $mail) {
+            $mail->assertHasSubject('Novarr · 1 source not downloading');
+            $this->assertSame([['lane' => 'stuck.test', 'label' => 'stuck.test', 'queued' => 3, 'series' => 1, 'hours' => 7]], $mail->viewData()['stalled']);
+
+            $html = $mail->render();
+            $this->assertStringContainsString('Sources not downloading', $html);
+            $this->assertStringContainsString('stuck.test</span><span style="color: #D8DDE6;"> — 3 chapters waiting, nothing downloaded for 7 hours', $html);
+            $this->assertStringContainsString('href="' . route('activity.index') . '"', $html);
+            $this->assertStringContainsString('View activity', $html);
+            $this->assertStringContainsString('1 source not downloading', $html, 'preheader');
+            $this->assertStringNotContainsString('Nothing new in this period', $html);
+            $this->assertStringNotContainsString('Needs attention</td>', $html);
+
+            $mail->assertSeeInText('SOURCES NOT DOWNLOADING');
+            $mail->assertSeeInText('- stuck.test — 3 chapters waiting, nothing downloaded for 7 hours');
+            $mail->assertSeeInText('View activity: ' . route('activity.index'));
+
+            return true;
+        });
+
+        // Unchanged next day (no other news): not sent again.
+        Carbon::setTestNow('2026-11-18 08:00:00');
+        $this->artisan('novel:email-summary')->assertSuccessful();
+        Mail::assertSent(NewChapters::class, 1);
+
+        // Another lane stalls: news again, both listed, most waiting first.
+        $this->stalledNovel('Stuck Two', 'other.test', 5);
+        Carbon::setTestNow('2026-11-18 09:00:00');
+        $this->artisan('novel:email-summary')->assertSuccessful();
+        Mail::assertSent(NewChapters::class, 2);
+        Mail::assertSent(NewChapters::class, fn($m) => $m->render() && $m->hasSubject('Novarr · 2 sources not downloading')
+            && array_column($m->viewData()['stalled'], 'lane') === ['other.test', 'stuck.test']);
+    }
+
+    public function test_the_stalled_block_shows_singular_and_plural_wording(): void
+    {
+        $mail = new NewChapters([
+            'since' => now()->subDay(), 'chapters' => [], 'completed' => [], 'attention' => [], 'novels' => [],
+            'stalled' => [
+                ['lane' => 'one.test', 'label' => 'one.test', 'queued' => 1, 'series' => 1, 'hours' => 1],
+                ['lane' => 'many.test', 'label' => 'many.test', 'queued' => 1200, 'series' => 2, 'hours' => 30],
+            ],
+        ]);
+
+        $html = $mail->render();
+        $mail->assertHasSubject('Novarr · 2 sources not downloading');
+        $this->assertStringContainsString(' — 1 chapter waiting, nothing downloaded for 1 hour<', $html);
+        $this->assertStringContainsString(' — 1,200 chapters waiting, nothing downloaded for 30 hours<', $html);
+        $this->assertSame(2, substr_count($html, 'data-stalled-lane='));
+        $mail->assertSeeInText("- one.test — 1 chapter waiting, nothing downloaded for 1 hour\n");
+        $mail->assertSeeInText('- many.test — 1,200 chapters waiting, nothing downloaded for 30 hours');
+
+        $one = new NewChapters(['since' => now()->subDay(), 'chapters' => [], 'completed' => [], 'attention' => [], 'novels' => [],
+            'stalled' => [['lane' => 'one.test', 'label' => 'one.test', 'queued' => 2, 'series' => 1, 'hours' => 8]]]);
+        $one->render();
+        $one->assertHasSubject('Novarr · 1 source not downloading');
+    }
+
+    public function test_a_payload_without_stalled_still_renders(): void
+    {
+        $mail = new NewChapters(['since' => now()->subDay(), 'chapters' => [], 'completed' => [], 'attention' => [], 'novels' => []]);
+
+        $html = $mail->render();
+        $this->assertSame([], $mail->viewData()['stalled']);
+        $this->assertSame(0, $mail->viewData()['stats']['stalled']);
+        $mail->assertHasSubject('Novarr · Nothing new');
+        $this->assertStringNotContainsString('Sources not downloading', $html);
+        $this->assertStringContainsString('Nothing new in this period', $html);
+        $mail->assertDontSeeInText('SOURCES NOT DOWNLOADING');
+    }
+
+    public function test_the_attention_only_hash_is_unchanged_without_stalled_sources(): void
+    {
+        Mail::fake();
+        Setting::put('summary_email', 'reader@example.test');
+        $novel = $this->novel('Stuck Novel');
+        $this->seedAttention([['id' => $novel->id, 'name' => 'Stuck Novel', 'reason' => 'TOC failed', 'url' => null]]);
+
+        $this->artisan('novel:email-summary')->assertSuccessful();
+
+        Mail::assertSent(NewChapters::class, 1);
+        $this->assertSame(sha1("{$novel->id}:TOC failed"), (string) Setting::get(EmailSummary::ATTENTION_HASH_KEY));
+    }
+
+    public function test_the_webhook_hears_once_per_new_set_of_stalled_sources(): void
+    {
+        Carbon::setTestNow('2026-11-17 08:00:00');
+        Mail::fake();
+        Setting::put('summary_email', 'reader@example.test');
+        $this->seedAttention([]);
+        $webhook = $this->recordWebhook();
+        $stuck = $this->stalledNovel('Stuck One', 'stuck.test', 3);
+
+        $this->artisan('novel:email-summary')->assertSuccessful();
+        $this->assertSame(['Novarr: stuck.test has 3 chapters waiting and has downloaded nothing for 7 hours.'], $webhook->messages);
+        $this->assertSame('stuck.test', (string) Setting::get(EmailSummary::STALLED_NOTIFIED_KEY));
+
+        // Same set: quiet.
+        Carbon::setTestNow('2026-11-17 09:00:00');
+        $this->artisan('novel:email-summary')->assertSuccessful();
+        $this->assertCount(1, $webhook->messages);
+
+        // Recovers: the remembered set is cleared, nothing is sent.
+        $this->chapter($stuck, 50, now()->subMinutes(5));
+        $this->artisan('novel:email-summary')->assertSuccessful();
+        $this->assertCount(1, $webhook->messages);
+        $this->assertSame('', (string) Setting::get(EmailSummary::STALLED_NOTIFIED_KEY, ''));
+
+        // Stalls again (no download for 6+ hours) along with a second lane: one message, one line each.
+        $this->stalledNovel('Stuck Two', 'other.test', 1, 12);
+        Carbon::setTestNow('2026-11-17 16:00:00');
+        $this->artisan('novel:email-summary')->assertSuccessful();
+        $this->assertCount(2, $webhook->messages);
+        $this->assertSame(
+            "Novarr: stuck.test has 3 chapters waiting and has downloaded nothing for 7 hours.\n"
+            . 'Novarr: other.test has 1 chapter waiting and has downloaded nothing for 19 hours.',
+            $webhook->messages[1]
+        );
+        $this->assertSame('other.test,stuck.test', (string) Setting::get(EmailSummary::STALLED_NOTIFIED_KEY));
+    }
+
+    public function test_the_webhook_runs_without_an_email_and_never_fails_the_command(): void
+    {
+        Carbon::setTestNow('2026-11-17 08:00:00');
+        Mail::fake();
+        Setting::put('summary_email', 'reader@example.test');
+        $this->seedAttention([]);
+        $this->stalledNovel('Stuck One', 'stuck.test', 3);
+        // Already emailed about this set: no email, but the webhook is new.
+        $webhook = $this->recordWebhook();
+        Setting::put(EmailSummary::ATTENTION_HASH_KEY, sha1('lane:stuck.test'));
+
+        $this->artisan('novel:email-summary')->assertSuccessful();
+        Mail::assertNothingSent();
+        $this->assertCount(1, $webhook->messages);
+
+        // A failing webhook is logged, never fatal.
+        $this->app[Kernel::class]->registerCommand(new class extends EmailSummary {
+            protected function sendWebhook(string $message): void
+            {
+                throw new \RuntimeException('webhook down');
+            }
+        });
+        Setting::put(EmailSummary::STALLED_NOTIFIED_KEY, '');
+        $this->artisan('novel:email-summary')->assertSuccessful();
     }
 }

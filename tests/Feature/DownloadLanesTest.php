@@ -598,6 +598,177 @@ class DownloadLanesTest extends TestCase
             ->assertSee('No downloads queued');
     }
 
+    // ---- Stalled lanes -------------------------------------------------------
+
+    /** Make every pending chapter of $novel due since $hours ago. */
+    private function dueFor(Novel $novel, int $hours): void
+    {
+        NovelChapter::where('novel_id', $novel->id)->where('status', 0)->whereNull('next_attempt_at')
+            ->update(['created_at' => now()->subHours($hours)]);
+    }
+
+    /** A chapter of $novel downloaded $hoursAgo hours ago. */
+    private function downloaded(Novel $novel, int $hoursAgo): void
+    {
+        $chapter = NovelChapter::create([
+            'novel_id' => $novel->id, 'chapter' => 900 + $hoursAgo, 'label' => 'Done',
+            'url' => "https://done.test/{$novel->id}/{$hoursAgo}",
+        ]);
+        $chapter->forceFill(['status' => 1, 'download_date' => now()->subHours($hoursAgo), 'created_at' => now()->subDays(30)])->saveQuietly();
+    }
+
+    private function overviewRows(): \Illuminate\Support\Collection
+    {
+        return collect(app(DownloadLanes::class)->overview()['rows'])->keyBy('lane');
+    }
+
+    public function testALaneWithOldDueChaptersAndNoRecentDownloadIsStalled(): void
+    {
+        $novel = $this->novel('Stuck', 'a.test', 3);
+        $this->dueFor($novel, 7);
+
+        $row = $this->overviewRows()['a.test'];
+        $this->assertTrue($row['stalled']);
+        $this->assertSame(7, $row['stalled_hours'], 'no download on record: hours since the oldest became due');
+
+        // A download older than that does not stretch it: the chapters have waited 7 hours.
+        $this->downloaded($novel, 30);
+        $this->assertSame(7, $this->overviewRows()['a.test']['stalled_hours']);
+
+        // Chapters waiting longer than the last download: counted from that download.
+        $this->dueFor($novel, 50);
+        $this->assertSame(30, $this->overviewRows()['a.test']['stalled_hours']);
+    }
+
+    public function testARecentDownloadMeansTheLaneIsNotStalled(): void
+    {
+        $novel = $this->novel('Working', 'a.test', 3);
+        $this->dueFor($novel, 7);
+        $this->downloaded($novel, 1);
+
+        $row = $this->overviewRows()['a.test'];
+        $this->assertFalse($row['stalled']);
+        $this->assertNull($row['stalled_hours']);
+    }
+
+    public function testADownloadOfAnotherNovelOnTheLaneCounts(): void
+    {
+        $stuck = $this->novel('Stuck', 'a.test', 3);
+        $this->dueFor($stuck, 7);
+        $other = $this->novel('Other', 'a.test', 1);
+        $this->downloaded($other, 2);
+
+        $this->assertFalse($this->overviewRows()['a.test']['stalled']);
+    }
+
+    public function testChaptersDueOnlyBrieflyDoNotStallALane(): void
+    {
+        $novel = $this->novel('Fresh', 'a.test', 3);
+        $this->dueFor($novel, 1);
+
+        $this->assertFalse($this->overviewRows()['a.test']['stalled']);
+        $this->assertSame([], app(DownloadLanes::class)->stalled());
+    }
+
+    public function testADownloadingLaneThatProducesNothingIsStillStalled(): void
+    {
+        $novel = $this->novel('Busy', 'a.test', 2);
+        $this->dueFor($novel, 8);
+        DownloadLanes::putState('a.test', ['novel_id' => $novel->id, 'novel_name' => 'Busy', 'mode' => 'sweep', 'started_at' => now()->toIso8601String()]);
+
+        $row = $this->overviewRows()['a.test'];
+        $this->assertSame('downloading', $row['state']);
+        $this->assertTrue($row['stalled']);
+    }
+
+    public function testPausedParkedAndBlacklistedChaptersDoNotStallALane(): void
+    {
+        $paused = $this->novel('Paused', 'p.test', 2, 0, ['paused_at' => now()]);
+        $this->dueFor($paused, 10);
+
+        // Parked: old, but next_attempt_at is still ahead.
+        $parked = $this->novel('Parked', 'q.test', 0, 2);
+        NovelChapter::where('novel_id', $parked->id)->update(['created_at' => now()->subDays(2)]);
+
+        $blacklisted = $this->novel('Blacklisted', 'r.test', 2);
+        $this->dueFor($blacklisted, 10);
+        NovelChapter::where('novel_id', $blacklisted->id)->update(['blacklist' => 1]);
+
+        $rows = $this->overviewRows();
+        $this->assertFalse($rows['q.test']['stalled']);
+        $this->assertArrayNotHasKey('p.test', $rows->all());
+        $this->assertArrayNotHasKey('r.test', $rows->all());
+        $this->assertSame([], app(DownloadLanes::class)->stalled());
+    }
+
+    public function testARetriedChapterIsDueSinceItsNextAttempt(): void
+    {
+        $novel = $this->novel('Retried', 'a.test', 1);
+        // Created long ago, but its retry only came due 2 hours ago.
+        NovelChapter::where('novel_id', $novel->id)->update(['created_at' => now()->subDays(3), 'next_attempt_at' => now()->subHours(2)]);
+        $this->assertFalse($this->overviewRows()['a.test']['stalled']);
+
+        NovelChapter::where('novel_id', $novel->id)->update(['next_attempt_at' => now()->subHours(6)]);
+        $this->assertTrue($this->overviewRows()['a.test']['stalled']);
+    }
+
+    public function testLanesAreJudgedIndependently(): void
+    {
+        $stuck = $this->novel('Stuck', 'a.test', 2);
+        $this->dueFor($stuck, 9);
+        $fine = $this->novel('Fine', 'b.test', 2);
+        $this->dueFor($fine, 9);
+        $this->downloaded($fine, 3);
+
+        $rows = $this->overviewRows();
+        $this->assertTrue($rows['a.test']['stalled']);
+        $this->assertFalse($rows['b.test']['stalled']);
+        $this->assertSame(['a.test'], array_column(app(DownloadLanes::class)->stalled(), 'lane'));
+    }
+
+    public function testStalledListsTheStalledLanesMostQueuedFirst(): void
+    {
+        foreach ([['b.test', 2], ['a.test', 2], ['c.test', 5]] as [$host, $due]) {
+            $this->dueFor($this->novel("Novel {$host}", $host, $due), 7);
+        }
+        $this->dueFor($this->novel('Second c', 'c.test', 1), 12);
+
+        $stalled = app(DownloadLanes::class)->stalled();
+
+        $this->assertSame(['c.test', 'a.test', 'b.test'], array_column($stalled, 'lane'));
+        $this->assertSame(['lane' => 'c.test', 'label' => 'c.test', 'queued' => 6, 'series' => 2, 'hours' => 12], $stalled[0]);
+        foreach ($stalled as $row) {
+            $this->assertSame(['lane', 'label', 'queued', 'series', 'hours'], array_keys($row));
+        }
+    }
+
+    public function testOverviewKeepsItsKeysAndAddsTheStallFields(): void
+    {
+        $this->novel('A', 'a.test', 1);
+
+        $row = app(DownloadLanes::class)->overview()['rows'][0];
+        $this->assertSame([
+            'lane', 'label', 'medium', 'state', 'novel_id', 'novel_name', 'chapter_label', 'mode', 'since',
+            'cooldown_until', 'done_this_run', 'queued', 'retrying', 'series', 'stalled', 'stalled_hours',
+        ], array_keys($row));
+    }
+
+    public function testTheActivityPageNotesAStalledLaneOnly(): void
+    {
+        $this->dueFor($this->novel('Stuck', 'a.test', 2), 7);
+        $this->novel('Fresh', 'b.test', 1);
+
+        $json = $this->getJson(route('activity.downloads'))->assertOk()->json();
+        $this->assertSame(1, substr_count($json['html'], 'nothing downloaded for'));
+        $this->assertSame(1, substr_count($json['html'], 'data-stalled'));
+        $row = fn(string $lane) => preg_match('/<tr data-lane="' . preg_quote($lane, '/') . '">.*?<\/tr>/s', $json['html'], $m) ? $m[0] : '';
+        $this->assertStringContainsString('nothing downloaded for 7 h', $row('a.test'));
+        $this->assertNotSame('', $row('b.test'));
+        $this->assertStringNotContainsString('nothing downloaded', $row('b.test'));
+
+        $this->get(route('activity.index'))->assertOk()->assertSee('nothing downloaded for 7 h');
+    }
+
     public function testMaxParallelLanesIsASetting(): void
     {
         $this->post('/settings', ['max_parallel_lanes' => '3'])->assertSessionHasNoErrors();

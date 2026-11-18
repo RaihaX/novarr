@@ -55,6 +55,15 @@ COMPLETED
 @endif
 @endforeach
 @endif
+@if (count($v['stalled'] ?? []) > 0)
+
+SOURCES NOT DOWNLOADING
+@foreach ($v['stalled'] as $lane)
+- {!! $lane['label'] !!} — {{ number_format($lane['queued']) }} {{ (int) $lane['queued'] === 1 ? 'chapter' : 'chapters' }} waiting, nothing downloaded for {{ number_format($lane['hours']) }} {{ (int) $lane['hours'] === 1 ? 'hour' : 'hours' }}
+@endforeach
+
+View activity: {!! $v['links']['activity'] !!}
+@endif
 @if (count($v['attention']) > 0)
 
 NEEDS ATTENTION

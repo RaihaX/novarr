@@ -65,6 +65,7 @@ class SchedulerTest extends TestCase
             'download_new_chapters' => 10,
             'verify_novel_completion' => 120,
             'email_chapter_summary' => 30,
+            'prune_failed_jobs' => 30,
         ];
 
         $events = $this->events();

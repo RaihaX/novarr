@@ -52,6 +52,14 @@ class DownloadLanes
     /** A failed Suwayomi source lookup is not repeated for this long. */
     public const SOURCE_REF_RETRY_SECONDS = 1800;
 
+    /**
+     * A lane is stalled when its oldest due chapter has been due this long
+     * and none of the novels pending on it downloaded a chapter in that time
+     * (stalledLanes()): reported in the morning email, the webhook and on
+     * the Activity page.
+     */
+    public const STALL_HOURS = 6;
+
     /** Set once a Suwayomi lookup failed in this process: the server is not asked again. */
     private bool $suwayomiDown = false;
 
@@ -255,8 +263,11 @@ class DownloadLanes
                 'novel_chapters.novel_id as novel_id, MIN(novel_chapters.id) as sample_id, '
                 . 'SUM(CASE WHEN novel_chapters.next_attempt_at IS NULL OR novel_chapters.next_attempt_at <= ? THEN 1 ELSE 0 END) as due, '
                 . 'COUNT(*) as pending, '
-                . 'MAX(CASE WHEN novels.paused_at IS NULL THEN 0 ELSE 1 END) as paused',
-                [$now]
+                . 'MAX(CASE WHEN novels.paused_at IS NULL THEN 0 ELSE 1 END) as paused, '
+                // When the oldest due chapter became due (stall detection).
+                . 'MIN(CASE WHEN novel_chapters.next_attempt_at IS NULL OR novel_chapters.next_attempt_at <= ? '
+                . 'THEN COALESCE(novel_chapters.next_attempt_at, novel_chapters.created_at) END) as oldest_due',
+                [$now, $now]
             )
             ->toBase()
             ->get();
@@ -279,15 +290,24 @@ class DownloadLanes
             $sample?->setRelation('novel', $novel);
             $lane = $this->laneFor($novel, $sample, false);
 
-            $entry = $lanes[$lane] ??= ['queued' => 0, 'retrying' => 0, 'series' => 0, 'media' => []];
+            $entry = $lanes[$lane] ??= ['queued' => 0, 'retrying' => 0, 'series' => 0, 'media' => [], 'novels' => [], 'oldest_due' => null];
+            $entry['novels'][] = (int) $row->novel_id;
             if ((int) $row->paused === 0) {
                 $entry['queued'] += (int) $row->due;
                 $entry['retrying'] += (int) $row->pending - (int) $row->due;
                 $entry['series']++;
                 $entry['media'][$novel->isManga() ? 'manga' : 'novel'] = true;
+                if ((int) $row->due > 0 && $row->oldest_due !== null) {
+                    $due = Carbon::parse($row->oldest_due);
+                    if ($entry['oldest_due'] === null || $due->lt($entry['oldest_due'])) {
+                        $entry['oldest_due'] = $due;
+                    }
+                }
             }
             $lanes[$lane] = $entry;
         }
+
+        $stalled = $this->stalledLanes($lanes);
 
         $rows = [];
         foreach ($lanes as $lane => $entry) {
@@ -296,7 +316,10 @@ class DownloadLanes
             if ($state === null && $entry['queued'] === 0 && $entry['retrying'] === 0) {
                 continue; // only paused novels, and nothing running
             }
-            $rows[] = $this->row($lane, $entry, $state);
+            $rows[] = $this->row($lane, $entry, $state) + [
+                'stalled' => isset($stalled[$lane]),
+                'stalled_hours' => $stalled[$lane] ?? null,
+            ];
         }
 
         usort($rows, fn($a, $b) => [$a['state'] === 'downloading' ? 0 : 1, -$a['queued'], -$a['retrying'], $a['label']]
@@ -310,6 +333,117 @@ class DownloadLanes
                 'sources' => count(array_filter($rows, fn($r) => $r['queued'] > 0)),
             ],
         ];
+    }
+
+    /**
+     * Rows of overview() that are stalled, the most chapters waiting first:
+     * list of [lane, label, queued, series, hours].
+     *
+     * @return list<array{lane: string, label: string, queued: int, series: int, hours: int}>
+     */
+    public function stalled(): array
+    {
+        $rows = [];
+        foreach ($this->overview()['rows'] as $row) {
+            if ($row['stalled']) {
+                $rows[] = [
+                    'lane' => $row['lane'],
+                    'label' => $row['label'],
+                    'queued' => $row['queued'],
+                    'series' => $row['series'],
+                    'hours' => (int) $row['stalled_hours'],
+                ];
+            }
+        }
+
+        usort($rows, fn($a, $b) => [-$a['queued'], $a['label']] <=> [-$b['queued'], $b['label']]);
+
+        return $rows;
+    }
+
+    /**
+     * The stalled lanes among overview()'s per-lane entries, as lane =>
+     * hours without a download. A lane is stalled when it has due chapters,
+     * the oldest has been due STALL_HOURS or longer, and no novel pending on
+     * the lane downloaded a chapter in the last STALL_HOURS (a lane that is
+     * busy but produces nothing counts). The hours run from the lane's last
+     * download among those novels, else from its oldest due chapter.
+     *
+     * At most two queries, both limited to the novels of candidate lanes:
+     * one for any download inside the window (a hit clears the lane), and
+     * one for the last download time of the lanes that stay stalled.
+     *
+     * @param  array<string, array>  $lanes
+     * @return array<string, int>
+     */
+    private function stalledLanes(array $lanes): array
+    {
+        $now = Carbon::now();
+        $threshold = $now->copy()->subHours(self::STALL_HOURS);
+
+        $candidates = [];
+        foreach ($lanes as $lane => $entry) {
+            if ($entry['queued'] > 0 && $entry['oldest_due'] !== null && $entry['oldest_due']->lte($threshold)) {
+                $candidates[(string) $lane] = $entry;
+            }
+        }
+        if ($candidates === []) {
+            return [];
+        }
+
+        // download_date is written as Carbon::now() (app timezone) and
+        // compared against now() the same way, like HomeController::stats().
+        $recent = NovelChapter::whereIn('novel_id', array_merge(...array_column($candidates, 'novels')))
+            ->where('status', 1)
+            ->where('download_date', '>=', $threshold)
+            ->distinct()
+            ->pluck('novel_id')
+            ->map(fn($id) => (int) $id)
+            ->flip();
+
+        $stalled = array_filter($candidates, function (array $entry) use ($recent) {
+            foreach ($entry['novels'] as $id) {
+                if ($recent->has($id)) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+        if ($stalled === []) {
+            return [];
+        }
+
+        $last = NovelChapter::whereIn('novel_id', array_merge(...array_column($stalled, 'novels')))
+            ->where('status', 1)
+            ->whereNotNull('download_date')
+            ->groupBy('novel_id')
+            ->selectRaw('novel_id, MAX(download_date) as last_download')
+            ->toBase()
+            ->get()
+            ->mapWithKeys(fn($r) => [(int) $r->novel_id => $r->last_download]);
+
+        $hours = [];
+        foreach ($stalled as $lane => $entry) {
+            $since = null;
+            foreach ($entry['novels'] as $id) {
+                $at = $last->get($id);
+                if ($at !== null) {
+                    $at = Carbon::parse($at);
+                    if ($since === null || $at->gt($since)) {
+                        $since = $at;
+                    }
+                }
+            }
+            // Stalled since the later of the two: a series finished long ago
+            // whose new chapter is stuck has waited since that chapter was due.
+            if ($since === null || $since->lt($entry['oldest_due'])) {
+                $since = $entry['oldest_due'];
+            }
+            $hours[$lane] = intdiv(max(0, $now->getTimestamp() - $since->getTimestamp()), 3600);
+        }
+
+        return $hours;
     }
 
     /** One Activity row. */
