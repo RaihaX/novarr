@@ -598,7 +598,36 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDis
             }
         }
 
-        return null;
+        // The hourly list has expired (or the server was down when it did):
+        // the names kept from the last successful listing still apply.
+        try {
+            $names = Cache::get(self::sourceNamesCacheKey());
+        } catch (\Throwable $e) {
+            return null;
+        }
+        $name = is_array($names) ? ($names[$sourceId] ?? '') : '';
+
+        return is_string($name) && $name !== '' ? $name : null;
+    }
+
+    /** Cache key of the id → name map kept without expiry (cachedSourceName()). */
+    public static function sourceNamesCacheKey(): string
+    {
+        return 'suwayomi_source_names_v1_' . md5(self::baseUrl());
+    }
+
+    /**
+     * Make sure a source's name is known for labels, asking the server for
+     * its source list when it is not (one request, then cached). Called by a
+     * download run, which talks to the server anyway — never by a page view.
+     */
+    public function ensureSourceName(string $sourceId): ?string
+    {
+        if (self::cachedSourceName($sourceId) === null) {
+            $this->sourceList();
+        }
+
+        return self::cachedSourceName($sourceId);
     }
 
     /** Plain-text description → <p> paragraphs (blank lines split, single newlines kept). Pure. */
@@ -734,6 +763,10 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDis
                 $list = self::sourceRows($nodes);
                 try {
                     Cache::put($cacheKey, $list, self::SOURCES_CACHE_SECONDS);
+                    // Names outlive the list, so labels survive an outage.
+                    $names = array_filter(array_column($list, 'name', 'id'), fn($n) => is_string($n) && $n !== '');
+                    $known = Cache::get(self::sourceNamesCacheKey());
+                    Cache::forever(self::sourceNamesCacheKey(), $names + (is_array($known) ? $known : []));
                 } catch (\Throwable $e) {
                     // Uncached is fine.
                 }

@@ -28,6 +28,17 @@ class SchedulerTest extends TestCase
         return $events;
     }
 
+    /**
+     * The schedule's time windows (unlessBetween) read the clock when
+     * routes/console.php is loaded, which is while the app boots: fix the
+     * time first, or the suite fails for an hour a day.
+     */
+    protected function setUp(): void
+    {
+        Carbon::setTestNow('2026-11-14 05:00:00');
+        parent::setUp();
+    }
+
     protected function tearDown(): void
     {
         Carbon::setTestNow();
