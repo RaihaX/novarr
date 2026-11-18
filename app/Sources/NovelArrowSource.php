@@ -508,8 +508,12 @@ class NovelArrowSource extends AbstractSource
         $path = trim(parse_url($url, PHP_URL_PATH) ?: "", "/");
         $parts = $path === "" ? [] : explode("/", $path);
 
-        // Chapter pages carry the slug one segment before the chapter id.
+        // Chapter pages carry the slug one segment before the chapter id
+        // (…/chapter/slug/chapter-…, or the reader's …/book/slug/chapter-…).
         if (count($parts) >= 2 && $parts[0] === "chapter") {
+            return self::cleanSlug($parts[1]);
+        }
+        if (count($parts) >= 3 && $parts[0] === "book") {
             return self::cleanSlug($parts[1]);
         }
 
@@ -520,6 +524,28 @@ class NovelArrowSource extends AbstractSource
     public static function chapterPageUrl(string $slug, string $chapterId): string
     {
         return self::canonicalBase() . "/chapter/{$slug}/{$chapterId}";
+    }
+
+    /**
+     * Where a chapter's HTML page is served. The site moved its reader to
+     * …/book/slug/chapter-id (late 2026): …/chapter/slug/chapter-id now
+     * answers 404, and newer chapters are missing from the JSON API too.
+     * Stored chapter URLs keep the …/chapter/… shape (their identity); this
+     * is only the address the page fetch uses. A renamed novel redirects
+     * from its old slug. Null when $url is not one of our chapter URLs.
+     */
+    public static function readerPageUrl(?string $url): ?string
+    {
+        if (!self::isSiteUrl($url)) {
+            return null;
+        }
+
+        $parts = explode("/", trim(parse_url(trim((string) $url), PHP_URL_PATH) ?: "", "/"));
+        if (count($parts) !== 3 || $parts[0] !== "chapter" || $parts[1] === "" || $parts[2] === "") {
+            return null;
+        }
+
+        return self::canonicalBase() . "/book/" . self::cleanSlug($parts[1]) . "/{$parts[2]}";
     }
 
     /** Canonical novel page URL for a slug. */

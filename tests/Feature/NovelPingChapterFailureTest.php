@@ -18,6 +18,8 @@ class NovelPingChapterFailureTest extends GoldenTestCase
     private const NOVEL = 'https://novelping.com/novel/shadow-slave';
     private const CHAPTER = 'https://novelping.com/chapter/shadow-slave/chapter-1-nightmare-begins';
     private const API = 'https://novelping.com/api-web/novels/shadow-slave/chapters/chapter-1-nightmare-begins';
+    /** Where the chapter page is fetched: the site's reader, not the stored chapter URL. */
+    private const PAGE = 'https://novelping.com/book/shadow-slave/chapter-1-nightmare-begins';
 
     private function generate(string $url = self::CHAPTER, string $novelUrl = self::NOVEL): array
     {
@@ -62,19 +64,45 @@ class NovelPingChapterFailureTest extends GoldenTestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('apiFailures')]
     public function testOtherApiFailuresFallBackToThePageFetch(array|string $failure): void
     {
-        $fetcher = $this->fake([self::API => $failure, self::CHAPTER => self::page()]);
+        $fetcher = $this->fake([self::API => $failure, self::PAGE => self::page()]);
 
         [$paragraphs, $reason] = $this->generate();
 
-        $this->assertSame([self::API, self::CHAPTER], $fetcher->urls());
+        $this->assertSame([self::API, self::PAGE], $fetcher->urls());
         $this->assertSame(['json', 'html'], array_column($fetcher->calls, 'method'));
         $this->assertNotSame([], $paragraphs);
         $this->assertNull($reason);
     }
 
+    public function testAChapterMissingFromTheApiIsReadFromTheReaderPage(): void
+    {
+        $chapter = 'https://novelping.com/chapter/martial-artist-lee-gwak/chapter-451';
+        $fetcher = $this->fake([
+            'https://novelping.com/api-web/novels/martial-artist-lee-gwak/chapters/chapter-451' => FakeFetcher::fail('http_404', 404),
+            'https://novelping.com/book/martial-artist-lee-gwak/chapter-451' => file_get_contents(base_path('tests/fixtures/novelarrow/book-chapter-page.html')),
+        ]);
+
+        [$paragraphs, $reason] = $this->generate($chapter, 'https://novelping.com/novel/martial-artist-lee-gwak');
+
+        $this->assertNull($reason);
+        $this->assertGreaterThanOrEqual(10, count($paragraphs));
+        $this->assertStringContainsString('The Blood Wind Blows from the West', implode(' ', $paragraphs));
+        $this->assertSame('https://novelping.com/book/martial-artist-lee-gwak/chapter-451', $fetcher->urls()[1]);
+    }
+
+    public function testReaderPageUrlAndSlugs(): void
+    {
+        $source = \App\Sources\NovelArrowSource::class;
+        $this->assertSame('https://novelping.com/book/a-b/chapter-1', $source::readerPageUrl('https://novelping.com/chapter/a-b/chapter-1'));
+        $this->assertNull($source::readerPageUrl('https://novelping.com/novel/a-b'));
+        $this->assertNull($source::readerPageUrl('https://example.com/chapter/a-b/chapter-1'));
+        $this->assertSame('a-b', $source::slugFrom('https://novelping.com/book/a-b'));
+        $this->assertSame('a-b', $source::slugFrom('https://novelping.com/book/a-b/chapter-1'));
+    }
+
     public function testFallbackFailureReportsThePageFetchReason(): void
     {
-        $this->fake([self::API => FakeFetcher::fail('rate_limited', 503), self::CHAPTER => FakeFetcher::fail('http_404', 404)]);
+        $this->fake([self::API => FakeFetcher::fail('rate_limited', 503), self::PAGE => FakeFetcher::fail('http_404', 404)]);
 
         [$paragraphs, $reason] = $this->generate();
 
