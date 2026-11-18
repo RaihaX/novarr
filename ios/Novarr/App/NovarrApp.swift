@@ -33,6 +33,10 @@ struct NovelRoute: Hashable {
 struct ReaderRoute: Hashable {
     var novelId: Int
     var chapterId: Int
+    /// Opened by choosing a chapter (continue, resume, chapter list): check
+    /// whether another device read this series more recently and offer to go
+    /// there. Off for highlights and debug routes.
+    var offerLatest = false
 }
 
 /// All highlights, or one novel's when `novelId` is set.

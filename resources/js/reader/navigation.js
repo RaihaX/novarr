@@ -3,6 +3,7 @@
 import { chLabel } from './format.js';
 import { applyFooterState } from './footer.js';
 import { SHORTCUTS, shortcutBlocked, isTypingTarget } from './shortcuts.js';
+import { markInReaderNav } from './latest-position.js';
 
 export const sectionTop = (s, scrollY = window.scrollY) => s.el.getBoundingClientRect().top + scrollY;
 export const sectionHeight = s => s.el.offsetHeight || 1;
@@ -72,12 +73,20 @@ export function initNavigation(ctx) {
         else window.location.href = url;
     }
     ctx.visit = visit;
+    // Next / previous chapter from inside the reader: not a fresh open, so
+    // the destination does not offer the "latest position" prompt.
+    function visitAdjacent(url) {
+        if (!url) return;
+        try { markInReaderNav(sessionStorage, url); } catch (e) { /* storage blocked */ }
+        visit(url);
+    }
+    ctx.visitAdjacent = visitAdjacent;
     function goPrev() {
         const cur = sections[ctx.currentIdx];
         if (ctx.currentIdx > 0) {
             window.scrollTo({ top: sectionTop(sections[ctx.currentIdx - 1]), behavior: ctx.reducedMotion() ? 'auto' : 'smooth' });
         } else {
-            visit(cur.prev?.url);
+            visitAdjacent(cur.prev?.url);
         }
     }
     function goNext() {
@@ -85,7 +94,7 @@ export function initNavigation(ctx) {
         if (ctx.currentIdx < sections.length - 1) {
             window.scrollTo({ top: sectionTop(sections[ctx.currentIdx + 1]), behavior: ctx.reducedMotion() ? 'auto' : 'smooth' });
         } else {
-            visit(cur.next?.url);
+            visitAdjacent(cur.next?.url);
         }
     }
     ctx.goPrev = goPrev;

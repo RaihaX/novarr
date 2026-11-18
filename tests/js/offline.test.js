@@ -54,9 +54,11 @@ globalThis.dispatchEvent = (e) => { events.push(e); return true; };
 let responder = () => ({ ok: true, status: 200, json: async () => ({ success: true }) });
 const fetched = [];
 const sent = []; // { url, body } of every request, body JSON-parsed
+const sentHeaders = []; // the headers of every request
 globalThis.fetch = async (url, opts) => {
     fetched.push(url);
     sent.push({ url, body: opts?.body ? JSON.parse(opts.body) : null });
+    sentHeaders.push(opts?.headers || {});
     await new Promise((r) => setTimeout(r, 5));
     return responder(url, opts);
 };
@@ -83,6 +85,7 @@ globalThis.localStorage = {
 beforeEach(() => {
     fetched.length = 0;
     sent.length = 0;
+    sentHeaders.length = 0;
     events.length = 0;
     navigator.onLine = true;
     responder = () => ({ ok: true, status: 200, json: async () => ({ success: true }) });
@@ -276,4 +279,17 @@ test('storage status without the Storage API reports unsupported', async () => {
     local.clear();
     assert.equal(await offline.requestPersistence(), 'unsupported');
     assert.deepEqual(await offline.storageStatus(), { usage: null, quota: null, persistence: 'unsupported' });
+});
+
+test('online writes and queued replays carry this browser\'s device headers', async () => {
+    await seed([{ url: '/chapters/5/progress', body: { progress: 40 } }]);
+    assert.equal(await offline.flushQueue(), 1);
+    await offline.queuedFetch('/chapters/bulk-read', { body: { ids: [5], read: true } });
+    assert.equal(sentHeaders.length, 2);
+    const id = sentHeaders[0]['X-Novarr-Device'];
+    assert.match(id, /^w_[0-9a-f]{24}$/);
+    for (const h of sentHeaders) {
+        assert.equal(h['X-Novarr-Device'], id);
+        assert.equal(h['X-Novarr-Device-Name'], 'Web');
+    }
 });

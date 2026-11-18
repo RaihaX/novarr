@@ -1,6 +1,8 @@
 // Read state controls: "Mark to here", the read toggle, "Mark read &
 // continue" and the pending-chapter download button.
 import { applyReadUi } from './footer.js';
+import { deviceHeaders } from '../device.js';
+import { markLocalWrite } from './latest-position.js';
 
 export function initReadState(ctx) {
     const { state, sections } = ctx;
@@ -11,6 +13,11 @@ export function initReadState(ctx) {
     // on reconnect. app.js always runs first (it is the earlier module), so
     // the plain-fetch fallback only matters if app.js failed to load.
     function readFetch(url, body) {
+        // A progress-endpoint write (mark read on view) is "reading here" for
+        // the latest-position prompt; bulk marking is not (see the contract).
+        if (/\/progress$/.test(url)) {
+            try { markLocalWrite(localStorage, state.novelId); } catch (e) { /* storage blocked */ }
+        }
         if (window.Novarr?.queuedFetch) {
             return window.Novarr.queuedFetch(url, { method: 'POST', body: body || null });
         }
@@ -19,6 +26,7 @@ export function initReadState(ctx) {
             headers: {
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
                 'Accept': 'application/json',
+                ...deviceHeaders(),
                 ...(body ? { 'Content-Type': 'application/json' } : {}),
             },
             body: body ? JSON.stringify(body) : undefined,
@@ -93,7 +101,7 @@ export function initReadState(ctx) {
             } catch (err) {
                 // Navigating still marks it read server-side when the page loads.
             }
-            ctx.visit(url);
+            ctx.visitAdjacent(url);
         });
     }
 

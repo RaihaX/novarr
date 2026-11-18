@@ -1,6 +1,8 @@
 // Reading position (local restore + cross-device sync), minutes left, the
 // progress rail and the reader bar's auto-hide.
 import { sectionTop, sectionHeight } from './navigation.js';
+import { appendDeviceFields } from '../device.js';
+import { markLocalWrite } from './latest-position.js';
 
 const posKey = id => 'reader_pos_' + id;
 const WPM = 230;   // honest-ish adult reading pace for web fiction
@@ -38,17 +40,25 @@ export function initProgress(ctx) {
         if (signal.aborted || !readerEl.isConnected || !sections.some(s => s.id === id)) return;
         if (lastSynced.id === id && Math.abs(lastSynced.pct - pct) < 5 && pct < 98) return;
         lastSynced = { id, pct };
+        noteWrite();
         // A beacon survives the page going away, but offline it is simply
         // dropped: park the write in the offline queue instead.
         if (onPageHide && navigator.sendBeacon && navigator.onLine !== false) {
             const form = new FormData();
             form.append('progress', String(pct));
+            appendDeviceFields(form);
             navigator.sendBeacon(`/chapters/${id}/progress`, form);
             return;
         }
         window.Novarr?.queuedFetch?.(`/chapters/${id}/progress`, { method: 'POST', body: { progress: pct } }).catch(() => {});
     }
     ctx.syncProgress = syncProgress;
+
+    // This browser's last progress write for the series, for the "latest
+    // position" prompt's "local progress is newer" rule (latest-position.js).
+    function noteWrite() {
+        try { markLocalWrite(localStorage, state.novelId); } catch (e) { /* storage blocked */ }
+    }
 
     const progressFill = document.getElementById('readProgressFill');
     let scrollSaveTimer = null;
@@ -66,6 +76,7 @@ export function initProgress(ctx) {
         scrollSaveTimer = setTimeout(() => {
             if (pct >= 98) localStorage.removeItem(posKey(cur.id));
             else localStorage.setItem(posKey(cur.id), String(pct));
+            noteWrite();
         }, 250);
 
         if (!syncTimer) {
@@ -122,18 +133,33 @@ export function initProgress(ctx) {
         if (document.visibilityState === 'hidden') syncProgress(sections[ctx.currentIdx].id, currentProgressPct(), true);
     }, { signal });
 
+    // Scroll the opened chapter (sections[0]) to a percentage: the bottom of
+    // the viewport at pct% of the chapter, as currentProgressPct() measures.
+    function scrollToProgress(pct) {
+        const s = sections[0];
+        window.scrollTo(0, Math.max(0, sectionTop(s) + (pct / 100) * sectionHeight(s) - window.innerHeight));
+    }
+    ctx.scrollToProgress = scrollToProgress;
+
     // Restore: local position wins (freshest on this device), else the synced
     // server position from another device. Legacy pixel keys still honoured.
+    // The "latest position" plan (reader/latest.js) adjusts this:
+    //  - "Go to latest" brought us here: open exactly at that position;
+    //  - the prompt is offering another device's place in THIS chapter: do
+    //    not also jump there unasked — only this device's own position.
     (function restorePosition() {
+        const plan = ctx.latestPlan || {};
+        const accepted = plan.accepted ?? null;
         let pct = parseInt(localStorage.getItem(posKey(state.id)) || '', 10);
-        if (isNaN(pct)) pct = state.progress;
+        if (isNaN(pct) && !(plan.offer && plan.sameChapter)) pct = state.progress;
         const legacyPx = parseInt(localStorage.getItem('reader_scroll_' + state.id) || '0', 10);
         localStorage.removeItem('reader_scroll_' + state.id);
 
         requestAnimationFrame(() => {
-            if (pct !== null && !isNaN(pct) && pct > 2 && pct < 98) {
-                const s = sections[0];
-                window.scrollTo(0, Math.max(0, sectionTop(s) + (pct / 100) * sectionHeight(s) - window.innerHeight));
+            if (accepted !== null) {
+                if (accepted > 2) scrollToProgress(accepted);
+            } else if (pct !== null && !isNaN(pct) && pct > 2 && pct < 98) {
+                scrollToProgress(pct);
             } else if (legacyPx > 200) {
                 window.scrollTo(0, legacyPx);
             }

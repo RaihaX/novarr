@@ -13,6 +13,9 @@ struct PendingWrite: Codable, Sendable, Identifiable, Equatable {
     /// Device wall-clock time when the write was recorded. Only differences
     /// against the same clock are sent (`age`), so clock skew doesn't matter.
     var recordedAt: Date
+    /// The series this write belongs to, when known (for the "latest position"
+    /// check); never sent. Older persisted queues decode it as nil.
+    var novelId: Int? = nil
 
     /// Milliseconds since this write was recorded, never negative.
     func age(at now: Date) -> Int {
@@ -52,7 +55,7 @@ actor WriteQueue {
 
     var count: Int { items.count }
 
-    func enqueue(_ kind: Kind) {
+    func enqueue(_ kind: Kind, novelId: Int? = nil) {
         // A newer scroll position supersedes an older unsent one for the same
         // chapter; read flags and explicit read/unread writes are never merged.
         if case .progress(let chapterId, _, false) = kind {
@@ -61,7 +64,7 @@ actor WriteQueue {
                 return false
             }
         }
-        items.append(PendingWrite(id: UUID(), kind: kind, recordedAt: now()))
+        items.append(PendingWrite(id: UUID(), kind: kind, recordedAt: now(), novelId: novelId))
         persist()
     }
 

@@ -34,7 +34,7 @@ struct RootView: View {
     }
 
     #if DEBUG
-    /// Debug builds only: `-debugRoute settings|library|discover|highlights|highlights:<novelId>|novel:<id>|reader:<novelId>:<chapterId>`
+    /// Debug builds only: `-debugRoute settings|library|discover|highlights|highlights:<novelId>|novel:<id>|reader:<novelId>:<chapterId>|latest:<novelId>:<chapterId>`
     /// opens a screen at launch, for simulator screenshots without UI automation.
     private func openDebugRoute() {
         guard let route = UserDefaults.standard.string(forKey: "debugRoute") else { return }
@@ -53,6 +53,10 @@ struct RootView: View {
             selection = .library
             libraryPath.append(NovelRoute(id: parts[0], summary: nil))
             libraryPath.append(ReaderRoute(novelId: parts[0], chapterId: parts[1]))
+        case "latest" where parts.count == 2: // reader with the latest-position check
+            selection = .library
+            libraryPath.append(NovelRoute(id: parts[0], summary: nil))
+            libraryPath.append(ReaderRoute(novelId: parts[0], chapterId: parts[1], offerLatest: true))
         default: break
         }
     }

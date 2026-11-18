@@ -7,10 +7,13 @@ struct APIClient: Sendable {
 
     let baseURL: URL
     let session: URLSession
+    /// Identifies this install on read-state writes; nil sends no device headers.
+    let device: DeviceIdentity?
 
-    init(baseURL: URL, session: URLSession = .novarr) {
+    init(baseURL: URL, session: URLSession = .novarr, device: DeviceIdentity? = nil) {
         self.baseURL = baseURL
         self.session = session
+        self.device = device
     }
 
     // MARK: Reads
@@ -54,18 +57,32 @@ struct APIClient: Sendable {
         try await get("chapters/\(id)", as: ChapterEnvelope.self, timeout: 30).chapter
     }
 
+    /// Where the series was last read, on any device; nil when nobody has
+    /// read it yet or the server predates the endpoint (404). Short timeout:
+    /// the reader opens regardless and only prompts if this answers in time.
+    func latestPosition(novelId: Int) async throws -> ReadingPosition? {
+        do {
+            return try await get("novels/\(novelId)/position", as: PositionEnvelope.self,
+                                 timeout: 3, fresh: true).position
+        } catch APIError.http(404, _) {
+            return nil
+        }
+    }
+
     // MARK: Writes
 
     /// Sends one queued write. `age` is how many milliseconds ago it was recorded.
+    /// Carries the device headers so the server can record who read where.
     func send(_ write: PendingWrite.Kind, age: Int) async throws {
+        let headers = device?.headers ?? [:]
         switch write {
         case .progress(let chapterId, let progress, let read):
             try await post("chapters/\(chapterId)/progress",
-                           body: ProgressBody(progress: progress, read: read ? true : nil, age: age))
+                           body: ProgressBody(progress: progress, read: read ? true : nil, age: age), headers: headers)
         case .setRead(let chapterId, let read):
-            try await post("chapters/\(chapterId)/read", body: ReadBody(read: read, age: age))
+            try await post("chapters/\(chapterId)/read", body: ReadBody(read: read, age: age), headers: headers)
         case .bulkRead(let request):
-            try await post("chapters/bulk-read", body: BulkBody(request: request, age: age))
+            try await post("chapters/bulk-read", body: BulkBody(request: request, age: age), headers: headers)
         }
     }
 
@@ -139,8 +156,10 @@ struct APIClient: Sendable {
     }
 
     private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type,
-                                   timeout: TimeInterval = 20) async throws -> T {
-        var request = URLRequest(url: url(for: path, query: query), timeoutInterval: timeout)
+                                   timeout: TimeInterval = 20, fresh: Bool = false) async throws -> T {
+        var request = URLRequest(url: url(for: path, query: query),
+                                 cachePolicy: fresh ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy,
+                                 timeoutInterval: timeout)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let data = try await perform(request)
         return try decode(T.self, from: data)
@@ -154,16 +173,18 @@ struct APIClient: Sendable {
         }
     }
 
-    private func post<Body: Encodable>(_ path: String, body: Body) async throws {
-        _ = try await send("POST", path, body: body)
+    private func post<Body: Encodable>(_ path: String, body: Body, headers: [String: String] = [:]) async throws {
+        _ = try await send("POST", path, body: body, headers: headers)
     }
 
     /// A write with an optional JSON body; returns the response body.
     private func send<Body: Encodable>(_ method: String, _ path: String, body: Body?,
-                                       timeout: TimeInterval = 20) async throws -> Data {
+                                       timeout: TimeInterval = 20,
+                                       headers: [String: String] = [:]) async throws -> Data {
         var request = URLRequest(url: url(for: path), timeoutInterval: timeout)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        for (field, value) in headers { request.setValue(value, forHTTPHeaderField: field) }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONCoding.encoder().encode(body)

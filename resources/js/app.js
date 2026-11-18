@@ -1,4 +1,7 @@
 import './bootstrap';
+// This browser's device identity (localStorage + cookies), set before
+// anything can navigate to a reader page: see device.js.
+import { initDevice, getDevice, deviceHeaders } from './device';
 // Self-hosted font faces live in ./fonts (Geist, Geist Mono, Literata;
 // Atkinson Hyperlegible is loaded on the reader only). ./bootstrap exports
 // the Bootstrap plugins in use and sets window.bootstrap for inline scripts.
@@ -19,6 +22,8 @@ import {
     initOffline, downloadNovel, removeNovel, getLibrary,
     getNovel, isDownloaded, queuedFetch, flushQueue,
 } from './offline';
+initDevice();
+
 // Novel page chapter list (filter, selection); re-initialised per visit.
 import { initNovelPage } from './novel';
 document.addEventListener('turbo:load', initNovelPage);
@@ -47,6 +52,8 @@ window.Novarr = {
     executeCommand, pollJobStatus, showToast, confirmDialog, initTagPickers,
     downloadNovel, removeNovel, getLibrary, getNovel, isDownloaded,
     queuedFetch, flushQueue, softRefresh, setFunnelState,
+    // Device identity for read-state writes — see device.js
+    getDevice, deviceHeaders,
     // Shell (theme, sheets, palette) — see theme.js / modal.js / palette.js
     setTheme, getTheme, cycleTheme,
     focusTrap, releaseFocusTrap, openSheet, closeSheet, closeAll,

@@ -11,6 +11,8 @@
  *     Sync, so the flush is driven from the page on `online` + next app open.
  */
 
+import { deviceHeaders } from './device.js';
+
 const DB_NAME = 'novarr-offline';
 const DB_VERSION = 1;
 
@@ -343,7 +345,9 @@ export async function queuedFetch(url, { method = 'POST', body = null } = {}) {
     if (!navigator.onLine) {
         return enqueue(url, method, body);
     }
-    const headers = { Accept: 'application/json' };
+    // This browser's device rides on every write (the server's "latest
+    // position"); a replay below sends it again from the same browser.
+    const headers = { Accept: 'application/json', ...deviceHeaders() };
     if (body) headers['Content-Type'] = 'application/json';
     let res;
     try {
@@ -382,7 +386,7 @@ async function replayQueue() {
         }
         let res;
         try {
-            const headers = { Accept: 'application/json' };
+            const headers = { Accept: 'application/json', ...deviceHeaders() };
             const body = replayBody(item);
             if (body) headers['Content-Type'] = 'application/json';
             res = await fetch(item.url, {
