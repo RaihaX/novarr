@@ -23,8 +23,14 @@
 
 {{-- The numbers the old dashboard stat tiles carried, as one mono line. --}}
 <ul class="activity-summary" aria-label="Library summary">
-    <li><a href="{{ route('novels.index', ['status' => 0]) }}"><span class="home-mono">{{ number_format($stats['active']) }}</span> <x-status state="active" as="text">active</x-status></a></li>
-    <li><a href="{{ route('novels.index', ['status' => 1]) }}"><span class="home-mono">{{ number_format($stats['completed']) }}</span> completed</a></li>
+    {{-- Per library: each figure opens the library that lists exactly those
+         series. The Manga figures only appear once there is a manga. --}}
+    @foreach(['novel' => 'novels', 'manga' => 'manga'] as $mKey => $mWord)
+        @php $m = $stats['by_medium'][$mKey] ?? ['active' => 0, 'completed' => 0]; @endphp
+        @continue($mKey === 'manga' && $m['active'] + $m['completed'] === 0)
+        <li><a href="{{ route('novels.index', ['medium' => $mKey, 'status' => 0]) }}" data-summary="active-{{ $mKey }}"><span class="home-mono">{{ number_format($m['active']) }}</span> <x-status state="active" as="text">active {{ $mWord }}</x-status></a></li>
+        <li><a href="{{ route('novels.index', ['medium' => $mKey, 'status' => 1]) }}" data-summary="completed-{{ $mKey }}"><span class="home-mono">{{ number_format($m['completed']) }}</span> completed {{ $mWord }}</a></li>
+    @endforeach
     <li><a href="#queued-section"><span class="home-mono">{{ number_format($stats['pending']) }}</span> <x-status state="queued" as="text">chapters queued</x-status></a></li>
     <li><a href="#recent-section"><span class="home-mono">{{ number_format($stats['downloaded_today']) }}</span> downloaded in 24 h</a></li>
     <li><a href="{{ route('health.index') }}#attentionPanel"><span class="home-mono">{{ number_format($attention_count) }}</span> <x-status :state="$attention_count > 0 ? 'attention' : 'paused'" as="text">need attention</x-status></a></li>

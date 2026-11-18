@@ -395,6 +395,8 @@ ExecStart=/usr/bin/php artisan queue:work --queue=commands,default --sleep=1 --t
 Restart=always
 ```
 
+One worker runs one job at a time; the scheduler's every-minute drain picks up what waits behind a long job within a minute. For instant pickup of a second job, run a second copy of the unit (e.g. `novarr-worker-2.service`, same contents): jobs are claimed atomically from the `jobs` table and each novel's scrape is guarded by its own lock, so workers never share a job or a novel.
+
 Run `php artisan queue:restart` after each deploy so the worker reloads new code. Scheduled scrapes hold `withoutOverlapping` locks of 90 min (TOC) and 150 min (chapters) — short enough that a killed run can't block the next day — and every `novel:chapter` and `novel:toc` run, scheduled or UI-triggered (the reader's single-chapter download excepted), takes a per-novel lock (`novel-scrape:{id}`, released when the run ends, with a 3-hour expiry that long manual runs renew) before working a novel and skips any novel whose lock another run holds, so two scrapes never work the same novel at once.
 
 ---
