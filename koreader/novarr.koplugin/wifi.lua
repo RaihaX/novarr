@@ -27,6 +27,12 @@ The reading position is not left waiting for the next window:
   * Waking up, or 3 minutes without a page turn (reading.lua), with writes
     queued: requestSync() marks a sync as due (wifipolicy's sync_due), so
     Wi-Fi switched off by Novarr comes on for an ordinary window.
+  * A latest-position check due after waking up (5+ minutes asleep) or for
+    a chapter KOReader opened by itself (position.lua): requestPosition()
+    marks it (wifipolicy's position_due), so Wi-Fi switched off by Novarr
+    comes on for an ordinary window, in which position.lua asks the server
+    (after NetworkConnected). A check due for an open from Novarr's screens
+    never switches Wi-Fi on.
   * Going to sleep: sleepSync() sends the queue at once when connected
     (setting on or off). When Novarr has Wi-Fi switched off and the device
     keeps running into sleep with Wi-Fi restore (Kindle: KOReader's
@@ -59,6 +65,7 @@ local Wifi = {
     backoff_until = nil,
     exhausted_at = nil,
     sync_due = nil,                      -- why the queue should be sent soon (wifipolicy's sync_due)
+    position_due = nil,                  -- why a latest-position check waits for Wi-Fi (wifipolicy's position_due)
     sleep = nil,                         -- {since}: sending before sleep, Wi-Fi switched on for it
     last = nil,                          -- {action, reason, at}
     events = {},                         -- recent switches, for dumps
@@ -217,8 +224,10 @@ end
 
 local function newWindow()
     Wifi.window = { on_since = now(), last_progress = now() }
-    -- The window's own work (Reading.background) sends the queue.
+    -- The window's own work (Reading.background) sends the queue; position.lua
+    -- asks for the latest position once connected (main.lua's onNetworkConnected).
     Wifi.sync_due = nil
+    Wifi.position_due = nil
 end
 
 --- Something was gained in this online window (a chapter stored, writes sent).
@@ -281,6 +290,8 @@ function Wifi.snapshot()
     local target = tonumber(Session:get("prefetch")) or 0
     local w = Wifi.window or {}
     local sync = Session:syncState()
+    -- The latest-position check expired (or was dropped): no reason for Wi-Fi any more.
+    if Wifi.position_due and not require("novarr.position").pendingDue(Session) then Wifi.position_due = nil end
     local s = {
         enabled = Wifi.enabled(),
         managing = Wifi.managing(),
@@ -292,6 +303,7 @@ function Wifi.snapshot()
         queue = sync.queue,
         finished_unsynced = sync.chapters,
         sync_due = Wifi.sync_due,
+        position_due = Wifi.position_due,
         target = target,
         busy = busy(Session),
         now = now(),
@@ -409,6 +421,12 @@ local function connected()
     newWindow()
     runAll(c.ok)
     Wifi.windowStart()
+    -- A latest-position check waiting for this connection (also when no
+    -- NetworkConnected event follows: the connection found at a poll).
+    S().guard(function()
+        local Position = require("novarr.position")
+        if Position.pendingDue(S()) then Position.schedule(Position.NETWORK_DELAY, "Wi-Fi connected") end
+    end)
 end
 
 local function failed()
@@ -550,6 +568,16 @@ function Wifi.requestSync(reason)
     else
         Wifi.sync_due = nil
     end
+    Wifi.evaluate(reason)
+end
+
+--[[--
+Asks for an online window for a latest-position check (position.lua: woke
+up, a chapter KOReader opened): with Wi-Fi switched off by Novarr while
+reading, it comes on (wifipolicy's position_due). Evaluates.
+]]
+function Wifi.requestPosition(reason)
+    Wifi.position_due = reason
     Wifi.evaluate(reason)
 end
 
@@ -792,6 +820,7 @@ function Wifi.dump()
         backoff_until = Wifi.backoff_until,
         exhausted_at = Wifi.exhausted_at,
         sync_due = Wifi.sync_due,
+        position_due = Wifi.position_due,
         sleep = Wifi.sleep,
         queue = s.queue,
         busy = s.busy,

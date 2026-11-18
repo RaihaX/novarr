@@ -207,26 +207,48 @@ the device. Highlights in other books are never sent anywhere.
 
 ### Read on another device
 
-Since 1.8.0, when you open a novel from Novarr's screens (a tap on Home or the Library,
-**Continue**, or a chapter in the chapter list) and you read it more recently somewhere
-else (the website, the iPhone app, another Kindle), Novarr asks, over the chapter it
-just opened:
+Since 1.8.0, when you read a novel more recently somewhere else (the website, the iPhone
+app, another Kindle), Novarr asks:
 
     Chapter 124 · 40% was read on iPhone 2 hours ago. Go there?
     [Go to latest]  [Stay here]
 
 **Go to latest** opens that chapter at that place, even if this Kindle remembers a
-different page in it. **Stay here** keeps you where you are, and Novarr doesn't ask again
-about that reading; once you read on, this Kindle is the latest. The chapter always opens
-first: the question only comes when the Kindle is already connected and the server answers
-within 3 seconds (an older server without this feature never asks). Turning to the next
-or previous chapter while reading never asks. It doesn't ask either when this Kindle has
-reading of its own newer than the other device's, when the other place is within 5% of
-where you are, or when that chapter can't be opened (not downloaded on the server).
+different page in it. **Stay here** (or a tap outside the box) keeps you where you are, and
+Novarr doesn't ask again about that reading; once you read on, this Kindle is the latest.
+
+It asks at these moments:
+
+- **Opening a novel from Novarr's screens** (a tap on Home or the Library, **Continue**, or
+  a chapter in the chapter list) while the Kindle is connected: Novarr asks the server
+  first (3 seconds at most) and shows the question before the book opens, so whichever
+  you choose, only one chapter is loaded. When the Kindle isn't connected yet, the chapter
+  opens as usual and the question comes once a connection is there (within 3 minutes).
+  When the server doesn't answer, it doesn't try again before opening for a minute.
+- **Waking the Kindle up after 5 minutes or more** with a Novarr chapter open. If Novarr
+  had switched Wi-Fi off (*Turn Wi-Fi off while reading when everything is saved*), it
+  switches it on briefly to check.
+- **A Novarr chapter KOReader opened by itself**: the book KOReader reopens when it
+  starts, or one opened from KOReader's History or file browser. Here too Novarr may
+  switch its own switched-off Wi-Fi on briefly to check.
+
+Turning to the next or previous chapter while reading never asks. It doesn't ask either
+when this Kindle has reading of its own newer than the other device's, when the other
+place is within 5% of where you are, or when that chapter can't be opened (not downloaded
+on the server). An older server without this feature never asks.
+
+Two entries in Novarr's settings:
+
+- **Ask to go to the latest place read on another device** (on by default). Off: Novarr
+  never asks and never checks. This Kindle's place is still sent with its name, so your
+  other devices can still offer it.
+- **Name of this device**: the name your other devices show ("… was read on Kindle").
+  Plain letters, digits and punctuation, at most 40 characters; leave it empty to go back
+  to the model name.
 
 To tell devices apart, the plugin makes up a random id for this Kindle once and sends it,
-with the name "Kindle" (or the model, such as "Kindle PaperWhite 5"), along with your
-reading progress.
+with its name ("Kindle", the model such as "Kindle PaperWhite 5", or the name you set),
+along with your reading progress.
 
 ### Reading stats
 

@@ -96,6 +96,8 @@ function Novarr:init()
                 Session.return_to = nil
                 Session.opened_from_novarr = false
                 Session.switching = false
+                -- Another book: no latest-position check is due any more.
+                require("novarr.position").leave()
             end
         elseif Session.return_to then
             -- Back in the file manager after reading a chapter opened from Novarr.
@@ -208,6 +210,8 @@ function Novarr:onSuspend()
         end)
     end
     if Session.plugin == self then
+        -- When it fell asleep (waking up after a while asks for the latest position).
+        Session.suspended_at = os.time()
         Session.guard(function()
             -- Another plugin instance holds the open chapter: its position too.
             local reader = Session.reader
@@ -227,6 +231,9 @@ end
 function Novarr:onResume()
     Session.asleep = nil
     if Session.plugin == self then
+        -- How long it slept (wall clock: the monotonic clocks may stop while suspended).
+        Session.slept_s = Session.suspended_at and os.time() - Session.suspended_at or nil
+        Session.suspended_at = nil
         Session.guard(function()
             -- Woken up: the next request checks the home address again.
             Session.address:invalidate("wake-up")
@@ -244,6 +251,12 @@ function Novarr:onResume()
                     if type(Checks) == "table" then Checks.onResume() end
                     local Discover = package.loaded["novarr.ui_discover"]
                     if type(Discover) == "table" then Discover.onResume() end
+                    -- Slept a while with a chapter open: was it read further on another device?
+                    local Position = require("novarr.position")
+                    local r = Session.reader and Session.reader.reading
+                    if r and Position.wakeDue(Session.slept_s, Position.enabled(Session)) then
+                        Position.due(r.novel_id, Position.WOKE_UP)
+                    end
                 end)
             end
             UIManager:unschedule(self.resume_task)
@@ -288,6 +301,11 @@ function Novarr:onNetworkConnected()
         -- Reading time with Wi-Fi on: the segment so far was with Wi-Fi off.
         if Session.reader and Session.reader.reading then require("novarr.reading").timeTick(Session.reader) end
         require("novarr.wifi").onNetworkConnected()
+    end)
+    -- A latest-position check waiting for the connection: after the flush below.
+    Session.guard(function()
+        local Position = require("novarr.position")
+        if Position.pendingDue(Session) then Position.schedule(Position.NETWORK_DELAY, "network connected") end
     end)
     if Session.queue:count() == 0 then return end
     if not self.flush_task then

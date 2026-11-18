@@ -150,6 +150,26 @@ function Settings.askAwayServer(session, on_saved)
     })
 end
 
+--[[--
+Asks for this device's name (what other devices show: "… was read on
+Kindle"). Printable ASCII, at most 40 characters; empty: the model name.
+]]
+function Settings.askDeviceName(session, on_saved)
+    local Position = require("novarr.position")
+    UI.input({
+        title = _("Name of this device"),
+        value = session.settings:readSetting("device_name") or "",
+        hint = Position.deviceName(Session.deviceModel()),
+        description = _("Your other devices show this name when they offer to go to the place you read here. Leave empty to use the model name."),
+        ok_text = _("Save"),
+        callback = function(text)
+            local name = session:setDeviceName(text)
+            UI.notify(T(_("This device is now called %1"), name))
+            if on_saved then Session.guard(on_saved) end
+        end,
+    })
+end
+
 function Settings:items()
     local s = self.session
     local items = {}
@@ -246,6 +266,15 @@ function Settings:items()
     toggle("show_covers", _("Show covers"))
     toggle("keep_style", _("Keep font and layout from chapter to chapter"))
     toggle("open_on_start", _("Open Novarr when KOReader starts"))
+    -- Off: no question and no request for it (position.lua); the device is still named with every write.
+    toggle("position_prompt", _("Ask to go to the latest place read on another device"))
+    table.insert(items, {
+        text = _("Name of this device"),
+        mandatory = s.device_name,
+        callback = function()
+            Settings.askDeviceName(s, function() self:rebuild() end)
+        end,
+    })
     table.insert(items, {
         text = _("Sleep screen shows the book cover"),
         mandatory = onOff(s:sleepCoverOn()),

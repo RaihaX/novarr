@@ -28,6 +28,9 @@ once through wifi.lua's restore(), under the same "off by Novarr" rule):
   * chapters stored ahead <= the low-water mark (25 % of the target, at
     least 10), unless the last window ended with nothing more to fetch
     (then only after EXHAUSTED_RECHECK_MS);
+  * a latest-position check is due (s.position_due: "woke up" after 5+
+    minutes asleep, or "opened by KOReader"; see position.lua): the server
+    is asked whether another device read further, in an ordinary window;
   none of these while a connect failure backs off (1, 5, 15 min).
 
 Going to sleep (wifi.lua's sleepSync) is not decided here: the queue is sent
@@ -105,6 +108,7 @@ s (snapshot):
     on_by_novarr              Novarr switched it on in this window
     queue, finished_unsynced  queued writes, chapters finished not yet sent
     sync_due                  why the queue should be sent soon ("woke up", "idle") or nil
+    position_due              a latest-position check waits for a connection (position.lua)
     target, ahead, missing, has_list, list_refreshed, fill_blocked
     busy                      a user-started network action is running
     now, on_since, last_progress   ms
@@ -157,6 +161,9 @@ function WifiPolicy.decide(s)
     end
     if s.sync_due and (s.queue or 0) > 0 then
         return "on", "unsent reading position (" .. tostring(s.sync_due) .. ")"
+    end
+    if s.position_due then
+        return "on", "latest position check (" .. tostring(s.position_due) .. ")"
     end
     if (s.finished_unsynced or 0) >= WifiPolicy.SYNC_AFTER then
         return "on", string.format("%d chapters read since the last sync", s.finished_unsynced)

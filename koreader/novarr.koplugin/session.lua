@@ -60,6 +60,7 @@ local DEFAULTS = {
     auto_update_install = false,
     join_chapters = true,
     group_size = Groups.DEFAULT_SIZE,
+    position_prompt = true, -- ask to go to the latest place read on another device (position.lua)
 }
 
 local purgeSidecar -- defined with the removal functions below
@@ -151,6 +152,20 @@ function Session.deviceModel()
     if not ok or type(Device) ~= "table" then return nil end
     local okm, model = pcall(function() return Device.model end)
     return okm and type(model) == "string" and model or nil
+end
+
+--[[--
+Sets this device's name (Settings): the cleaned name (Position.cleanName)
+is kept in the setting device_name; nothing left removes it (back to the
+model name). The API client sends the new name from the next request on.
+Returns the name in use.
+]]
+function Session:setDeviceName(text)
+    local name = Position.cleanName(text)
+    if name then self:set("device_name", name) else self:unset("device_name") end
+    self.device_id, self.device_name = Position.identity(self.settings, { model = Session.deviceModel() })
+    self:rebuildApi()
+    return self.device_name
 end
 
 --- Points the API client at the configured address(es); keeps the remembered active one.
@@ -937,16 +952,17 @@ end
 Opens a chapter: the stored copy right away, else fetched (with the Wi-Fi
 prompt), else a clear message. opts.from_reader: called from the reader.
 opts.check_position: opened from Novarr's screens (a novel, Continue, the
-chapter list): once open, ask whether another device read further
-(position.lua). Next/previous chapter while reading never asks.
+chapter list): asks first whether another device read further, or once
+connected (position.lua). Next/previous chapter while reading never asks.
 ]]
 function Session:openChapter(novel_id, chapter_id, opts)
     local UI = require("novarr.ui_common")
     opts = opts or {}
     if opts.check_position and novel_id then
-        Position.request(self, novel_id)
-    else
-        self.position_check = nil
+        -- A fresh open from the screens: whatever was due before is replaced.
+        Position.clearDue(self)
+        -- The question is showing: its answer opens the reader (once).
+        if Position.beforeOpen(novel_id, chapter_id, opts) then return true end
     end
     local path = novel_id and self.store:chapterPath(novel_id, chapter_id)
     if path and lfs.attributes(path, "mode") == "file" then
@@ -1053,8 +1069,8 @@ function Session:openJoined(novel_id, chapter_id, opts)
         else
             require("novarr.reading").jumpTo(reader, chapter_id, { at_end = opts.at_end, resume = true })
         end
-        -- No document opens, so no onReady: the latest-position check starts here.
-        Position.afterOpen(reader, novel_id)
+        -- No document opens, so no onReady: a latest-position check due for this novel runs from here.
+        Position.chapterReady(novel_id, false)
         return true
     end
     local g, why = self:prepareGroup(novel_id, chapter_id)
@@ -1696,7 +1712,10 @@ function Session:dumpState()
             update_available_build = self:get("update_available_build"),
             update_available_version = self:get("update_available_version"),
             update_checked_at = self:get("update_checked_at"),
+            position_prompt = self:get("position_prompt"),
+            device_name = self.settings:readSetting("device_name"),
         },
+        position = Position.dump(self),
         plugin = {
             version = Api.VERSION,
             dir = self.plugin_dir,

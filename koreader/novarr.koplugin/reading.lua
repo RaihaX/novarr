@@ -66,6 +66,14 @@ Reading.IDLE_SYNC_MS = 3 * 60 * 1000 -- no page turn for this long: save and sen
 local function UI() return require("novarr.ui_common") end
 local footerOf -- (status bar section)
 
+--- Same file paths, also when one of them went through realpath (History).
+local function samePath(a, b)
+    if not a or not b then return false end
+    if a == b then return true end
+    local tail = "chapters/[^/]+/[^/]+$"
+    return a:match(tail) ~= nil and a:match(tail) == b:match(tail)
+end
+
 -- ---------------------------------------------------------------- attach
 
 function Reading.attach(plugin, novel_id, chapter_id, group)
@@ -218,6 +226,10 @@ end
 function Reading.onReady(plugin)
     local r = plugin.reading
     if not r then return end
+    -- Opened by KOReader itself (start-up, History, the file browser): not
+    -- through Session:openFile, and not this file reopened by a re-render.
+    local by_koreader = not samePath(Session.opening_path, r.path) and not samePath(Session.reloading_path, r.path)
+    Session.reloading_path = nil
     Session.switching = false
     Session.return_to = nil
     Session.opening_path = nil
@@ -269,8 +281,8 @@ function Reading.onReady(plugin)
     end
     UIManager:unschedule(plugin.background_task)
     UIManager:scheduleIn(Reading.BACKGROUND_DELAY, plugin.background_task)
-    -- Opened from Novarr's screens: was it read further on another device?
-    Session.guard(Position.afterOpen, plugin, r.novel_id)
+    -- Was it read further on another device? (A check due, or KOReader opened it; position.lua.)
+    Session.guard(Position.chapterReady, r.novel_id, by_koreader)
     Reading.logTiming(r)
 end
 
@@ -474,14 +486,6 @@ function Reading.pageForPercent(plugin, i, percent)
         end
     end
     return Groups.pageForPercent(L.pages[i], tops, L.ys[i], end_ys[i], percent)
-end
-
---- Same file paths, also when one of them went through realpath (History).
-local function samePath(a, b)
-    if not a or not b then return false end
-    if a == b then return true end
-    local tail = "chapters/[^/]+/[^/]+$"
-    return a:match(tail) ~= nil and a:match(tail) == b:match(tail)
 end
 
 --[[--
@@ -1356,11 +1360,14 @@ function Reading.onClose(plugin)
     -- Leaving the book (not the next Novarr file, not a reload of this one):
     -- Wi-Fi that Novarr switched off comes back on (wifi.lua).
     if not Session.switching and not r.reloading then
+        Session.guard(Position.leave)
         Session.guard(function()
             Wifi().stop()
             Wifi().restoreOnLeave("left the book")
         end)
     end
+    -- A re-render reopens this file: that is not KOReader opening a book (Reading.onReady).
+    Session.reloading_path = r.reloading and r.path or nil
     if Session.reader == plugin then Session.reader = nil end
     plugin.reading = nil
 end
