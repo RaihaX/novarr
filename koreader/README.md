@@ -205,6 +205,29 @@ chapters after reading*); the highlights themselves stay on the server and in th
 Highlights list. A highlight deleted from that list stays marked in a chapter still on
 the device. Highlights in other books are never sent anywhere.
 
+### Read on another device
+
+Since 1.8.0, when you open a novel from Novarr's screens (a tap on Home or the Library,
+**Continue**, or a chapter in the chapter list) and you read it more recently somewhere
+else (the website, the iPhone app, another Kindle), Novarr asks, over the chapter it
+just opened:
+
+    Chapter 124 · 40% was read on iPhone 2 hours ago. Go there?
+    [Go to latest]  [Stay here]
+
+**Go to latest** opens that chapter at that place, even if this Kindle remembers a
+different page in it. **Stay here** keeps you where you are, and Novarr doesn't ask again
+about that reading; once you read on, this Kindle is the latest. The chapter always opens
+first: the question only comes when the Kindle is already connected and the server answers
+within 3 seconds (an older server without this feature never asks). Turning to the next
+or previous chapter while reading never asks. It doesn't ask either when this Kindle has
+reading of its own newer than the other device's, when the other place is within 5% of
+where you are, or when that chapter can't be opened (not downloaded on the server).
+
+To tell devices apart, the plugin makes up a random id for this Kindle once and sends it,
+with the name "Kindle" (or the model, such as "Kindle PaperWhite 5"), along with your
+reading progress.
+
 ### Reading stats
 
 A novel's page shows, once there is something to show, how many chapters you read

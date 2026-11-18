@@ -45,7 +45,7 @@ function Novel:items()
         table.insert(items, {
             text = started and (label and T(_("Continue: %1"), label) or _("Continue reading"))
                 or (label and T(_("Start reading: %1"), label) or _("Start reading")),
-            callback = function() s:openChapter(self.novel_id, resume_id) end,
+            callback = function() s:openChapter(self.novel_id, resume_id, { check_position = true }) end,
         })
     else
         table.insert(items, { text = _("No chapters downloaded on the server yet"), dim = true, callback = function() end })

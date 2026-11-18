@@ -20,7 +20,7 @@ local plugin_dir = (debug.getinfo(1, "S").source or ""):match("^@(.*)/[^/]*$") o
 local MODULES = {
     "address", "api", "autopilot", "chapterdoc", "checks", "checkstate", "covers", "discover", "epub", "epubflow",
     "groups", "highlights", "http_client", "json", "model", "queue", "reading", "readinginfo", "searchstate", "session",
-    "stats", "store", "sync", "ui_highlights", "wifitime",
+    "position", "stats", "store", "sync", "ui_highlights", "wifitime",
     "ui_caughtup", "ui_chapters", "ui_common", "ui_coverlist", "ui_discover", "ui_downloads", "ui_home", "ui_library",
     "ui_novel", "ui_progress", "ui_settings", "ui_shelf", "ui_update", "updater", "wifi", "wifipolicy",
 }

@@ -409,6 +409,88 @@ function Model.prefetchWait(now_ms, ready_at_ms, last_turn_ms, start_ms, quiet_m
     return wait
 end
 
+-- ---------------------------------------------------------------- latest position
+
+-- Two places in the same chapter closer than this (percentage points) are "the same place".
+Model.POSITION_SAME_PLACE = 5
+
+--[[--
+Whether to offer "Go to latest" (the client rule shared with the web and iOS
+apps). o:
+    position        the server's latest position (table) or nil/false
+    device_id       this device's id
+    chapter_id      the chapter open here
+    local_progress  where the reader is in it (0..100, nil = start)
+    local_newer     this device holds reading of the novel newer than the position
+    declined_at     the position `at` the user said "Stay here" to (nil: none)
+    can_open        the position's chapter can be opened here
+Returns true, or false plus a short reason (for the log).
+]]
+function Model.shouldOfferPosition(o)
+    local p = o.position
+    if type(p) ~= "table" or not tonumber(p.chapter_id) then return false, "no position" end
+    if type(p.device_id) ~= "string" or p.device_id == "" then return false, "no device" end
+    if p.device_id == o.device_id then return false, "read here" end
+    if o.local_newer then return false, "newer reading here" end
+    if tonumber(p.chapter_id) == tonumber(o.chapter_id) then
+        local pp = tonumber(p.progress)
+        if not pp then return false, "same chapter" end
+        if math.abs(pp - (tonumber(o.local_progress) or 0)) < Model.POSITION_SAME_PLACE then
+            return false, "same place"
+        end
+    end
+    if o.declined_at ~= nil and o.declined_at == p.at then return false, "declined" end
+    if not o.can_open then return false, "cannot open" end
+    return true
+end
+
+local function fill(text, ...)
+    local args = { ... }
+    return (text:gsub("%%(%d)", function(i) return tostring(args[tonumber(i)]) end))
+end
+
+--[[--
+"just now", "5 minutes ago", "2 hours ago", "yesterday", "3 days ago" for an
+age in seconds. tr translates (gettext's _; default: none).
+]]
+function Model.relativeTime(seconds, tr)
+    tr = tr or function(s) return s end
+    local s = math.max(0, math.floor(tonumber(seconds) or 0))
+    if s < 60 then return tr("just now") end
+    local m = math.floor(s / 60)
+    if m < 60 then
+        if m == 1 then return tr("1 minute ago") end
+        return fill(tr("%1 minutes ago"), m)
+    end
+    local h = math.floor(m / 60)
+    if h < 24 then
+        if h == 1 then return tr("1 hour ago") end
+        return fill(tr("%1 hours ago"), h)
+    end
+    local d = math.floor(h / 24)
+    if d == 1 then return tr("yesterday") end
+    return fill(tr("%1 days ago"), d)
+end
+
+--[[--
+The question: "Chapter 124: The Gate · 40% was read on Kindle 2 hours ago.
+Go there?" (the percentage only when it is 1..99).
+]]
+function Model.positionPromptText(p, tr)
+    tr = tr or function(s) return s end
+    local label = type(p.chapter_label) == "string" and p.chapter_label ~= "" and p.chapter_label or nil
+    if not label then
+        local n = p.chapter_number
+        label = (n ~= nil and tostring(n) ~= "") and fill(tr("Chapter %1"), n) or tr("Chapter")
+    end
+    local progress = tonumber(p.progress)
+    if progress and progress >= 1 and progress <= 99 then
+        label = label .. " \194\183 " .. math.floor(progress) .. "%"
+    end
+    local device = type(p.device_name) == "string" and p.device_name ~= "" and p.device_name or tr("another device")
+    return fill(tr("%1 was read on %2 %3. Go there?"), label, device, Model.relativeTime(p.age_seconds, tr))
+end
+
 -- ---------------------------------------------------------------- history
 
 --[[--

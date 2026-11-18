@@ -119,7 +119,10 @@ Api.defaultTransport = defaultTransport
 --[[--
 opts: base_url (normalised), transport (optional), log (optional),
 user_agent (optional), router (optional, see address.lua: router:base()
-gives the address to use, router:failed(base, err) the one to retry on).
+gives the address to use, router:failed(base, err) the one to retry on),
+device (optional {id, name}: this device, sent with every write as
+X-Novarr-Device / X-Novarr-Device-Name so the server knows where the
+latest reading happened).
 ]]
 function Api.new(opts)
     return setmetatable({
@@ -128,7 +131,23 @@ function Api.new(opts)
         transport = opts.transport or defaultTransport,
         log = opts.log or function() end,
         user_agent = opts.user_agent or ("NovarrKOReader/" .. Api.VERSION),
+        device = opts.device,
     }, Api)
+end
+
+--- The device headers for a write ({} without a usable device id).
+function Api:deviceHeaders()
+    local d = self.device
+    local out = {}
+    if type(d) ~= "table" or type(d.id) ~= "string" or not d.id:match("^[%w_%-]+$")
+            or #d.id < 8 or #d.id > 64 then
+        return out
+    end
+    out["X-Novarr-Device"] = d.id
+    -- Header values: printable ASCII only, at most 40 characters.
+    local name = type(d.name) == "string" and d.name:gsub("[^\32-\126]", ""):gsub("^%s+", ""):gsub("%s+$", "") or ""
+    if name ~= "" then out["X-Novarr-Device-Name"] = name:sub(1, 40) end
+    return out
 end
 
 local function err(kind, status, message)
@@ -180,7 +199,7 @@ end
 
 --[[--
 Performs a request. opts: method ("GET"), body (Lua table, sent as JSON),
-etag (sends If-None-Match). Returns
+etag (sends If-None-Match), headers (extra request headers). Returns
     data (decoded JSON or nil on 304), info {status, etag, body, not_modified}
 or nil, err.
 ]]
@@ -207,6 +226,7 @@ function Api:request(path, opts)
     if opts.etag then
         headers["If-None-Match"] = opts.etag
     end
+    for k, v in pairs(opts.headers or {}) do headers[k] = v end
     local method = opts.method or (body and "POST" or "GET")
     local res, terr = self:exchange("/api/v1/" .. path, { method = method, headers = headers, body = body,
         block_timeout = opts.block_timeout, total_timeout = opts.total_timeout })
@@ -404,9 +424,35 @@ function Api:checkStatus(novel_id)
     return checkObject(self:request(string.format("novels/%d/check", novel_id)))
 end
 
+-- The latest-position check runs as a chapter opens: it must never hold the reader long.
+Api.POSITION_BLOCK_TIMEOUT = 2
+Api.POSITION_TOTAL_TIMEOUT = 3
+
+--[[--
+Where this novel was read last, on any device (GET novels/{id}/position):
+the position object {chapter_id, chapter_label, chapter_number, progress,
+downloaded, device_id, device_name, at, age_seconds}, or false when the
+server has none (null, or an older server without the endpoint: 404), or
+nil, err. Short timeouts (3 s at most).
+]]
+function Api:position(novel_id)
+    local data, e = self:request(string.format("novels/%d/position", novel_id),
+        { block_timeout = Api.POSITION_BLOCK_TIMEOUT, total_timeout = Api.POSITION_TOTAL_TIMEOUT })
+    if not data then
+        if e and e.kind == "not_found" then return false end
+        return nil, e
+    end
+    if data.position == nil then return false end
+    if type(data.position) ~= "table" or not tonumber(data.position.chapter_id) then
+        return nil, err("server", nil, "bad position")
+    end
+    return data.position
+end
+
 --[[--
 Sends one queued write (see queue.lua for the entry shapes) with its age in
-ms. Returns true or nil, err.
+ms, with this device's headers (also for writes queued by an older version
+of the plugin). Returns true or nil, err.
 ]]
 function Api:sendWrite(entry, age)
     local path, body
@@ -437,13 +483,14 @@ function Api:sendWrite(entry, age)
             body.note = Json.null -- the note was removed in KOReader
         end
     elseif entry.kind == "highlight_delete" then
-        local res, e = self:request(string.format("highlights/%d", entry.id), { method = "DELETE" })
+        local res, e = self:request(string.format("highlights/%d", entry.id),
+            { method = "DELETE", headers = self:deviceHeaders() })
         if res then return true end
         return nil, e
     else
         return nil, err("invalid", nil, "unknown write")
     end
-    local data, e = self:request(path, { method = "POST", body = body })
+    local data, e = self:request(path, { method = "POST", body = body, headers = self:deviceHeaders() })
     if not data then return nil, e end
     return true, data
 end
