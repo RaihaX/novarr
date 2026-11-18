@@ -275,8 +275,8 @@
         <div class="reader-foot">
             <div class="reader-foot-actions">
                 <button type="button" id="readThrough" class="reader-ghost" data-id="{{ $chapter->id }}" title="Mark this and all earlier chapters as read">Mark to here</button>
-                <button type="button" id="readToggle" class="reader-ghost {{ $chapter->read_at ? 'is-read' : '' }}" data-id="{{ $chapter->id }}" data-read="{{ $chapter->read_at ? '1' : '0' }}" aria-pressed="{{ $chapter->read_at ? 'true' : 'false' }}">
-                    {{ $chapter->read_at ? 'Read' : 'Mark read' }}
+                <button type="button" id="readToggle" class="reader-ghost {{ $chapter->isRead() ? 'is-read' : '' }}" data-id="{{ $chapter->id }}" data-read="{{ $chapter->isRead() ? '1' : '0' }}" aria-pressed="{{ $chapter->isRead() ? 'true' : 'false' }}">
+                    {{ $chapter->isRead() ? 'Read' : 'Mark read' }}
                 </button>
             </div>
 

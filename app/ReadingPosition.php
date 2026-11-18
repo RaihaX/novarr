@@ -6,14 +6,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Where a series was last read, and on which device — one row per novel.
- * Written and read through App\Services\ReadingPositions.
+ * Where a reader last read a series, and on which device — one row per
+ * (reader, novel). Written and read through App\Services\ReadingPositions.
  */
 class ReadingPosition extends Model
 {
-    protected $fillable = ['novel_id', 'novel_chapter_id', 'progress', 'device_id', 'device_name', 'recorded_at'];
+    protected $fillable = ['user_id', 'novel_id', 'novel_chapter_id', 'progress', 'device_id', 'device_name', 'recorded_at'];
 
     protected $casts = [
+        'user_id' => 'integer',
         'novel_id' => 'integer',
         'novel_chapter_id' => 'integer',
         'progress' => 'integer',

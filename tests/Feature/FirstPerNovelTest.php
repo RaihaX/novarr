@@ -31,16 +31,16 @@ class FirstPerNovelTest extends TestCase
             'novel_id' => $novel->id, 'chapter' => $n, 'book' => 0,
             'label' => "Chapter {$n}", 'url' => "/n{$novel->id}/c{$n}",
         ]);
-        $chapter->forceFill($attrs)->save();
+        $chapter->forceFill($this->takeReadState($chapter, $attrs))->save();
 
         return $chapter;
     }
 
     private function firstUnread(array $ids)
     {
-        return NovelHealth::firstPerNovel($ids, fn($q) => $q
-            ->where('status', 1)->where('blacklist', 0)->whereNull('read_at')
-            ->select(['id', 'novel_id', 'chapter'])
+        return NovelHealth::firstPerNovel($ids, fn($q) => app(\App\Services\ReadState::class)->whereUnread($q
+            ->where('status', 1)->where('blacklist', 0)
+            ->select(['id', 'novel_id', 'chapter']))
             ->ordered());
     }
 
@@ -89,9 +89,9 @@ class FirstPerNovelTest extends TestCase
     {
         $n = $this->novel('Progress');
         $at = now()->subHour();
-        $this->chapter($n, 1, ['status' => 1, 'read_at' => $at, 'read_progress' => 20]);
-        $tie = $this->chapter($n, 2, ['status' => 1, 'read_at' => $at, 'read_progress' => 30]);
-        $this->chapter($n, 3, ['status' => 1, 'read_at' => now(), 'read_progress' => 95]); // finished
+        $this->chapter($n, 1, ['status' => 1, 'read_at' => $at, 'progress' => 20]);
+        $tie = $this->chapter($n, 2, ['status' => 1, 'read_at' => $at, 'progress' => 30]);
+        $this->chapter($n, 3, ['status' => 1, 'read_at' => now(), 'progress' => 95]); // finished
 
         $items = app(HomeController::class)->continueReading(8);
 

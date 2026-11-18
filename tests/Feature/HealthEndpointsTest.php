@@ -170,7 +170,7 @@ class HealthEndpointsTest extends TestCase
         ]);
 
         $this->postJson("/chapters/{$chapter->id}/progress", ['progress' => 40])->assertOk();
-        $this->assertSame(40, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(40, (int) $this->progressOf($chapter));
     }
 
     public function test_protected_post_without_a_token_is_rejected(): void

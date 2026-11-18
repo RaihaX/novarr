@@ -139,7 +139,7 @@ class MangaReaderApiTest extends TestCase
         Storage::disk('manga')->delete(ChapterPage::where('novel_chapter_id', $c->id)->where('page', 2)->value('path'));
         $this->get(route('chapters.page', ['id' => $c->id, 'page' => 2]))->assertNotFound();
 
-        $this->assertNull($c->fresh()->read_at, 'serving pages never marks read');
+        $this->assertNull($this->readAtOf($c), 'serving pages never marks read');
     }
 
     public function testReadingModeValidationAndSave(): void
@@ -158,10 +158,10 @@ class MangaReaderApiTest extends TestCase
     {
         $c = $this->chapters[2];
         $this->postJson(route('chapters.progress', $c->id), ['progress' => 50])->assertOk()->assertJson(['success' => true, 'read' => false]);
-        $this->assertSame(50, (int) $c->fresh()->read_progress);
+        $this->assertSame(50, (int) $this->progressOf($c));
 
         $this->postJson(route('chapters.progress', $c->id), ['progress' => 100, 'read' => true])->assertOk()->assertJson(['read' => true]);
-        $this->assertNotNull($c->fresh()->read_at);
+        $this->assertNotNull($this->readAtOf($c));
         $this->assertSame(100, $this->getJson(route('chapters.pages', $c->id))->json('chapter.progress'));
         $this->assertTrue($this->getJson(route('chapters.pages', $c->id))->json('chapter.read'));
     }
@@ -179,7 +179,7 @@ class MangaReaderApiTest extends TestCase
         $this->assertStringContainsString('data-novel-url="' . route('novels.show', $this->manga->id) . '"', $html);
         $this->assertStringContainsString('<noscript>', $html);
         $this->assertStringContainsString(e(route('chapters.page', ['id' => $c->id, 'page' => 2])), $html);
-        $this->assertNull($c->fresh()->read_at);
+        $this->assertNull($this->readAtOf($c));
 
         // The text reader is unchanged: opening a downloaded text chapter marks it read.
         $textChapter = NovelChapter::create(['novel_id' => $this->text->id, 'chapter' => 1, 'label' => 'Chapter 1', 'url' => 'https://novelping.com/chapter/a/1']);
@@ -187,7 +187,7 @@ class MangaReaderApiTest extends TestCase
         $textChapter->status = 1;
         $textChapter->save();
         $this->assertStringNotContainsString('manga-reader', $this->get(route('chapters.show', $textChapter->id))->assertOk()->getContent());
-        $this->assertNotNull($textChapter->fresh()->read_at);
+        $this->assertNotNull($this->readAtOf($textChapter));
     }
 
     // ---- API v1 --------------------------------------------------------------------
@@ -207,7 +207,7 @@ class MangaReaderApiTest extends TestCase
         $this->assertSame('novel', $all['A Text Novel']['medium']);
 
         // Home: the manga being read only shows with the parameter.
-        $this->chapters[1]->forceFill(['read_at' => now()->subHour(), 'read_progress' => 100])->save();
+        $this->markRead($this->chapters[1], null, now()->subHour(), 100);
         $home = $this->getJson('/api/v1/home')->assertOk()->json();
         $this->assertSame([], array_column(array_column($home['continue'], 'novel'), 'name'));
         $this->assertSame(1, $home['stats']['novels']);
@@ -479,10 +479,12 @@ class MangaReaderApiTest extends TestCase
 
     public function testStatsCountMangaChaptersButNoWords(): void
     {
-        $this->chapters[1]->forceFill(['read_at' => now()])->save();
+        $this->markRead($this->chapters[1]);
         $html = $this->get(route('stats.index'))->assertOk();
         // Read chapters count; a manga chapter adds no words (it has no text row).
-        $stats = (function () { return $this->build(); })->call(new \App\Http\Controllers\StatsController());
+        $stats = (function () {
+            return $this->build(app(\App\Services\ReadState::class), \App\Support\CurrentReader::ownerId());
+        })->call(new \App\Http\Controllers\StatsController());
         $this->assertSame(1, $stats['read_total']);
         $this->assertSame(0, $stats['words_total']);
     }

@@ -45,7 +45,7 @@ class ChapterReadMarkingTest extends TestCase
 
         $this->get(route('chapters.show', $chapter->id))->assertOk();
 
-        $this->assertNotNull($chapter->fresh()->read_at);
+        $this->assertNotNull($this->readAtOf($chapter));
     }
 
     public function test_turbo_prefetch_does_not_mark_the_chapter_read(): void
@@ -56,7 +56,7 @@ class ChapterReadMarkingTest extends TestCase
             ->assertOk()
             ->assertSee('"deferRead":true', false);
 
-        $this->assertNull($chapter->fresh()->read_at);
+        $this->assertNull($this->readAtOf($chapter));
     }
 
     #[DataProvider('backgroundRequests')]
@@ -66,7 +66,7 @@ class ChapterReadMarkingTest extends TestCase
 
         $this->get(route('chapters.show', $chapter->id) . $query, $headers)->assertOk();
 
-        $this->assertNull($chapter->fresh()->read_at);
+        $this->assertNull($this->readAtOf($chapter));
     }
 
     public static function backgroundRequests(): array
@@ -89,9 +89,9 @@ class ChapterReadMarkingTest extends TestCase
             ->assertOk()
             ->assertJson(['success' => true, 'read' => true]);
 
-        $chapter = $chapter->fresh();
-        $this->assertNotNull($chapter->read_at);
-        $this->assertNull($chapter->read_progress);
+        $state = $this->readStateOf($chapter);
+        $this->assertNotNull($state->read_at);
+        $this->assertNull($state->progress);
     }
 
     public function test_progress_endpoint_still_requires_progress_without_read(): void
@@ -106,8 +106,8 @@ class ChapterReadMarkingTest extends TestCase
             ->postJson(route('chapters.progress', $chapter->id), ['progress' => 40])
             ->assertOk();
 
-        $chapter = $chapter->fresh();
-        $this->assertSame(40, (int) $chapter->read_progress);
-        $this->assertNull($chapter->read_at);
+        $state = $this->readStateOf($chapter);
+        $this->assertSame(40, (int) $state->progress);
+        $this->assertNull($state->read_at);
     }
 }

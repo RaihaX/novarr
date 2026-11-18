@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\NovelChapterController;
 use App\NovelChapter;
+use App\Services\ReadState;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -14,7 +15,7 @@ use Illuminate\Http\JsonResponse;
  */
 class ChapterController extends Controller
 {
-    public function show($id): JsonResponse
+    public function show(ReadState $readState, $id): JsonResponse
     {
         $chapter = NovelChapter::with(['novel:id,name,medium', 'text'])->findOrFail($id);
 
@@ -28,6 +29,7 @@ class ChapterController extends Controller
         }
 
         [$prev, $next] = NovelChapterController::neighbours($chapter, ['id', 'chapter', 'book', 'label', 'status']);
+        $readState->get($chapter);
 
         // The exact HTML the web reader renders (chapters/show.blade.php).
         $html = $chapter->rawText() ? $chapter->description : '';
@@ -41,8 +43,8 @@ class ChapterController extends Controller
                 'chapter' => Presenter::number($chapter->chapter),
                 'book' => (int) $chapter->book,
                 'downloaded' => (bool) $chapter->status,
-                'read' => $chapter->read_at !== null,
-                'read_progress' => $chapter->read_progress === null ? null : (int) $chapter->read_progress,
+                'read' => $chapter->isRead(),
+                'read_progress' => $chapter->readProgress(),
                 'page_count' => $chapter->page_count === null ? null : (int) $chapter->page_count,
                 'paragraphs' => static::paragraphs($html),
                 'html' => $html,

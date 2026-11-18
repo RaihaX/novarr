@@ -124,7 +124,7 @@ class A11yTest extends TestCase
     public function test_tables_have_captions_and_card_labels(): void
     {
         [$novel, $chapters] = $this->novelWithChapters();
-        $chapters[0]->forceFill(['read_at' => now()])->save();
+        $this->markRead($chapters[0], null, now());
         DB::table('failed_jobs')->insert([
             'uuid' => (string) Str::uuid(), 'connection' => 'database', 'queue' => 'default',
             'payload' => '{}', 'exception' => 'RuntimeException: boom', 'failed_at' => now(),

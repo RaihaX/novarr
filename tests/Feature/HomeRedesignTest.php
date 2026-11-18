@@ -63,8 +63,8 @@ class HomeRedesignTest extends TestCase
         $this->chapter($novel, 3);
         $this->chapter($novel, 4, false);
 
-        $c1->forceFill(['read_at' => now()->subHour(), 'read_progress' => 100])->save();
-        $c2->forceFill(['read_at' => now(), 'read_progress' => 50])->save();
+        $this->markRead($c1, null, now()->subHour(), 100);
+        $this->markRead($c2, null, now(), 50);
 
         $this->get(route('home'))
             ->assertOk()
@@ -111,13 +111,13 @@ class HomeRedesignTest extends TestCase
         $first = $this->novel(['name' => 'Hero Book']);
         $h = $this->chapter($first, 1);
         $this->chapter($first, 2);
-        $h->forceFill(['read_at' => now(), 'read_progress' => 100])->save();
+        $this->markRead($h, null, now(), 100);
 
         $second = $this->novel(['name' => 'Shelf Book']);
         $s1 = $this->chapter($second, 1);
         $s2 = $this->chapter($second, 2);
         $this->chapter($second, 3);
-        $s1->forceFill(['read_at' => now()->subDay(), 'read_progress' => 100])->save();
+        $this->markRead($s1, null, now()->subDay(), 100);
 
         $this->get(route('home'))
             ->assertOk()
@@ -133,7 +133,7 @@ class HomeRedesignTest extends TestCase
         $a = $this->novel(['name' => 'Grouped Alpha']);
         $old = $this->chapter($a, 1);
         $this->age($old, 30);
-        $old->forceFill(['read_at' => now()->subDays(20), 'read_progress' => 100])->save();
+        $this->markRead($old, null, now()->subDays(20), 100);
         $readFrom = $this->chapter($a, 2);
         $this->chapter($a, 3);
         $this->chapter($a, 4, false);
@@ -182,7 +182,7 @@ class HomeRedesignTest extends TestCase
         $reading = $this->novel(['name' => 'Started Novel']);
         $old = $this->chapter($reading, 1);
         $this->age($old, 30);
-        $old->forceFill(['read_at' => now()->subDays(20), 'read_progress' => 100])->save();
+        $this->markRead($old, null, now()->subDays(20), 100);
         $next = $this->chapter($reading, 2);
 
         $fresh = $this->novel(['name' => 'Fresh Novel', 'translator_url' => 'https://novelping.test/fresh']);
@@ -247,9 +247,9 @@ class HomeRedesignTest extends TestCase
         // In progress mid-chapter 2: New chapters continues there, like the
         // hero, rather than at the first unread chapter (3).
         $novel = $this->novel(['name' => 'Mid Chapter Novel']);
-        $this->chapter($novel, 1)->forceFill(['read_at' => now()->subHour(), 'read_progress' => 100])->save();
+        $this->markRead($this->chapter($novel, 1), null, now()->subHour(), 100);
         $mid = $this->chapter($novel, 2);
-        $mid->forceFill(['read_at' => now(), 'read_progress' => 30])->save();
+        $this->markRead($mid, null, now(), 30);
         $this->chapter($novel, 3);
 
         $html = $this->get(route('home'))->assertOk()->getContent();
@@ -384,6 +384,6 @@ class HomeRedesignTest extends TestCase
             ->assertSee('Prewarmed');
 
         $this->assertTrue(Cache::has('dashboard_stats'));
-        $this->assertTrue(Cache::has('dashboard_continue'));
+        $this->assertTrue(Cache::has(\App\Http\Helpers\CacheHelper::dashboardContinueKey($this->owner()->id)));
     }
 }

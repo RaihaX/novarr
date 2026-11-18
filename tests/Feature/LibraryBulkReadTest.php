@@ -38,7 +38,8 @@ class LibraryBulkReadTest extends TestCase
         $other = $this->novel('Not selected');
 
         $earlier = now()->subDays(40)->startOfSecond();
-        $kept = $this->chapter($a, 1, ['read_at' => $earlier, 'read_progress' => 100]);
+        $kept = $this->chapter($a, 1);
+        $this->markRead($kept, null, $earlier, 100);
         $this->chapter($a, 2);
         $skipped = $this->chapter($a, 3, ['blacklist' => 1]);
         $this->chapter($b, 1);
@@ -48,11 +49,11 @@ class LibraryBulkReadTest extends TestCase
             ->assertOk()
             ->assertJson(['success' => true, 'count' => 2, 'chapters' => 2]);
 
-        $this->assertSame(0, NovelChapter::whereIn('novel_id', [$a->id, $b->id])->where('blacklist', 0)->whereNull('read_at')->count());
+        $this->assertSame(3, $this->readCount($a->id) + $this->readCount($b->id), 'every non-blacklisted chapter is read');
         // A chapter read earlier keeps its date.
-        $this->assertTrue($earlier->equalTo($kept->fresh()->read_at));
-        $this->assertNull($skipped->fresh()->read_at);
-        $this->assertNull($untouched->fresh()->read_at);
+        $this->assertTrue($earlier->equalTo($this->readAtOf($kept)));
+        $this->assertNull($this->readAtOf($skipped));
+        $this->assertNull($this->readAtOf($untouched));
 
         // The Library shows the new state straight away.
         $this->get(route('novels.index', ['view' => 'table']))
