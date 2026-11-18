@@ -352,6 +352,26 @@ class SuwayomiSourceTest extends GoldenTestCase
         $this->assertSame([SuwayomiSource::QUERY_SOURCES, [], 15], self::gqlCalls($fetcher)[0]);
     }
 
+    public function testSourceNamesOutliveTheHourlyListAndAreRelearnedByADownloadRun(): void
+    {
+        $fetcher = $this->graphql([SuwayomiSource::QUERY_SOURCES => 'suwayomi/sources.json']);
+        $lane = 'suwayomi:' . self::MANGAPILL;
+
+        // Unknown: a label never asks the server …
+        $this->assertSame('Suwayomi · #' . self::MANGAPILL, \App\Services\DownloadLanes::label($lane));
+        $this->assertCount(0, self::gqlCalls($fetcher));
+
+        // … a download run does, once.
+        $this->assertSame('MangaPill', (new SuwayomiSource())->ensureSourceName(self::MANGAPILL));
+        (new SuwayomiSource())->ensureSourceName(self::MANGAPILL);
+        $this->assertCount(1, self::gqlCalls($fetcher));
+
+        // The hourly list expires (or the server is down): the name stays.
+        \Illuminate\Support\Facades\Cache::forget(SuwayomiSource::sourcesCacheKey());
+        $this->assertSame('Suwayomi · MangaPill', \App\Services\DownloadLanes::label($lane));
+        $this->assertCount(1, self::gqlCalls($fetcher));
+    }
+
     public function testDiscoverLanguagesAndExcludeList(): void
     {
         $this->graphql([SuwayomiSource::QUERY_SOURCES => 'suwayomi/sources.json']);

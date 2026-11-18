@@ -15,6 +15,7 @@ use App\Scraping\SourceUnavailable;
 use App\Services\DownloadLanes;
 use App\Services\LaneProcessStarter;
 use App\Services\NovelHealth;
+use App\Sources\SuwayomiSource;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -375,6 +376,23 @@ class ChapterScraper extends Command
     }
 
     /**
+     * A Suwayomi lane is labelled by its source's name, which is only known
+     * from the server's source list: fetch it here when it has been lost
+     * (Activity never makes a request). Failure just leaves the "#id" label.
+     */
+    private function learnLaneName(string $lane): void
+    {
+        if (!str_starts_with($lane, SuwayomiSource::LANE_PREFIX)) {
+            return;
+        }
+        try {
+            (new SuwayomiSource())->ensureSourceName(substr($lane, strlen(SuwayomiSource::LANE_PREFIX)));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    /**
      * A lane process: take each lane's lock (a lane held elsewhere is left
      * alone) and sweep the due chapters of those lanes' novels with the
      * usual cap, deadline, order, pace, cooldown and failure rules. One lane
@@ -391,6 +409,7 @@ class ChapterScraper extends Command
         foreach ($lanes as $lane) {
             if ($this->takeLane($lane, "sweep")) {
                 $taken[] = $lane;
+                $this->learnLaneName($lane);
             } else {
                 $this->line("Another download from " . DownloadLanes::label($lane) . " is already running; leaving it to that one.");
                 Log::info("novel:chapter --lane={$lane}: the lane is busy; nothing to do.");
