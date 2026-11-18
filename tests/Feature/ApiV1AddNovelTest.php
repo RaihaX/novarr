@@ -73,8 +73,10 @@ class ApiV1AddNovelTest extends TestCase
 
         $this->postJson('/api/v1/novels', ['title' => 'Shadow Slave', 'url' => self::URL])
             ->assertOk()->assertJsonPath('novel.id', $bySlug->id)->assertJsonPath('already_in_library', true);
+        // The same title from another source is a likely duplicate: refused
+        // (409) naming the library novel, unless forced (DuplicateSeriesTest).
         $this->postJson('/api/v1/novels', ['title' => 'Lord of the Mysteries', 'url' => 'https://novelping.com/novel/lord-of-the-mysteries'])
-            ->assertOk()->assertJsonPath('novel.id', $byName->id);
+            ->assertStatus(409)->assertJsonPath('duplicate.id', $byName->id);
 
         $this->assertSame(2, Novel::count());
         Bus::assertNotDispatched(RunNovelCommand::class);

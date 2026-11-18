@@ -125,7 +125,9 @@ class DiscoverSourcesCharacterisationTest extends GoldenTestCase
 
         $actual = [
             'status' => $response->status(),
-            'json' => $response->json(),
+            // Library ids differ between databases (auto-increment is not
+            // reset on MariaDB), so the link's id is not part of the golden.
+            'json' => json_decode(preg_replace('#/novels\\\\?/\d+"#', '/novels/{id}"', (string) $response->getContent()), true),
             'fetches' => $fetcher->calls,
         ];
         $expected = $this->golden('discover/browse-' . ($source ?? 'default') . '-' . $type . '.expected.json', $actual);

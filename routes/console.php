@@ -126,6 +126,14 @@ Schedule::command('novel:email-summary')
     ->name('email_chapter_summary')
     ->withoutOverlapping(30);
 
+// Hourly: tell the notification webhook when a source has stopped
+// downloading (once per new set of stalled sources). Without a webhook
+// configured this only keeps the remembered set current.
+$oneServer(Schedule::command('novel:email-summary --stalled-only')
+    ->hourlyAt(20)
+    ->name('stalled_sources_check')
+    ->withoutOverlapping(15));
+
 // Backups (config/backup.php): database dump + storage/app, zipped to the
 // BACKUP_DISK disk. Clean first so the run never counts against a full disk.
 // The package sends no notifications itself; a failed run is logged (the

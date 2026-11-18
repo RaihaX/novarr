@@ -3,8 +3,10 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 use App\Novel;
+use App\Services\DuplicateSeries;
 
 class CreateNovel extends Command
 {
@@ -13,7 +15,8 @@ class CreateNovel extends Command
      *
      * @var string
      */
-    protected $signature = "novel:create {name} {url}";
+    protected $signature = "novel:create {name} {url}
+        {--force : Add it even when a series of the same title is already in the library}";
 
     /**
      * The console command description.
@@ -42,28 +45,23 @@ class CreateNovel extends Command
         $name = $this->argument("name");
         $url = $this->argument("url");
 
-        // Check for duplicate novel by name
-        $existingNovel = Novel::where('name', $name)->first();
+        // Already in the library (DuplicateSeries): the same source page is
+        // always skipped; the same title in the medium from another source
+        // unless --force. Skipping is not a failure — the command runs
+        // unattended from the queue (the web Discover page, the Commands page).
+        $existing = app(DuplicateSeries::class)->find($name, DuplicateSeries::mediumFor($url), [], $url);
+        if ($existing !== null && ($existing['by'] === DuplicateSeries::BY_SOURCE || !$this->option('force'))) {
+            $novel = $existing['novel'];
+            $hint = $existing['by'] === DuplicateSeries::BY_TITLE ? ' Run with --force to add it anyway.' : '';
+            $this->warn('Skipped: ' . DuplicateSeries::message($novel) . " Existing ID: {$novel->id}.{$hint}");
+            Log::info('novel:create skipped a series already in the library', [
+                'name' => $name,
+                'url' => $url,
+                'existing' => $novel->id,
+                'by' => $existing['by'],
+            ]);
 
-        if ($existingNovel) {
-            $this->warn("A novel with the name '{$name}' already exists (ID: {$existingNovel->id}).");
-
-            if (!$this->confirm('Do you want to create another novel with the same name?')) {
-                $this->info('Operation cancelled.');
-                return 0;
-            }
-        }
-
-        // Check for duplicate novel by URL
-        $existingByUrl = Novel::where('translator_url', $url)->first();
-
-        if ($existingByUrl) {
-            $this->warn("A novel with the same URL already exists: '{$existingByUrl->name}' (ID: {$existingByUrl->id}).");
-
-            if (!$this->confirm('Do you want to create another novel with the same URL?')) {
-                $this->info('Operation cancelled.');
-                return 0;
-            }
+            return self::SUCCESS;
         }
 
         $object = new Novel();

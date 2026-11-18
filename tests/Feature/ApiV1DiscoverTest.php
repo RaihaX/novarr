@@ -266,6 +266,7 @@ class ApiV1DiscoverTest extends TestCase
 
         $this->assertSame(1, $response->json('hidden'));
         $this->assertArrayNotHasKey('novel_id', $response->json('items.0'));
-        $this->assertSame(['name', 'url', 'cover', 'cover_thumb', 'author', 'description', 'status', 'in_library'], array_keys($response->json('items.0')));
+        // Plus how a library item matched and a link to it (DuplicateSeries).
+        $this->assertSame(['name', 'url', 'cover', 'cover_thumb', 'author', 'description', 'status', 'in_library', 'library_match', 'novel_url'], array_keys($response->json('items.0')));
     }
 }

@@ -28,7 +28,8 @@ class EmailSummary extends Command
 
     protected $signature = "novel:email-summary
         {--hours= : Look-back window in hours (default: since the last summary, else 24)}
-        {--to= : Override the recipient address}";
+        {--to= : Override the recipient address}
+        {--stalled-only : Only tell the webhook about sources that stopped downloading; send no email}";
 
     protected $description = "Email a summary of newly downloaded chapters, newly completed novels and novels needing attention.";
 
@@ -38,6 +39,13 @@ class EmailSummary extends Command
         $stalled = $this->stalledLanes();
         if ($stalled !== null) {
             $this->notifyStalled($stalled);
+        }
+        // The hourly check (routes/console.php): the webhook part alone.
+        if ($this->option('stalled-only')) {
+            $this->info($stalled === null
+                ? 'Stalled sources could not be worked out.'
+                : count($stalled) . ' source(s) not downloading.');
+            return 0;
         }
         $stalled ??= [];
 
