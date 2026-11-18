@@ -43,10 +43,61 @@ actor OfflineStore {
         try? mutableRoot.setResourceValues(values)
     }
 
-    static func directory(for server: URL) -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+    static var defaultBase: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first ?? FileManager.default.temporaryDirectory
-        return base.appending(path: "Novarr/servers/\(ServerURL.storageKey(for: server))", directoryHint: .isDirectory)
+    }
+
+    /// The per-server directory used with auth off (and by every version
+    /// before accounts), so existing caches and queued writes stay put.
+    static func directory(for server: URL, base: URL = defaultBase) -> URL {
+        base.appending(path: "Novarr/servers/\(ServerURL.storageKey(for: server))", directoryHint: .isDirectory)
+    }
+
+    /// A signed-in user's own directory: a sibling of the server's, so
+    /// clearing one never touches another and two accounts never mix.
+    static func directory(for server: URL, userId: Int, base: URL = defaultBase) -> URL {
+        base.appending(path: "Novarr/servers/\(ServerURL.storageKey(for: server))@user-\(userId)",
+                       directoryHint: .isDirectory)
+    }
+
+    /// Marks the server directory as belonging to one signed-in user; holds their id.
+    static let ownerMarkerFileName = ".owner-user-id"
+
+    /// Where a session's cache and write queue live.
+    ///
+    /// - Auth off (`user == nil`): the server directory, as before.
+    /// - Signed in: the user's own directory, except that the first admin
+    ///   (the owner) to sign in on a server that already has data from before
+    ///   accounts adopts that directory: it is marked with their id and used
+    ///   as theirs, so their offline chapters and unsent writes carry over.
+    ///   Readers never adopt it (its queued writes are the owner's). With auth
+    ///   switched off again the same directory is used, which is right since
+    ///   auth off means "everything is the owner".
+    static func resolveDirectory(for server: URL, user: AuthUser?, base: URL = defaultBase) -> URL {
+        let shared = directory(for: server, base: base)
+        guard let user else { return shared }
+
+        let own = directory(for: server, userId: user.id, base: base)
+        let fm = FileManager.default
+        let marker = shared.appending(path: ownerMarkerFileName)
+        let claimedBy = (try? String(contentsOf: marker, encoding: .utf8))
+            .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+
+        if claimedBy == user.id { return shared }
+        if fm.fileExists(atPath: own.path) { return own }
+
+        let sharedHasData = !((try? fm.contentsOfDirectory(atPath: shared.path)) ?? []).isEmpty
+        if claimedBy == nil, user.role == .admin, sharedHasData {
+            do {
+                try Data(String(user.id).utf8).write(to: marker, options: .atomic)
+                return shared
+            } catch {
+                Logger(subsystem: "studio.visns.novarr", category: "OfflineStore")
+                    .error("Could not adopt the existing cache: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        return own
     }
 
     // MARK: Responses
@@ -131,8 +182,9 @@ actor OfflineStore {
     }
 
     /// Removes everything cached for this server (lists and chapters), but
-    /// never the files named in `keeping` (the unsynced write queue).
-    func clearAll(keeping: Set<String> = [OfflineStore.writeQueueFileName]) {
+    /// never the files named in `keeping` (the unsynced write queue and who
+    /// owns this directory).
+    func clearAll(keeping: Set<String> = [OfflineStore.writeQueueFileName, OfflineStore.ownerMarkerFileName]) {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
         for name in names where !keeping.contains(name) {
             try? FileManager.default.removeItem(at: root.appending(path: name))

@@ -9,11 +9,21 @@ struct APIClient: Sendable {
     let session: URLSession
     /// Identifies this install on read-state writes; nil sends no device headers.
     let device: DeviceIdentity?
+    /// Bearer token for servers with sign-in on; nil with auth off (or before sign-in).
+    let token: String?
+    /// Called with the token that was rejected when an authenticated request
+    /// gets 401, so the app can forget it and ask for a sign-in.
+    let onUnauthorized: (@Sendable (_ rejectedToken: String?) -> Void)?
 
-    init(baseURL: URL, session: URLSession = .novarr, device: DeviceIdentity? = nil) {
+    static let authorizationHeader = "Authorization"
+
+    init(baseURL: URL, session: URLSession = .novarr, device: DeviceIdentity? = nil,
+         token: String? = nil, onUnauthorized: (@Sendable (_ rejectedToken: String?) -> Void)? = nil) {
         self.baseURL = baseURL
         self.session = session
         self.device = device
+        self.token = token.flatMap { $0.isEmpty ? nil : $0 }
+        self.onUnauthorized = onUnauthorized
     }
 
     // MARK: Reads
@@ -22,7 +32,8 @@ struct APIClient: Sendable {
     func meta() async throws -> ServerMeta {
         let meta: ServerMeta
         do {
-            meta = try await get("meta", as: ServerMeta.self, timeout: 10)
+            // Public: never carries the token.
+            meta = try await get("meta", as: ServerMeta.self, timeout: 10, authenticated: false)
         } catch let error as APIError {
             switch error {
             // An HTML page, a 404 or anything unparseable means "not Novarr".
@@ -144,6 +155,27 @@ struct APIClient: Sendable {
         }
     }
 
+    // MARK: Accounts
+
+    /// Password sign-in. 422 (wrong name or password) and 429 (throttled)
+    /// throw `.http` with the server's message.
+    func signIn(username: String, password: String, device: DeviceIdentity) async throws -> AuthTokenResponse {
+        let body = SignInBody(username: username, password: password, deviceId: device.id, deviceName: device.name)
+        let data = try await send("POST", "auth/token", body: body, authenticated: false)
+        return try decode(AuthTokenResponse.self, from: data)
+    }
+
+    func me() async throws -> AuthUser {
+        try await get("auth/me", as: AuthUserEnvelope.self, fresh: true).user
+    }
+
+    /// Revokes the token in use. A 401 here means it is already gone, which
+    /// is what signing out wants, so it is not reported as a lost session.
+    func signOut() async throws {
+        _ = try await send("DELETE", "auth/token", body: Optional<EmptyBody>.none, timeout: 10,
+                           reportUnauthorized: false)
+    }
+
     // MARK: Plumbing
 
     func url(for path: String) -> URL {
@@ -155,13 +187,30 @@ struct APIClient: Sendable {
         return query.isEmpty ? base : base.appending(queryItems: query)
     }
 
-    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type,
-                                   timeout: TimeInterval = 20, fresh: Bool = false) async throws -> T {
+    /// Every request to the server is built here, so the bearer token is
+    /// added in exactly one place. `authenticated: false` is for the public
+    /// endpoints (meta, password sign-in).
+    func makeRequest(_ method: String = "GET", _ path: String, query: [URLQueryItem] = [],
+                     timeout: TimeInterval = 20, fresh: Bool = false, authenticated: Bool = true,
+                     headers: [String: String] = [:]) -> URLRequest {
         var request = URLRequest(url: url(for: path, query: query),
                                  cachePolicy: fresh ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy,
                                  timeoutInterval: timeout)
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let data = try await perform(request)
+        for (field, value) in headers { request.setValue(value, forHTTPHeaderField: field) }
+        if authenticated, let token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: Self.authorizationHeader)
+        }
+        return request
+    }
+
+    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type,
+                                   timeout: TimeInterval = 20, fresh: Bool = false,
+                                   authenticated: Bool = true) async throws -> T {
+        let request = makeRequest("GET", path, query: query, timeout: timeout, fresh: fresh,
+                                  authenticated: authenticated)
+        let data = try await perform(request, reportUnauthorized: authenticated)
         return try decode(T.self, from: data)
     }
 
@@ -180,19 +229,18 @@ struct APIClient: Sendable {
     /// A write with an optional JSON body; returns the response body.
     private func send<Body: Encodable>(_ method: String, _ path: String, body: Body?,
                                        timeout: TimeInterval = 20,
-                                       headers: [String: String] = [:]) async throws -> Data {
-        var request = URLRequest(url: url(for: path), timeoutInterval: timeout)
-        request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        for (field, value) in headers { request.setValue(value, forHTTPHeaderField: field) }
+                                       headers: [String: String] = [:],
+                                       authenticated: Bool = true,
+                                       reportUnauthorized: Bool = true) async throws -> Data {
+        var request = makeRequest(method, path, timeout: timeout, authenticated: authenticated, headers: headers)
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONCoding.encoder().encode(body)
         }
-        return try await perform(request)
+        return try await perform(request, reportUnauthorized: authenticated && reportUnauthorized)
     }
 
-    private func perform(_ request: URLRequest) async throws -> Data {
+    private func perform(_ request: URLRequest, reportUnauthorized: Bool) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
@@ -207,6 +255,7 @@ struct APIClient: Sendable {
         }
         guard (200..<300).contains(http.statusCode) else {
             let message = (try? JSONDecoder().decode(ErrorBody.self, from: data))?.message
+            if http.statusCode == 401, reportUnauthorized { onUnauthorized?(token) }
             throw APIError.http(status: http.statusCode, message: message)
         }
         return data
@@ -215,6 +264,13 @@ struct APIClient: Sendable {
     private struct ErrorBody: Decodable { var message: String? }
 
     private struct EmptyBody: Encodable {}
+
+    private struct SignInBody: Encodable {
+        var username: String
+        var password: String
+        var deviceId: String
+        var deviceName: String
+    }
 
     private struct AddNovelBody: Encodable {
         var title: String

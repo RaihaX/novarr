@@ -10,6 +10,8 @@ struct RootView: View {
     var body: some View {
         if app.serverURL == nil {
             ConnectView(isInitialSetup: true)
+        } else if app.needsSignIn {
+            SignInView()
         } else {
             TabView(selection: $selection) {
                 NavigationStack { HomeView().novarrDestinations() }
@@ -18,19 +20,29 @@ struct RootView: View {
                 NavigationStack(path: $libraryPath) { LibraryView().novarrDestinations() }
                     .tabItem { Label("Library", systemImage: "books.vertical") }
                     .tag(Tab.library)
-                NavigationStack { DiscoverView().novarrDestinations() }
-                    .tabItem { Label("Discover", systemImage: "safari") }
-                    .tag(Tab.discover)
+                // Adding series is the owner's: readers never see Discover.
+                if app.permissions.canManageLibrary {
+                    NavigationStack { DiscoverView().novarrDestinations() }
+                        .tabItem { Label("Discover", systemImage: "safari") }
+                        .tag(Tab.discover)
+                }
                 NavigationStack { SettingsView().novarrDestinations() }
                     .tabItem { Label("Settings", systemImage: "gearshape") }
                     .tag(Tab.settings)
             }
-            // Recreate the tabs (and their models) when the server changes.
-            .id(app.serverURL)
+            // Recreate the tabs (and their models) when the server or account changes.
+            .id(app.sessionID)
+            .onAppear { leaveHiddenTab() }
+            .onChange(of: app.permissions) { leaveHiddenTab() }
             #if DEBUG
             .task { openDebugRoute() }
             #endif
         }
+    }
+
+    /// A restored or open tab the account may not see falls back to Home.
+    private func leaveHiddenTab() {
+        if selection == .discover, !app.permissions.canManageLibrary { selection = .home }
     }
 
     #if DEBUG
@@ -42,7 +54,7 @@ struct RootView: View {
         switch route.split(separator: ":").first {
         case "settings": selection = .settings
         case "library": selection = .library
-        case "discover": selection = .discover
+        case "discover" where app.permissions.canManageLibrary: selection = .discover
         case "highlights":
             selection = .library
             libraryPath.append(HighlightsRoute(novelId: parts.first, novelName: nil))

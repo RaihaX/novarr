@@ -181,7 +181,7 @@ final class DiscoverModel {
     // MARK: Adding
 
     func add(_ item: DiscoverItem, app: AppModel) async {
-        guard let client = app.client, addStates[item.id] != .adding else { return }
+        guard let client = app.client, app.permissions.canManageLibrary, addStates[item.id] != .adding else { return }
         addStates[item.id] = .adding
         do {
             let response = try await client.addNovel(title: item.title, url: item.url)
@@ -206,8 +206,7 @@ final class DiscoverModel {
         case .http(422, let message?), .http(503, let message?):
             message
         case .http(503, nil):
-            "Another novel is being added right now. Try again in a moment."
-        default:
+            "Another novel is being added right now. Try again in a moment."        default:
             error.localizedDescription
         }
     }
