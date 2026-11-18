@@ -42,11 +42,14 @@
     // The Book column only earns its space when some chapter is in a book.
     $showBookCol = $chapters->contains(fn($c) => (int) $c->book !== 0);
     $chapterUrl = route('chapters.show', '__ID__');
+    // Links back to the library go to this series' own library (Novels / Manga).
+    $seriesMedium = $data->isManga() ? \App\Novel::MEDIUM_MANGA : \App\Novel::MEDIUM_NOVEL;
+    $libraryUrl = route('novels.index', ['medium' => $seriesMedium]);
 @endphp
 
 @section('content')
-<a href="{{ route('novels.index') }}" class="back-link">
-    <x-icon name="chevron-left" :size="14" :stroke="1.5" /> Library
+<a href="{{ $libraryUrl }}" class="back-link">
+    <x-icon name="chevron-left" :size="14" :stroke="1.5" /> {{ \App\Http\Helpers\LibraryMedium::title($seriesMedium) }}
 </a>
 
 {{-- ===================================================================== --}}
@@ -88,7 +91,7 @@
                 <span class="visually-hidden">Tags:</span>
                 <span id="tagList" class="nv-tag-list">
                     @forelse($data->tags as $tag)
-                        <a href="{{ route('novels.index', ['tag' => $tag->id]) }}" class="nv-tag">{{ $tag->name }}</a>
+                        <a href="{{ route('novels.index', ['medium' => $seriesMedium, 'tag' => $tag->id]) }}" class="nv-tag">{{ $tag->name }}</a>
                     @empty
                         <span class="tag-empty">No tags</span>
                     @endforelse
@@ -632,7 +635,7 @@
                 });
                 const data = await response.json();
                 if (data.success) {
-                    window.location.href = '{{ route('novels.index') }}';
+                    window.location.href = @json($libraryUrl);
                 } else {
                     deleteBtn.disabled = false;
                     Novarr.showToast('Failed to delete novel.', 'danger');
@@ -727,7 +730,7 @@
         document.getElementById('cancelTags').addEventListener('click', () => showEditor(false));
 
         // Rebuild the tag chips in place from the saved tag list.
-        const tagBase = '{{ route('novels.index') }}';
+        const tagBase = @json($libraryUrl);
         function renderTags(tags) {
             const list = document.getElementById('tagList');
             list.innerHTML = '';
@@ -740,7 +743,7 @@
             }
             tags.forEach(t => {
                 const a = document.createElement('a');
-                a.href = `${tagBase}?tag=${t.id}`;
+                a.href = `${tagBase}&tag=${t.id}`;
                 a.className = 'nv-tag';
                 a.textContent = t.name;
                 list.appendChild(a);

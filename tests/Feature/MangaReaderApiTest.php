@@ -452,14 +452,17 @@ class MangaReaderApiTest extends TestCase
         $this->assertSame(2, $json[$this->chapters[2]->id]['pages']);
 
         // Library grid: the manga chip.
-        $library = $this->get(route('novels.index', ['view' => 'grid']))->assertOk()->getContent();
+        // Library grid (the Manga library): the manga chip.
+        $library = $this->get(route('novels.index', ['view' => 'grid', 'medium' => 'manga']))->assertOk()->getContent();
         $this->assertStringContainsString('<span class="cover-chip">MANGA</span>', $library);
         $this->assertSame(1, substr_count($library, '<span class="cover-chip">MANGA</span>'));
     }
 
     public function testDiscoverWebPageOffersMangaDex(): void
     {
-        $this->get(route('novels.discover'))->assertOk()->assertSee('<option value="mangadex">MangaDex (manga)</option>', false);
+        // Separate libraries: manga sources are offered on "Add manga" only.
+        $this->get(route('novels.discover', ['medium' => 'manga']))->assertOk()->assertSee('<option value="mangadex">MangaDex (manga)</option>', false);
+        $this->get(route('novels.discover', ['medium' => 'novel']))->assertOk()->assertDontSee('<option value="mangadex">', false);
     }
 
     public function testEmailSummaryCallsAMangaAManga(): void

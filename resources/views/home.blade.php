@@ -139,7 +139,7 @@
                     <p class="home-empty-text">Open a novel from your library and start a chapter — it will wait for you here, at the exact line you stopped.</p>
                     <div class="home-hero-actions">
                         <a href="{{ route('novels.index') }}" class="btn btn-primary">Open library</a>
-                        <a href="{{ route('novels.discover') }}" class="btn btn-ghost">Discover novels</a>
+                        <a href="{{ route('novels.discover', ['medium' => 'novel']) }}" class="btn btn-ghost">Discover novels</a>
                     </div>
                 </div>
             </section>

@@ -1,19 +1,37 @@
 @extends('layouts.app')
 
-@section('title', 'Add novel')
+@php
+    $medium ??= \App\Novel::MEDIUM_NOVEL;
+    $mediumNoun = \App\Http\Helpers\LibraryMedium::noun($medium);
+    $manualUrl = route('novels.create', ['medium' => $medium]);
+@endphp
+
+@section('title', 'Add ' . $mediumNoun)
 
 @section('content')
+<a href="{{ route('novels.index', ['medium' => $medium]) }}" class="back-link">
+    <x-icon name="chevron-left" :size="14" :stroke="1.5" /> {{ \App\Http\Helpers\LibraryMedium::title($medium) }}
+</a>
+
 <div class="page-head">
     <div class="page-head-titles">
         <span class="page-head-kicker">Discover</span>
-        <h1 class="page-title mb-0">Add novel</h1>
-        <p class="page-head-sub mb-0">Adding queues a background command that fetches metadata and the cover; scrape the table of contents from the novel page afterwards.</p>
+        <h1 class="page-title mb-0">Add {{ $mediumNoun }}</h1>
+        <p class="page-head-sub mb-0">Adding queues a background command that fetches metadata and the cover; scrape the table of contents from the {{ $mediumNoun }} page afterwards.</p>
     </div>
     <div class="page-head-actions">
-        <a href="{{ route('novels.create') }}" class="btn btn-secondary">Manual add</a>
+        <a href="{{ $manualUrl }}" class="btn btn-secondary">Manual add</a>
     </div>
 </div>
 
+@if($sources === [])
+{{-- No discoverable source of this medium: nothing to pick or browse. --}}
+<div class="novels-empty" id="discoverNoSources">
+    <span class="novels-empty-title">No {{ $mediumNoun }} sources are set up.</span>
+    <p class="novels-empty-body">You can still add a {{ $mediumNoun }} by its URL.</p>
+    <div class="novels-empty-actions"><a class="btn btn-secondary" href="{{ $manualUrl }}">Add manually</a></div>
+</div>
+@else
 <div class="filter-bar mb-4">
     <select id="discoverSource" class="form-select" aria-label="Source">
 @foreach ($sources as $key => $option)
@@ -56,8 +74,10 @@
         <p class="disc-synopsis"></p>
     </li>
 </template>
+@endif
 @endsection
 
+@if($sources !== [])
 @push('scripts')
 <script>
 (function(){
@@ -69,6 +89,9 @@
     const tabsEl = document.getElementById('discoverTabs');
 
     const source = () => sourceEl.value;
+    // The library this page adds to: browse only offers that medium's sources.
+    const MEDIUM = @json($medium);
+    const NOUN = @json($mediumNoun);
     // Host shown for each source key ("novelarrow" now lives on novelping.com).
     const SOURCE_HOST = @json($sourceHosts);
     // Lists each source offers (search / popular / new / random / completed).
@@ -134,7 +157,7 @@
         let fetched = 0;
         try {
             while (true) {
-                const params = new URLSearchParams({ type: ctx.type, source: ctx.source, page: String(ctx.page + 1) });
+                const params = new URLSearchParams({ type: ctx.type, source: ctx.source, medium: MEDIUM, page: String(ctx.page + 1) });
                 if (ctx.q) params.set('q', ctx.q);
                 const response = await fetch(`{{ route('novels.discover.browse') }}?${params}`, {
                     headers: { 'Accept': 'application/json' },
@@ -212,7 +235,7 @@
         const li = document.createElement('li');
         li.className = 'novels-empty';
         li.innerHTML = '<span class="novels-empty-title"></span><p class="novels-empty-body"></p>'
-            + '<div class="novels-empty-actions"><a class="btn btn-secondary" href="{{ route('novels.create') }}">Add manually</a></div>';
+            + '<div class="novels-empty-actions"><a class="btn btn-secondary" href="{{ $manualUrl }}">Add manually</a></div>';
         li.querySelector('.novels-empty-title').textContent = title;
         li.querySelector('.novels-empty-body').textContent = body;
         resultsEl.appendChild(li);
@@ -233,7 +256,7 @@
         resetPaging(type, q);
         const ctx = paging;
 
-        const params = new URLSearchParams({ type, source: source() });
+        const params = new URLSearchParams({ type, source: source(), medium: MEDIUM });
         if (q) params.set('q', q);
 
         try {
@@ -266,8 +289,8 @@
                     q ? `Nothing on ${sourceHost()} matches “${q}”`
                         : (hidden > 0 ? 'Everything here is already in your library' : 'No results'),
                     hidden > 0 && !q
-                        ? 'Search for a title instead, or browse another list. You can also add a novel by its URL.'
-                        : 'Try a shorter title or the author’s name, or search another source. You can also add a novel by its URL.'
+                        ? 'Search for a title instead, or browse another list. You can also add a ' + NOUN + ' by its URL.'
+                        : 'Try a shorter title or the author’s name, or search another source. You can also add a ' + NOUN + ' by its URL.'
                 );
                 return;
             }
@@ -433,7 +456,7 @@
                 Novarr.showToast(`"${item.name}" is already in your library.`, 'warning');
             } else {
                 reset();
-                Novarr.showToast(result.error || result.message || 'Failed to add novel.', 'danger');
+                Novarr.showToast(result.error || result.message || `Failed to add ${NOUN}.`, 'danger');
             }
         } catch (err) {
             reset();
@@ -467,7 +490,7 @@
         document.getElementById('discoverQuery').placeholder = `Search ${sourceHost()}…`;
         document.getElementById('discoverQuery').value = '';
         if (searchOnly) {
-            statusEl.textContent = `Search ${sourceHost()} to find a novel to add.`;
+            statusEl.textContent = `Search ${sourceHost()} to find a ${NOUN} to add.`;
             statusEl.classList.remove('d-none');
             resultsEl.innerHTML = '';
             showHidden(0);
@@ -483,3 +506,4 @@
 })();
 </script>
 @endpush
+@endif

@@ -7,9 +7,11 @@
 @php
     $paletteNav = [
         ['title' => 'Home', 'url' => route('home'), 'icon' => 'house', 'keywords' => 'dashboard start continue reading'],
-        ['title' => 'Library', 'url' => route('novels.index'), 'icon' => 'library', 'keywords' => 'novels books all'],
+        ['title' => 'Novels', 'url' => route('novels.index', ['medium' => 'novel']), 'icon' => 'library', 'keywords' => 'library novels books'],
+        ['title' => 'Manga', 'url' => route('novels.index', ['medium' => 'manga']), 'icon' => 'library', 'keywords' => 'library manga comics'],
         ['title' => 'Discover', 'url' => route('novels.discover'), 'icon' => 'compass', 'keywords' => 'browse find new add'],
-        ['title' => 'Add a novel', 'url' => route('novels.create'), 'icon' => 'plus', 'keywords' => 'new create add novel'],
+        ['title' => 'Add a novel', 'url' => route('novels.create', ['medium' => 'novel']), 'icon' => 'plus', 'keywords' => 'new create add novel'],
+        ['title' => 'Add a manga', 'url' => route('novels.create', ['medium' => 'manga']), 'icon' => 'plus', 'keywords' => 'new create add manga comic'],
         ['title' => 'Offline', 'url' => route('library'), 'icon' => 'wifi-off', 'meta' => 'Saved for offline reading', 'keywords' => 'offline saved device downloads'],
         ['title' => 'Highlights', 'url' => route('bookmarks.index'), 'icon' => 'highlighter', 'keywords' => 'bookmarks notes quotes'],
         ['title' => 'Stats', 'url' => route('stats.index'), 'icon' => 'chart-column', 'keywords' => 'statistics reading streak charts'],

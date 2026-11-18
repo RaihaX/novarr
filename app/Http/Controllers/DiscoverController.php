@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Helpers\LibraryMedium;
 use App\Services\Discover;
 use App\Sources\EmpireNovelSource;
 use App\Sources\PagedDiscover;
@@ -16,11 +17,17 @@ use Illuminate\Http\Request;
 class DiscoverController extends Controller
 {
 
-    public function index()
+    /**
+     * "Add novel" / "Add manga": the sources of one library's medium
+     * (?medium=, else the remembered one — LibraryMedium).
+     */
+    public function index(Request $request)
     {
-        $sources = $this->sourceOptions();
+        $medium = LibraryMedium::resolve($request);
+        $sources = $this->sourceOptions($medium);
 
         return view('novels.discover', [
+            'medium' => $medium,
             'sources' => $sources,
             'sourceHosts' => array_map(fn($option) => $option['host'], $sources),
             'sourceLists' => array_map(fn($option) => $option['lists'], $sources),
@@ -30,11 +37,11 @@ class DiscoverController extends Controller
     /**
      * The Discover source picker, in page order (SourceResolver::discoverable()).
      *
-     * @return array<string, array{label: string, host: string, lists: string[]}>
+     * @return array<string, array{label: string, host: string, lists: string[], medium: string}>
      */
-    protected function sourceOptions(): array
+    protected function sourceOptions(?string $medium = null): array
     {
-        return app(Discover::class)->sourceOptions();
+        return app(Discover::class)->sourceOptions($medium);
     }
 
     /**
@@ -50,11 +57,18 @@ class DiscoverController extends Controller
      * page: 1-based (default 1, at most PagedDiscover::MAX_PAGE). The answer
      * says whether the source has another page (`has_more`); only paged
      * sources (MangaDex, Suwayomi) ever do — the others answer page 1 only.
+     *
+     * medium: novel | manga (optional) — the Discover page's library; the
+     * source must then be one of that medium's, and the default is its
+     * first. Without it (or with any other value, such as "all") any
+     * source is accepted, as before.
      */
     public function browse(Request $request)
     {
+        $medium = $request->query('medium');
+
         $discover = app(Discover::class);
-        $sources = $discover->sources();
+        $sources = $discover->sourcesFor(LibraryMedium::isValid($medium) ? $medium : null);
 
         // A registry in which no source offers Discover has nothing to list.
         if ($sources === []) {
