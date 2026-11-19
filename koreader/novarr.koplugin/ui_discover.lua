@@ -155,10 +155,12 @@ function Screen:load()
         local closer = UI.loading(_("Loading Discover…"))
         local data, e = s:fetchInto("discover", function() return s.api:discover() end, false)
         closer()
-        if not data then
+        -- A failed refresh hands back the saved copy: never shown as if it were live.
+        if e or not data then
+            self.sources, self.view = nil, nil
             self.sources_error = true
             self:rebuild()
-            UI.info(s:errorText(e))
+            UI.info(Discover.browseErrorText(e) or s:errorText(e))
             return
         end
         local sources, default = Discover.sources(data)
@@ -403,12 +405,21 @@ function Screen:showItem(it)
     end
 end
 
-function Screen:add(it)
+--[[--
+Adds a result to the library. force: "Add anyway" after the server said a
+novel of that title is already there (409): sent with force=1.
+]]
+function Screen:add(it, force)
     local s = self.session
     s:whenConnected(function()
         local closer = UI.loading(_("Adding to your library…"))
-        local data, e = s.api:addNovel(it.title, it.url)
-        local kind, text = Discover.addOutcome(data, e)
+        local data, e = s.api:addNovel(it.title, it.url, force)
+        local kind, text = Discover.addOutcome(data, e, it.title)
+        if kind == "duplicate" then
+            closer()
+            self:askDuplicate(it, e.duplicate, text)
+            return
+        end
         local novel_id = data and data.novel and data.novel.id
         if novel_id then
             Discover.markInLibrary(self.view, it.url, novel_id)
@@ -425,6 +436,20 @@ function Screen:add(it)
     end, function()
         UI.info(_("No network connection: the novel can't be added now."))
     end, { reason = "Novarr Discover" })
+end
+
+--- "<title> is already in your library.": Open it / Add anyway / Cancel.
+function Screen:askDuplicate(it, dup, text)
+    local s = self.session
+    local buttons = {}
+    if dup and dup.id then
+        table.insert(buttons, { text = _("Open it"), callback = function()
+            -- Home and Library may not have it yet: the Novel screen refreshes itself.
+            s:showNovel(dup.id)
+        end })
+    end
+    table.insert(buttons, { text = _("Add anyway"), callback = function() self:add(it, true) end })
+    UI.choice(text, buttons)
 end
 
 function Screen:onClose()

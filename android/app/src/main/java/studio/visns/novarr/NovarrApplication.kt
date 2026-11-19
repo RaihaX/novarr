@@ -25,6 +25,10 @@ class NovarrApplication : Application(), SingletonImageLoader.Factory {
             override fun onStart(owner: LifecycleOwner) {
                 model.checks.setForeground(true)
                 model.scope.launch { model.flushWrites() }
+                // A newer APK on the server is noticed without waiting for a relaunch.
+                model.refreshMetaIfDue()
+                // Back from "Install unknown apps": carry on with a waiting update.
+                model.updater.onForeground()
             }
 
             override fun onStop(owner: LifecycleOwner) {

@@ -95,6 +95,11 @@ table of contents lists the chapters of the group. The short load happens once e
 - A group holds the chapters that are saved on the device side by side: if one in
   the middle isn't saved (or has no text on the server), the group stops there and
   the next one opens as before.
+- **A chapter the server doesn't have yet is never skipped without a word.** When the
+  next chapter isn't on the server (and isn't saved on the device), a group ends
+  before it, and at the end of the chapter before it Novarr asks: "Chapter 101 isn't
+  on the server yet." with **Check for new chapters**, **Skip to Chapter 102** (when a
+  later chapter is there) and **Stay here**. Going back still skips such gaps.
 - New chapters saved while you read join the group the next time it is opened; the
   open book is never changed under you.
 - If something looks wrong on your device, switch *Join chapters for smooth page
@@ -106,7 +111,9 @@ the cover and when the server last got a chapter, with *Check for new chapters*,
 *Choose another novel* and *Close*. The check runs on the server (see below); the page
 stays open and shows how it goes, and when new chapters arrive it offers *Continue
 reading*. You only see a message when the next chapter can't be opened: it isn't
-saved on the device and there is no Wi-Fi, or the server has no text for it yet.
+saved on the device and there is no Wi-Fi, or the server has no text for it yet. A
+manga chapter can't be read on the Kindle: Novarr says "Manga can't be read on this
+device. Open it on the website or the Android app."
 
 While you read, the status bar at the bottom shows the time, where you are in the
 novel, the chapters left and the reading time left, for example
@@ -126,14 +133,14 @@ At the end of the line Novarr shows whether your reading has reached the server:
 sent, then "synced just now", "synced 12 min ago", "synced 2 h ago" and so on. It
 changes to "synced just now" as soon as something is sent, without a page turn. On a
 narrow screen "synced …" goes before the time does; "not synced" always stays. Switch
-it off with *Show sync status in the status bar* in Settings.
+it off with *Sync status in the status bar* in Settings.
 
 When the device sleeps, the screen shows the cover of the novel you are reading, the
 way a Kindle does with its own books. The plugin gives each chapter the novel's cover
 and, the first time, switches KOReader's sleep screen from the "Sleeping" message to
 the book cover, stretched to fill the screen (this applies to your other books too;
 turning it off puts back your previous sleep screen settings). Turn it off with
-*Sleep screen shows the book cover* in Novarr ▸ Settings.
+*Book cover as sleep screen* in Novarr ▸ Settings.
 
 Novarr chapters don't fill KOReader's History: only the chapter you are reading is
 kept there (so *open last file* still works), the earlier ones are taken out.
@@ -169,7 +176,14 @@ loads the next page.
 Tap a result for its synopsis and **Add to library** (or **Open** for a novel you
 already have). After adding, the result is marked, the novel appears in your Library,
 and Novarr asks the server to fetch its chapter list (a check, as above): the chapters
-show up over the next minutes.
+show up over the next minutes. When a novel of the same title (from another site) is
+already in your library, Novarr asks: "Shadow Slave is already in your library." with
+**Open it** (its page), **Add anyway** and **Cancel**.
+
+Discover only works where the server allows it: on the server's public address it is
+refused even for the owner, and Novarr says "Discover isn't available on this address.
+Use it on your home network." (an earlier list of sources is not shown as if it were
+current).
 
 Lists, searches and **More…** pages run on the server in the background: the list
 shows "Searching NovelPing for "sword"…" (or "Loading Popular from NovelPing…") with a
@@ -287,8 +301,13 @@ and sent to the server the next time there is a connection (or when you tap
 **Sync**). When there is a connection, where you are in a chapter is also sent when
 the device goes to sleep, when it wakes up and after 3 minutes without a page turn, so
 your other devices pick up where you stopped. Novarr only switches Wi-Fi on by itself when it switched it off itself
-(see below); otherwise, when *you* open Novarr or download something, KOReader asks
-to turn Wi-Fi on as it does for its other tools.
+(see below). Opening a screen (Home, the Library, a novel, its chapters) never asks
+for Wi-Fi: it refreshes quietly when the device is already connected and otherwise
+shows what was saved (Home refreshes by itself once Wi-Fi connects). An action that needs the server (**Sync**, a download,
+**Discover**, **Link**, *Check for new chapters*, adding a novel) asks "Turn Wi-Fi
+on?" (with KOReader's *Action when Wi-Fi is off* set to turn it on, it just does;
+set to ignore, it doesn't). If you say **Not now**, or no connection comes within
+45 seconds, Novarr says plainly that the action needs a connection.
 
 ### Wi-Fi off while reading
 
@@ -302,8 +321,9 @@ happen: no message, and the status line stays the same.
 Wi-Fi comes back **by itself**, without asking, when about 25 chapters are left
 (a quarter of the chapters saved ahead), after 20 chapters read (to send them to
 the server), when you wake the device or stop turning pages for 3 minutes while
-where you are hasn't been sent yet, when you reach a chapter that isn't saved, or
-when you open Novarr Home or another Novarr screen that needs the server. It then sends your reading,
+where you are hasn't been sent yet, when you reach a chapter that isn't saved, when
+you leave the book, or when you use a Novarr action that needs the server (Sync, a
+download, Discover, *Check for new chapters*). It then sends your reading,
 looks for new chapters, saves chapters up to 100 ahead again and switches off
 again. Turning Wi-Fi on takes a few seconds on a Kindle; you keep reading
 meanwhile (if you are waiting for the next chapter you may see "Getting the next
@@ -338,7 +358,7 @@ chapter left open without turning a page for over 5 minutes counts as 5 minutes)
 
 This is off by default since 1.7.0: Wi-Fi stays on and your place reaches the server
 as you read (every 30 seconds of reading and at the end of each chapter), so another device resumes where you stopped. Switch it on with *Turn
-Wi-Fi off while reading when everything is saved* in Settings to save battery; your
+Wi-Fi off while reading* in Settings to save battery; your
 place is then sent in batches (on sleep, on wake, after 3 minutes idle).
 
 ### Two addresses (home and away)
@@ -351,9 +371,20 @@ waiting changes are shared, nothing is downloaded twice.
 
 Novarr uses the address that worked last. When the server doesn't answer at that
 address, Novarr quietly tries the other one and carries on there if it answers,
-without a message. It goes back to the home address when KOReader starts, when the
-Wi-Fi connects, when the device wakes up and when you tap **Sync**. Settings shows
-which one is in use ("Using: home address" / "Using: second address").
+without a message. The same happens when something else answers at the home address
+instead of Novarr (a hotel or café router's login page, for example). It goes back to
+the home address when KOReader starts, when the Wi-Fi connects, when the device wakes
+up and when you tap **Sync**; that check never holds up opening a chapter or the "read
+on another device" question (it runs a few seconds after them). Settings shows which
+one is in use ("Using: home address" / "Using: second address").
+
+**Changing the server address** of the same server (a new IP address, a new name)
+keeps everything on the Kindle: saved chapters, changes waiting to be sent, reading
+stats and the account link. Novarr recognises the server by an id it gives (current
+servers do). For a different server, or an older one that gives no id,
+Novarr first tries once to send the waiting changes to the old server (if it answers
+within a few seconds), then warns that saved chapters and anything still waiting will
+be removed, as before.
 
 `https://` addresses also work while the KOReader Tailscale plugin is connected
 (it routes KOReader's connections through a local proxy); before, only `http://`
@@ -392,14 +423,16 @@ for example:
 
 On your phone or computer, open Novarr, go to **Account → Link a device** and enter the
 code. The Kindle notices by itself within a few seconds and says "Linked to" and your name;
-there is nothing to type on the Kindle. **Cancel** stops waiting. A code is good for
-10 minutes; when it runs out, tap **Get a new code**. The Kindle stays on Wi-Fi while
-it waits.
+there is nothing to type on the Kindle. **Cancel** stops waiting. The dialog says until
+when the code works ("This code works until 14:35."); when it runs out, tap **Get a new
+code**. The Kindle stays on Wi-Fi while it waits.
 
 Once linked, Settings shows **Account:** and your name (tap it to see the account and the
 server) and **Unlink this Kindle**, which signs this Kindle out (also on the server when
-it is reachable). The link belongs to the server: the home and away addresses share it,
-and switching to a different server forgets it.
+it is reachable). Unlinked without a connection, the Kindle's access is still listed on
+the website and Novarr says so: remove it there under **Account → Devices**. The link
+belongs to the server: the home and away addresses (and a new address of the same
+server) share it, and switching to a different server forgets it.
 
 If the server stops accepting this Kindle (the link was removed on the website, or the
 account was deleted), Novarr tells you once and offers to link again. Until then nothing
@@ -410,35 +443,49 @@ Kindle can still be read meanwhile.
 
 A **reader** account (one the owner invited to read) can read, sync, check for new
 chapters and download, but not add novels: Home has no **Discover** button for it.
+Novarr asks the server about the account again at most once a day (when Home refreshes
+online) and after any refusal from the server, so a role changed on the website shows
+on the Kindle without linking again. A refused change is never thrown away: it stays
+waiting and is sent later.
 
 Plugin updates never need the account: the update check and download work linked or not.
 
 ### Settings
 
+The rows are grouped under four headings; a long row wraps onto a second line.
+
+**Server and account**
 - **Server address** and **Second address (away from home)**.
 - When the server needs sign-in: **Link this Kindle**, or **Account:** with your name and
   **Unlink this Kindle** (see above).
-- **Chapters to fetch ahead while reading**: Off, 20, 50, 100 (default) or 200.
-- **Turn Wi-Fi off while reading when everything is saved** (off), with when Wi-Fi comes
-  back and, once there is 10 minutes of reading, how much of it had Wi-Fi on.
-- **Remove chapters after reading (keeps the last 2)** (on).
+- **Name of this device**.
+
+**Reading**
 - **Mark chapter read at its end** (on).
 - **Join chapters for smooth page turns** (on).
-- **Show reading info in the status bar** (on), **Show clock while reading** (on) and
-  **Show sync status in the status bar** (on; part of the reading info line).
+- **Keep font and layout between chapters** (on).
+- **Reading info in the status bar** (on), **Show clock while reading** (on) and
+  **Sync status in the status bar** (on; part of the reading info line).
+- **Offer the place read on another device** (on).
 - **Show covers** (on).
-- **Keep font and layout from chapter to chapter** (on).
 - **Open Novarr when KOReader starts** (on).
-- **Sleep screen shows the book cover**.
+- **Book cover as sleep screen**.
+
+**Wi-Fi and storage**
+- **Chapters to fetch ahead**: Off, 20, 50, 100 (default) or 200.
+- **Turn Wi-Fi off while reading** (off; once everything is saved), with when Wi-Fi comes
+  back and, once there is 10 minutes of reading, how much of it had Wi-Fi on.
+- **Remove read chapters (keeps the last 2)** (on).
 - **Storage used**.
-- **Check for plugin updates automatically** (on) and **Install plugin updates
-  automatically** (off).
+
+**About and updates**
+- **Check for updates automatically** (on) and **Install updates automatically** (off).
 - The plugin version, and checking for an update.
 
 ### Updating the plugin over Wi-Fi
 
 Your Novarr server carries the latest plugin, so after the first install you don't
-need the USB cable again. In Novarr ▸ **Settings**, tap the last row (on the second Settings page),
+need the USB cable again. In Novarr ▸ **Settings**, tap the last row (under *About and updates*, at the end of Settings),
 **Novarr plugin 1.7.0 — check for update** (with your version). Novarr asks the server and either says
 "Novarr is up to date" or shows the new version with **Install update**. A window shows
 the download ("Downloading update… 12 of 27") with a Cancel button. When it is done,
@@ -454,10 +501,17 @@ Novarr also looks for an update by itself, at most once a day, when Home loads a
 device is already on Wi-Fi, or while you read before it switches Wi-Fi off (it never
 turns Wi-Fi on for this and never interrupts you).
 When there is one, Home's button reads **Settings •** and the last Settings row reads
-**Update available (1.7.0) — tap to install** (with the new version). Switch this off with *Check for plugin
+**Update available (1.7.0) — tap to install** (with the new version). Switch this off with *Check for
 updates automatically* in Settings.
 
-With **Install plugin updates automatically** switched on (it is off unless you switch
+Novarr never goes back to an older version by itself. Versions are compared as numbers
+(1.10.0 is newer than 1.9.0): when the server has an older version than the one on the
+Kindle, there is no dot and no automatic install, and checking from Settings says "The
+server has an older version (1.9.0). Version 1.10.0 is installed." with **Install
+version 1.9.0 anyway** if you really want it. The same version with other files is
+still offered as an update.
+
+With **Install updates automatically** switched on (it is off unless you switch
 it on), Novarr installs such an update by itself: only while Novarr Home is on screen
 with no book open, the device already on Wi-Fi (it never turns Wi-Fi on for this) and
 nothing tapped for 30 seconds. It downloads and checks the update exactly as above, just
@@ -497,7 +551,8 @@ there too). To remove the plugin completely, delete `koreader/plugins/novarr.kop
   Wi-Fi it switched off; if you switched it off yourself, switch it on in KOReader's
   menu. A failed connection is tried again after 1, 5 and 15 minutes.
 - **"isn't a Novarr server"**: the address answers, but with something else (another
-  web page, a router login page). Check the port.
+  web page, a router login page). Check the port. With a second address set, Novarr
+  switches to it by itself when a router's login page answers at home.
 - **"This Kindle isn't linked to your Novarr account"**: the server has sign-in on and
   this Kindle isn't linked (or the link was removed). Tap **Link** on Home and enter the
   code on the website (Account → Link a device). Nothing waiting to be sent is lost.
@@ -507,6 +562,10 @@ there too). To remove the plugin completely, delete `koreader/plugins/novarr.kop
 - **Changes not showing on the website**: tap **Sync** on the Home screen. The
   number in brackets is how many changes are still waiting; while reading, the status
   bar says "not synced" until they are sent.
+- **"Discover isn't available on this address"**: the server refuses Discover on its
+  public address. Use it at home (or through the home/Tailscale address).
+- **"Manga can't be read on this device"**: manga chapters are page images; read them on
+  the website or in the Android app.
 - **The status bar doesn't show the reading info**: the status bar may be switched
   off (Settings ▸ Status bar), or you tapped it over to another item: keep tapping the
   bottom of the page until the Novarr line comes round again.

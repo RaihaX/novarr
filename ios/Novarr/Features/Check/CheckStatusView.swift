@@ -30,7 +30,7 @@ struct CheckStatusLabel: View {
 
     private var tint: Color {
         switch display {
-        case .found: .accentColor
+        case .found: .brandAccent
         case .failed: .orange
         default: .secondary
         }
@@ -64,7 +64,7 @@ struct CheckForChaptersControl: View {
                 }
             }
         }
-        .font(.footnote)
+        .font(.ui(.footnote))
         .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
     }
 
@@ -73,7 +73,7 @@ struct CheckForChaptersControl: View {
             app.startCheck(novelId: novelId)
         } label: {
             Label(display == nil ? "Check for new chapters" : "Check again", systemImage: "arrow.clockwise")
-                .font(.footnote.weight(.semibold))
+                .font(.ui(.footnote, .semibold))
         }
         .buttonStyle(.borderless)
         .disabled(app.client == nil)

@@ -200,6 +200,117 @@ T.it("Api: plugin files go through the same retry", function()
     T.eq(log[2], AWAY .. "/api/v1/koreader/plugin/files/main.lua")
 end)
 
+-- Answers per base: "down" (no answer), "portal" (a hotel router's login page), or a status (Novarr JSON).
+local function portalApi(o)
+    local a, clock, up, probes = make(o)
+    local log = {}
+    local transport = function(req)
+        table.insert(log, req.url)
+        local base = req.url:match("^(https?://[^/]+)")
+        local r = o.answers[base]
+        if r == "down" then return nil, "connection refused" end
+        if r == "portal" then
+            return { status = 200, headers = { ["content-type"] = "text/html" }, body = "<html>Hotel Wi-Fi: log in</html>" }
+        end
+        return { status = r or 200, headers = {}, body = Json.encode({ app = "novarr", api_version = 1, novels = {} }) }
+    end
+    return Api.new({ base_url = HOME, router = a, transport = transport }), log, a, probes
+end
+
+T.it("Api: a captive portal answering on the home address -> second address probed, retried there once", function()
+    local client, log, a, probes = portalApi({ up = { [AWAY] = true }, answers = { [HOME] = "portal" } })
+    local data, e = client:novels()
+    T.truthy(data, "the action succeeds on the second address")
+    T.eq(e, nil)
+    T.eq(log, { HOME .. "/api/v1/novels", AWAY .. "/api/v1/novels" })
+    T.eq(probes, { AWAY })
+    T.eq(a:which(), "away")
+end)
+
+T.it("Api: portal on home, second address not answering -> the portal's answer as before, no loop", function()
+    local client, log, a, probes = portalApi({ answers = { [HOME] = "portal", [AWAY] = "down" } })
+    local _d, e = client:novels()
+    T.eq(e.kind, "server")
+    T.eq(e.message, "not json")
+    T.eq(#log, 1, "no retry when the second address does not answer")
+    T.eq(#probes, 1)
+    T.eq(a:which(), "home")
+    -- The next request within the failover pause: no probe, one request.
+    client:novels()
+    T.eq(#probes, 1)
+    T.eq(#log, 2)
+end)
+
+T.it("Api: one address only: a portal's answer never probes anything", function()
+    local client, log, _a, probes = portalApi({ away = false, answers = { [HOME] = "portal" } })
+    local _d, e = client:novels()
+    T.eq(e.kind, "server")
+    T.eq(#log, 1)
+    T.eq(#probes, 0)
+end)
+
+T.it("Api: a portal on both addresses: one retry only", function()
+    local client, log = portalApi({ up = { [AWAY] = true }, answers = { [HOME] = "portal", [AWAY] = "portal" } })
+    local _d, e = client:novels()
+    T.eq(e.kind, "server")
+    T.eq(#log, 2)
+end)
+
+T.it("plugin files (not JSON) never count as a portal", function()
+    local client, log, _a, probes = portalApi({ up = { [AWAY] = true }, answers = { [HOME] = 200 } })
+    T.truthy(client:pluginFile("main.lua"))
+    T.eq(#log, 1)
+    T.eq(#probes, 0)
+end)
+
+T.it("no_reprobe: the position check and a chapter open skip a pending re-probe; it runs afterwards", function()
+    local deferred = {}
+    local a, _clock, up, probes = make({ active = AWAY, up = {} })
+    a.defer = function(fn) table.insert(deferred, fn) end
+    up[HOME] = true
+    a:invalidate("wake-up")
+    T.eq(a:base({ no_reprobe = true }), AWAY, "used as it is")
+    T.eq(#probes, 0, "nothing probed in front of the request")
+    T.eq(#deferred, 1, "handed to the scheduler")
+    T.eq(a.pending, "wake-up", "still pending")
+    deferred[1]()
+    T.eq(probes, { HOME })
+    T.eq(a:which(), "home")
+    T.eq(a.pending, nil)
+    -- Nothing pending: no_reprobe changes nothing and defers nothing.
+    T.eq(a:base({ no_reprobe = true }), HOME)
+    T.eq(#deferred, 1)
+end)
+
+T.it("no_reprobe through the Api: position and chapter go out at once; other requests run the re-probe first", function()
+    local client, log, a, probes = api({ active = AWAY, up = { [HOME] = true }, answers = {} })
+    local deferred = 0
+    a.defer = function() deferred = deferred + 1 end
+    a:invalidate("network connected")
+    client:position(7)
+    client:chapter(5, { no_reprobe = true })
+    T.eq(#probes, 0)
+    T.eq(log, { AWAY .. "/api/v1/novels/7/position", AWAY .. "/api/v1/chapters/5" })
+    T.eq(deferred, 2)
+    client:novels()
+    T.eq(probes, { HOME }, "an ordinary request runs it first")
+    T.eq(log[3], HOME .. "/api/v1/novels")
+end)
+
+T.it("instance ids: the same install on any address; absent or malformed is never 'the same'", function()
+    T.eq(Address.instanceId("0123456789ABCDEF"), "0123456789abcdef")
+    T.eq(Address.instanceId("0123456789abcde"), nil)
+    T.eq(Address.instanceId("0123456789abcdeg"), nil)
+    T.eq(Address.instanceId(nil), nil)
+    T.eq(Address.instanceId(1234), nil)
+    T.truthy(Address.sameInstance("0123456789abcdef", "0123456789ABCDEF"))
+    T.falsy(Address.sameInstance("0123456789abcdef", "fedcba9876543210"))
+    T.falsy(Address.sameInstance(nil, "0123456789abcdef"))
+    T.falsy(Address.sameInstance("0123456789abcdef", nil))
+    T.falsy(Address.sameInstance(nil, nil))
+    T.falsy(Address.sameInstance("", ""))
+end)
+
 T.it("external URLs (Discover covers on a source's image host) are never rewritten", function()
     local ext = "https://images.novelping.com/novel/shadow-slave.jpg"
     for _i, active in ipairs({ HOME, AWAY }) do

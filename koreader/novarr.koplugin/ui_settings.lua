@@ -51,9 +51,20 @@ function Settings.askServer(session, on_saved)
                 UI.info(failureText(session, url, e))
                 return
             end
+            local old = session:serverUrl()
+            -- The second address, or another address of the same install
+            -- (meta's instance id, 1.10.0): nothing on this device is removed.
+            local same_server = old ~= nil and session:isSameServer(url, meta)
+            if old and not same_server and meta.instance and not session:get("server_instance") then
+                -- The old server's id isn't known yet (set up before 1.10.0): ask it once (4 s at most).
+                local asking = UI.loading(T(_("Checking %1…"), old))
+                session:probeAddress(old)
+                asking()
+                same_server = session:isSameServer(url, meta)
+            end
             local function save()
                 UIManager:close(dialog)
-                session:setServer(url)
+                session:setServer(url, { same_server = same_server })
                 -- Whether this server needs sign-in (auth.lua): kept for it.
                 session:noteMeta(meta)
                 UI.notify(T(_("Connected to Novarr at %1"), url))
@@ -67,9 +78,14 @@ function Settings.askServer(session, on_saved)
                     })
                 end
             end
-            local old = session:serverUrl()
-            local same_server = url == session:get("server_url_away")
             if old and old ~= url and not same_server and session:hasLocalData() then
+                -- A different server (or one that can't tell): first, once, send
+                -- what is queued to the old one if it answers (4 s at most to find out).
+                if session.queue:count() > 0 then
+                    local closing = UI.loading(_("Sending your changes to the old server…"))
+                    session:flushBeforeSwitch()
+                    closing()
+                end
                 UI.confirm({
                     text = _("This is a different server. Saved chapters and changes not yet sent to the old server will be removed from this device."),
                     ok_text = _("Switch server"),
@@ -139,7 +155,8 @@ function Settings.askAwayServer(session, on_saved)
             closer()
             if meta then
                 done(dialog, url)
-                session:noteMeta(meta) -- the same server: what it says about sign-in holds
+                -- The same server: what it says about sign-in holds (its id never replaces a known one).
+                session:noteMeta(meta, { keep_instance = true })
             elseif e.kind == "offline" then
                 saveAnyway(T(_("Couldn't reach a server at %1 right now."), url))
             else
@@ -181,9 +198,32 @@ function Settings.askDeviceName(session, on_saved)
     })
 end
 
+--[[--
+The rows, in four sections under header rows: Server and account, Reading,
+Wi-Fi and storage, About and updates. Labels are kept short; a long one
+wraps onto a second line (the menu is not single-line, see Settings.show).
+]]
 function Settings:items()
     local s = self.session
     local items = {}
+    local function toggle(key, label)
+        table.insert(items, {
+            text = label,
+            mandatory = onOff(s:get(key)),
+            callback = function()
+                s:set(key, not s:get(key))
+                self:rebuild()
+            end,
+        })
+    end
+    local function note(text, extra)
+        local row = { text = text, dim = true, select_enabled = false, callback = function() end }
+        for k, v in pairs(extra or {}) do row[k] = v end
+        table.insert(items, row)
+    end
+
+    -- ------------------------------------------------ Server and account
+    table.insert(items, UI.headerRow(_("Server and account")))
     table.insert(items, {
         text = _("Server address"),
         mandatory = s:serverUrl() or _("not set"),
@@ -199,12 +239,7 @@ function Settings:items()
         end,
     })
     if s:get("server_url_away") then
-        table.insert(items, {
-            text = s.address:which() == "away" and _("Using: second address") or _("Using: home address"),
-            dim = true,
-            select_enabled = false,
-            callback = function() end,
-        })
+        note(s.address:which() == "away" and _("Using: second address") or _("Using: home address"))
     end
     -- The account (only when the server requires sign-in: auth.lua's accountRows).
     local UIAuth = require("novarr.ui_auth")
@@ -229,9 +264,41 @@ function Settings:items()
             })
         end
     end
+    table.insert(items, {
+        text = _("Name of this device"),
+        mandatory = s.device_name,
+        callback = function()
+            Settings.askDeviceName(s, function() self:rebuild() end)
+        end,
+    })
+
+    -- ------------------------------------------------ Reading
+    table.insert(items, UI.headerRow(_("Reading")))
+    toggle("mark_read_at_end", _("Mark chapter read at its end"))
+    -- Takes effect the next time a chapter is opened.
+    toggle("join_chapters", _("Join chapters for smooth page turns"))
+    toggle("keep_style", _("Keep font and layout between chapters"))
+    toggle("show_reading_info", _("Reading info in the status bar"))
+    toggle("show_clock", _("Show clock while reading"))
+    toggle("show_sync_status", _("Sync status in the status bar"))
+    -- Off: no question and no request for it (position.lua); the device is still named with every write.
+    toggle("position_prompt", _("Offer the place read on another device"))
+    toggle("show_covers", _("Show covers"))
+    toggle("open_on_start", _("Open Novarr when KOReader starts"))
+    table.insert(items, {
+        text = _("Book cover as sleep screen"),
+        mandatory = onOff(s:sleepCoverOn()),
+        callback = function()
+            s:setSleepCover(not s:sleepCoverOn())
+            self:rebuild()
+        end,
+    })
+
+    -- ------------------------------------------------ Wi-Fi and storage
+    table.insert(items, UI.headerRow(_("Wi-Fi and storage")))
     local prefetch = tonumber(s:get("prefetch")) or 0
     table.insert(items, {
-        text = _("Chapters to fetch ahead while reading"),
+        text = _("Chapters to fetch ahead"),
         mandatory = prefetch <= 0 and _("Off") or tostring(prefetch),
         callback = function()
             local buttons = {}
@@ -247,18 +314,8 @@ function Settings:items()
             UI.choice(_("Chapters to fetch ahead while reading"), buttons)
         end,
     })
-    local function toggle(key, label)
-        table.insert(items, {
-            text = label,
-            mandatory = onOff(s:get(key)),
-            callback = function()
-                s:set(key, not s:get(key))
-                self:rebuild()
-            end,
-        })
-    end
     table.insert(items, {
-        text = _("Turn Wi-Fi off while reading when everything is saved"),
+        text = _("Turn Wi-Fi off while reading"),
         mandatory = onOff(s:get("wifi_auto_off")),
         callback = function()
             s:set("wifi_auto_off", not s:get("wifi_auto_off"))
@@ -268,55 +325,17 @@ function Settings:items()
         end,
     })
     if not s:get("wifi_auto_off") then
-        table.insert(items, {
-            text = _("Wi-Fi stays on: your place is sent as you read"),
-            dim = true,
-            select_enabled = false,
-            callback = function() end,
-        })
+        note(_("Wi-Fi stays on: your place is sent as you read"))
     else
         local low = require("novarr.wifipolicy").lowWater(prefetch)
-        table.insert(items, {
-            text = prefetch > 0
-                and T(_("Wi-Fi comes back at %1 chapters left or after %2 read"), low, require("novarr.wifipolicy").SYNC_AFTER)
-                or _("Not while chapters to fetch ahead is Off"),
-            dim = true,
-            select_enabled = false,
-            callback = function() end,
-        })
+        note(prefetch > 0
+            and T(_("Off once everything is saved; back at %1 chapters left or after %2 read"), low, require("novarr.wifipolicy").SYNC_AFTER)
+            or _("Not while chapters to fetch ahead is Off"))
     end
     -- How much of the reading had Wi-Fi on (wifitime.lua): hidden under 10 min of reading.
     local wifi_line = require("novarr.wifitime").line(s:wifiTime(), os.time())
-    if wifi_line then
-        table.insert(items, { text = wifi_line, dim = true, select_enabled = false, wifi_time = true, callback = function() end })
-    end
-    toggle("remove_after_reading", _("Remove chapters after reading (keeps the last 2)"))
-    toggle("mark_read_at_end", _("Mark chapter read at its end"))
-    -- Takes effect the next time a chapter is opened.
-    toggle("join_chapters", _("Join chapters for smooth page turns"))
-    toggle("show_reading_info", _("Show reading info in the status bar"))
-    toggle("show_clock", _("Show clock while reading"))
-    toggle("show_sync_status", _("Show sync status in the status bar"))
-    toggle("show_covers", _("Show covers"))
-    toggle("keep_style", _("Keep font and layout from chapter to chapter"))
-    toggle("open_on_start", _("Open Novarr when KOReader starts"))
-    -- Off: no question and no request for it (position.lua); the device is still named with every write.
-    toggle("position_prompt", _("Ask to go to the latest place read on another device"))
-    table.insert(items, {
-        text = _("Name of this device"),
-        mandatory = s.device_name,
-        callback = function()
-            Settings.askDeviceName(s, function() self:rebuild() end)
-        end,
-    })
-    table.insert(items, {
-        text = _("Sleep screen shows the book cover"),
-        mandatory = onOff(s:sleepCoverOn()),
-        callback = function()
-            s:setSleepCover(not s:sleepCoverOn())
-            self:rebuild()
-        end,
-    })
+    if wifi_line then note(wifi_line, { wifi_time = true }) end
+    toggle("remove_after_reading", _("Remove read chapters (keeps the last 2)"))
     table.insert(items, {
         text = _("Storage used"),
         mandatory = self.storage_text or _("tap to measure"),
@@ -325,8 +344,11 @@ function Settings:items()
             self:rebuild()
         end,
     })
-    toggle("auto_update_check", _("Check for plugin updates automatically"))
-    toggle("auto_update_install", _("Install plugin updates automatically"))
+
+    -- ------------------------------------------------ About and updates
+    table.insert(items, UI.headerRow(_("About and updates")))
+    toggle("auto_update_check", _("Check for updates automatically"))
+    toggle("auto_update_install", _("Install updates automatically"))
     local Update = require("novarr.ui_update")
     local available = Update.available(s)
     local version_text
@@ -354,7 +376,9 @@ end
 function Settings.show(session)
     local self = setmetatable({ session = session, kind = "settings" }, Settings)
     self.storage_text = Model.formatBytes(session.store:totalSize())
-    self.menu = UI.showMenu(session, { title = _("Novarr settings"), items = self:items(), screen = self })
+    -- Rows may wrap onto a second line instead of being cut off.
+    self.menu = UI.showMenu(session, { title = _("Novarr settings"), items = self:items(), screen = self,
+        multi_line = true })
     return self
 end
 

@@ -43,6 +43,8 @@ const STATE_TESTS = {
     unread: (c) => c.downloaded && !c.read,
     queued: (c) => c.state === 'queued',
     failed: (c) => c.state === 'failed',
+    // A reader's one "not downloaded" chip (queued and failed alike).
+    pending: (c) => !c.downloaded,
 };
 
 class ChapterList {
@@ -64,6 +66,8 @@ class ChapterList {
         this.novelId = parseInt(root.dataset.novelId, 10);
         this.continueId = parseInt(root.dataset.continueId || '0', 10);
         this.bookCol = root.dataset.bookCol === '1';
+        // Failure reasons are the admin's (a reader cannot act on them).
+        this.showReasons = root.dataset.reasons !== '0';
         this.filter = 'all';
         this.data = null;       // Promise<chapters[]> once loaded
         this.matches = [];
@@ -260,7 +264,7 @@ class ChapterList {
         const pages = c.pages
             ? ` <span class="ch-pages text-muted small ms-1">${c.pages} ${c.pages === 1 ? 'page' : 'pages'}</span>`
             : '';
-        const reason = c.state === 'failed'
+        const reason = c.state === 'failed' && this.showReasons
             ? `<span class="ch-reason">${esc(c.reason)}${c.attempts > 1 ? ` · ${c.attempts} attempts` : ''}</span>`
             : '';
         let status = current ? '<span class="ch-current">Up next</span>' : '';

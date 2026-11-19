@@ -6,6 +6,14 @@ struct PendingWrite: Codable, Sendable, Identifiable, Equatable {
         case progress(chapterId: Int, progress: Int?, read: Bool)
         case setRead(chapterId: Int, read: Bool)
         case bulkRead(BulkReadRequest)
+        /// A new highlight. Added after the read-state kinds: queues persisted
+        /// before it still decode, since each case is keyed by its own name.
+        case highlight(HighlightDraft)
+        /// The read mark for a chapter opened as a look-up (from a highlight):
+        /// sent as progress 100 with `lookup: true`, so the server marks it
+        /// read without moving the series' latest position. Added last, like
+        /// `highlight`, so older persisted queues still decode.
+        case lookupRead(chapterId: Int)
     }
 
     var id: UUID
@@ -23,9 +31,29 @@ struct PendingWrite: Codable, Sendable, Identifiable, Equatable {
         guard ms.isFinite, ms > 0 else { return 0 }
         return Int(min(ms, Double(Int.max / 2)).rounded())
     }
+
+    /// Whether `writes` hold an unsent progress or read/unread write for this
+    /// one chapter. Bulk marking and highlights don't count: they say nothing
+    /// about where the reader stopped inside the chapter.
+    static func containsChapterWrite(_ writes: [PendingWrite], chapterId: Int) -> Bool {
+        writes.contains {
+            switch $0.kind {
+            case .progress(let id, _, _), .setRead(let id, _), .lookupRead(let id): id == chapterId
+            case .bulkRead, .highlight: false
+            }
+        }
+    }
+
+    /// Highlights still waiting to be sent for one chapter, oldest first.
+    static func highlightDrafts(_ writes: [PendingWrite], chapterId: Int) -> [HighlightDraft] {
+        writes.compactMap {
+            if case .highlight(let draft) = $0.kind, draft.chapterId == chapterId { return draft }
+            return nil
+        }
+    }
 }
 
-/// A persistent FIFO of read-state writes. Every write goes through here:
+/// A persistent FIFO of read-state writes (and new highlights). Every write goes through here:
 /// it is persisted first, then sent; it leaves the queue only when the server
 /// accepted it (or rejected it permanently), so nothing is lost offline.
 actor WriteQueue {

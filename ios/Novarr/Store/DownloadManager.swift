@@ -3,6 +3,8 @@ import Observation
 
 /// Fetches chapters into the offline store, a few at a time, per novel.
 /// App-wide so a download keeps going when the user leaves the novel screen.
+/// Text chapters are saved as JSON; manga chapters as their page images
+/// (fetched from the pre-signed URLs, without headers) plus the pages index.
 @MainActor
 @Observable
 final class DownloadManager {
@@ -23,7 +25,7 @@ final class DownloadManager {
 
     func isDownloading(_ novelId: Int) -> Bool { jobs[novelId] != nil }
 
-    func start(novelId: Int, chapterIds: [Int], client: APIClient, store: OfflineStore) {
+    func start(novelId: Int, chapterIds: [Int], manga: Bool = false, client: APIClient, store: OfflineStore) {
         guard jobs[novelId] == nil else { return }
         lastMessage[novelId] = nil
         guard !chapterIds.isEmpty else {
@@ -41,6 +43,10 @@ final class DownloadManager {
                     group.addTask {
                         guard !Task.isCancelled else { return false }
                         do {
+                            if manga {
+                                return await Self.saveManga(try await client.mangaPages(id: id), novelId: novelId,
+                                                            store: store, session: client.session)
+                            }
                             let chapter = try await client.chapter(id: id)
                             await store.saveChapter(chapter)
                             return chapter.downloaded
@@ -60,6 +66,34 @@ final class DownloadManager {
             }
             self?.finish(novelId: novelId, cancelled: Task.isCancelled)
         }
+    }
+
+    /// Every page image first, then the index that marks the chapter
+    /// complete. Pages already on disk are kept. False when the chapter has
+    /// no pages yet or any image fails.
+    nonisolated static func saveManga(_ pages: MangaPages, novelId: Int, store: OfflineStore,
+                                      session: URLSession) async -> Bool {
+        guard !pages.pages.isEmpty else { return false }
+        let fm = FileManager.default
+        for page in pages.pages {
+            guard !Task.isCancelled, let url = page.url else { return false }
+            let target = store.pageFile(novelId: novelId, chapterId: pages.chapter.id, page: page.page)
+            if let size = (try? fm.attributesOfItem(atPath: target.path))?[.size] as? Int, size > 0 { continue }
+            // Pre-signed: a plain GET, no token or other header.
+            var request = URLRequest(url: url, timeoutInterval: 60)
+            request.setValue("image/*", forHTTPHeaderField: "Accept")
+            guard let (data, response) = try? await session.data(for: request),
+                  let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty
+            else { return false }
+            do {
+                try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try data.write(to: target, options: .atomic)
+            } catch {
+                return false
+            }
+        }
+        await store.saveMangaIndex(pages, novelId: novelId)
+        return true
     }
 
     func cancel(novelId: Int) {

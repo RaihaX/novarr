@@ -10,6 +10,8 @@
     $queued = max(0, $current_chapters_not_downloaded - $failed_count);
     $gaps = count($missing_chapters);
     $dupes = count($duplicate_chapters);
+    // Readers see "not downloaded yet" in place of failures, reviews and gaps.
+    $isAdmin = Gate::allows('admin');
 
     // Download progress uses the one shared definition — downloaded ÷
     // chapters known to the source — so it matches the Library.
@@ -171,24 +173,22 @@
             </div>
         </span>
         @endunless
+        @cannot('admin')
+        {{-- A reader: "check for new chapters" through the API, in plain
+             sight (the admin has the commands in Maintenance). --}}
+        <button type="button" class="btn btn-secondary btn-icon-label nv-check reader-action-btn" data-reader-action="check" data-novel="{{ $data->id }}" title="Ask the source for new chapters and download them" aria-label="Check for new chapters">
+            <x-icon name="refresh-cw" :size="14" />
+            <span class="cmd-label">Check for new chapters</span>
+            <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Checking</span>
+            <span class="cmd-done d-none">Done</span>
+            <span class="cmd-fail d-none">Failed</span>
+        </button>
+        @endcannot
         <div class="dropdown">
             <button type="button" class="btn btn-secondary btn-icon" id="novelMoreBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="More actions" title="More actions">
                 <x-icon name="more-horizontal" :size="16" />
             </button>
             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="novelMoreBtn">
-                @cannot('admin')
-                {{-- A reader: "check for new chapters" through the API (the
-                     admin has the commands in Maintenance). --}}
-                <li>
-                    <button type="button" class="dropdown-item reader-action-btn" data-reader-action="check" data-novel="{{ $data->id }}" title="Ask the source for new chapters and download them">
-                        <x-icon name="refresh-cw" :size="14" />
-                        <span class="cmd-label">Check for new chapters</span>
-                        <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Checking</span>
-                        <span class="cmd-done d-none">Done</span>
-                        <span class="cmd-fail d-none">Failed</span>
-                    </button>
-                </li>
-                @endcannot
                 @can('admin')
                 <li><a href="{{ route('novels.edit', $data->id) }}" class="dropdown-item"><x-icon name="pencil" :size="14" />Edit details</a></li>
                 <li>
@@ -213,7 +213,9 @@
                 <li><a href="{{ route('search.index', ['novel' => $data->id]) }}" class="dropdown-item"><x-icon name="search" :size="14" />Search the text of this novel</a></li>
                 <li><hr class="dropdown-divider"></li>
                 <li><h6 class="dropdown-header label-caption">ePub</h6></li>
-                <li><a href="{{ route('novels.download_epub', $data->id) }}" class="dropdown-item" data-turbo="false" data-turbo-prefetch="false"><x-icon name="download" :size="14" />Download ePub</a></li>
+                {{-- Only once an ePub has been built (hidden until then; a
+                     build started here reveals it, see showEpubDownload()). --}}
+                <li id="epubDownloadItem" class="{{ $epub_built_at ? '' : 'd-none' }}"><a href="{{ route('novels.download_epub', $data->id) }}" class="dropdown-item" data-turbo="false" data-turbo-prefetch="false" @if($epub_built_at) title="Built {{ $epub_built_at->format('j M Y, H:i') }}" @endif><x-icon name="download" :size="14" />Download ePub<span class="item-suffix">{{ $epub_built_at?->format($epub_built_at->isCurrentYear() ? 'j M' : 'j M Y') }}</span></a></li>
                 <li>
                     @can('admin')
                     <button type="button" class="dropdown-item cmd-btn" data-command="epub" data-novel="{{ $data->id }}" title="Build an ePub from the downloaded chapters">
@@ -291,7 +293,12 @@
                     </div>
                 @endunless
 
-                @if($queued || $failed_count || $review_count || $gaps || $dupes)
+                @cannot('admin')
+                    {{-- A reader cannot retry, review or fix anything: one quiet line. --}}
+                    @if($current_chapters_not_downloaded > 0)
+                        <p class="nv-progress-note">{{ number_format($current_chapters_not_downloaded) }} {{ Str::plural('chapter', $current_chapters_not_downloaded) }} still downloading</p>
+                    @endif
+                @elseif($queued || $failed_count || $review_count || $gaps || $dupes)
                     <ul class="nv-issues">
                         @if($queued > 0)
                             <li><span class="nv-issue-num tone-pending">{{ number_format($queued) }}</span> queued</li>
@@ -323,7 +330,7 @@
                     </ul>
                 @else
                     <p class="nv-progress-note">Nothing queued or failed · checked {{ !$data->status && $data->frequent_toc ? 'hourly' : 'daily' }}</p>
-                @endif
+                @endcannot
 
                 @if($queued + $failed_count > 0 && Gate::allows('admin'))
                     <button type="button" class="btn btn-secondary btn-sm cmd-btn nv-progress-action" data-command="chapter" data-novel="{{ $data->id }}" title="Fetch the queued and failed chapters now">
@@ -364,19 +371,26 @@
          data-chapter-url="{{ $chapterUrl }}"
          data-bulk-url="{{ route('chapters.bulk_read') }}"
          data-continue-id="{{ $continue_chapter_id }}"
-         data-book-col="{{ $showBookCol ? 1 : 0 }}">
+         data-book-col="{{ $showBookCol ? 1 : 0 }}"
+         data-reasons="{{ $isAdmin ? 1 : 0 }}">
     <div class="nv-ch-head">
         <h2 class="panel-title" id="chaptersTitle">Chapters <span class="count-chip">{{ number_format($chapters->total()) }}</span></h2>
 
         <div class="nv-chips" role="group" aria-label="Show chapters">
             <button type="button" class="nv-chip" data-state-filter="all" aria-pressed="true">All <span class="nv-chip-count">{{ number_format($chapters->total()) }}</span></button>
             <button type="button" class="nv-chip" data-state-filter="unread" aria-pressed="false">Unread <span class="nv-chip-count">{{ number_format($unread) }}</span></button>
+            @can('admin')
             @if($queued > 0)
                 <button type="button" class="nv-chip" data-state-filter="queued" aria-pressed="false">Queued <span class="nv-chip-count">{{ number_format($queued) }}</span></button>
             @endif
             @if($failed_count > 0)
                 <button type="button" class="nv-chip" data-state-filter="failed" aria-pressed="false">Failed <span class="nv-chip-count tone-danger">{{ number_format($failed_count) }}</span></button>
             @endif
+            @else
+            @if($current_chapters_not_downloaded > 0)
+                <button type="button" class="nv-chip" data-state-filter="pending" aria-pressed="false">Not downloaded <span class="nv-chip-count">{{ number_format($current_chapters_not_downloaded) }}</span></button>
+            @endif
+            @endcan
         </div>
 
         @if($continue_chapter_id)
@@ -458,7 +472,7 @@
                             @if($chapter->isNote())
                                 <x-status state="paused" class="ms-1" title="Author's note — a message from the author or translator, not a story chapter">Note</x-status>
                             @endif
-                            @if($state === 'failed')
+                            @if($state === 'failed' && $isAdmin)
                                 <span class="ch-reason">{{ \App\Http\Controllers\NovelController::failureReasonText($chapter->last_failure_reason) . ((int) $chapter->attempts > 1 ? ' · ' . (int) $chapter->attempts . ' attempts' : '') }}</span>
                             @endif
                         </td>
@@ -466,7 +480,9 @@
                             @if($isCurrent)
                                 <span class="ch-current">Up next</span>
                             @endif
-                            @if($review)
+                            @if($state !== 'downloaded' && !$isAdmin)
+                                <x-status state="queued">Not downloaded yet</x-status>
+                            @elseif($review)
                                 <x-status state="attention" title="Download failed {{ (int) $chapter->attempts }} times — still retried every 3 days, but it needs a look">Needs review</x-status>
                             @elseif($state === 'failed')
                                 <x-status state="failed" />
@@ -499,10 +515,18 @@
     @endif
 </section>
 <template id="checkIconTpl"><x-icon name="check" :size="13" :stroke="2.25" /></template>
+{{-- A reader sees one state for every chapter not downloaded yet (no
+     failure reasons, no review: nothing they can act on). --}}
 <template id="chStatusTpl">
+    @if($isAdmin)
     <x-status state="failed" data-tpl="failed" />
     <x-status state="queued" data-tpl="queued" />
     <x-status state="attention" data-tpl="review">Needs review</x-status>
+    @else
+    <x-status state="queued" data-tpl="failed">Not downloaded yet</x-status>
+    <x-status state="queued" data-tpl="queued">Not downloaded yet</x-status>
+    <x-status state="queued" data-tpl="review">Not downloaded yet</x-status>
+    @endif
     <x-status state="paused" class="ms-1" data-tpl="note" title="Author's note — a message from the author or translator, not a story chapter">Note</x-status>
 </template>
 
@@ -912,6 +936,14 @@
         }));
 
         removeBtn.addEventListener('click', async () => {
+            closeMenu();
+            const rec = await Novarr.getNovel(id);
+            const n = rec?.chapterCount;
+            const ok = await Novarr.confirmDialog(
+                `Remove the offline copy${n ? ` of ${n.toLocaleString()} ${n === 1 ? 'chapter' : 'chapters'}` : ''} from this device? You can download it again later.`,
+                { title: 'Remove offline copy?', confirmText: 'Remove', danger: true }
+            );
+            if (!ok) return;
             removeBtn.disabled = true;
             try {
                 await Novarr.removeNovel(id);
@@ -929,6 +961,16 @@
     // inline script on a hard load but is already present on Turbo visits.
     if (window.Novarr?.downloadNovel) initOfflineBtn();
     else window.addEventListener('load', initOfflineBtn, { once: true });
+
+    // A build just finished: the menu's download item appears, dated today.
+    function showEpubDownload() {
+        const item = document.getElementById('epubDownloadItem');
+        if (!item) return;
+        item.classList.remove('d-none');
+        const suffix = item.querySelector('.item-suffix');
+        if (suffix) suffix.textContent = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+        item.querySelector('a')?.setAttribute('title', 'Built just now');
+    }
 
     async function runCommand(btn) {
         if (btn.disabled) return;
@@ -951,6 +993,7 @@
             outputText.textContent = `> ${command} --novel=${novelId}\n${result.output || result.error || 'Done'}`;
             outputText.scrollTop = outputText.scrollHeight;
 
+            if (result.success && command === 'epub') showEpubDownload();
             if (result.success && reloadAfter.includes(command)) {
                 Novarr.showToast('Done — refreshing…', 'success');
                 Novarr.softRefresh(1200);
@@ -1026,6 +1069,7 @@
             if (ok) {
                 Novarr.showToast(state.message || (action.key === 'epub' ? 'The ePub is ready to download.' : 'Checked for new chapters.'), 'success');
                 if (action.key === 'check') Novarr.softRefresh(1200);
+                if (action.key === 'epub') showEpubDownload();
             } else {
                 Novarr.showToast(state.message || 'That did not work. Try again later.', 'danger');
             }

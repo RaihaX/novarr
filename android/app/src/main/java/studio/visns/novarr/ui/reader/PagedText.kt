@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
@@ -160,7 +161,9 @@ private suspend fun measureChapter(
  * current typography. Taps on the outer thirds, swipes and the volume keys
  * turn pages; the middle third toggles the controls. Going past the last page
  * opens the next chapter; going back from the first opens the previous one at
- * its last page.
+ * its last page. Long-pressing a paragraph offers to highlight it (the pages
+ * are drawn, not selectable text, so the sheet does the selecting); TalkBack
+ * users get the same through a custom action with the page's text.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -174,6 +177,7 @@ internal fun PagedChapterText(
     onTap: () -> Unit,
     onBackToSeries: () -> Unit,
     onTurn: () -> Unit,
+    onHighlight: (String) -> Unit,
 ) {
     val density = LocalDensity.current
     val resolver = LocalFontFamilyResolver.current
@@ -250,6 +254,20 @@ internal fun PagedChapterText(
             }
         }
 
+        // Long-press: the paragraph under the finger, whole (the sheet lets the reader narrow it).
+        val topPadPx = with(density) { topPad.toPx() }
+        val longPress by rememberUpdatedState { at: Offset ->
+            if (page < textPages) {
+                val y = at.y - topPadPx
+                layout.pages[page].slices
+                    .firstOrNull { it.block > 0 && y >= it.y && y <= it.y + it.height }
+                    ?.let { onHighlight(content.paragraphs[it.block - 1]) }
+            }
+        }
+        val highlightPage by rememberUpdatedState {
+            if (page < textPages) pageText(layout, layout.pages[page]).takeIf { it.isNotBlank() }?.let(onHighlight)
+        }
+
         // Progress: same rules as scrolling; the last text page is the end of the chapter.
         val currentPages by rememberUpdatedState(layout.pages)
         LaunchedEffect(content.id) {
@@ -293,7 +311,7 @@ internal fun PagedChapterText(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
-                    detectTapGestures { at ->
+                    detectTapGestures(onLongPress = { at -> longPress(at) }) { at ->
                         when (TapZones.actionFor(at.x, size.width.toFloat())) {
                             TapAction.NEXT -> turn(true)
                             TapAction.PREVIOUS -> turn(false)
@@ -321,6 +339,7 @@ internal fun PagedChapterText(
                     customActions = listOf(
                         CustomAccessibilityAction("Next page") { turn(true); true },
                         CustomAccessibilityAction("Previous page") { turn(false); true },
+                        CustomAccessibilityAction("Highlight a passage") { highlightPage(); true },
                     )
                 },
         ) { shown ->
@@ -331,7 +350,7 @@ internal fun PagedChapterText(
                         Footer(content, model, colors, onBackToSeries, Modifier.width(column).padding(horizontal = margin))
                     }
                 } else {
-                    PageBody(content, shown.layout, shown.layout.pages[index], colors, titleStyle, Modifier.align(Alignment.TopCenter).padding(top = topPad).width(column).height(pageArea).padding(horizontal = margin))
+                    PageBody(content, shown.layout, shown.layout.pages[index], colors, titleStyle, model.highlightRanges, Modifier.align(Alignment.TopCenter).padding(top = topPad).width(column).height(pageArea).padding(horizontal = margin))
                 }
             }
         }
@@ -346,17 +365,32 @@ internal fun PagedChapterText(
     }
 }
 
-/** One page: the heading (first page only) and whole lines of paragraphs, drawn from the measured layouts. */
-@Composable
-private fun PageBody(content: ChapterContent, layout: MeasuredChapter, page: Pagination.Page, colors: ReaderColors, titleStyle: TextStyle, modifier: Modifier) {
-    val density = LocalDensity.current
-    val pageText = remember(page) {
-        page.slices.filter { it.block > 0 }.joinToString("\n") { slice ->
-            val l = layout.paragraphs[slice.block - 1]
-            val text = l.layoutInput.text.text
-            text.substring(l.getLineStart(slice.fromLine), l.getLineEnd(slice.toLine - 1))
-        }
+/** The text shown on [page] (its lines of each paragraph), one paragraph per line. */
+private fun pageText(layout: MeasuredChapter, page: Pagination.Page): String =
+    page.slices.filter { it.block > 0 }.joinToString("\n") { slice ->
+        val l = layout.paragraphs[slice.block - 1]
+        val text = l.layoutInput.text.text
+        text.substring(l.getLineStart(slice.fromLine), l.getLineEnd(slice.toLine - 1))
     }
+
+/**
+ * One page: the heading (first page only) and whole lines of paragraphs,
+ * drawn from the measured layouts, with [highlights] (characters by
+ * paragraph) tinted behind the text.
+ */
+@Composable
+private fun PageBody(
+    content: ChapterContent,
+    layout: MeasuredChapter,
+    page: Pagination.Page,
+    colors: ReaderColors,
+    titleStyle: TextStyle,
+    highlights: Map<Int, List<IntRange>>,
+    modifier: Modifier,
+) {
+    val density = LocalDensity.current
+    val pageText = remember(page) { pageText(layout, page) }
+    val tint = colors.highlight
     Box(modifier) {
         page.slices.firstOrNull { it.block == 0 }?.let { slice ->
             ChapterHeader(
@@ -371,7 +405,13 @@ private fun PageBody(content: ChapterContent, layout: MeasuredChapter, page: Pag
                 val top = l.getLineTop(slice.fromLine)
                 // Only this slice's lines: the rest of the paragraph is on other pages.
                 clipRect(left = -size.width, top = slice.y, right = size.width * 2, bottom = slice.y + slice.height) {
-                    translate(top = slice.y - top) { drawText(l, color = colors.text) }
+                    translate(top = slice.y - top) {
+                        highlights[slice.block - 1]?.forEach { range ->
+                            val end = (range.last + 1).coerceAtMost(l.layoutInput.text.length)
+                            if (range.first in 0 until end) drawPath(l.getPathForRange(range.first, end), tint)
+                        }
+                        drawText(l, color = colors.text)
+                    }
                 }
             }
         }

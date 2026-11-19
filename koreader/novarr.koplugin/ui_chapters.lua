@@ -128,9 +128,10 @@ function Chapters:askGoto()
     })
 end
 
+--- Refreshes from the server only when already connected (opening a screen never asks for Wi-Fi).
 function Chapters:refresh()
     local s = self.session
-    s:whenConnected(function()
+    s:whenOnline(function()
         local closer = UI.loading(_("Loading…"))
         if s.queue:count() > 0 then s:flushQueue() end
         local _cl, e = s:refreshChapterList(self.novel_id)

@@ -28,6 +28,7 @@ class ChapterRead extends Model
         'novel_id' => 'integer',
         'novel_chapter_id' => 'integer',
         'read_at' => 'datetime',
+        'bulk' => 'boolean',
         'progress' => 'integer',
         'progress_at' => 'datetime',
     ];

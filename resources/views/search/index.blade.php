@@ -77,7 +77,7 @@
                         <span class="stack-head-count">{{ $rows->count() }} match{{ $rows->count() === 1 ? '' : 'es' }}</span>
                     </div>
                     @foreach($rows as $row)
-                        <a href="{{ route('chapters.show', $row['chapter']->id) }}" class="stack-row">
+                        <a href="{{ route('chapters.show', ['id' => $row['chapter']->id, 'lookup' => 1]) }}" class="stack-row">
                             <div class="d-flex justify-content-between align-items-baseline gap-3">
                                 <span class="result-title">{{ Str::limit($row['chapter']->label ?: 'Chapter ' . $row['chapter']->chapter, 80) }}</span>
                                 <span class="result-num">CH {{ $row['chapter']->chapter }}</span>

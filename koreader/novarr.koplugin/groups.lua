@@ -11,7 +11,9 @@ disposable document built from them.
     block     ordinals 1..N are block 1, N+1..2N block 2, ...
     run       the contiguous stored chapters of a block that include the
               chapter to open (a chapter that is not stored, or has no
-              readable text, breaks a run)
+              readable text, breaks a run; so does a chapter the server
+              does not have yet, between two it has: the reader then stops
+              there and says so instead of paging past it)
     layout    where each chapter of the open group file starts (page in page
               mode, y position in both modes), read from the rendered document
 ]]
@@ -37,17 +39,26 @@ end
 
 --[[--
 Ordinals of a chapter list: ids (list of chapter ids the server has
-downloaded, in reading order) and ord (id -> ordinal).
+downloaded, in reading order), ord (id -> ordinal) and gaps (set of
+ordinals that come right after a chapter the server does not have yet:
+gaps[k] when a missing chapter lies between ids[k - 1] and ids[k]). A run
+never spans a gap (Groups.run), so the reader reaches the missing chapter
+and says so instead of paging past it.
 ]]
 function Groups.ordinals(list)
-    local ids, ord = {}, {}
+    local ids, ord, gaps = {}, {}, {}
+    local missing = false
     for _i, c in ipairs(list or {}) do
         if type(c) == "table" and c.downloaded and c.id ~= nil and not ord[c.id] then
             table.insert(ids, c.id)
             ord[c.id] = #ids
+            if missing and #ids > 1 then gaps[#ids] = true end
+            missing = false
+        elseif type(c) == "table" and not c.downloaded then
+            missing = true
         end
     end
-    return ids, ord
+    return ids, ord, gaps
 end
 
 --- Block number of an ordinal (1-based).
@@ -63,17 +74,19 @@ end
 --[[--
 The run to open for the chapter at ordinal `target`: the contiguous chapters
 around it, inside its block, for which available(id) is true. ids is the
-ordinal list (Groups.ordinals). Returns a list of ids in reading order and
-the ordinal of its first chapter, or nil when the target itself is not
-available.
+ordinal list (Groups.ordinals); gaps (optional, from Groups.ordinals): a
+run never spans a chapter the server does not have yet. Returns a list of
+ids in reading order and the ordinal of its first chapter, or nil when the
+target itself is not available.
 ]]
-function Groups.run(ids, target, n, available)
+function Groups.run(ids, target, n, available, gaps)
     if not target or not ids[target] or not available(ids[target]) then return nil end
+    gaps = gaps or {}
     local first, last = Groups.blockRange(Groups.block(target, n), n)
     if last > #ids then last = #ids end
     local lo, hi = target, target
-    while lo - 1 >= first and available(ids[lo - 1]) do lo = lo - 1 end
-    while hi + 1 <= last and available(ids[hi + 1]) do hi = hi + 1 end
+    while lo - 1 >= first and not gaps[lo] and available(ids[lo - 1]) do lo = lo - 1 end
+    while hi + 1 <= last and not gaps[hi + 1] and available(ids[hi + 1]) do hi = hi + 1 end
     local out = {}
     for i = lo, hi do table.insert(out, ids[i]) end
     return out, lo
@@ -253,7 +266,7 @@ own), "not_stored" (the chapter itself is not on the device), "no_space",
 function Groups.prepare(store, o)
     local ChapterDoc = require("novarr.chapterdoc")
     if type(o.list) ~= "table" then return nil, "no_list" end
-    local ids, ord = Groups.ordinals(o.list)
+    local ids, ord, gaps = Groups.ordinals(o.list)
     local target = ord[o.chapter_id]
     if not target then return nil, "no_ordinal" end
     local n = Groups.size(o.n)
@@ -265,7 +278,7 @@ function Groups.prepare(store, o)
     local path = store:groupPath(o.novel_id, block, n)
     -- At most one retry per chapter whose stored file turns out unreadable.
     for _attempt = 1, n + 1 do
-        local run, first = Groups.run(ids, target, n, available)
+        local run, first = Groups.run(ids, target, n, available, gaps)
         if not run then return nil, "not_stored" end
         local parts = {}
         for _i, id in ipairs(run) do

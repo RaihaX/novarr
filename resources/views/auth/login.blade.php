@@ -40,6 +40,7 @@
                 </div>
                 <button type="submit" class="btn btn-primary w-100">Sign in</button>
                 <p class="form-text auth-note">You stay signed in on this device until you sign out.</p>
+                <p class="form-text auth-note">Forgot your password? Ask the person who runs this server to set a new one.</p>
             </form>
         </div>
     </div>

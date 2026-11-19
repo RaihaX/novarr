@@ -198,7 +198,7 @@ fun HighlightsScreen(nav: NavController, route: HighlightsRoute) {
                     model.highlights.isEmpty() && model.loaded -> item {
                         EmptyState(
                             "No highlights yet",
-                            "Passages you highlight on your Novarr website or e-reader show up here, newest first.",
+                            "Passages you highlight while reading, here, on your Novarr website or on your e-reader, show up here, newest first.",
                             Icons.Outlined.Bookmarks,
                         )
                     }
@@ -210,7 +210,7 @@ fun HighlightsScreen(nav: NavController, route: HighlightsRoute) {
                                 highlight,
                                 showsNovel = novelId == null,
                                 modifier = Modifier.readableWidth(),
-                                onClick = { nav.navigate(ReaderRoute(highlight.novelId, highlight.chapterId)) },
+                                onClick = { nav.navigate(ReaderRoute(highlight.novelId, highlight.chapterId, lookupExcerpt = highlight.excerpt)) },
                                 onDelete = { model.delete(highlight) },
                             )
                             HorizontalDivider(Modifier.readableWidth().padding(horizontal = 16.dp))
@@ -240,7 +240,7 @@ fun HighlightRow(highlight: Highlight, showsNovel: Boolean, modifier: Modifier =
     val scope = rememberCoroutineScope()
     Row(
         modifier
-            .clickable(role = Role.Button, onClickLabel = "Open the chapter", onClick = onClick)
+            .clickable(role = Role.Button, onClickLabel = "Open at this passage", onClick = onClick)
             .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
     ) {
         Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(8.dp)) {

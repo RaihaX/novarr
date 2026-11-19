@@ -26,7 +26,10 @@ chapter path; for any other document the plugin does nothing.
   daily update check when due, and Wi-Fi is switched off and on around it.
 * End of chapter: mark read (setting) and open the next chapter straight
   away, or say clearly why it cannot be opened. KOReader's own end-of-book dialog is suppressed for
-  Novarr chapters only.
+  Novarr chapters only. A next chapter the server doesn't have yet (and that
+  isn't saved here) is never jumped past: "<chapter> isn't on the server
+  yet." offers Check for new chapters, Skip to <the next one there is>, Stay
+  here (Reading.showMissing). Going back still skips such gaps.
 * On close: final progress, remove-after-reading clean-up.
 
 Joined chapters (a group file holds a run of chapters, see groups.lua): the
@@ -1178,20 +1181,21 @@ end
 
 --[[--
 The chapter after (dir = 1) or before (dir = -1) the open one that the
-server has. Returns id, known_downloaded (true/false/nil), label.
+server has (or this device stored). Returns id, known_downloaded
+(true/false/nil), label, missing: going forward, the chapter right after
+the open one when it is neither on the server nor on this device
+({id, label}; see Model.neighbourIn). The caller must not jump past it
+without saying so (Reading.goNext).
 ]]
 function Reading.neighbour(r, dir)
     local cl = Session:chapterList(r.novel_id)
     if cl and cl.pos[r.chapter_id] then
-        local i = cl.pos[r.chapter_id] + dir
-        while cl.list[i] do
-            local c = cl.list[i]
-            if c.downloaded or Session.store:hasChapter(r.novel_id, c.id) then
-                return c.id, true, c.label
-            end
-            i = i + dir
-        end
-        return nil
+        local c, passed = Model.neighbourIn(cl.list, cl.pos[r.chapter_id], dir, function(id)
+            return Session.store:hasChapter(r.novel_id, id)
+        end)
+        local missing = passed and { id = passed.id, label = Model.chapterLabel(passed) } or nil
+        if c then return c.id, true, Model.chapterLabel(c), missing end
+        return nil, nil, nil, missing
     end
     local entry = Session.store:chapterEntry(r.novel_id, r.chapter_id)
     if not entry then return nil end
@@ -1221,10 +1225,37 @@ function Reading.checkNew(plugin)
 end
 
 --[[--
+The chapter after the open one is not on the server yet (and not on this
+device): "<label> isn't on the server yet." with Check for new chapters
+(Reading.checkNew), Skip to <the next chapter there is> (only when there is
+one) and Stay here. Nothing is opened or marked until a button is tapped.
+]]
+function Reading.showMissing(plugin, missing, next_id, next_downloaded, next_label)
+    local r = plugin.reading
+    if not r then return end
+    local novel_id = r.novel_id
+    logger.info("Novarr: chapter", missing.id, "after chapter", r.chapter_id, "is not on the server yet: asking")
+    local buttons = {
+        { text = _("Check for new chapters"), callback = function() Reading.checkNew(plugin) end },
+    }
+    if next_id then
+        table.insert(buttons, { text = T(_("Skip to %1"), next_label or _("the next chapter")), callback = function()
+            local rr = plugin.reading
+            if not rr or rr.novel_id ~= novel_id then return end
+            rr.next_at = nil
+            Reading.openNext(plugin, next_id, next_downloaded)
+        end })
+    end
+    UI().choice(T(_("%1 isn't on the server yet."), missing.label), buttons,
+        { cancel_text = _("Stay here") })
+end
+
+--[[--
 Goes to the next chapter, without asking: the stored copy right away, or
 fetched when the device is already connected (brief "Loading" notice). A
 message appears only when it cannot be opened. Never prompts to turn Wi-Fi
-on (also used at the end of a chapter).
+on (also used at the end of a chapter). A next chapter the server does not
+have yet is never jumped past: Reading.showMissing asks first.
 ]]
 function Reading.goNext(plugin)
     local r = plugin.reading
@@ -1233,7 +1264,25 @@ function Reading.goNext(plugin)
     local now = Session.nowMs()
     if r.next_at and now - r.next_at < 1500 then return end
     r.next_at = now
-    local id, downloaded = Reading.neighbour(r, 1)
+    local id, downloaded, label, missing = Reading.neighbour(r, 1)
+    if missing then
+        -- Nothing is opened from here: no chapter change to time.
+        Session.switch_t0 = nil
+        Reading.showMissing(plugin, missing, id, downloaded, label)
+        return
+    end
+    Reading.openNext(plugin, id, downloaded)
+end
+
+--[[--
+Opens chapter `id` after the open one (goNext, or "Skip to" past a missing
+chapter): in this group file, the stored copy, fetched when connected, Wi-Fi
+switched back on when Novarr had switched it off, or the caught-up page
+when there is no next chapter (id nil).
+]]
+function Reading.openNext(plugin, id, downloaded)
+    local r = plugin.reading
+    if not r then return end
     -- Joined chapters: the next one is in this file, a page turn away.
     if id and Reading.jumpTo(plugin, id, { resume = true }) then return end
     local stored = id and Session.store:hasChapter(r.novel_id, id)
@@ -1274,7 +1323,13 @@ function Reading.goNext(plugin)
             end,
             on_continue = function()
                 local rr = plugin.reading
-                local id = rr and rr.novel_id == novel_id and Reading.neighbour(rr, 1)
+                if not rr or rr.novel_id ~= novel_id then return end
+                local id, dl, label, missing = Reading.neighbour(rr, 1)
+                if missing then
+                    -- A check brought later chapters but not the next one: never skip it silently.
+                    Reading.showMissing(plugin, missing, id, dl, label)
+                    return
+                end
                 if id then
                     rr.next_at = nil
                     if not Reading.jumpTo(plugin, id, { resume = true }) then openLater(novel_id, id) end

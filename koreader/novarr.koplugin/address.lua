@@ -9,16 +9,18 @@ chapters are shared: only the base URL of requests changes.
 
 * The active address is kept in memory (and remembered by the caller as
   server_active through on_switch); with one address it is always that one.
-* failed(base, err): a request to `base` got no HTTP answer at all. When it
-  was the active address, the other one is probed (GET /api/v1/meta, short
-  timeout); if it answers as Novarr it becomes active and the caller retries
-  once. At most one such probe per FAILOVER_INTERVAL_MS (60 s), so a device
+* failed(base, err): a request to `base` got no HTTP answer at all, or an
+  answer that is not Novarr's (a captive portal on the home address, see
+  Api:exchange). When it was the active address, the other one is probed
+  (GET /api/v1/meta, short timeout); if it answers as Novarr it becomes
+  active and the caller retries once. At most one such probe per FAILOVER_INTERVAL_MS (60 s), so a device
   that is really offline does not stall every request on probes.
 * invalidate(reason): KOReader started, the network came up, the device
   woke up: the next request first re-probes, starting with the home address
   (only needed while the second one is active). A failed re-probe of the
   home address is not repeated within 60 s, unless forced (the user tapped
-  Sync).
+  Sync). The latest-position check and opening a chapter never wait on it:
+  for them it is deferred until after the request (base({no_reprobe})).
 * rewrite(url): URLs the server returned (covers, EPUB download, ...) carry
   the host the request used; a URL on either configured address is moved
   to the active one. canonical(url) moves it to the home address (stable
@@ -36,7 +38,8 @@ Address.PROBE_TIMEOUT = 4
 
 --[[--
 opts: home, away (optional), active (optional, remembered), probe(base) ->
-true when it answers as Novarr, now() -> ms, log(text), on_switch(base, which, why).
+true when it answers as Novarr, now() -> ms, log(text), on_switch(base, which, why),
+defer(fn) (optional: runs fn once the current request has finished, see base()).
 ]]
 function Address.new(opts)
     local self = setmetatable({
@@ -44,6 +47,7 @@ function Address.new(opts)
         now = opts.now or function() return os.time() * 1000 end,
         log = opts.log or function() end,
         on_switch = opts.on_switch or function() end,
+        defer = opts.defer,
         last_failover = nil,   -- ms of the last failover probe
         home_failed_at = nil,  -- ms of the last failed re-probe of the home address
         pending = nil,         -- reason of a pending re-probe
@@ -80,14 +84,33 @@ local function switch(self, base, why)
     self.on_switch(base, self:which(), why)
 end
 
---- The address to use for the next request (runs a pending re-probe first).
-function Address:base()
-    if self.pending then
-        local reason = self.pending
-        self.pending = nil
-        self:reprobe(reason)
+--[[--
+The address to use for the next request (runs a pending re-probe first).
+opts.no_reprobe: a request that must not wait (the latest-position check,
+opening a chapter) uses the active address as it is; the pending re-probe
+stays pending and is handed to defer(fn) (the caller schedules it for after
+the request), or runs in front of the next ordinary request.
+]]
+function Address:base(opts)
+    if self.pending and opts and opts.no_reprobe then
+        if self.defer then
+            if not self.deferred then
+                self.deferred = function() self:runPending() end
+            end
+            self.defer(self.deferred)
+        end
+        return self.active
     end
+    self:runPending()
     return self.active
+end
+
+--- Runs a pending re-probe now (nothing when none is pending).
+function Address:runPending()
+    if not self.pending then return self.active end
+    local reason = self.pending
+    self.pending = nil
+    return self:reprobe(reason)
 end
 
 --- Asks for a re-probe before the next request (start, network up, wake-up, Sync).
@@ -145,6 +168,27 @@ function Address:failed(base, err)
         tostring(base), tostring(err), tostring(other), self.now() - t0))
     if other == self.home then self.home_failed_at = self.now() end
     return nil
+end
+
+-- ---------------------------------------------------------------- instance
+
+--- A usable instance id from /api/v1/meta (16 hex characters, lower-cased), or nil.
+function Address.instanceId(v)
+    if type(v) ~= "string" then return nil end
+    v = v:lower()
+    if not v:match("^" .. string.rep("%x", 16) .. "$") then return nil end
+    return v
+end
+
+--[[--
+Whether two instance ids (meta's `instance`, the same on every address of
+one Novarr install) say "the same server": both present, valid and equal.
+Absent on either side (an older server): false, the caller treats it as
+another server, as before.
+]]
+function Address.sameInstance(a, b)
+    a, b = Address.instanceId(a), Address.instanceId(b)
+    return a ~= nil and a == b
 end
 
 -- ---------------------------------------------------------------- URLs

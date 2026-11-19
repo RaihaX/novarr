@@ -50,12 +50,12 @@ struct CoverPlaceholder: View {
                 startPoint: .top, endPoint: .bottom)
             VStack(alignment: .leading, spacing: 8) {
                 Text(title)
-                    .font(.system(.footnote, design: .serif).weight(.semibold))
+                    .font(.literata(.footnote, .semibold))
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(5)
                     .minimumScaleFactor(0.7)
                 Spacer(minLength: 0)
-                BrandMark(color: .white.opacity(0.35))
+                BrandMark(color: .white.opacity(0.35), lastBar: .white.opacity(0.35))
                     .frame(width: 18)
             }
             .padding(10)

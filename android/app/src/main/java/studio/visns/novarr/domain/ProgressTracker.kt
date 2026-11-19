@@ -11,7 +11,10 @@ import kotlin.math.roundToInt
  * - an unchanged position is never re-sent;
  * - 100 is reserved for actually reaching the end, which marks the chapter
  *   read once and cancels any pending position;
- * - leaving the chapter sends whatever is still pending.
+ * - leaving the chapter sends whatever is still pending;
+ * - while [holding] (a latest-position check or its prompt is open),
+ *   positions are still tracked but not sent; [release] lets them go,
+ *   [discardPending] drops them.
  * Positions that arrive at the server late are handled there: each write
  * carries its `age`, and older writes never overwrite newer ones.
  */
@@ -22,6 +25,9 @@ class ProgressTracker(private val intervalMs: Long = DEFAULT_INTERVAL_MS, privat
 
         /** A send is already scheduled; it will carry the newest position. */
         data object AlreadyScheduled : Decision()
+
+        /** Writes are held: the position is kept but nothing is scheduled. */
+        data object Held : Decision()
     }
 
     var pending: Int? = null
@@ -35,12 +41,27 @@ class ProgressTracker(private val intervalMs: Long = DEFAULT_INTERVAL_MS, privat
     var pendingSince: Long? = null
         private set
     private var lastSentAt = Long.MIN_VALUE / 2
+
+    /** Positions are tracked but not sent (survives [reset]: it belongs to the reader, not the chapter). */
+    var holding = false
+        private set
+
+    /** [pendingSince] was taken while holding. */
+    private var pendingHeld = false
+
+    /**
+     * [pendingSince], unless that position was taken while holding: a scroll
+     * during the latest-position check must not count as "read here more
+     * recently", or it would suppress the very prompt the hold is for.
+     */
+    val unheldPendingSince: Long? get() = pendingSince?.takeUnless { pendingHeld }
     private var scheduled = false
 
     /** Starts tracking a freshly opened chapter with what the server (or cache) knows. */
     fun reset(read: Boolean, progress: Int?) {
         pending = null
         pendingSince = null
+        pendingHeld = false
         lastSent = progress
         markedRead = read
         scheduled = false
@@ -52,7 +73,11 @@ class ProgressTracker(private val intervalMs: Long = DEFAULT_INTERVAL_MS, privat
     /** A new position (0–99) while reading. */
     fun moved(progress: Int): Decision {
         pending = progress.coerceIn(0, 99)
-        if (pendingSince == null) pendingSince = now()
+        if (pendingSince == null) {
+            pendingSince = now()
+            pendingHeld = holding
+        }
+        if (holding) return Decision.Held
         val elapsed = now() - lastSentAt
         return when {
             elapsed >= intervalMs -> Decision.SendNow.also { scheduled = false }
@@ -64,9 +89,11 @@ class ProgressTracker(private val intervalMs: Long = DEFAULT_INTERVAL_MS, privat
     /** The position to write now, or null when there is nothing new. */
     fun takePending(): Int? {
         scheduled = false
+        if (holding) return null
         val progress = pending ?: return null
         pending = null
         pendingSince = null
+        pendingHeld = false
         if (progress == lastSent) return null
         lastSent = progress
         lastSentAt = now()
@@ -77,12 +104,32 @@ class ProgressTracker(private val intervalMs: Long = DEFAULT_INTERVAL_MS, privat
     fun reachedEnd(): Boolean {
         pending = null
         pendingSince = null
+        pendingHeld = false
         scheduled = false
         if (markedRead) return false
         markedRead = true
         lastSent = 100
         lastSentAt = now()
         return true
+    }
+
+    /** Stops sending positions until [release]. */
+    fun hold() {
+        holding = true
+    }
+
+    /** Ends the hold; whatever is pending goes out with the next [takePending]. */
+    fun release() {
+        holding = false
+        pendingHeld = false
+    }
+
+    /** Drops the unsent position (held or not), e.g. after "Go to latest". */
+    fun discardPending() {
+        pending = null
+        pendingSince = null
+        pendingHeld = false
+        scheduled = false
     }
 
     companion object {

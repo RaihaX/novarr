@@ -66,6 +66,7 @@ import studio.visns.novarr.ui.components.LocalApp
 import studio.visns.novarr.ui.components.OfflinePill
 import studio.visns.novarr.ui.components.ProgressLine
 import studio.visns.novarr.ui.components.readableWidth
+import studio.visns.novarr.ui.components.UpdateBanner
 
 class HomeViewModel(private val app: AppModel) : ViewModel() {
     var feed by mutableStateOf<HomeFeed?>(null)
@@ -110,6 +111,8 @@ fun HomeScreen(nav: NavController) {
     val model = viewModel { HomeViewModel(app) }
     val revision by app.readStateRevision.collectAsStateWithLifecycle()
     LaunchedEffect(revision) { model.refreshIfStale() }
+    LaunchedEffect(Unit) { app.refreshMetaIfDue() }
+    val update by app.updateBanner.collectAsStateWithLifecycle(null)
     val wide = isWide()
     val scroll = TopAppBarDefaults.pinnedScrollBehavior()
 
@@ -128,6 +131,11 @@ fun HomeScreen(nav: NavController) {
                 contentPadding = PaddingValues(horizontal = if (wide) 28.dp else 16.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                update?.let { release ->
+                    item(key = "update") {
+                        UpdateBanner(release, onDismiss = { app.dismissUpdate(release) }, modifier = Modifier.readableWidth(1000.dp).padding(bottom = 12.dp))
+                    }
+                }
                 if (model.fromCache) item { OfflinePill(modifier = Modifier.padding(bottom = 12.dp)) }
                 when {
                     feed != null -> {

@@ -234,9 +234,55 @@ function Updater.validateManifest(m)
     return true
 end
 
---- Whether the server's build differs from the installed one.
-function Updater.updateNeeded(local_build, server_build)
-    return type(server_build) == "string" and server_build ~= "" and server_build ~= local_build
+--[[--
+Compares two dotted versions numerically ("1.9.0" < "1.10.0"; a missing
+part counts as 0, so "1.10" == "1.10.0"). A part may carry a suffix after
+its number ("1.10.0-beta": the suffix is ignored). Returns -1, 0 or 1, or
+nil when either is not a version (nil, "?", "dev").
+]]
+function Updater.compareVersions(a, b)
+    local function parts(v)
+        if type(v) ~= "string" then return nil end
+        v = v:gsub("^%s*[vV]?", ""):gsub("%s+$", "")
+        local out = {}
+        for piece in (v .. "."):gmatch("([^%.]*)%.") do
+            local n = piece:match("^(%d+)")
+            if not n then return nil end
+            table.insert(out, tonumber(n))
+        end
+        if #out == 0 then return nil end
+        return out
+    end
+    local pa, pb = parts(a), parts(b)
+    if not pa or not pb then return nil end
+    for i = 1, math.max(#pa, #pb) do
+        local x, y = pa[i] or 0, pb[i] or 0
+        if x < y then return -1 end
+        if x > y then return 1 end
+    end
+    return 0
+end
+
+--[[--
+What the server's plugin is, compared with the installed one:
+    "none"    the same build (nothing to do)
+    "update"  another build of a newer or the same version, or a version
+              that can't be compared (unknown on either side): as before
+    "older"   a lower version: never installed by itself, never flagged
+]]
+function Updater.updateKind(local_build, server_build, local_version, server_version)
+    if type(server_build) ~= "string" or server_build == "" or server_build == local_build then return "none" end
+    if Updater.compareVersions(server_version, local_version) == -1 then return "older" end
+    return "update"
+end
+
+--[[--
+Whether the server's build is an update of the installed one: another
+build, and not an older version (versions given; without them any other
+build is an update, as before 1.10.0).
+]]
+function Updater.updateNeeded(local_build, server_build, local_version, server_version)
+    return Updater.updateKind(local_build, server_build, local_version, server_version) == "update"
 end
 
 --[[--
@@ -304,6 +350,11 @@ function Updater.availableText(installed, offered, T, _)
         return T(_("Version %1 is installed. The server has a newer build of %1."), installed)
     end
     return T(_("Version %1 is installed. The server has a newer build (%2)."), installed, offered)
+end
+
+--- The server offers a lower version than the one installed (never offered as an update).
+function Updater.olderText(installed, offered, T, _)
+    return T(_("The server has an older version (%1). Version %2 is installed."), offered or "?", installed or "?")
 end
 
 -- ---------------------------------------------------------------- install job

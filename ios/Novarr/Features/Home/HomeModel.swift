@@ -7,6 +7,8 @@ final class HomeModel {
     private(set) var feed: HomeFeed?
     private(set) var phase: LoadPhase = .idle
     private(set) var isShowingCache = false
+    /// Why the last load failed, for the failure state's title.
+    private(set) var failure: APIError?
     private var loadedRevision = -1
     private var loadedAt: Date?
 
@@ -27,6 +29,7 @@ final class HomeModel {
         }
         loadedRevision = app.readStateRevision
         let result = await app.load(.home) { try await $0.home() }
+        failure = result.error
         if let value = result.value {
             feed = value
             phase = .loaded

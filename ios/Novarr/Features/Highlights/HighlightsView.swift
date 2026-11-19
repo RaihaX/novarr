@@ -12,9 +12,11 @@ struct HighlightsView: View {
 
     var body: some View {
         List {
-            content
+            Group { content }
+                .listRowBackground(Color.appBackground)
         }
         .listStyle(.plain)
+        .brandBackground()
         .navigationTitle("Highlights")
         .navigationBarTitleDisplayMode(route.novelId == nil ? .large : .inline)
         .refreshable { await model.load(app: app) }
@@ -32,7 +34,7 @@ struct HighlightsView: View {
     private var content: some View {
         if let name = route.novelName, route.novelId != nil {
             Text(name)
-                .font(.system(.title3, design: .serif).weight(.semibold))
+                .font(.literata(.title3, .semibold))
                 .listRowSeparator(.hidden)
         }
         if model.highlights.isEmpty {
@@ -43,7 +45,7 @@ struct HighlightsView: View {
             case .loaded:
                 ContentUnavailableView(
                     "No highlights yet", systemImage: "highlighter",
-                    description: Text("Passages you highlight on your Novarr website show up here, newest first."))
+                    description: Text("Passages you highlight in the reader or on your Novarr website show up here, newest first."))
                     .listRowSeparator(.hidden)
             case .idle, .loading:
                 ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
@@ -51,7 +53,8 @@ struct HighlightsView: View {
             }
         } else {
             ForEach(model.highlights) { highlight in
-                NavigationLink(value: ReaderRoute(novelId: highlight.novelId, chapterId: highlight.chapterId)) {
+                NavigationLink(value: ReaderRoute(novelId: highlight.novelId, chapterId: highlight.chapterId,
+                                                 highlight: highlight)) {
                     HighlightRow(highlight: highlight, showsNovel: route.novelId == nil)
                 }
                 .swipeActions(edge: .trailing) {
@@ -76,9 +79,9 @@ struct HighlightsView: View {
                     .listRowSeparator(.hidden)
             } else if let message = model.moreError {
                 VStack(spacing: 8) {
-                    Text(message).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Text(message).font(.ui(.footnote)).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     Button("Load more") { Task { await model.loadMore(app: app) } }
-                        .font(.footnote.weight(.semibold))
+                        .font(.ui(.footnote, .semibold))
                         .buttonStyle(.borderless)
                 }
                 .frame(maxWidth: .infinity)
@@ -95,12 +98,12 @@ struct HighlightRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(highlight.excerpt)
-                .font(.system(.body, design: .serif))
+                .font(.literata(.body))
                 .lineLimit(6)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, 10)
                 .overlay(alignment: .leading) {
-                    Rectangle().fill(Color.accentColor).frame(width: 3)
+                    Rectangle().fill(Color.brandAccent).frame(width: 3)
                 }
             if let note = highlight.note {
                 Label {
@@ -108,11 +111,11 @@ struct HighlightRow: View {
                 } icon: {
                     Image(systemName: "note.text")
                 }
-                .font(.footnote)
+                .font(.ui(.footnote))
                 .foregroundStyle(.primary)
             }
             Text(caption)
-                .font(.caption)
+                .font(.ui(.caption))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
         }

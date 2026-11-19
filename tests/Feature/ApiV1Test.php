@@ -91,11 +91,63 @@ class ApiV1Test extends TestCase
         $json = $this->getJson('/api/v1/meta')->assertOk()->json();
 
         // `auth`: added by sign-in (auth contract); off by default.
-        $this->assertSame(['api_version', 'app', 'auth', 'server_version'], $this->sorted(array_keys($json)));
+        $this->assertSame(['android', 'api_version', 'app', 'auth', 'instance', 'server_version'], $this->sorted(array_keys($json)));
+        // No APK published in tests; the instance id is stable and not the key.
+        $this->assertNull($json['android']);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{16}$/', $json['instance']);
+        $this->assertSame($json['instance'], $this->getJson('/api/v1/meta')->json('instance'));
         $this->assertSame(['required' => false, 'methods' => ['password', 'pairing']], $json['auth']);
         $this->assertSame('novarr', $json['app']);
         $this->assertSame(1, $json['api_version']);
         $this->assertTrue($json['server_version'] === null || is_string($json['server_version']));
+    }
+
+    public function test_meta_reports_the_published_android_app(): void
+    {
+        $apk = sys_get_temp_dir() . '/novarr-meta-' . uniqid() . '.apk';
+        file_put_contents($apk, 'apk');
+        file_put_contents($apk . '.json', json_encode(['version' => '1.3', 'build' => 4]));
+        config(['novarr.android_apk_path' => $apk]);
+
+        try {
+            $android = $this->getJson('/api/v1/meta')->assertOk()->json('android');
+        } finally {
+            @unlink($apk);
+            @unlink($apk . '.json');
+        }
+
+        $this->assertSame('1.3', $android['version']);
+        $this->assertSame(4, $android['build']);
+        $this->assertStringEndsWith('/app/android', $android['url']);
+        $this->assertSame(3, $android['size']);
+        $this->assertSame(hash('sha256', 'apk'), $android['sha256']);
+    }
+
+    public function test_meta_caches_the_apk_hash_by_path_mtime_and_size(): void
+    {
+        $apk = sys_get_temp_dir() . '/novarr-meta-' . uniqid() . '.apk';
+        file_put_contents($apk, 'apk');
+        touch($apk, 1_700_000_000);
+        config(['novarr.android_apk_path' => $apk]);
+
+        try {
+            $first = $this->getJson('/api/v1/meta')->assertOk()->json('android.sha256');
+            $key = 'android-apk-sha256:' . sha1($apk . '|1700000000|3');
+            $this->assertSame($first, \Illuminate\Support\Facades\Cache::get($key));
+
+            // A cached value is served as long as path, mtime and size match...
+            \Illuminate\Support\Facades\Cache::put($key, 'cached-hash');
+            $this->assertSame('cached-hash', $this->getJson('/api/v1/meta')->json('android.sha256'));
+
+            // ...and a replaced file (new size and mtime) is hashed again.
+            file_put_contents($apk, 'apk-2');
+            touch($apk, 1_700_000_100);
+            $android = $this->getJson('/api/v1/meta')->json('android');
+            $this->assertSame(hash('sha256', 'apk-2'), $android['sha256']);
+            $this->assertSame(5, $android['size']);
+        } finally {
+            @unlink($apk);
+        }
     }
 
     public function test_novels_lists_the_whole_library_with_the_summary_shape(): void

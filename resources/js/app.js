@@ -10,7 +10,7 @@ import '@hotwired/turbo';
 
 import { executeCommand, pollJobStatus } from './commands';
 import { showToast } from './toast';
-import { confirmDialog } from './confirm';
+import { confirmDialog, initConfirmForms } from './confirm';
 import { initTagPickers } from './tagpicker';
 import { initNavSearch } from './navsearch';
 import { initTheme, setTheme, getTheme, cycleTheme } from './theme';
@@ -69,6 +69,7 @@ window.Novarr = {
 // Document-level listeners: bound once, survive Turbo body swaps.
 initTheme();
 initSheets();
+initConfirmForms();
 initPalette();
 
 // Flush any queued offline read-marks and watch for reconnects.

@@ -17,6 +17,14 @@
         ['route' => 'bookmarks.index', 'match' => 'bookmarks.*', 'label' => 'Highlights', 'icon' => 'highlighter'],
         ['route' => 'stats.index', 'match' => 'stats.*', 'label' => 'Stats', 'icon' => 'chart-column'],
     ];
+    // The Android app, for everyone, once an APK is published (with sign-in
+    // off there is no Account page to find it on). A file, not a page.
+    if (\App\Support\AndroidApp::available()) {
+        $androidVersion = \App\Support\AndroidApp::version();
+        $moreLinks[] = ['route' => 'app.android', 'match' => 'app.android', 'label' => 'Apps', 'icon' => 'download',
+            'meta' => 'Android' . ($androidVersion !== null ? ' ' . Str::before($androidVersion, ',') : ''),
+            'href' => \App\Support\AndroidApp::url(request()), 'download' => true];
+    }
     if (!empty($navUser)) {
         $moreLinks[] = ['route' => 'account', 'match' => 'account', 'label' => 'Account', 'icon' => 'user', 'meta' => $navUser->username];
     }
@@ -64,7 +72,7 @@
             @foreach($moreLinks as $l)
                 @php $on = request()->routeIs($l['match']); @endphp
                 <li>
-                    <a href="{{ route($l['route']) }}" class="nv-sheet-item {{ $on ? 'is-active' : '' }}" data-sheet-close @if($on) aria-current="page" @endif>
+                    <a href="{{ $l['href'] ?? route($l['route']) }}" class="nv-sheet-item {{ $on ? 'is-active' : '' }}" data-sheet-close @if($on) aria-current="page" @endif @if(!empty($l['download'])) data-turbo="false" download title="{{ \App\Support\AndroidApp::linkText() }}" @endif>
                         <x-icon :name="$l['icon']" :size="20" />
                         <span>{{ $l['label'] }}</span>
                         @isset($l['meta'])<span class="nv-sheet-item-meta">{{ $l['meta'] }}</span>@endisset

@@ -895,6 +895,15 @@ a.stack-row:hover .result-title { color: $link-hover; }
         > .icon { color: $danger; }
         &:hover { background: rgba($danger, 0.12); color: $danger; }
     }
+
+    // A muted trailing fact, e.g. when the ePub was built.
+    .item-suffix {
+        margin-left: auto;
+        padding-left: $s-2;
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        color: $muted;
+    }
 }
 
 // Dropdown headers in menus with sections (Download ▸ offline / ePub).

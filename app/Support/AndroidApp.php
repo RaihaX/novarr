@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * The Android app readers can install from this server (GET /app/android).
@@ -67,6 +68,61 @@ final class AndroidApp
         $build = isset($meta['build']) && is_scalar($meta['build']) ? trim((string) $meta['build']) : '';
 
         return $build !== '' ? "{$version}, build {$build}" : $version;
+    }
+
+    /**
+     * What an installed app needs to notice a newer APK (GET /api/v1/meta):
+     * {version, build, url, size, sha256}, or null when no APK is published.
+     * `build` is the integer the app compares with its own version code; null
+     * when the sidecar does not give one. `size` (bytes) and `sha256` (hex)
+     * let the app check the file it downloads; sha256 is null when the file
+     * can't be hashed.
+     */
+    public static function release(?Request $request = null): ?array
+    {
+        if (!static::available()) {
+            return null;
+        }
+        $meta = static::meta();
+        $version = isset($meta['version']) && is_scalar($meta['version']) ? trim((string) $meta['version']) : '';
+        $build = isset($meta['build']) && is_numeric($meta['build']) ? (int) $meta['build'] : null;
+
+        return [
+            'version' => $version !== '' ? $version : null,
+            'build' => $build,
+            'url' => static::url($request),
+            'size' => (int) filesize(static::path()),
+            'sha256' => static::sha256(),
+        ];
+    }
+
+    /**
+     * The APK's SHA-256 (hex), null when it can't be read. Hashing a
+     * multi-megabyte file on every meta call is too slow, so the hash is kept
+     * in the cache under the file's path, mtime and size: replacing the APK
+     * changes the key, and nothing lives in static state (Octane).
+     */
+    public static function sha256(): ?string
+    {
+        $path = static::path();
+        clearstatcache(true, $path);
+        $mtime = @filemtime($path);
+        $size = @filesize($path);
+        if ($mtime === false || $size === false) {
+            return null;
+        }
+        $key = 'android-apk-sha256:' . sha1($path . '|' . $mtime . '|' . $size);
+        $cached = Cache::get($key);
+        if (is_string($cached) && $cached !== '') {
+            return $cached;
+        }
+        $hash = @hash_file('sha256', $path);
+        if (!is_string($hash) || $hash === '') {
+            return null;
+        }
+        Cache::put($key, $hash, now()->addDays(30));
+
+        return $hash;
     }
 
     /** The sidecar's JSON object, [] when missing or unreadable. */

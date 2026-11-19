@@ -8,6 +8,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import studio.visns.novarr.api.AuthUser
 import studio.visns.novarr.api.ChapterContent
 import studio.visns.novarr.api.ChapterListItem
+import studio.visns.novarr.api.Highlight
 import studio.visns.novarr.api.HomeFeed
 import studio.visns.novarr.api.MangaPages
 import studio.visns.novarr.api.NovarrJson
@@ -22,7 +23,7 @@ import studio.visns.novarr.api.ServerUrl
  *
  * Layout under [root]:
  *   novels.json, home.json, pending-writes.json
- *   novels/<id>/detail.json, novels/<id>/chapters.json
+ *   novels/<id>/detail.json, novels/<id>/chapters.json, novels/<id>/highlights.json
  *   novels/<id>/content/<chapterId>.json          a text chapter
  *   novels/<id>/content/<chapterId>.manga/        a manga chapter: page images,
  *                                                 then pages.json written last
@@ -35,6 +36,9 @@ class OfflineStore(val root: File) {
             val home = Key("home.json", HomeFeed.serializer())
             fun novel(id: Int) = Key("novels/$id/detail.json", NovelDetail.serializer())
             fun chapters(id: Int) = Key("novels/$id/chapters.json", ListSerializer(ChapterListItem.serializer()))
+
+            /** A series' highlights as the reader last saw them, so they are drawn offline too. */
+            fun highlights(id: Int) = Key("novels/$id/highlights.json", ListSerializer(Highlight.serializer()))
         }
     }
 

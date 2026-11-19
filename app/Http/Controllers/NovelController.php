@@ -10,6 +10,7 @@ use App\Console\Commands\GenerateePub;
 use App\Services\DuplicateSeries;
 use App\Services\ReadState;
 
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -41,6 +42,29 @@ class NovelController extends Controller
     }
 
 
+    /**
+     * A person in a browser following a link (not fetch(), an OPDS reader or
+     * an API client): the browser says it is navigating (Sec-Fetch-Mode, sent
+     * on HTTPS and localhost), or — plain http on the home network, where
+     * browsers send no Sec-Fetch-* — it asks for HTML and came from a page
+     * of this server.
+     */
+    private static function isBrowserNavigation(Request $request): bool
+    {
+        if ($request->expectsJson()) {
+            return false;
+        }
+        $mode = $request->header('Sec-Fetch-Mode');
+        if ($mode !== null) {
+            return $mode === 'navigate';
+        }
+        $referer = (string) $request->header('Referer');
+
+        return str_contains((string) $request->header('Accept'), 'text/html')
+            && $referer !== ''
+            && parse_url($referer, PHP_URL_HOST) === $request->getHost();
+    }
+
     public function download_epub($id, Request $request) {
         $object = $this->novels->findOrFail($id);
         abort_if($object->isManga(), 404, 'A manga has no ePub: ePubs are made from chapter text.');
@@ -50,7 +74,13 @@ class NovelController extends Controller
         $epub = GenerateePub::epubPath($object);
 
         if (!is_file($epub)) {
-            abort(404, 'No ePub has been generated for this novel yet. Use “Generate ePub” first.');
+            $message = 'No ePub has been generated for this novel yet. Use “Generate ePub” first.';
+            // A person clicking a link goes back with a message; OPDS readers
+            // and API clients keep the plain 404.
+            if (self::isBrowserNavigation($request)) {
+                return redirect()->back(302, [], route('novels.show', $object->id))->with('error', $message);
+            }
+            abort(404, $message);
         }
 
         // Conditional download: the ETag changes whenever the generator
@@ -989,7 +1019,28 @@ class NovelController extends Controller
             'failed_count' => $stats['failed_count'] ?? 0,
             'review_count' => $stats['review_count'] ?? 0,
             'progress' => round($progress),
+            'epub_built_at' => $this->epubBuiltAt($data),
         ]);
+    }
+
+    /**
+     * When the novel's ePub file was built, or null when there is no file to
+     * download (manga never have one). epub_generated is set by every build;
+     * a file without it falls back to the file's own time.
+     */
+    private function epubBuiltAt(Novel $novel): ?Carbon
+    {
+        if ($novel->isManga()) {
+            return null;
+        }
+        $path = GenerateePub::epubPath($novel);
+        if (!is_file($path)) {
+            return null;
+        }
+
+        return $novel->epub_generated
+            ? Carbon::parse($novel->epub_generated)
+            : Carbon::createFromTimestamp(filemtime($path));
     }
 
     /**

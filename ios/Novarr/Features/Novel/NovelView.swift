@@ -2,10 +2,14 @@ import SwiftUI
 
 struct NovelView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var model: NovelModel
     @State private var synopsisExpanded = false
     @State private var confirmRemove = false
     @State private var bulkConfirmation: BulkReadRequest?
+    /// "Continue reading": pushed through `navigationDestination(item:)`.
+    @State private var openReader: ReaderRoute?
+    @Environment(\.openURL) private var openURL
 
     init(route: NovelRoute) {
         _model = State(initialValue: NovelModel(route: route))
@@ -32,7 +36,7 @@ struct NovelView: View {
                                   ? "\(unavailable.count) chapters can't be fetched from the source."
                                   : unavailable.message,
                                   systemImage: "exclamationmark.triangle")
-                                .font(.footnote)
+                                .font(.ui(.footnote))
                                 .foregroundStyle(.orange)
                                 .listRowSeparator(.hidden)
                         }
@@ -50,18 +54,25 @@ struct NovelView: View {
                 chaptersSection(proxy: proxy)
             }
             .listStyle(.plain)
+            .brandBackground()
+            // On iPad a readable column, not rows stretched across the screen.
+            .frame(maxWidth: sizeClass == .regular ? 860 : .infinity)
+            .frame(maxWidth: .infinity)
             .searchable(text: $model.chapterSearch, placement: .navigationBarDrawer(displayMode: .automatic),
                         prompt: "Search chapters")
             .toolbar { toolbarContent(proxy: proxy) }
         }
         .navigationTitle(model.summary?.name ?? "")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $openReader) { route in ReaderDestination(route: route) }
         .refreshable { await model.load(app: app) }
         .task {
             await model.load(app: app)
             #if DEBUG
             // Debug builds only: starts a check on open, for simulator screenshots.
             if UserDefaults.standard.bool(forKey: "debugStartCheck") { app.startCheck(novelId: model.novelId) }
+            // Debug builds only: `-debugDownloadAll YES` downloads every chapter on open.
+            if UserDefaults.standard.bool(forKey: "debugDownloadAll") { await model.download(.all, app: app) }
             #endif
         }
         .task(id: app.downloads.revision) { await model.refreshCachedIDs(app: app) }
@@ -90,6 +101,12 @@ struct NovelView: View {
         }
     }
 
+    /// List row ids: highlight and chapter ids are both plain Ints.
+    private enum RowID: Hashable {
+        case highlight(Int)
+        case chapter(Int)
+    }
+
     private var bulkTitle: String {
         guard let request = bulkConfirmation else { return "" }
         return request.read ? "Mark every chapter as read?" : "Mark every chapter as unread?"
@@ -102,20 +119,20 @@ struct NovelView: View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("Read").font(.footnote.weight(.semibold))
+                    Text("Read").font(.ui(.footnote, .semibold))
                     Spacer()
                     Text("\(summary.chaptersRead.formatted()) / \(summary.chaptersTotal.formatted()) · \(summary.readPercent)%")
-                        .font(.footnote.monospacedDigit())
+                        .font(.ui(.footnote).monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
                 ProgressLine(fraction: summary.readFraction)
             }
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("On server").font(.footnote.weight(.semibold))
+                    Text("On server").font(.ui(.footnote, .semibold))
                     Spacer()
                     Text("\(summary.chaptersDownloaded.formatted()) / \(summary.chaptersTotal.formatted()) · \(summary.downloadPercent)%")
-                        .font(.footnote.monospacedDigit())
+                        .font(.ui(.footnote).monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
                 ProgressLine(fraction: Double(summary.downloadPercent) / 100, tint: .secondary)
@@ -127,22 +144,23 @@ struct NovelView: View {
     @ViewBuilder
     private func primaryButton(_ summary: NovelSummary) -> some View {
         if let resume = summary.resumeChapterId {
-            // The invisible link keeps List from drawing a disclosure chevron.
-            ZStack {
+            // A real button (not an invisible link) so VoiceOver can activate
+            // it; the destination is pushed on this stack.
+            Button {
+                openReader = model.readerRoute(chapterId: resume)
+            } label: {
                 Text(summary.chaptersRead > 0 ? "Continue reading" : "Start reading")
-                    .font(.headline)
+                    .font(.ui(.headline))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .foregroundStyle(.white)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                NavigationLink(value: ReaderRoute(novelId: model.novelId, chapterId: resume, offerLatest: true)) { EmptyView() }
-                    .opacity(0)
+                    .foregroundStyle(Color.onAccent)
+                    .background(Color.brandAccent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isButton)
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens the reader")
         } else {
             Text(summary.finished ? "You've read everything here." : "No chapters downloaded on the server yet.")
-                .font(.callout)
+                .font(.ui(.callout))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
@@ -156,10 +174,10 @@ struct NovelView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text("Saving for offline… \(job.done + job.failed) of \(job.total)")
-                        .font(.footnote)
+                        .font(.ui(.footnote))
                     Spacer()
                     Button("Cancel") { app.downloads.cancel(novelId: model.novelId) }
-                        .font(.footnote.weight(.semibold))
+                        .font(.ui(.footnote, .semibold))
                         .buttonStyle(.borderless)
                 }
                 ProgressView(value: job.fraction)
@@ -168,19 +186,19 @@ struct NovelView: View {
             HStack {
                 Label(offline == 0 ? "Not available offline" : "\(offline.formatted()) chapters on this device",
                       systemImage: offline == 0 ? "icloud" : "arrow.down.circle.fill")
-                    .font(.footnote)
+                    .font(.ui(.footnote))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Menu {
                     downloadMenuItems
                 } label: {
                     Label("Download", systemImage: "arrow.down.circle")
-                        .font(.footnote.weight(.semibold))
+                        .font(.ui(.footnote, .semibold))
                 }
                 .disabled(model.chapters.isEmpty || !app.isReachable)
             }
             if let message = app.downloads.lastMessage[model.novelId] {
-                Text(message).font(.caption).foregroundStyle(.secondary)
+                Text(message).font(.ui(.caption)).foregroundStyle(.secondary)
             }
         }
     }
@@ -203,20 +221,24 @@ struct NovelView: View {
         if !model.highlights.isEmpty && model.chapterSearch.isEmpty {
             Section {
                 ForEach(model.highlights) { highlight in
-                    NavigationLink(value: ReaderRoute(novelId: model.novelId, chapterId: highlight.chapterId)) {
+                    NavigationLink(value: ReaderRoute(novelId: model.novelId, chapterId: highlight.chapterId,
+                                                     highlight: highlight)) {
                         HighlightRow(highlight: highlight, showsNovel: false)
                     }
+                    // Highlights and chapters share this List: their ids must not collide.
+                    .id(RowID.highlight(highlight.id))
+                    .listRowBackground(Color.appBackground)
                 }
                 if model.hasMoreHighlights {
                     NavigationLink(value: HighlightsRoute(novelId: model.novelId, novelName: model.summary?.name)) {
                         Text("All highlights")
-                            .font(.callout.weight(.semibold))
-                            .foregroundStyle(Color.accentColor)
+                            .font(.ui(.callout, .semibold))
+                            .foregroundStyle(Color.brandAccent)
                     }
                 }
             } header: {
                 Text("Highlights")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.ui(.subheadline, .semibold))
                     .textCase(nil)
             }
         }
@@ -232,16 +254,18 @@ struct NovelView: View {
                 Text("No chapters match “\(model.chapterSearch)”.").foregroundStyle(.secondary)
             }
             ForEach(visible) { chapter in
-                NavigationLink(value: ReaderRoute(novelId: model.novelId, chapterId: chapter.id, offerLatest: true)) {
+                NavigationLink(value: model.readerRoute(chapterId: chapter.id)) {
                     ChapterRow(chapter: chapter, isOffline: model.cachedIDs.contains(chapter.id))
                 }
+                .id(RowID.chapter(chapter.id))
+                .listRowBackground(Color.appBackground)
                 .swipeActions(edge: .leading) {
                     Button {
                         Task { await model.setRead(chapter, read: !chapter.read, app: app) }
                     } label: {
                         Label(chapter.read ? "Unread" : "Read", systemImage: chapter.read ? "circle" : "checkmark.circle")
                     }
-                    .tint(chapter.read ? .gray : .accentColor)
+                    .tint(chapter.read ? .gray : .brandAccent)
                 }
                 .contextMenu { chapterMenu(chapter) }
             }
@@ -251,10 +275,10 @@ struct NovelView: View {
                 Spacer()
                 if !model.chapters.isEmpty {
                     Text("\(model.readCount.formatted()) of \(model.chapters.count.formatted()) read")
-                        .font(.footnote.monospacedDigit())
+                        .font(.ui(.footnote).monospacedDigit())
                 }
             }
-            .font(.subheadline.weight(.semibold))
+            .font(.ui(.subheadline, .semibold))
             .textCase(nil)
         }
     }
@@ -280,13 +304,16 @@ struct NovelView: View {
                 if let unread = model.firstUnread {
                     Button("Jump to First Unread", systemImage: "arrow.down.to.line") {
                         model.chapterSearch = ""
-                        withAnimation { proxy.scrollTo(unread.id, anchor: .center) }
+                        withAnimation { proxy.scrollTo(RowID.chapter(unread.id), anchor: .center) }
                     }
                 }
                 Button("Check for New Chapters", systemImage: "arrow.clockwise") {
                     app.startCheck(novelId: model.novelId)
                 }
                 .disabled(app.checks.isRunning(model.novelId))
+                if let source = model.detail?.sourceUrl {
+                    Button("Open Source Page", systemImage: "safari") { openURL(source) }
+                }
                 Divider()
                 Button("Mark All Read", systemImage: "checkmark.circle") {
                     bulkConfirmation = .all(novelId: model.novelId, read: true)
@@ -309,30 +336,41 @@ private struct NovelHeader: View {
     let detail: NovelDetail?
     @Binding var synopsisExpanded: Bool
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 16) {
+            // At accessibility text sizes the title gets the full width under the cover.
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14))
+                : AnyLayout(HStackLayout(alignment: .top, spacing: 16))
+            layout {
                 CoverView(url: summary.coverLargeUrl ?? summary.coverUrl, title: summary.name,
                           cornerRadius: 8, targetWidth: coverWidth)
                     .frame(width: coverWidth)
                     .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(summary.name)
-                        .font(.system(sizeClass == .regular ? .largeTitle : .title2, design: .serif).weight(.semibold))
+                        .font(.literata(sizeClass == .regular ? .largeTitle : .title2, .semibold))
                         .fixedSize(horizontal: false, vertical: true)
                     if let author = summary.author {
-                        Text(author).font(.headline).foregroundStyle(.secondary)
+                        Text(author).font(.ui(.headline)).foregroundStyle(.secondary)
                     }
                     HStack(spacing: 6) {
                         StateBadge(state: summary.state)
+                        if summary.isManga {
+                            Text("MANGA")
+                                .font(.ui(.caption2, .semibold))
+                                .tracking(0.6)
+                                .foregroundStyle(.secondary)
+                        }
                         if let origin = summary.origin {
-                            Text(origin).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text(origin).font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
                     if let names = detail?.altNames, !names.isEmpty {
                         Text(names.joined(separator: " · "))
-                            .font(.caption)
+                            .font(.ui(.caption))
                             .foregroundStyle(.tertiary)
                             .lineLimit(2)
                     }
@@ -343,7 +381,7 @@ private struct NovelHeader: View {
                     HStack(spacing: 6) {
                         ForEach(summary.tags) { tag in
                             Text(tag.name)
-                                .font(.caption)
+                                .font(.ui(.caption))
                                 .padding(.horizontal, 9)
                                 .padding(.vertical, 4)
                                 .background(Color(.secondarySystemFill), in: Capsule())
@@ -355,13 +393,13 @@ private struct NovelHeader: View {
             if let synopsis = detail?.description {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(synopsis)
-                        .font(.system(.callout, design: .serif))
+                        .font(.literata(.callout))
                         .lineLimit(synopsisExpanded ? nil : 4)
                         .fixedSize(horizontal: false, vertical: true)
                     Button(synopsisExpanded ? "Less" : "More") {
                         withAnimation(.easeInOut(duration: 0.2)) { synopsisExpanded.toggle() }
                     }
-                    .font(.footnote.weight(.semibold))
+                    .font(.ui(.footnote, .semibold))
                     .buttonStyle(.borderless)
                 }
             }
@@ -379,16 +417,16 @@ struct ChapterRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Circle()
-                .fill(chapter.read || !chapter.downloaded ? Color.clear : Color.accentColor)
+                .fill(chapter.read || !chapter.downloaded ? Color.clear : Color.brandAccent)
                 .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 2) {
                 Text(chapter.label)
-                    .font(.body)
+                    .font(.ui(.body))
                     .foregroundStyle(chapter.read ? Color.secondary : Color.primary)
                     .lineLimit(2)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -396,12 +434,12 @@ struct ChapterRow: View {
             Spacer(minLength: 4)
             if let progress = chapter.readProgress, progress > 0, progress < 100, !chapter.read {
                 Text("\(progress)%")
-                    .font(.caption.monospacedDigit())
+                    .font(.ui(.caption).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
             if isOffline {
                 Image(systemName: "arrow.down.circle.fill")
-                    .font(.caption)
+                    .font(.ui(.caption))
                     .foregroundStyle(.secondary)
                     .accessibilityLabel("Available offline")
             }

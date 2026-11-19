@@ -219,6 +219,26 @@ function Model.readCountText(novel, delta)
     return string.format("%d/%d", read, total)
 end
 
+--[[--
+The chapter after (dir = 1) or before (dir = -1) list position `pos` that
+can be read: the server has its text (row.downloaded) or stored(id) says it
+is on this device. Returns that row (nil when there is none) and, going
+forward, the first row passed on the way: a chapter that is neither on the
+server nor stored (the reader must not jump past it without a word). Going
+backward nothing is reported as passed (paging back skips gaps as before).
+]]
+function Model.neighbourIn(list, pos, dir, stored)
+    local passed
+    local i = (pos or 0) + dir
+    while list and list[i] do
+        local c = list[i]
+        if c.downloaded or (stored and stored(c.id)) then return c, passed end
+        if dir > 0 and not passed then passed = c end
+        i = i + dir
+    end
+    return nil, passed
+end
+
 --- Label of a chapter ref (never empty).
 function Model.chapterLabel(ref)
     if not ref then return "" end

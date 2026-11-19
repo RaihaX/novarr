@@ -8,10 +8,14 @@ import os
 /// Layout under `root`:
 ///   novels.json, home.json
 ///   novels/<id>/detail.json, novels/<id>/chapters.json
+///   novels/<id>/highlights.json (the series' highlights, for the reader offline)
 ///   novels/<id>/content/<chapterId>.json
+///   novels/<id>/content/<chapterId>.manga/ a manga chapter: page images
+///       named by page number, and pages.json (written last: its presence
+///       marks the chapter complete)
 actor OfflineStore {
     enum Key: Sendable {
-        case novels, home, novel(Int), chapters(Int)
+        case novels, home, novel(Int), chapters(Int), highlights(Int)
 
         var relativePath: String {
             switch self {
@@ -19,6 +23,7 @@ actor OfflineStore {
             case .home: "home.json"
             case .novel(let id): "novels/\(id)/detail.json"
             case .chapters(let id): "novels/\(id)/chapters.json"
+            case .highlights(let id): "novels/\(id)/highlights.json"
             }
         }
     }
@@ -132,21 +137,67 @@ actor OfflineStore {
 
     func hasChapter(id: Int, novelId: Int) -> Bool {
         FileManager.default.fileExists(atPath: contentURL(chapterId: id, novelId: novelId).path)
+            || FileManager.default.fileExists(atPath: mangaIndexURL(chapterId: id, novelId: novelId).path)
     }
 
     /// Keeps the cached copy's read state in step with what the user did, so
     /// reopening offline restores the right position.
     func updateChapterState(id: Int, novelId: Int, progress: Int?, read: Bool?) {
-        guard var chapter = chapter(id: id, novelId: novelId) else { return }
-        if let progress { chapter.readProgress = progress }
-        if let read { chapter.read = read }
-        write(chapter, to: contentURL(chapterId: id, novelId: novelId))
+        if var chapter = chapter(id: id, novelId: novelId) {
+            if let progress { chapter.readProgress = progress }
+            if let read { chapter.read = read }
+            write(chapter, to: contentURL(chapterId: id, novelId: novelId))
+        }
+        if var pages = mangaChapter(id: id, novelId: novelId) {
+            if let progress { pages.chapter.progress = progress }
+            if let read { pages.chapter.read = read }
+            write(pages, to: mangaIndexURL(chapterId: id, novelId: novelId))
+        }
     }
 
+    // MARK: Manga chapters
+
+    /// Where a manga chapter's page images and index live.
+    nonisolated func mangaDirectory(chapterId: Int, novelId: Int) -> URL {
+        root.appending(path: "novels/\(novelId)/content/\(chapterId).manga", directoryHint: .isDirectory)
+    }
+
+    private func mangaIndexURL(chapterId: Int, novelId: Int) -> URL {
+        mangaDirectory(chapterId: chapterId, novelId: novelId).appending(path: Self.mangaIndexName)
+    }
+
+    /// The local image of a page (present once downloaded).
+    nonisolated func pageFile(novelId: Int, chapterId: Int, page: Int) -> URL {
+        mangaDirectory(chapterId: chapterId, novelId: novelId).appending(path: String(page))
+    }
+
+    /// A downloaded manga chapter's pages index.
+    func mangaChapter(id: Int, novelId: Int) -> MangaPages? {
+        read(MangaPages.self, from: mangaIndexURL(chapterId: id, novelId: novelId))
+    }
+
+    /// Marks a manga chapter complete: call after every page image is saved.
+    func saveMangaIndex(_ pages: MangaPages, novelId: Int) {
+        write(pages, to: mangaIndexURL(chapterId: pages.chapter.id, novelId: novelId))
+    }
+
+    /// Text chapters (`<id>.json`) and complete manga chapters (`<id>.manga/pages.json`).
     func cachedChapterIDs(novelId: Int) -> Set<Int> {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: contentDirectory(novelId: novelId).path)) ?? []
-        return Set(names.compactMap { name in
-            name.hasSuffix(".json") ? Int(name.dropLast(5)) : nil
+        Self.chapterIDs(in: contentDirectory(novelId: novelId))
+    }
+
+    private static let mangaIndexName = "pages.json"
+
+    private static func chapterIDs(in directory: URL) -> Set<Int> {
+        let fm = FileManager.default
+        let names = (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
+        return Set(names.compactMap { name -> Int? in
+            if name.hasSuffix(".json") { return Int(name.dropLast(5)) }
+            if name.hasSuffix(".manga"),
+               fm.fileExists(atPath: directory.appending(path: name).appending(path: mangaIndexName).path) {
+                return Int(name.dropLast(6))
+            }
+            return nil
         })
     }
 
@@ -163,14 +214,14 @@ actor OfflineStore {
 
         return ids.compactMap { novelId -> NovelDownloads? in
             let dir = contentDirectory(novelId: novelId)
-            let files = ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
-                .filter { $0.hasSuffix(".json") }
-            guard !files.isEmpty else { return nil }
+            let ids = Self.chapterIDs(in: dir)
+            guard !ids.isEmpty else { return nil }
+            let textName = ids.lazy.compactMap { self.chapter(id: $0, novelId: novelId)?.novelName }.first
             let name = names[novelId]
                 ?? load(NovelDetail.self, as: .novel(novelId))?.summary.name
-                ?? files.first.flatMap { read(ChapterContent.self, from: dir.appending(path: $0))?.novelName }
-                ?? "Novel \(novelId)"
-            return NovelDownloads(novelId: novelId, name: name, chapterCount: files.count, bytes: Self.size(of: dir))
+                ?? textName
+                ?? "Series \(novelId)"
+            return NovelDownloads(novelId: novelId, name: name, chapterCount: ids.count, bytes: Self.size(of: dir))
         }
         .sorted { $0.bytes > $1.bytes }
     }

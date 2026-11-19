@@ -102,6 +102,8 @@ class ApiClient(
                 headers,
             )
             is WriteKind.BulkRead -> post("chapters/bulk-read", bulkBody(kind.request, age), headers)
+            // 201 new, 200 when the chapter already had this excerpt (its note is replaced).
+            is WriteKind.CreateHighlight -> post("highlights", highlightBody(kind), headers)
         }
     }
 
@@ -238,7 +240,15 @@ class ApiClient(
             write.progress?.let { put("progress", it) }
             // `read` only when true: the server reads its presence as "mark read".
             if (write.read) put("read", true)
+            // A look-up's mark: read, but not the series' latest position.
+            if (write.lookup) put("lookup", true)
             put("age", age)
+        }
+
+        fun highlightBody(write: WriteKind.CreateHighlight): JsonObject = buildJsonObject {
+            put("chapter_id", write.chapterId)
+            put("excerpt", write.excerpt)
+            write.note?.let { put("note", it) }
         }
 
         fun bulkBody(request: BulkReadRequest, age: Long): JsonObject {

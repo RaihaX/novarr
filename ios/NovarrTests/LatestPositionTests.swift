@@ -208,6 +208,121 @@ struct LatestPositionTests {
     }
 }
 
+@Suite("Latest position hold")
+struct PositionHoldTests {
+    @Test func checkWithoutOfferSendsTheHeldPosition() {
+        var hold = PositionHold()
+        #expect(!hold.isHolding)
+        let round = hold.startCheck(chapterId: 10)
+        #expect(hold.isHolding)
+        #expect(hold.check?.chapterId == 10)
+        #expect(hold.leaving() == .keep) // a waiting check decides when it ends
+        #expect(hold.resolveCheck(round, offered: false) == .send)
+        #expect(!hold.isHolding)
+    }
+
+    @Test func offerKeepsHoldingUntilAnswered() {
+        var stay = PositionHold()
+        _ = stay.resolveCheck(stay.startCheck(chapterId: 10), offered: true)
+        #expect(stay.isHolding)
+        #expect(stay.offerShown)
+        #expect(stay.stay() == .send)
+        #expect(!stay.isHolding)
+
+        var go = PositionHold()
+        _ = go.resolveCheck(go.startCheck(chapterId: 10), offered: true)
+        #expect(go.goToLatest() == .discard)
+        #expect(!go.isHolding)
+    }
+
+    @Test func leavingWithAnUnansweredOfferDiscards() {
+        var hold = PositionHold()
+        _ = hold.resolveCheck(hold.startCheck(chapterId: 10), offered: true)
+        #expect(hold.leaving() == .discard)
+        #expect(hold.isHolding) // the prompt is still up when the reader comes back
+        #expect(PositionHold().leaving() == .send)
+    }
+
+    @Test func movingOnIsAnImplicitStayAndEndsTheCheck() {
+        var offered = PositionHold()
+        _ = offered.resolveCheck(offered.startCheck(chapterId: 10), offered: true)
+        #expect(offered.moveOn() == .send)
+        #expect(!offered.isHolding)
+
+        var waiting = PositionHold()
+        let round = waiting.startCheck(chapterId: 10)
+        #expect(waiting.moveOn() == .send)
+        #expect(!waiting.isCurrent(round))
+        // The late answer for the chapter left behind changes nothing.
+        #expect(waiting.resolveCheck(round, offered: true) == .keep)
+        #expect(!waiting.offerShown)
+    }
+
+    @Test func reachingTheEndDismissesTheOffer() {
+        var hold = PositionHold()
+        _ = hold.resolveCheck(hold.startCheck(chapterId: 10), offered: true)
+        #expect(hold.dismissOffer() == .send)
+        #expect(!hold.isHolding)
+    }
+
+    @Test func newerCheckSupersedesAnOlderOne() {
+        var hold = PositionHold()
+        let first = hold.startCheck(chapterId: 10)
+        let second = hold.startCheck(chapterId: 11)
+        #expect(hold.resolveCheck(first, offered: true) == .keep) // stale: ignored
+        #expect(!hold.offerShown)
+        #expect(hold.isHolding)
+        #expect(hold.resolveCheck(second, offered: false) == .send)
+        #expect(hold.resolveCheck(second, offered: false) == .keep) // already ended
+    }
+
+    @Test func answeringWhileANewCheckWaitsKeepsHolding() {
+        var hold = PositionHold()
+        _ = hold.resolveCheck(hold.startCheck(chapterId: 10), offered: true)
+        let round = hold.startCheck(chapterId: 10)
+        #expect(hold.stay() == .keep)
+        #expect(hold.isHolding)
+        #expect(hold.resolveCheck(round, offered: false) == .send)
+
+        var discard = PositionHold()
+        _ = discard.resolveCheck(discard.startCheck(chapterId: 10), offered: true)
+        _ = discard.startCheck(chapterId: 10)
+        #expect(discard.goToLatest() == .discard)
+        #expect(discard.isHolding)
+    }
+
+    @Test func checkFailingAfterAnOfferStillShownKeepsHolding() {
+        var hold = PositionHold()
+        _ = hold.resolveCheck(hold.startCheck(chapterId: 10), offered: true)
+        #expect(hold.resolveCheck(hold.startCheck(chapterId: 10), offered: false) == .keep)
+        #expect(hold.offerShown)
+    }
+
+    @Test func recheckAfterAMinuteInTheBackground() {
+        let left = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(!LatestPosition.shouldRecheck(backgroundedAt: nil, now: left))
+        #expect(!LatestPosition.shouldRecheck(backgroundedAt: left, now: left.addingTimeInterval(59.9)))
+        #expect(LatestPosition.shouldRecheck(backgroundedAt: left, now: left.addingTimeInterval(60)))
+        #expect(LatestPosition.shouldRecheck(backgroundedAt: left, now: left.addingTimeInterval(3_600)))
+    }
+
+    @Test func unsentWriteCountsOnlyForItsOwnChapter() {
+        func write(_ kind: PendingWrite.Kind) -> PendingWrite {
+            PendingWrite(id: UUID(), kind: kind, recordedAt: Date(), novelId: 4)
+        }
+        let writes = [
+            write(.progress(chapterId: 1, progress: 30, read: false)),
+            write(.setRead(chapterId: 2, read: false)),
+            write(.bulkRead(.upTo(3, novelId: 4, read: true))),
+        ]
+        #expect(PendingWrite.containsChapterWrite(writes, chapterId: 1))
+        #expect(PendingWrite.containsChapterWrite(writes, chapterId: 2))
+        #expect(!PendingWrite.containsChapterWrite(writes, chapterId: 3)) // bulk marking doesn't count
+        #expect(!PendingWrite.containsChapterWrite(writes, chapterId: 9))
+        #expect(!PendingWrite.containsChapterWrite([], chapterId: 1))
+    }
+}
+
 @Suite("Device identity")
 struct DeviceIdentityTests {
     private func freshDefaults() throws -> (UserDefaults, String) {

@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var isSyncing = false
     @State private var confirmSignOut = false
     @State private var isSigningOut = false
+    @AppStorage(AppAppearance.defaultsKey) private var appearance = AppAppearance.dark
 
     var body: some View {
         Form {
@@ -30,7 +31,7 @@ struct SettingsView: View {
                     LabeledContent("Signed in as") {
                         VStack(alignment: .trailing, spacing: 2) {
                             Text(user.name)
-                            Text("@\(user.username)").font(.caption).foregroundStyle(.secondary)
+                            Text("@\(user.username)").font(.ui(.caption)).foregroundStyle(.secondary)
                         }
                     }
                     LabeledContent("Role", value: user.role.label)
@@ -43,6 +44,16 @@ struct SettingsView: View {
                         Button("Sign Out", role: .destructive) { confirmSignOut = true }
                     }
                 }
+            }
+
+            Section {
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("App")
+            } footer: {
+                Text("Dark is Novarr's own look. The reader keeps its own theme.")
             }
 
             Section {
@@ -73,7 +84,7 @@ struct SettingsView: View {
                 if app.pendingWrites > 0 {
                     HStack {
                         Text("\(app.pendingWrites) reading updates waiting to sync")
-                            .font(.callout)
+                            .font(.ui(.callout))
                         Spacer()
                         if isSyncing {
                             ProgressView()
@@ -100,8 +111,14 @@ struct SettingsView: View {
                 if let meta = app.serverMeta {
                     LabeledContent("API version", value: "v\(meta.apiVersion)")
                 }
+                NavigationLink {
+                    FontLicencesView()
+                } label: {
+                    Text("Font licences")
+                }
             }
         }
+        .brandBackground()
         .navigationTitle("Settings")
         .sheet(isPresented: $showConnect) { ConnectView(isInitialSetup: false) }
         .confirmationDialog("Clear all cached data?", isPresented: $confirmClear, titleVisibility: .visible) {
@@ -153,5 +170,32 @@ struct SettingsView: View {
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
         return "\(version) (\(build))"
+    }
+}
+
+/// The bundled fonts' licences (SIL Open Font License 1.1), as Android's
+/// font-licence screen.
+struct FontLicencesView: View {
+    var body: some View {
+        List {
+            Section {
+                Text("Geist and Geist Mono (Vercel) and Literata (TypeTogether for Google) are used under the SIL Open Font License 1.1.")
+            }
+            ForEach(BrandFont.licenceFiles, id: \.self) { name in
+                Section(name.replacingOccurrences(of: "OFL-", with: "")) {
+                    Text(Self.text(of: name))
+                        .font(.uiMono(.caption))
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .navigationTitle("Font licences")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private static func text(of name: String) -> String {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "txt"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return "Licence text missing." }
+        return text
     }
 }

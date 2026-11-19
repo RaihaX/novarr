@@ -14,6 +14,7 @@ struct LibraryView: View {
         @Bindable var model = model
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                shelfPicker
                 filterChips
                 if model.isShowingCache {
                     OfflinePill().frame(maxWidth: .infinity)
@@ -22,7 +23,11 @@ struct LibraryView: View {
             }
             .padding(.horizontal, sizeClass == .regular ? 24 : 16)
             .padding(.bottom, 24)
+            // Very wide windows: a centred shelf instead of one huge row.
+            .frame(maxWidth: 1400)
+            .frame(maxWidth: .infinity)
         }
+        .brandBackground()
         .navigationTitle("Library")
         .searchable(text: $model.search, prompt: "Title or author")
         .toolbar {
@@ -45,6 +50,18 @@ struct LibraryView: View {
         .task { await model.refreshIfStale(app: app) }
     }
 
+    /// Novels / Manga, as Android's shelf tabs.
+    private var shelfPicker: some View {
+        @Bindable var model = model
+        return Picker("Shelf", selection: $model.shelf) {
+            ForEach(LibraryFilter.Shelf.allCases) { shelf in
+                Text(model.novels.isEmpty ? shelf.title : "\(shelf.title) (\(model.count(for: shelf)))").tag(shelf)
+            }
+        }
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 420)
+    }
+
     private var filterChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -57,14 +74,14 @@ struct LibraryView: View {
                             Text(filter.title)
                             if !model.novels.isEmpty {
                                 Text("\(model.count(for: filter))")
-                                    .foregroundStyle(selected ? Color.white.opacity(0.8) : Color.secondary)
+                                    .foregroundStyle(selected ? Color.onAccent.opacity(0.8) : Color.secondary)
                             }
                         }
-                        .font(.subheadline.weight(.medium))
+                        .font(.ui(.subheadline, .medium))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .foregroundStyle(selected ? Color.white : Color.primary)
-                        .background(selected ? Color.accentColor : Color(.secondarySystemFill), in: Capsule())
+                        .foregroundStyle(selected ? Color.onAccent : Color.primary)
+                        .background(selected ? Color.brandAccent : Color(.secondarySystemFill), in: Capsule())
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(selected ? .isSelected : [])
@@ -101,12 +118,12 @@ struct LibraryView: View {
     private var emptyState: some View {
         if !model.search.isEmpty {
             ContentUnavailableView.search(text: model.search)
-        } else if model.novels.isEmpty {
-            ContentUnavailableView("No novels yet", systemImage: "books.vertical",
+        } else if model.onShelf.isEmpty {
+            ContentUnavailableView(model.shelf == .manga ? "No manga yet" : "No novels yet", systemImage: "books.vertical",
                                    description: Text("Nothing here yet. Series are added on the Novarr website."))
         } else {
             ContentUnavailableView("Nothing here", systemImage: "line.3.horizontal.decrease.circle",
-                                   description: Text("No novels match “\(model.filter.title)”."))
+                                   description: Text("Nothing on this shelf matches “\(model.filter.title)”."))
         }
     }
 }
@@ -119,14 +136,14 @@ struct LibraryCell: View {
             CoverView(url: novel.coverUrl, title: novel.name)
                 .overlay(alignment: .bottom) {
                     if novel.chaptersRead > 0 && !novel.finished {
-                        ProgressLine(fraction: novel.readFraction, tint: .white,
+                        ProgressLine(fraction: novel.readFraction, tint: .brandAmber,
                                      track: .black.opacity(0.35), height: 4)
                             .padding(6)
                     }
                 }
                 .overlay(alignment: .topTrailing) {
                     if novel.chaptersNew > 0 {
-                        Circle().fill(Color.accentColor)
+                        Circle().fill(Color.brandAccent)
                             .frame(width: 10, height: 10)
                             .overlay(Circle().strokeBorder(.white, lineWidth: 1.5))
                             .padding(6)
@@ -134,13 +151,13 @@ struct LibraryCell: View {
                 }
                 .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
             Text(novel.name)
-                .font(.subheadline.weight(.medium))
+                .font(.ui(.subheadline, .medium))
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
             Text(novel.caption)
-                .font(.caption2.weight(.semibold))
+                .font(.ui(.caption2, .semibold))
                 .tracking(0.5)
-                .foregroundStyle(novel.chaptersNew > 0 ? Color.accentColor : Color.secondary)
+                .foregroundStyle(novel.chaptersNew > 0 ? Color.brandAccent : Color.secondary)
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)

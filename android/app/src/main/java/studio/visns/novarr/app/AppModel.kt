@@ -10,7 +10,10 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -18,12 +21,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Cache
 import okhttp3.OkHttpClient
+import studio.visns.novarr.BuildConfig
+import studio.visns.novarr.api.AndroidRelease
 import studio.visns.novarr.api.ApiClient
 import studio.visns.novarr.api.ApiError
 import studio.visns.novarr.api.DeviceIdentity
 import studio.visns.novarr.api.ServerMeta
 import studio.visns.novarr.api.ServerUrl
 import studio.visns.novarr.api.rethrowIfCancellation
+import studio.visns.novarr.domain.AppUpdate
 import studio.visns.novarr.store.AppPrefs
 import studio.visns.novarr.store.Credential
 import studio.visns.novarr.store.CredentialStore
@@ -31,6 +37,8 @@ import studio.visns.novarr.store.KeystoreSecretBox
 import studio.visns.novarr.store.OfflineStore
 import studio.visns.novarr.store.WriteKind
 import studio.visns.novarr.store.WriteQueue
+import studio.visns.novarr.store.hasUnsentChapterWrite
+import studio.visns.novarr.store.unsentHighlights
 
 /** Who the app is talking to, and as whom. */
 sealed interface Session {
@@ -91,6 +99,12 @@ class AppModel(private val context: Context) {
     private val _meta = MutableStateFlow<ServerMeta?>(null)
     val serverMeta: StateFlow<ServerMeta?> = _meta.asStateFlow()
 
+    /** When meta last answered (epoch ms); null until it has. */
+    private var metaFetchedAt: Long? = null
+
+    /** A meta request is running, or the launch one is still to come: [refreshMetaIfDue] waits for it. */
+    private var metaRefreshing = true
+
     /** Whether the last request reached the server. */
     private val _reachable = MutableStateFlow(true)
     val isReachable: StateFlow<Boolean> = _reachable.asStateFlow()
@@ -106,21 +120,27 @@ class AppModel(private val context: Context) {
         private set
 
     val downloads = DownloadManager(this)
+
+    /** In-app update: downloads the server's APK and hands it to Android's installer. */
+    val updater = AppUpdater(context, imageHttp, scope)
     val checks = ChapterChecks(onChaptersChanged = { libraryChanged() })
 
     val active: Session.Active? get() = _session.value as? Session.Active
 
     init {
+        updater.cleanUp()
         scope.launch {
             val (identity, isNew) = DeviceIdentity.resolve(prefs.deviceId(), deviceName())
             if (isNew) prefs.setDeviceId(identity.id)
             device = identity
             val server = prefs.serverUrl()?.let(ServerUrl::normalize)
             if (server == null) {
+                metaRefreshing = false
                 _session.value = Session.NoServer
             } else {
                 configure(server, notice = null)
-                // Learn whether the server now wants a sign-in (it may have turned auth on since last time).
+                // Learn whether the server now wants a sign-in (it may have turned auth on
+                // since last time) and whether it publishes a newer app.
                 refreshMeta()
             }
         }
@@ -134,6 +154,7 @@ class AppModel(private val context: Context) {
         prefs.setServerUrl(server)
         prefs.setAuthRequired(server, meta.requiresSignIn)
         _meta.value = meta
+        metaFetchedAt = System.currentTimeMillis()
         _reachable.value = true
         configure(server, notice = null)
     }
@@ -191,18 +212,48 @@ class AppModel(private val context: Context) {
 
     suspend fun refreshMeta() {
         val server = currentServer ?: return
+        metaRefreshing = true
         try {
             // Meta is public, so this works signed out too.
             val meta = ApiClient(server, http).meta()
             if (currentServer != server) return
+            metaFetchedAt = System.currentTimeMillis()
             apply(meta, server)
             _reachable.value = true
         } catch (e: Exception) {
             e.rethrowIfCancellation()
             noteFailure(ApiError.from(e))
             return
+        } finally {
+            metaRefreshing = false
         }
         refreshAccount()
+    }
+
+    /**
+     * Meta outside launch and Settings (back in the foreground, Home): only
+     * when the last answer is older than [AppUpdate.META_REFRESH_MS], so a
+     * newly published APK is noticed without asking on every screen.
+     */
+    fun refreshMetaIfDue() {
+        if (metaRefreshing || !AppUpdate.metaDue(metaFetchedAt, System.currentTimeMillis())) return
+        scope.launch { refreshMeta() }
+    }
+
+    /** The server's APK when it is newer than this app, else null (the Settings row). */
+    val availableUpdate: Flow<AndroidRelease?> = _meta.map { meta ->
+        meta?.android?.takeIf { AppUpdate.available(it, BuildConfig.VERSION_CODE) }
+    }
+
+    /** [availableUpdate] unless its banner was dismissed (Home). */
+    val updateBanner: Flow<AndroidRelease?> = combine(_meta, prefs.dismissedUpdateBuild) { meta, dismissed ->
+        meta?.android?.takeIf { AppUpdate.available(it, BuildConfig.VERSION_CODE, dismissed) }
+    }
+
+    /** Hides the banner for [release]'s build; a newer build brings it back. */
+    fun dismissUpdate(release: AndroidRelease) {
+        val build = release.build ?: return
+        scope.launch { prefs.setDismissedUpdateBuild(build) }
     }
 
     /** Follows the server's sign-in switch: on → sign in (or keep the session); off → no accounts at all. */
@@ -320,7 +371,7 @@ class AppModel(private val context: Context) {
         val session = active ?: return
         session.queue.enqueue(kind, novelId)
         _pending.value = session.queue.count()
-        if (!(kind is WriteKind.Progress && !kind.read)) _revision.update { it + 1 }
+        if (kind.changesReadState) _revision.update { it + 1 }
         scope.launch { flushWrites() }
     }
 
@@ -348,6 +399,14 @@ class AppModel(private val context: Context) {
     /** Position-moving writes for a series still waiting to be sent, by when they were recorded. */
     suspend fun unsentWriteTimes(novelId: Int): List<Long> =
         active?.queue?.items().orEmpty().filter { it.novelId == novelId && it.kind.movesPosition }.map { it.recordedAt }
+
+    /** New highlights for a series still waiting to be sent. */
+    suspend fun unsentHighlights(novelId: Int): List<WriteKind.CreateHighlight> =
+        unsentHighlights(active?.queue?.items().orEmpty(), novelId)
+
+    /** Whether a progress or read/unread write for this chapter is still waiting to be sent. */
+    suspend fun hasUnsentWrite(chapterId: Int): Boolean =
+        hasUnsentChapterWrite(active?.queue?.items().orEmpty(), chapterId)
 
     // Latest-position prompt
 

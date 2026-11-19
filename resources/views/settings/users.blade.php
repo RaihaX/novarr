@@ -174,12 +174,13 @@
                                     </details>
 
                                     @unless($isOwner)
-                                        <form method="POST" action="{{ route('settings.users.disable', $u->id) }}" class="d-inline">
+                                        <form method="POST" action="{{ route('settings.users.disable', $u->id) }}" class="d-inline"
+                                              @unless($u->isDisabled()) data-confirm="Turn off {{ $u->name }}? They are signed out everywhere and cannot sign in until you turn them on again. Their reading history is kept." data-confirm-title="Turn off account?" data-confirm-text="Turn off" @endunless>
                                             @csrf
                                             <button type="submit" class="btn btn-secondary btn-sm">{{ $u->isDisabled() ? 'Turn on' : 'Turn off' }}</button>
                                         </form>
                                         <form method="POST" action="{{ route('settings.users.destroy', $u->id) }}" class="d-inline"
-                                              data-confirm="Delete {{ $u->name }}? Their reading progress, highlights and stats are deleted too. This cannot be undone.">
+                                              data-confirm="Delete {{ $u->name }}? Their reading progress, highlights and stats are deleted too. This cannot be undone." data-confirm-title="Delete account?" data-confirm-text="Delete">
                                             @csrf
                                             @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
@@ -313,25 +314,5 @@
 </div>
 @endsection
 
-@push('scripts')
-<script>
-(function () {
-    // Delete / cancel ask first (a styled dialog; without JS the form just submits).
-    document.querySelectorAll('form[data-confirm]').forEach((form) => {
-        form.addEventListener('submit', async (e) => {
-            if (form.dataset.confirmed === '1' || !window.Novarr?.confirmDialog) return;
-            e.preventDefault();
-            const ok = await window.Novarr.confirmDialog(form.dataset.confirm, {
-                title: form.dataset.confirmTitle || 'Delete account?',
-                confirmText: form.dataset.confirmText || 'Delete',
-                danger: true,
-            });
-            if (ok) {
-                form.dataset.confirmed = '1';
-                form.requestSubmit ? form.requestSubmit() : form.submit();
-            }
-        });
-    });
-})();
-</script>
-@endpush
+{{-- form[data-confirm] (turn off, delete, cancel invite) asks first: the
+     app-wide handler in resources/js/confirm.js (initConfirmForms). --}}

@@ -2,6 +2,9 @@
 // The next chapter's full page is fetched and only its section and
 // #readerState are lifted out; the page's own <script> tags are never
 // inserted, so the reader module is not evaluated again by an append.
+import { isLookupChapter } from './latest-position.js';
+import { nextReady } from './navigation.js';
+
 const MAX_APPENDED = 15;
 
 export function initContinuous(ctx) {
@@ -11,18 +14,15 @@ export function initContinuous(ctx) {
     let inflight = null;
     ctx.autoLoadStopped = false;
 
-    function updateCta(next) {
-        if (!cta) return;
-        cta.classList.toggle('d-none', !next);
-        if (next) cta.href = next.url;
-    }
-
     // Resolves once the append (or the decision not to) is done; concurrent
     // callers (sentinel + read-aloud) share the same in-flight load.
     function loadNextInline() {
         if (inflight) return inflight;
         const last = sections[sections.length - 1];
         if (ctx.autoLoadStopped || !last.next || ctx.store.prefs.autoNext !== '1') return Promise.resolve();
+        // The next chapter is not downloaded yet: stop at the gap (the footer
+        // offers "Mark read" and a check), never skip past it.
+        if (!nextReady(last.next)) return Promise.resolve();
         if (sections.length > MAX_APPENDED) { ctx.autoLoadStopped = true; return Promise.resolve(); }
         inflight = appendNext(last).finally(() => { inflight = null; });
         return inflight;
@@ -61,8 +61,10 @@ export function initContinuous(ctx) {
             section.appendChild(body);
             sectionsEl.appendChild(section);
 
-            sections.push({ ...nextState, el: section, words: parseInt(section.dataset.words, 10) || 0 });
-            updateCta(nextState.next);
+            const entry = { ...nextState, el: section, words: parseInt(section.dataset.words, 10) || 0 };
+            sections.push(entry);
+            // Its highlights rode in with its reader state (reader/highlights.js).
+            ctx.drawSectionHighlights?.(entry);
             // The fetch did NOT mark it read; that happens once the reader
             // actually scrolls into it (sectionObserver below).
             if (nextState.deferRead) sectionObserver?.observe(section);
@@ -90,7 +92,11 @@ export function initContinuous(ctx) {
     function markReadOnView(id) {
         if (markedOnView.has(id) || signal.aborted) return;
         markedOnView.add(id);
-        ctx.readFetch(`/chapters/${id}/progress`, { read: true })
+        // A look-up chapter served to a prefetch (deferRead) is marked read
+        // like any other, but `lookup` keeps it from becoming the series'
+        // latest position (NovelChapterController::progress).
+        const body = isLookupChapter(ctx.state, id) ? { read: true, lookup: true } : { read: true };
+        ctx.readFetch(`/chapters/${id}/progress`, body)
             .then((data) => { if (data?.success) ctx.setSectionRead(id, true); })
             .catch(() => markedOnView.delete(id));
     }

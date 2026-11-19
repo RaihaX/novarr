@@ -20,9 +20,9 @@ struct SignInView: View {
                     VStack(spacing: 14) {
                         BrandMark().frame(width: 44)
                         Text("Sign in")
-                            .font(.system(.largeTitle, design: .serif).weight(.semibold))
+                            .font(.literata(.largeTitle, .semibold))
                         Text("This Novarr server has accounts. Sign in with the name and password you were given.")
-                            .font(.callout)
+                            .font(.ui(.callout))
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
@@ -34,7 +34,7 @@ struct SignInView: View {
                 if let notice = app.signInNotice {
                     Section {
                         Label(notice, systemImage: "person.crop.circle.badge.exclamationmark")
-                            .font(.callout)
+                            .font(.ui(.callout))
                     }
                 }
 
@@ -68,7 +68,7 @@ struct SignInView: View {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.red)
-                            .font(.callout)
+                            .font(.ui(.callout))
                     }
                 }
 

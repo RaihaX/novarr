@@ -18,6 +18,7 @@ struct HomeView: View {
             .frame(maxWidth: 1000)
             .frame(maxWidth: .infinity)
         }
+        .brandBackground()
         .navigationTitle("Home")
         .refreshable { await model.load(app: app) }
         .task { await model.refreshIfStale(app: app) }
@@ -31,13 +32,13 @@ struct HomeView: View {
             if let stats = feed.stats {
                 Text("\(stats.novels) novels · \(stats.chaptersDownloaded.formatted()) chapters on the server"
                      + (stats.chaptersQueued > 0 ? " · \(stats.chaptersQueued.formatted()) queued" : ""))
-                    .font(.footnote)
+                    .font(.ui(.footnote))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 8)
             }
         } else if case .failed(let message) = model.phase {
-            LoadFailedView(title: "Can't reach your server", message: message) { await model.load(app: app) }
+            LoadFailedView(title: model.failure?.failureTitle ?? "Can't reach your server", message: message) { await model.load(app: app) }
                 .padding(.top, 60)
         } else {
             ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
@@ -49,7 +50,8 @@ struct HomeView: View {
         if let first = items.first {
             VStack(alignment: .leading, spacing: 16) {
                 SectionTitle("Continue reading")
-                NavigationLink(value: ReaderRoute(novelId: first.novel.id, chapterId: first.chapter.id, offerLatest: true)) {
+                NavigationLink(value: ReaderRoute(novelId: first.novel.id, chapterId: first.chapter.id, offerLatest: true,
+                                                   manga: first.novel.isManga)) {
                     HeroCard(item: first, large: sizeClass == .regular)
                 }
                 .buttonStyle(.plain)
@@ -58,7 +60,8 @@ struct HomeView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(alignment: .top, spacing: 14) {
                             ForEach(items.dropFirst()) { item in
-                                NavigationLink(value: ReaderRoute(novelId: item.novel.id, chapterId: item.chapter.id, offerLatest: true)) {
+                                NavigationLink(value: ReaderRoute(novelId: item.novel.id, chapterId: item.chapter.id,
+                                                                     offerLatest: true, manga: item.novel.isManga)) {
                                     ShelfItem(item: item)
                                         .frame(width: sizeClass == .regular ? 130 : 108)
                                 }
@@ -86,7 +89,8 @@ struct HomeView: View {
                 ForEach(items) { item in
                     Group {
                         if let first = item.firstChapter {
-                            NavigationLink(value: ReaderRoute(novelId: item.novel.id, chapterId: first.id, offerLatest: true)) {
+                            NavigationLink(value: ReaderRoute(novelId: item.novel.id, chapterId: first.id, offerLatest: true,
+                                                                     manga: item.novel.isManga)) {
                                 NewChaptersRow(item: item)
                             }
                         } else {
@@ -109,7 +113,7 @@ private struct SectionTitle: View {
 
     var body: some View {
         Text(text)
-            .font(.system(.title3, design: .serif).weight(.semibold))
+            .font(.literata(.title3, .semibold))
             .accessibilityAddTraits(.isHeader)
     }
 }
@@ -117,9 +121,14 @@ private struct SectionTitle: View {
 private struct HeroCard: View {
     let item: ContinueItem
     let large: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        // At accessibility text sizes the text gets the full width under the cover.
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 16))
+        layout {
             CoverView(url: item.novel.coverLargeUrl ?? item.novel.coverUrl, title: item.novel.name,
                       cornerRadius: 8, targetWidth: large ? 170 : 116)
                 .frame(width: large ? 170 : 116)
@@ -127,34 +136,34 @@ private struct HeroCard: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(item.novel.name)
-                    .font(.system(large ? .title : .title3, design: .serif).weight(.semibold))
+                    .font(.literata(large ? .title : .title3, .semibold))
                     .lineLimit(3)
                 if let author = item.novel.author {
-                    Text(author).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    Text(author).font(.ui(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Text(item.chapter.label)
-                    .font(.callout)
+                    .font(.ui(.callout))
                     .lineLimit(2)
                     .padding(.top, 2)
                 Spacer(minLength: 4)
                 VStack(alignment: .leading, spacing: 5) {
                     ProgressLine(fraction: item.novel.readFraction)
                     Text("\(item.novel.chaptersRead) of \(item.novel.chaptersTotal) chapters · \(item.novel.readPercent)%")
-                        .font(.caption)
+                        .font(.ui(.caption))
                         .foregroundStyle(.secondary)
                 }
                 Label("Continue", systemImage: "book.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .font(.ui(.subheadline, .semibold))
+                    .foregroundStyle(Color.onAccent)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Color.accentColor, in: Capsule())
+                    .background(Color.brandAccent, in: Capsule())
                     .padding(.top, 4)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(14)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.06)))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -169,14 +178,14 @@ private struct ShelfItem: View {
         VStack(alignment: .leading, spacing: 6) {
             CoverView(url: item.novel.coverUrl, title: item.novel.name, targetWidth: 130)
                 .overlay(alignment: .bottom) {
-                    ProgressLine(fraction: item.novel.readFraction, tint: .white, track: .black.opacity(0.35))
+                    ProgressLine(fraction: item.novel.readFraction, tint: .brandAmber, track: .black.opacity(0.35))
                         .padding(6)
                 }
             Text(item.novel.name)
-                .font(.footnote.weight(.medium))
+                .font(.ui(.footnote, .medium))
                 .lineLimit(2)
             Text(item.chapter.label)
-                .font(.caption2)
+                .font(.ui(.caption2))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
@@ -194,22 +203,22 @@ private struct NewChaptersRow: View {
                 .frame(width: 50)
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.novel.name)
-                    .font(.body.weight(.medium))
+                    .font(.ui(.body, .medium))
                     .lineLimit(2)
                 if let first = item.firstChapter {
                     Text("From \(first.label)")
-                        .font(.footnote)
+                        .font(.ui(.footnote))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
             Text("\(item.count) NEW")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(Color.accentColor)
+                .font(.ui(.caption, .bold))
+                .foregroundStyle(Color.brandAccent)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Color.accentColor.opacity(0.12), in: Capsule())
+                .background(Color.brandAccent.opacity(0.12), in: Capsule())
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())

@@ -58,7 +58,7 @@ class CacheHelper
     /** /stats for one reader (StatsController). Expires only. */
     public static function readingStatsKey(int $userId): string
     {
-        return "reading_stats_v1_u{$userId}";
+        return "reading_stats_v2_u{$userId}";
     }
 
     /** Cache key for NovelController::novelStats(), per reader. */

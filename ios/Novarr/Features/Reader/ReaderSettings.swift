@@ -19,7 +19,7 @@ enum ReaderTheme: String, CaseIterable, Identifiable {
         case .system: Color(.systemBackground)
         case .light: .white
         case .sepia: Color(red: 0.976, green: 0.945, blue: 0.878)
-        case .dark: Color(red: 0.11, green: 0.11, blue: 0.12)
+        case .dark: .brandDark
         case .black: .black
         }
     }
@@ -38,22 +38,29 @@ enum ReaderTheme: String, CaseIterable, Identifiable {
 }
 
 enum ReaderFont: String, CaseIterable, Identifiable {
-    case newYork, sanFrancisco, georgia
+    /// Literata (bundled) is the brand's reading face and the default.
+    case literata, newYork, sanFrancisco, georgia
     var id: String { rawValue }
+
+    static let standard = ReaderFont.literata
 
     var title: String {
         switch self {
+        case .literata: "Literata"
         case .newYork: "New York"
         case .sanFrancisco: "San Francisco"
         case .georgia: "Georgia"
         }
     }
 
-    func font(size: CGFloat) -> Font {
+    /// `size` is already scaled for Dynamic Type by the reader. Must name
+    /// the same face as `uiFont(size:weight:)` (ReaderTypography.swift).
+    func font(size: CGFloat, weight: Font.Weight = .regular) -> Font {
         switch self {
-        case .newYork: .system(size: size, design: .serif)
-        case .sanFrancisco: .system(size: size)
-        case .georgia: .custom("Georgia", fixedSize: size)
+        case .literata: .custom(BrandFont.literata(weight), fixedSize: size)
+        case .newYork: .system(size: size, weight: weight, design: .serif)
+        case .sanFrancisco: .system(size: size, weight: weight)
+        case .georgia: .custom(weight == .regular ? "Georgia" : "Georgia-Bold", fixedSize: size)
         }
     }
 }
@@ -99,6 +106,13 @@ enum ReaderWidth: String, CaseIterable, Identifiable {
     }
 }
 
+/// How the text reader lays a chapter out (Android's `TextReadingMode`).
+enum ReaderMode: String, CaseIterable, Identifiable {
+    case scroll, pages
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+}
+
 /// UserDefaults keys shared by the reader and the settings screens.
 enum ReaderKeys {
     static let fontSize = "reader.fontSize"
@@ -107,18 +121,38 @@ enum ReaderKeys {
     static let margins = "reader.margins"
     static let width = "reader.width"
     static let theme = "reader.theme"
+    static let mode = "reader.mode"
+    static let justify = "reader.justify"
+    static let keepScreenOn = "reader.keepScreenOn"
 }
 
 /// Reader appearance controls, used in the reader's sheet and in Settings.
 struct ReaderSettingsForm: View {
     @AppStorage(ReaderKeys.fontSize) private var fontSize = 19.0
-    @AppStorage(ReaderKeys.font) private var font = ReaderFont.newYork
+    @AppStorage(ReaderKeys.font) private var font = ReaderFont.standard
     @AppStorage(ReaderKeys.spacing) private var spacing = ReaderSpacing.normal
     @AppStorage(ReaderKeys.margins) private var margins = ReaderMargins.medium
     @AppStorage(ReaderKeys.width) private var width = ReaderWidth.standard
     @AppStorage(ReaderKeys.theme) private var theme = ReaderTheme.system
+    @AppStorage(ReaderKeys.mode) private var mode = ReaderMode.scroll
+    @AppStorage(ReaderKeys.justify) private var justify = false
+    @AppStorage(ReaderKeys.keepScreenOn) private var keepScreenOn = true
 
     var body: some View {
+        Section {
+            Picker("Reading mode", selection: $mode) {
+                ForEach(ReaderMode.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            Toggle("Keep screen on", isOn: $keepScreenOn)
+        } header: {
+            Text("Reading")
+        } footer: {
+            Text(mode == .pages
+                 ? "Tap the right side or swipe left for the next page, the left side for the previous one, the middle for the controls."
+                 : "Tap the middle of the page to show or hide the controls.")
+        }
+
         Section("Theme") {
             HStack(spacing: 10) {
                 ForEach(ReaderTheme.allCases) { option in
@@ -130,12 +164,12 @@ struct ReaderSettingsForm: View {
                                 .fill(option == .system
                                       ? AnyShapeStyle(LinearGradient(colors: [.white, .black], startPoint: .topLeading, endPoint: .bottomTrailing))
                                       : AnyShapeStyle(option.background))
-                                .overlay(Text("Aa").font(.caption.weight(.semibold))
+                                .overlay(Text("Aa").font(.ui(.caption, .semibold))
                                     .foregroundStyle(option == .system ? Color.gray : option.text))
-                                .overlay(Circle().strokeBorder(theme == option ? Color.accentColor : Color.primary.opacity(0.2),
+                                .overlay(Circle().strokeBorder(theme == option ? Color.brandAccent : Color.primary.opacity(0.2),
                                                                lineWidth: theme == option ? 3 : 1))
                                 .frame(width: 44, height: 44)
-                            Text(option.title).font(.caption2)
+                            Text(option.title).font(.ui(.caption2))
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -154,7 +188,7 @@ struct ReaderSettingsForm: View {
                 }
                 .accessibilityLabel("Smaller text")
                 Spacer()
-                Text("\(Int(fontSize)) pt").font(.body.monospacedDigit())
+                Text("\(Int(fontSize)) pt").font(.ui(.body).monospacedDigit())
                 Spacer()
                 Button { fontSize = min(34, fontSize + 1) } label: {
                     Image(systemName: "textformat.size.larger").frame(width: 36, height: 30)
@@ -168,6 +202,7 @@ struct ReaderSettingsForm: View {
             Picker("Line spacing", selection: $spacing) {
                 ForEach(ReaderSpacing.allCases) { Text($0.title).tag($0) }
             }
+            Toggle("Justify text", isOn: $justify)
         }
 
         Section {

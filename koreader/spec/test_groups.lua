@@ -91,6 +91,29 @@ T.it("run: nil when the target itself is not available or unknown", function()
     T.eq(Groups.run(ids, 99, 20, avail(set)), nil)
 end)
 
+T.it("ordinals mark gaps: a chapter the server does not have yet sits before ordinal k", function()
+    local ids, ord, gaps = Groups.ordinals(list(6, { [101] = true, [103] = true, [104] = true }))
+    T.eq(ids, { 102, 105, 106 })
+    T.eq(ord[105], 2)
+    T.eq(gaps, { [2] = true }, "between 102 and 105; nothing before the first one")
+    local _i, _o, none = Groups.ordinals(list(5))
+    T.eq(none, {})
+end)
+
+T.it("run never spans a missing chapter (the reader stops there and says so)", function()
+    local l = list(10, { [105] = true })
+    local ids, _ord, gaps = Groups.ordinals(l)
+    local set = all(ids)
+    local run, first = Groups.run(ids, 2, 20, avail(set), gaps)
+    T.eq(run, { 101, 102, 103, 104 })
+    T.eq(first, 1)
+    run, first = Groups.run(ids, 6, 20, avail(set), gaps)
+    T.eq(run, { 106, 107, 108, 109, 110 })
+    T.eq(first, 5)
+    -- Without the gaps (older callers) the run bridged it.
+    T.eq(#Groups.run(ids, 2, 20, avail(set)), 9)
+end)
+
 T.it("run never crosses a block boundary", function()
     local ids = Groups.ordinals(list(60))
     local run, first = Groups.run(ids, 40, 20, avail(all(ids)))
@@ -378,6 +401,18 @@ T.it("prepare: a hole splits the block; an earlier chapter appearing rebuilds", 
     g = prep(store, l, 104)
     T.eq(g.ids, { 101, 102, 103, 104 })
     T.eq(g.decision, "rebuild")
+end)
+
+T.it("prepare: a group file ends before a chapter the server does not have yet", function()
+    local store = newStore()
+    local l = list(8, { [103] = true })
+    for _i, id in ipairs({ 101, 102, 104, 105 }) do save(store, id) end
+    -- n = 4: ordinals 101 102 104 105 are block 1, but 103 is missing between 102 and 104.
+    local g = prep(store, l, 101)
+    T.eq(g.ids, { 101, 102 })
+    local g2 = prep(store, l, 105)
+    T.eq(g2.ids, { 104, 105 })
+    T.eq(g2.first, 3)
 end)
 
 T.it("prepare: order change on the server moves chapters between blocks", function()

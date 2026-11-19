@@ -8,6 +8,7 @@ Linking: the server gives a short code; a dialog shows it large
          K7M 4QX
     On your phone or computer, open Novarr, go to Account → Link a device
     and enter this code.
+    This code works until 14:35.
     [Cancel]
 
 while the plugin asks the server every few seconds (UIManager:scheduleIn,
@@ -15,6 +16,9 @@ never blocking) whether the code was entered. The dialog is drawn once and
 not redrawn on each poll (e-ink). Linked: the token and the account are
 kept (Session:linked) and "Linked to <name>" shows. The code expired:
 "Get a new code". Cancel, Back or closing the dialog stops the polling.
+
+Unlinking while offline (the server could not be told) says where to
+remove the Kindle's access by hand: the website's Account → Devices.
 
 The network: the whole thing starts through Session:whenConnected (the
 Wi-Fi prompt, or Wi-Fi that Novarr switched off coming back on), and the
@@ -53,6 +57,7 @@ local UIAuth = {
 local PairingDialog = InputContainer:extend{
     name = "novarr_pairing",
     code = "",
+    expires_at = nil, -- os.time() when the code stops working (from the server's expires_in)
     cancel_callback = nil,
 }
 
@@ -81,6 +86,16 @@ function PairingDialog:init()
         width = text_width,
         alignment = "center",
     })
+    if self.expires_at then
+        -- Drawn once (e-ink): a time, not a countdown.
+        table.insert(group, VerticalSpan:new{ width = math.floor(pad / 2) })
+        table.insert(group, TextBoxWidget:new{
+            text = T(_("This code works until %1."), Auth.clockTime(self.expires_at, os.date)),
+            face = Font:getFace("cfont", 16),
+            width = text_width,
+            alignment = "center",
+        })
+    end
     table.insert(group, VerticalSpan:new{ width = pad * 2 })
     table.insert(group, Button:new{
         text = _("Cancel"),
@@ -146,7 +161,8 @@ function UIAuth.pair(session, done)
         now = os.time,
         on_code = function(code)
             closeLoading()
-            dialog = PairingDialog:new{ code = code, cancel_callback = function() flow:cancel() end }
+            dialog = PairingDialog:new{ code = code, expires_at = flow.expires_at,
+                cancel_callback = function() flow:cancel() end }
             UIManager:show(dialog)
         end,
         on_linked = function(token, user) session:linked(token, user) end,
@@ -230,8 +246,12 @@ function UIAuth.unlink(session, done)
         text = _("Unlink this Kindle from your Novarr account?\n\nNothing is synced until it is linked again. Chapters saved here stay."),
         ok_text = _("Unlink"),
         ok = function()
-            session:unlink()
-            UI.notify(_("This Kindle is unlinked."))
+            if session:unlink() then
+                UI.notify(_("This Kindle is unlinked."))
+            else
+                -- The server could not be told: its access is still listed there.
+                UI.info(_("This Kindle is unlinked. Its access is still listed in your account on the website; remove it there under Account → Devices."))
+            end
             if done then Session.guard(done) end
         end,
     })

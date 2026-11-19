@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -78,6 +79,10 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
     suspend fun declinedAt(scope: String, novelId: Int): Long? = snapshot()[declineKey(scope, novelId)]
     suspend fun decline(scope: String, novelId: Int, at: Long) = store.edit { it[declineKey(scope, novelId)] = at }
 
+    /** The app build whose "newer version" banner was dismissed; a newer build shows it again. */
+    val dismissedUpdateBuild: Flow<Int?> = store.data.map { it[UPDATE_DISMISSED] }
+    suspend fun setDismissedUpdateBuild(build: Int) = store.edit { it[UPDATE_DISMISSED] = build }
+
     suspend fun string(name: String): String? = snapshot()[stringPreferencesKey(name)]
     suspend fun setString(name: String, value: String) = store.edit { it[stringPreferencesKey(name)] = value }
 
@@ -137,6 +142,7 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         val R_JUSTIFY = booleanPreferencesKey("reader.justify")
         val R_SCREEN_ON = booleanPreferencesKey("reader.keepScreenOn")
         val R_MODE = stringPreferencesKey("reader.mode")
+        val UPDATE_DISMISSED = intPreferencesKey("update.dismissedBuild")
 
         inline fun <reified E : Enum<E>> enumOr(raw: String?, default: E): E =
             raw?.let { name -> enumValues<E>().firstOrNull { it.name == name } } ?: default

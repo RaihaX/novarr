@@ -5,11 +5,15 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import studio.visns.novarr.api.BulkReadRequest
 import studio.visns.novarr.api.ReadingPosition
 import studio.visns.novarr.domain.LatestPosition
 import studio.visns.novarr.domain.ProgressTracker
 import studio.visns.novarr.domain.ProgressTracker.Decision
 import studio.visns.novarr.domain.ReadingMode
+import studio.visns.novarr.store.PendingWrite
+import studio.visns.novarr.store.WriteKind
+import studio.visns.novarr.store.hasUnsentChapterWrite
 
 class ProgressTrackerTest {
     private var now = 100_000L
@@ -79,6 +83,97 @@ class ProgressTrackerTest {
         assertEquals(since, tracker.pendingSince)
         tracker.takePending()
         assertNull(tracker.pendingSince)
+    }
+
+    @Test
+    fun heldPositionsAreTrackedButNotSentUntilReleased() {
+        tracker.reset(read = false, progress = 10)
+        tracker.hold()
+        assertEquals(Decision.Held, tracker.moved(30))
+        now += 10_000
+        assertEquals(Decision.Held, tracker.moved(35))
+        assertNull(tracker.takePending())
+        assertEquals(35, tracker.current)
+        tracker.release()
+        assertEquals(35, tracker.takePending())
+        assertEquals(Decision.SendAfter(4_000), tracker.moved(40))
+    }
+
+    @Test
+    fun holdSurvivesAChapterReset() {
+        tracker.hold()
+        tracker.reset(read = false, progress = null)
+        assertTrue(tracker.holding)
+        assertEquals(Decision.Held, tracker.moved(5))
+    }
+
+    @Test
+    fun discardingDropsTheHeldPosition() {
+        tracker.reset(read = false, progress = 10)
+        tracker.hold()
+        tracker.moved(60)
+        tracker.discardPending()
+        tracker.release()
+        assertNull(tracker.takePending())
+        assertEquals(10, tracker.current)
+        assertNull(tracker.pendingSince)
+    }
+
+    @Test
+    fun positionsTakenWhileHoldingDontCountAsReadHereMoreRecently() {
+        tracker.reset(read = false, progress = null)
+        tracker.hold()
+        tracker.moved(20)
+        assertEquals(now, tracker.pendingSince)
+        assertNull(tracker.unheldPendingSince)
+        // Released: from now on it is an ordinary unsent position.
+        tracker.release()
+        assertEquals(tracker.pendingSince, tracker.unheldPendingSince)
+    }
+
+    @Test
+    fun anUnsentPositionFromBeforeTheHoldStillCounts() {
+        tracker.reset(read = false, progress = null)
+        tracker.moved(5)
+        tracker.takePending()
+        now += 1_000
+        tracker.moved(10) // scheduled, not yet sent
+        val since = now
+        tracker.hold()
+        now += 500
+        tracker.moved(15)
+        assertEquals(since, tracker.unheldPendingSince)
+    }
+
+    @Test
+    fun theReadMarkIsWrittenWhileHolding() {
+        tracker.reset(read = false, progress = 10)
+        tracker.hold()
+        tracker.moved(80)
+        assertTrue(tracker.reachedEnd())
+        assertNull(tracker.pendingSince)
+        tracker.release()
+        assertNull(tracker.takePending())
+    }
+}
+
+class UnsentChapterWriteTest {
+    private fun write(kind: WriteKind) = PendingWrite("id", kind, 0L, 9)
+
+    @Test
+    fun onlyWritesForThatChapterCount() {
+        val writes = listOf(write(WriteKind.Progress(1, 40, false)), write(WriteKind.SetRead(2, true)))
+        assertTrue(hasUnsentChapterWrite(writes, 1))
+        assertTrue(hasUnsentChapterWrite(writes, 2))
+        assertFalse(hasUnsentChapterWrite(writes, 3))
+        assertFalse(hasUnsentChapterWrite(emptyList(), 1))
+    }
+
+    @Test
+    fun markingUnreadCountsBulkMarkingDoesNot() {
+        assertTrue(hasUnsentChapterWrite(listOf(write(WriteKind.SetRead(3, false))), 3))
+        val bulk = write(WriteKind.BulkRead(BulkReadRequest(read = true, scope = "up_to", novelId = 9, anchorId = 3)))
+        assertFalse(hasUnsentChapterWrite(listOf(bulk), 3))
     }
 }
 
@@ -166,6 +261,16 @@ class LatestPositionTest {
         assertNull(LatestPosition.itemIndex(50, 1))
         assertEquals(49, LatestPosition.itemIndex(100, 50))
         assertEquals(5, LatestPosition.itemIndex(50, 11))
+    }
+}
+
+class RecheckOnReturnTest {
+    @Test
+    fun asksAgainOnlyAfterAMinuteAway() {
+        assertFalse(LatestPosition.recheckOnReturn(null, 1_000_000))
+        assertFalse(LatestPosition.recheckOnReturn(1_000_000, 1_059_999))
+        assertTrue(LatestPosition.recheckOnReturn(1_000_000, 1_060_000))
+        assertTrue(LatestPosition.recheckOnReturn(1_000_000, 5_000_000))
     }
 }
 

@@ -55,3 +55,36 @@ struct HighlightsPage: Decodable, Sendable, Equatable {
         hasMore = c.lenientBool(.hasMore) ?? false
     }
 }
+
+/// A highlight made in the reader, queued (`PendingWrite.Kind.highlight`)
+/// until the server has it: `POST /highlights`.
+struct HighlightDraft: Codable, Hashable, Sendable {
+    var chapterId: Int
+    var excerpt: String
+    var note: String?
+
+    /// The server's limit for both the excerpt and the note
+    /// (HighlightController::MAX_LENGTH), in characters as Laravel counts them.
+    static let maxLength = 2000
+
+    /// Trimmed; nil when the excerpt is empty or either text is over the limit.
+    init?(chapterId: Int, excerpt: String, note: String?) {
+        let excerpt = excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let note = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !excerpt.isEmpty, Self.length(excerpt) <= Self.maxLength,
+              Self.length(note ?? "") <= Self.maxLength else { return nil }
+        self.chapterId = chapterId
+        self.excerpt = excerpt
+        self.note = note?.isEmpty == false ? note : nil
+    }
+
+    /// Laravel's `max:` on a string counts code points (mb_strlen).
+    static func length(_ text: String) -> Int { text.unicodeScalars.count }
+
+    /// Shown in the reader until the server's copy replaces it; ids below
+    /// zero never reach the server.
+    func preview(id: Int, novelId: Int, novelName: String, chapterLabel: String) -> Highlight {
+        Highlight(id: id, novelId: novelId, novelName: novelName, chapterId: chapterId,
+                  chapterLabel: chapterLabel, excerpt: excerpt, note: note, createdAt: nil)
+    }
+}

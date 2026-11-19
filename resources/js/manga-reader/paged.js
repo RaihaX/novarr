@@ -216,8 +216,8 @@ export function createPagedView(o) {
         const zone = zoneAt(x - r.left, r.width);
         // Zoomed in, a tap only toggles the chrome (drag pans, double-tap zooms out).
         const run = () => o.onAction(zoom.on ? 'chrome' : zoneAction(zone, mode), { gesture: true });
-        if (type === 'mouse') { run(); return; }
-        // Touch / pen: wait a moment to tell a double-tap (zoom) from a tap.
+        // Wait a moment to tell a double-tap / double-click (zoom) from a
+        // tap — a mouse too, or a double-click would turn two pages first.
         const now = Date.now();
         if (pendingTap && now - pendingTap.t < DOUBLE_TAP_MS + 120 && Math.hypot(x - pendingTap.x, y - pendingTap.y) < 40) {
             clearTimeout(pendingTap.timer);

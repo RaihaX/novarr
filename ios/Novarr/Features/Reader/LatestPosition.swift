@@ -75,6 +75,117 @@ enum LatestPosition {
     }
 }
 
+extension LatestPosition {
+    /// Seconds in the background after which coming back re-checks the position.
+    static let resumeCheckDelay: TimeInterval = 60
+
+    /// Back in the foreground: re-check when the reader was away long enough
+    /// for another device to have moved on.
+    static func shouldRecheck(backgroundedAt: Date?, now: Date) -> Bool {
+        guard let backgroundedAt else { return false }
+        return now.timeIntervalSince(backgroundedAt) >= resumeCheckDelay
+    }
+}
+
+/// Holds this device's scroll position back while a latest-position check is
+/// open (asking the server, or its prompt still unanswered), so an older spot
+/// here can't replace another device's newer one before the user has chosen.
+/// Positions are still tracked; each transition says what to do with the
+/// one waiting to be sent.
+///
+/// It also holds for a look-up: a chapter opened at a highlight is checked,
+/// not read, so nothing about the position there goes out (no position, no
+/// check) until the reader moves to another chapter. Reaching its end still
+/// marks it read, flagged `lookup` so the server leaves the series' latest
+/// position alone. The web (`?lookup=1`) and Android do the same.
+struct PositionHold: Equatable {
+    enum Release: Equatable {
+        /// Still holding: leave the position unsent.
+        case keep
+        /// Hold over: send the position as usual.
+        case send
+        /// Drop the position; it must not reach the server.
+        case discard
+    }
+
+    struct Check: Equatable {
+        let round: Int
+        /// The chapter shown when the check started; the offer is only
+        /// evaluated while this is still the chapter on screen.
+        let chapterId: Int
+    }
+
+    /// The check waiting for the server's answer, if any.
+    private(set) var check: Check?
+    /// A prompt is on screen and unanswered.
+    private(set) var offerShown = false
+    /// The chapter on screen was opened as a look-up.
+    private(set) var lookup = false
+    private var rounds = 0
+
+    var isHolding: Bool { lookup || check != nil || offerShown }
+
+    /// The reader opens a chapter as a look-up (at a highlight).
+    mutating func startLookup() {
+        lookup = true
+    }
+
+    /// A check starts (replacing any older one still waiting).
+    mutating func startCheck(chapterId: Int) -> Int {
+        rounds += 1
+        check = Check(round: rounds, chapterId: chapterId)
+        return rounds
+    }
+
+    func isCurrent(_ round: Int) -> Bool { check?.round == round }
+
+    /// The check ended: answer evaluated, request failed, or timed out.
+    /// A stale round (superseded or already ended) changes nothing.
+    mutating func resolveCheck(_ round: Int, offered: Bool) -> Release {
+        guard isCurrent(round) else { return .keep }
+        check = nil
+        if offered { offerShown = true }
+        return isHolding ? .keep : .send
+    }
+
+    /// "Go to latest": the position here is dropped.
+    mutating func goToLatest() -> Release {
+        offerShown = false
+        return .discard
+    }
+
+    /// "Stay here": the position here goes out.
+    mutating func stay() -> Release {
+        offerShown = false
+        return isHolding ? .keep : .send
+    }
+
+    /// Reaching the end of the chapter dismisses the prompt (the read mark
+    /// itself is written regardless of the hold).
+    mutating func dismissOffer() -> Release {
+        offerShown = false
+        return isHolding ? .keep : .send
+    }
+
+    /// Moving to another chapter: an implicit "stay", and the check (made
+    /// for the chapter being left) no longer applies. Leaving a look-up
+    /// drops its position; the next chapter is read as usual.
+    mutating func moveOn() -> Release {
+        offerShown = false
+        check = nil
+        defer { lookup = false }
+        return lookup ? .discard : .send
+    }
+
+    /// Leaving the reader (backgrounded or closed). An unanswered prompt
+    /// must not be overwritten by the position here, nor a look-up send
+    /// one; a check still waiting decides when it ends.
+    func leaving() -> Release {
+        if offerShown || lookup { return .discard }
+        return check == nil ? .send : .keep
+    }
+}
+
 /// Positions the user answered "Stay here" to, per server and series, so the
 /// same one isn't offered again.
 struct LatestPositionDeclines {
@@ -104,12 +215,12 @@ struct LatestPositionDeclines {
 
 extension PendingWrite.Kind {
     /// Writes that move the series' latest position on the server (bulk
-    /// marking and marking unread don't).
+    /// marking, marking unread, highlights and a look-up's read mark don't).
     var movesPosition: Bool {
         switch self {
         case .progress(_, let progress, let read): progress != nil || read
         case .setRead(_, let read): read
-        case .bulkRead: false
+        case .bulkRead, .highlight, .lookupRead: false
         }
     }
 }

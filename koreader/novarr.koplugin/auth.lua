@@ -14,7 +14,9 @@ Server contract (see the server's auth docs):
   * 401 {"code": "unauthenticated"}: the token is forgotten, queued writes
     are KEPT (retried after linking again), nothing is sent until the
     Kindle is linked again (no retry storm), the user is told once.
-    403 {"code": "forbidden"}: the server's message is shown.
+    403 {"code": "forbidden"}: the server's message is shown, queued writes
+    stay queued, and the account is asked again (GET auth/me): its role may
+    have changed. Home also asks it at most once a day (Auth.userRefreshDue).
   * Pairing: POST auth/pairings {device_id, device_name} -> 201 {code,
     secret, expires_in, interval}; the user types the code on the website
     (Account -> Link a device); the device polls GET auth/pairings/{secret}
@@ -95,6 +97,11 @@ function Auth.formatCode(code)
     code = code:upper():gsub("%s+", "")
     if #code == 6 then return code:sub(1, 3) .. " " .. code:sub(4, 6) end
     return code
+end
+
+--- "HH:MM" of an os.time() value (the link code's expiry); date: os.date (injectable for tests).
+function Auth.clockTime(t, date)
+    return (date or os.date)("%H:%M", math.floor(tonumber(t) or 0))
 end
 
 --- Whether code is a pairing code of the contract (6 characters of CODE_ALPHABET, any case).
@@ -184,6 +191,41 @@ function Auth.moveServer(settings, old_home, new_home)
     r.server = new_home
     save(settings, r)
     return true
+end
+
+--[[--
+The account as the server sees it now (GET auth/me): the saved user is
+replaced (the token stays). Only while a token is held for `server`.
+Returns true when something changed (the role, the name...).
+]]
+function Auth.updateUser(settings, server, user)
+    local r = readRecord(settings)
+    if not r or not server or r.server ~= server or not Auth.validToken(r.token) then return false end
+    local clean = Auth.cleanUser(user)
+    if not clean then return false end
+    local old = type(r.user) == "table" and r.user or {}
+    local changed = old.id ~= clean.id or old.name ~= clean.name or old.username ~= clean.username
+        or old.role ~= clean.role
+    if changed then
+        r.user = clean
+        save(settings, r)
+    end
+    return changed
+end
+
+Auth.USER_REFRESH_S = 24 * 3600     -- Home asks auth/me at most this often
+Auth.USER_REFRESH_FORCED_S = 60     -- after a 403: at most this often
+
+--[[--
+Whether to ask auth/me now. last: os.time() of the last time it was asked
+(nil: never); force: a 403 just came. A last time "in the future" (the
+clock went back) counts as due.
+]]
+function Auth.userRefreshDue(last, now, force)
+    last = tonumber(last)
+    if not last or now < last then return true end
+    if force then return now - last >= Auth.USER_REFRESH_FORCED_S end
+    return now - last >= Auth.USER_REFRESH_S
 end
 
 function Auth.token(settings, server)

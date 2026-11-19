@@ -6,7 +6,11 @@
     endpoints and renders the chrome it fills in:
       data-pages-url    GET  chapters.pages       (pages + prev/next + reading_mode)
       data-progress-url POST chapters.progress    (percent 0–100, optional read)
-      data-mode-url     POST novels.reading_mode  (mode: rtl | ltr | vertical)
+      data-mode-url     POST novels.reading_mode  (mode: rtl | ltr | vertical;
+                        the admin's: it sets the series default. Anyone else's
+                        choice is kept per series in this browser)
+      data-lookup       '1' for a look-up open (?lookup=1, a search hit): the
+                        reader posts no page progress for this chapter
     Opening this page never marks the chapter read: the reader does, once the
     last page has been shown.
 --}}
@@ -29,6 +33,7 @@
      @can('admin') data-mode-url="{{ route('novels.reading_mode', $chapter->novel_id) }}" @endcan
      data-novel-url="{{ route('novels.show', $chapter->novel_id) }}"
      data-novel-name="{{ $chapter->novel->name ?? '' }}"
+     data-lookup="{{ request()->boolean('lookup') ? '1' : '' }}"
      aria-label="{{ $chapterTitle }} — manga reader">
 
     {{-- The pages: filled by the script (paged or vertical). --}}
@@ -68,14 +73,26 @@
             <span class="mr-counter" id="mrCounter" aria-hidden="true">– / –</span>
         </div>
         <div class="mr-controls">
-            {{-- The series' reading mode is a shared setting: the admin's. --}}
-            @can('admin')
-            <div class="reader-seg mr-modes" role="group" aria-label="Reading mode">
-                <button type="button" data-mode="rtl" aria-pressed="false" title="Right to left (manga)">RTL</button>
-                <button type="button" data-mode="ltr" aria-pressed="false" title="Left to right">LTR</button>
-                <button type="button" data-mode="vertical" aria-pressed="false" title="Vertical (webtoon)">Vertical</button>
+            {{-- The admin's choice is the series default (saved on the
+                 server); anyone else's overrides it in this browser only,
+                 until "Series default". --}}
+            <div class="mr-modes-wrap">
+                <div class="reader-seg mr-modes" role="group" aria-label="Reading mode">
+                    <button type="button" data-mode="rtl" aria-pressed="false" title="Right to left (manga)">RTL</button>
+                    <button type="button" data-mode="ltr" aria-pressed="false" title="Left to right">LTR</button>
+                    <button type="button" data-mode="vertical" aria-pressed="false" title="Vertical (webtoon)">Vertical</button>
+                </div>
+                @cannot('admin')
+                <button type="button" class="reader-ctl mr-mode-reset" id="mrModeReset" hidden title="Use this series' default reading mode again">Series default</button>
+                @endcannot
             </div>
-            @endcan
+            {{-- Previous / next chapter, either side of the page slider. --}}
+            <button type="button" class="reader-ctl reader-ctl-icon mr-chap mr-chap-prev" id="mrPrevChapter" aria-label="Previous chapter" title="Previous chapter ( [ )" disabled>
+                <x-icon name="chevron-left" :size="14" :stroke="1.75" /><span class="reader-ctl-text">Prev</span>
+            </button>
+            <button type="button" class="reader-ctl reader-ctl-icon mr-chap mr-chap-next" id="mrNextChapter" aria-label="Next chapter" title="Next chapter ( ] )" disabled>
+                <span class="reader-ctl-text">Next</span><x-icon name="chevron-right" :size="14" :stroke="1.75" />
+            </button>
             <div class="mr-controls-end">
                 <button type="button" class="reader-ctl" id="mrFit" aria-label="Page fit: fit height">Fit height</button>
                 <button type="button" class="reader-ctl reader-ctl-icon" id="mrFullscreen" aria-label="Fullscreen" aria-pressed="false" hidden>

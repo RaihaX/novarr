@@ -304,8 +304,8 @@ body.mr-open {
 .mr-bottom {
     bottom: 0;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas: "modes scrub end";
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "modes prev scrub next end";
     align-items: center;
     gap: $s-4;
     padding: $s-3 max($s-4, env(safe-area-inset-right, 0px)) calc(#{$s-3} + env(safe-area-inset-bottom, 0px)) max($s-4, env(safe-area-inset-left, 0px));
@@ -314,7 +314,18 @@ body.mr-open {
 
 // The controls row's children join the bar's grid on wide screens.
 .mr-controls { display: contents; }
-.mr-modes { grid-area: modes; }
+.mr-modes-wrap {
+    grid-area: modes;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+.mr-mode-reset[hidden] { display: none; }
+.mr-chap-prev { grid-area: prev; }
+.mr-chap-next { grid-area: next; }
+.mr-chap:disabled { opacity: 0.4; pointer-events: none; }
 .mr-controls-end {
     grid-area: end;
     display: flex;
@@ -413,13 +424,14 @@ body.mr-open {
     .mr-title { text-align: left; }
 
     .mr-bottom {
-        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-columns: auto minmax(0, 1fr) auto;
         grid-template-areas:
-            "scrub scrub"
-            "modes end";
+            "prev  scrub next"
+            "modes modes end";
         row-gap: $s-2;
     }
-    .mr-modes { justify-self: start; }
+    .mr-modes-wrap { justify-self: start; }
+    .mr .mr-mode-reset { min-height: 36px; }
 
     .mr .reader-ctl-text { @include visually-hidden(); }
     .mr .reader-ctl-icon { min-width: 36px; min-height: 36px; justify-content: center; }

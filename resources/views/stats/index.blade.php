@@ -10,7 +10,7 @@
 
 {{-- Tiles — mono figures, caption labels. Amber marks a reading metric only
      when it has something to show; a zero is muted, not a call to action. --}}
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-2">
     <div class="col-6 col-lg-3">
         <div class="card dash-stat">
             <div class="card-body">
@@ -45,6 +45,7 @@
         </div>
     </div>
 </div>
+<p class="page-note mt-0 mb-4">Chapters marked read in bulk count here but not in daily activity.</p>
 
 {{-- Daily chart — HTML axes (text never scales with the plot), integer
      ticks on a "nice" step, and a collapsed empty state when nothing was read. --}}

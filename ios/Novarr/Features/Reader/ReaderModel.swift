@@ -9,8 +9,26 @@ final class ReaderModel {
     private(set) var content: ChapterContent?
     private(set) var phase: LoadPhase = .idle
     private(set) var isShowingCache = false
-    /// Paragraph index to scroll to once the text is laid out.
-    private(set) var restoreIndex: Int?
+    /// The chapter turned out to be manga (page images): the view opens the
+    /// manga reader for it instead of showing the failure.
+    private(set) var isMangaChapter = false
+    /// Global UTF-16 offsets of the open chapter's paragraphs.
+    private(set) var offsets = TextOffsets(lengths: [])
+    /// Where the reader is: the offset (see `offsets`) of the first line on
+    /// screen; in scroll mode, the top paragraph's start. Both modes keep it,
+    /// so a re-pagination, rotation or switch between Scroll and Pages lands
+    /// on the same text. Set on load to where the chapter should open.
+    @ObservationIgnored var anchorOffset = 0
+    /// Open at the end of the chapter (paging back from the next one).
+    private(set) var restoreToEnd = false
+    /// The position label's percentage, 0–100.
+    private(set) var shownProgress = 0
+    /// "Chapter 12 of 323", from the cached chapter list; nil when unknown.
+    private(set) var chapterPosition: ChapterPosition?
+    /// The open chapter's highlights (the server's, cached, and ones made
+    /// here that may not have reached it yet), and the ranges to tint per paragraph.
+    private(set) var highlights: [Highlight] = []
+    private(set) var highlightRanges: [Int: [NSRange]] = [:]
     /// Scroll events are ignored until the view has restored the position,
     /// so the initial jump never reports a bogus progress value.
     var isTracking = false
@@ -27,14 +45,37 @@ final class ReaderModel {
     /// When the oldest still-unsent scroll position was taken.
     @ObservationIgnored private var pendingSince: Date?
 
-    // Latest-position check: runs once, for the chapter the reader was opened on.
+    // Latest-position check: once when the reader opens (if the route offers
+    // it), and again on coming back from the background, for the chapter shown.
     @ObservationIgnored private let offersLatest: Bool
-    @ObservationIgnored private let openedChapterId: Int
-    @ObservationIgnored private var positionChecked = false
+    @ObservationIgnored private var firstCheckStarted = false
+    /// The current check's answer, once in (`positionFetched`); may be nil.
     @ObservationIgnored private var fetchedPosition: ReadingPosition?
-    @ObservationIgnored private var offerEvaluated = false
+    @ObservationIgnored private var positionFetched = false
+    /// Scroll positions wait here while a check or its prompt is open.
+    @ObservationIgnored private var hold = PositionHold()
+    @ObservationIgnored private var backgroundedAt: Date?
     /// "Go to latest" into another chapter: restore here, ignoring local progress.
     @ObservationIgnored private var forcedProgress: (chapterId: Int, progress: Int)?
+    /// Opened from a highlight: the chapter opens at its passage, as a
+    /// look-up (`PositionHold.startLookup`). Cleared on moving on.
+    @ObservationIgnored private var lookupHighlight: Highlight?
+    /// Paging back from the next chapter: open this one at its end.
+    @ObservationIgnored private var openAtEndId: Int?
+
+    // Highlights: the series' list is fetched once per reader (and cached
+    // for offline); ones saved here are shown at once and kept until a
+    // fetch has them.
+    @ObservationIgnored private var seriesHighlights: [Highlight]?
+    @ObservationIgnored private var highlightsFetched = false
+    @ObservationIgnored private var savedHere: [Highlight] = []
+    @ObservationIgnored private var previewIds = 0
+    @ObservationIgnored private var chapterList: [ChapterListItem]?
+
+    struct ChapterPosition: Equatable {
+        var number: Int
+        var count: Int
+    }
 
     struct LatestOffer: Equatable {
         var position: ReadingPosition
@@ -48,15 +89,37 @@ final class ReaderModel {
 
     /// Minimum seconds between progress writes while scrolling.
     static let progressInterval: TimeInterval = 4
+    /// Longest wait for the server's latest position before giving up on the prompt.
+    static let checkTimeout: TimeInterval = 3.5
 
     init(route: ReaderRoute) {
         novelId = route.novelId
         chapterId = route.chapterId
         offersLatest = route.offerLatest
-        openedChapterId = route.chapterId
+        if let highlight = route.highlight, highlight.chapterId == route.chapterId {
+            lookupHighlight = highlight
+            hold.startLookup()
+        }
     }
 
     var paragraphCount: Int { content?.paragraphs.count ?? 0 }
+
+    /// The chapter was opened at a highlight and nothing about the position is sent.
+    var isLookup: Bool { hold.lookup }
+
+    /// Paragraph the scroll view should show at the top when it appears; nil means the header.
+    var restoreParagraph: Int? {
+        guard paragraphCount > 0 else { return nil }
+        if restoreToEnd { return paragraphCount - 1 }
+        return anchorOffset > 0 ? offsets.paragraphAt(anchorOffset) : nil
+    }
+
+    /// 0–99 for paragraph `index`, the rule every progress write uses
+    /// (100 is reserved for actually reaching the end of the chapter).
+    func progress(forParagraph index: Int) -> Int {
+        let fraction = Double(index) / Double(max(paragraphCount - 1, 1))
+        return min(99, max(0, Int((fraction * 100).rounded())))
+    }
 
     // MARK: Loading
 
@@ -67,7 +130,7 @@ final class ReaderModel {
         pendingProgress = nil
         pendingSince = nil
         lastSentProgress = nil
-        restoreIndex = nil
+        restoreToEnd = false
 
         let id = chapterId
         let novelId = self.novelId
@@ -80,8 +143,9 @@ final class ReaderModel {
                 var fresh = try await client.chapter(id: id)
                 app.noteSuccess()
                 if fresh.novelId == 0 { fresh.novelId = novelId }
-                // Unsent local progress is newer than what the server knows.
-                if app.pendingWrites > 0, let cached {
+                // Unsent local progress for this chapter is newer than what the server knows.
+                let unsent = await app.hasUnsentWrite(chapterId: id)
+                if unsent, let cached {
                     fresh.readProgress = cached.readProgress
                     fresh.read = fresh.read || cached.read
                 }
@@ -101,8 +165,17 @@ final class ReaderModel {
             isShowingCache = false
         }
 
+        // A manga chapter (the server's 422, or pages saved offline) belongs
+        // in the manga reader; the view swaps itself for it.
+        if loaded == nil, let failure, failure == .mangaChapter || failure.isConnectivity {
+            var manga = failure == .mangaChapter
+            if !manga, let store = app.store { manga = await store.mangaChapter(id: id, novelId: novelId) != nil }
+            guard id == chapterId else { return }
+            isMangaChapter = manga
+        }
         guard var loaded else {
             phase = .failed(failure?.localizedDescription ?? "This chapter isn't available.")
+            await evaluateLatestOffer(app: app) // ends a check waiting for this chapter
             return
         }
         let forced = forcedProgress.flatMap { $0.chapterId == id ? $0.progress : nil }
@@ -113,18 +186,50 @@ final class ReaderModel {
             await app.store?.updateChapterState(id: id, novelId: novelId, progress: forced, read: nil)
             guard id == chapterId else { return }
         }
+        let offsets = TextOffsets(paragraphs: loaded.paragraphs)
+        let count = loaded.paragraphs.count
+        // Where to open: "Go to latest", a highlight's passage, the end (paging
+        // back), else the saved progress. A highlight not found in the text
+        // falls back to the saved progress.
+        var anchor: Int?
+        if let forced {
+            anchor = LatestPosition.paragraphIndex(progress: forced, paragraphCount: count).map(offsets.paragraphStart)
+        } else if let lookupHighlight, lookupHighlight.chapterId == id,
+                  let found = HighlightMatcher.locate(lookupHighlight.excerpt, in: loaded.paragraphs) {
+            anchor = offsets.paragraphStart(found.start.paragraph) + found.start.offset
+        } else if openAtEndId == id, count > 0 {
+            restoreToEnd = true
+            anchor = offsets.paragraphStart(count - 1)
+        } else if let progress = loaded.readProgress, progress < 100 {
+            anchor = LatestPosition.paragraphIndex(progress: progress, paragraphCount: count).map(offsets.paragraphStart)
+        }
+        openAtEndId = nil
+        self.offsets = offsets
+        anchorOffset = anchor ?? 0
         content = loaded
         markedRead = loaded.read
         lastSentProgress = loaded.readProgress
-        if let forced {
-            restoreIndex = LatestPosition.paragraphIndex(progress: forced, paragraphCount: loaded.paragraphs.count)
-        } else if let progress = loaded.readProgress, progress < 100 {
-            restoreIndex = LatestPosition.paragraphIndex(progress: progress, paragraphCount: loaded.paragraphs.count)
-        }
+        highlights = []
+        highlightRanges = [:]
+        shownProgress = restoreToEnd ? 100 : progress(forParagraph: offsets.paragraphAt(anchorOffset))
         phase = .loaded
         if loaded.downloaded { app.downloads.contentChanged() }
         prefetch(loaded.next, app: app)
+        Task {
+            await locateChapter(id, app: app)
+            await loadHighlights(chapterId: id, app: app)
+        }
         await evaluateLatestOffer(app: app)
+    }
+
+    /// "Chapter 12 of 323" from the cached chapter list (the chapter API
+    /// doesn't say how many there are); nil when the list isn't cached.
+    private func locateChapter(_ id: Int, app: AppModel) async {
+        if chapterList == nil { chapterList = await app.cached([ChapterListItem].self, .chapters(novelId)) }
+        guard id == chapterId else { return }
+        chapterPosition = chapterList.flatMap { list in
+            list.firstIndex { $0.id == id }.map { ChapterPosition(number: $0 + 1, count: list.count) }
+        }
     }
 
     /// Fetches the next chapter in the background so it's ready (and offline).
@@ -155,9 +260,18 @@ final class ReaderModel {
         await open(chapterId: ref.id, app: app)
     }
 
+    /// Opens `ref` at its end (paging back past the first page).
+    func openAtEnd(_ ref: ChapterRef, app: AppModel) async {
+        openAtEndId = ref.id
+        await open(chapterId: ref.id, app: app)
+    }
+
     private func open(chapterId id: Int, app: AppModel) async {
-        // Moving on answers the prompt as far as this reader is concerned.
+        // Moving on answers the prompt ("stay") as far as this reader is
+        // concerned, and ends a look-up (its position is dropped).
         latestOffer = nil
+        lookupHighlight = nil
+        apply(hold.moveOn(), app: app)
         await leave(app: app)
         chapterId = id
         content = nil
@@ -166,39 +280,89 @@ final class ReaderModel {
 
     // MARK: Latest position
 
-    /// Asks the server where this series was last read. Runs alongside
-    /// `load`; any failure or slow answer (3 s) simply means no prompt.
+    /// First open: asks the server where this series was last read. Runs
+    /// alongside `load`; any failure or slow answer simply means no prompt.
     func checkLatestPosition(app: AppModel) async {
-        guard offersLatest, !positionChecked, let client = app.client else { return }
-        positionChecked = true
-        guard let position = try? await client.latestPosition(novelId: novelId) else { return }
+        guard offersLatest, !firstCheckStarted else { return }
+        firstCheckStarted = true
+        await runCheck(app: app)
+    }
+
+    func enteredBackground() {
+        if backgroundedAt == nil { backgroundedAt = Date() }
+    }
+
+    /// Back in the foreground: after a while away another device may have
+    /// read further, so check again for the chapter shown (whatever the route).
+    func becameActive(app: AppModel) async {
+        let since = backgroundedAt
+        backgroundedAt = nil
+        // A look-up never asks: checking a passage isn't reading there.
+        guard !hold.lookup, LatestPosition.shouldRecheck(backgroundedAt: since, now: Date()) else { return }
+        await runCheck(app: app)
+    }
+
+    /// Holds scroll writes from now until the check ends: answered and
+    /// evaluated, failed, or given up on after `checkTimeout`.
+    private func runCheck(app: AppModel) async {
+        guard let client = app.client else { return }
+        let round = hold.startCheck(chapterId: chapterId)
+        fetchedPosition = nil
+        positionFetched = false
+        let timeout = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.checkTimeout))
+            guard !Task.isCancelled, let self, self.hold.isCurrent(round), !self.positionFetched else { return }
+            self.endCheck(round, offered: false, app: app)
+        }
+        let position = try? await client.latestPosition(novelId: novelId)
+        timeout.cancel()
+        guard hold.isCurrent(round), !positionFetched else { return } // timed out or superseded
         fetchedPosition = position
+        positionFetched = true
         await evaluateLatestOffer(app: app)
     }
 
-    /// Decides once both the chapter and the server's answer are in.
+    /// Decides once both the chapter and the server's answer are in, then
+    /// ends the check. Waits (returns) only while the check's chapter is
+    /// still loading; `load` calls back here when it's done.
     private func evaluateLatestOffer(app: AppModel) async {
-        guard let position = fetchedPosition, !offerEvaluated, phase == .loaded,
-              chapterId == openedChapterId, content?.id == openedChapterId else { return }
-        offerEvaluated = true
+        guard let check = hold.check, positionFetched else { return }
+        let round = check.round
+        let failed = if case .failed = phase { true } else { false }
+        guard let position = fetchedPosition, chapterId == check.chapterId, !failed else {
+            endCheck(round, offered: false, app: app)
+            return
+        }
+        guard phase == .loaded, content?.id == check.chapterId else { return }
 
         var localTimes = await app.unsentWriteTimes(novelId: novelId)
+        // Positions taken during the hold don't count (`pendingSince` skips them).
         if let pendingSince { localTimes.append(pendingSince) }
         let localNewer = LatestPosition.localIsNewer(
             localWriteTimes: localTimes, ageSeconds: position.ageSeconds, now: Date())
-        var canOpen = position.chapterId == openedChapterId || position.downloaded == true
+        var canOpen = position.chapterId == check.chapterId || position.downloaded == true
         if !canOpen {
             canOpen = await app.store?.hasChapter(id: position.chapterId, novelId: novelId) ?? false
         }
-        // The user may have turned the page while we waited.
-        guard chapterId == openedChapterId else { return }
+        // Ended meanwhile (the user turned the page, or a newer check started).
+        guard hold.isCurrent(round) else { return }
+        guard chapterId == check.chapterId else {
+            endCheck(round, offered: false, app: app)
+            return
+        }
 
-        if LatestPosition.shouldOffer(
-            position: position, deviceID: app.device.id, chapterID: openedChapterId,
+        let offered = LatestPosition.shouldOffer(
+            position: position, deviceID: app.device.id, chapterID: check.chapterId,
             localProgress: currentProgress, localNewer: localNewer,
-            declinedAt: app.declinedLatestPosition(novelId: novelId), canOpen: canOpen) {
+            declinedAt: app.declinedLatestPosition(novelId: novelId), canOpen: canOpen)
+        if offered {
             latestOffer = LatestOffer(position: position, message: LatestPosition.message(for: position))
         }
+        endCheck(round, offered: offered, app: app)
+    }
+
+    private func endCheck(_ round: Int, offered: Bool, app: AppModel) {
+        apply(hold.resolveCheck(round, offered: offered), app: app)
     }
 
     /// This device's position in the open chapter, 0–100.
@@ -210,10 +374,13 @@ final class ReaderModel {
     func acceptLatestOffer(app: AppModel) async {
         guard let offer = latestOffer else { return }
         latestOffer = nil
+        // The position here must not replace the one being gone to.
+        apply(hold.goToLatest(), app: app)
         let target = offer.position
         if target.chapterId == chapterId {
             guard let progress = target.progress else { return }
             let index = LatestPosition.paragraphIndex(progress: progress, paragraphCount: paragraphCount) ?? 0
+            anchorOffset = offsets.paragraphStart(index)
             scrollRequest = ScrollRequest(index: index)
         } else {
             forcedProgress = (target.chapterId, target.progress ?? 0)
@@ -228,45 +395,82 @@ final class ReaderModel {
         if let at = offer.position.at {
             app.declineLatestPosition(at: at, novelId: novelId)
         }
+        apply(hold.stay(), app: app)
     }
 
     // MARK: Progress
 
-    /// Called as the top visible paragraph changes.
-    func scrolled(toParagraph index: Int, app: AppModel) {
+    /// Called as the top visible paragraph changes (scroll mode), or a page
+    /// is turned to (pages mode: `offset` is the page's first line).
+    func scrolled(toParagraph index: Int, offset: Int? = nil, app: AppModel) {
         guard isTracking, paragraphCount > 0, content?.downloaded == true else { return }
-        let fraction = Double(index) / Double(max(paragraphCount - 1, 1))
-        // 100 is reserved for actually reaching the end of the chapter.
-        pendingProgress = min(99, max(0, Int((fraction * 100).rounded())))
+        anchorOffset = offset ?? offsets.paragraphStart(index)
+        pendingProgress = progress(forParagraph: index)
+        shownProgress = pendingProgress ?? 0
+        // Held positions don't date local reading: they'd hide the very prompt the hold waits for.
+        guard !hold.isHolding else { return }
         if pendingSince == nil { pendingSince = Date() }
         scheduleSend(app: app)
     }
 
     func reachedEnd(app: AppModel) {
         guard isTracking, var content, content.downloaded else { return }
+        shownProgress = 100
         sendTask?.cancel()
         sendTask = nil
         pendingProgress = nil
         pendingSince = nil
         guard !markedRead else { return }
         markedRead = true
+        // The read mark goes out regardless of the hold, and answers any prompt.
+        if latestOffer != nil {
+            latestOffer = nil
+            apply(hold.dismissOffer(), app: app)
+        }
         lastSentProgress = 100
         lastSentAt = Date()
         content.read = true
         content.readProgress = 100
         self.content = content
         let id = chapterId, novelId = self.novelId
+        // A look-up's read mark is flagged so the series' latest position
+        // stays put; its position (held) is still never sent.
+        let write: PendingWrite.Kind = hold.lookup
+            ? .lookupRead(chapterId: id)
+            : .progress(chapterId: id, progress: 100, read: true)
         Task {
             await app.store?.updateChapterState(id: id, novelId: novelId, progress: 100, read: true)
-            await app.record(.progress(chapterId: id, progress: 100, read: true), novelId: novelId)
+            await app.record(write, novelId: novelId)
         }
     }
 
     /// Sends any unsent position; call when leaving the chapter or the app.
+    /// With a prompt unanswered the position is dropped instead, and while a
+    /// check is still waiting it stays held until the check ends.
     func leave(app: AppModel) async {
         sendTask?.cancel()
         sendTask = nil
-        await sendPending(app: app)
+        switch hold.leaving() {
+        case .send: await sendPending(app: app)
+        case .discard: discardPending()
+        case .keep: break
+        }
+    }
+
+    /// Carries out what the hold says about the unsent position.
+    private func apply(_ release: PositionHold.Release, app: AppModel) {
+        switch release {
+        case .send: if pendingProgress != nil { scheduleSend(app: app) }
+        case .discard: discardPending()
+        case .keep: break
+        }
+    }
+
+    private func discardPending() {
+        sendTask?.cancel()
+        sendTask = nil
+        pendingProgress = nil
+        pendingSince = nil
     }
 
     private func scheduleSend(app: AppModel) {
@@ -286,7 +490,8 @@ final class ReaderModel {
 
     private func sendPending(app: AppModel) async {
         sendTask = nil
-        guard let progress = pendingProgress else { return }
+        // A send scheduled before a check started waits for the hold to end.
+        guard !hold.isHolding, let progress = pendingProgress else { return }
         pendingProgress = nil
         pendingSince = nil
         guard progress != lastSentProgress else { return }
@@ -295,5 +500,78 @@ final class ReaderModel {
         let id = chapterId
         await app.store?.updateChapterState(id: id, novelId: novelId, progress: progress, read: nil)
         await app.record(.progress(chapterId: id, progress: progress, read: false), novelId: novelId)
+    }
+
+    // MARK: Highlights
+
+    /// Shows what is known at once (this session's or the cached list, plus
+    /// highlights still queued), then fetches the series' list once per reader.
+    private func loadHighlights(chapterId id: Int, app: AppModel) async {
+        if seriesHighlights == nil {
+            seriesHighlights = await app.cached([Highlight].self, .highlights(novelId))
+        }
+        await applyHighlights(chapterId: id, app: app)
+        guard !highlightsFetched, let client = app.client,
+              let fresh = await Self.fetchHighlights(novelId: novelId, client: client) else { return }
+        highlightsFetched = true
+        seriesHighlights = fresh
+        await app.store?.save(fresh, as: .highlights(novelId))
+        await applyHighlights(chapterId: id, app: app)
+    }
+
+    /// Every highlight in the series, page by page; nil if any page fails
+    /// (offline, or a server without highlights).
+    private static func fetchHighlights(novelId: Int, client: APIClient) async -> [Highlight]? {
+        var all: [Highlight] = []
+        // The list has no chapter filter; 25 pages of 200 is far beyond real use.
+        for page in 1...25 {
+            guard let answer = try? await client.highlights(novelId: novelId, page: page, perPage: 200) else { return nil }
+            all += answer.highlights
+            if !answer.hasMore || answer.highlights.isEmpty { break }
+        }
+        return all
+    }
+
+    /// The chapter's highlights: the series' list, ones saved here and ones
+    /// still queued from earlier, each excerpt once; then where to tint.
+    private func applyHighlights(chapterId id: Int, app: AppModel) async {
+        let queued = PendingWrite.highlightDrafts(await app.queue?.items ?? [], chapterId: id)
+        guard id == chapterId, let content, content.id == id else { return }
+        var list: [Highlight] = []
+        var seen = Set<String>()
+        func add(_ highlight: Highlight) {
+            if seen.insert(HighlightMatcher.normalize(highlight.excerpt)).inserted { list.append(highlight) }
+        }
+        (seriesHighlights ?? []).filter { $0.chapterId == id }.forEach(add)
+        savedHere.filter { $0.chapterId == id }.forEach(add)
+        for draft in queued {
+            previewIds -= 1
+            add(draft.preview(id: previewIds, novelId: novelId, novelName: content.novelName, chapterLabel: content.label))
+        }
+        highlights = list
+        let matches = HighlightMatcher.matches(list, in: content.paragraphs)
+        highlightRanges = HighlightMatcher.ranges(for: matches, lengths: content.paragraphs.map { $0.utf16.count })
+    }
+
+    /// Saves a highlight of the open chapter through the write queue (sent
+    /// now when online, kept until it can be otherwise) and tints it at once.
+    /// False when the text is empty or over the server's limits.
+    @discardableResult
+    func saveHighlight(excerpt: String, note: String?, app: AppModel) async -> Bool {
+        guard let content, content.id == chapterId,
+              let draft = HighlightDraft(chapterId: content.id, excerpt: excerpt, note: note) else { return false }
+        previewIds -= 1
+        let preview = draft.preview(id: previewIds, novelId: novelId, novelName: content.novelName,
+                                    chapterLabel: content.label)
+        savedHere.append(preview)
+        // Kept with the offline copy too, so it shows when reopened offline
+        // even after it was sent; the next fetch replaces the list.
+        var cached = seriesHighlights ?? []
+        cached.append(preview)
+        seriesHighlights = cached
+        await app.store?.save(cached, as: .highlights(novelId))
+        await app.record(.highlight(draft), novelId: novelId)
+        await applyHighlights(chapterId: content.id, app: app)
+        return true
     }
 }
