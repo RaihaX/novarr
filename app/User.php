@@ -72,6 +72,7 @@ class User extends Authenticatable
             Bookmark::where('user_id', $user->id)->delete();
             ApiToken::where('user_id', $user->id)->delete();
             DevicePairing::where('user_id', $user->id)->delete();
+            UserInvite::where('user_id', $user->id)->delete();
         });
     }
 
@@ -106,6 +107,32 @@ class User extends Authenticatable
         $username = static::normaliseUsername($username);
 
         return $username === '' ? null : static::where('username', $username)->first();
+    }
+
+    /**
+     * The account a sign-in name refers to: an email address (has an "@",
+     * which usernames cannot) matches the account's email, case-insensitive;
+     * anything else is a username. Used by the web login, the API and Basic.
+     */
+    public static function findForSignIn(?string $login): ?self
+    {
+        $login = static::normaliseUsername($login);
+        if ($login === '') {
+            return null;
+        }
+        if (str_contains($login, '@')) {
+            return static::findByEmail($login);
+        }
+
+        return static::where('username', $login)->first();
+    }
+
+    /** Case-insensitive (older rows may hold mixed case; new ones are stored lowercase). */
+    public static function findByEmail(?string $email): ?self
+    {
+        $email = strtolower(trim((string) $email));
+
+        return $email === '' ? null : static::whereRaw('LOWER(email) = ?', [$email])->orderBy('id')->first();
     }
 
     /** Set a new password (hashed by the cast) and remember that it was set here. */

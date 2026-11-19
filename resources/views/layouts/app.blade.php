@@ -219,6 +219,17 @@
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
             @endif
+            {{-- Once, right after accepting an invite (Auth\InviteController). --}}
+            @if(session(\App\Http\Controllers\Auth\InviteController::FLASH_WELCOME))
+                <div class="alert alert-success alert-dismissible fade show welcome-notice" role="status" id="welcomeNotice">
+                    <strong>Welcome to Novarr, {{ session(\App\Http\Controllers\Auth\InviteController::FLASH_WELCOME) }}.</strong>
+                    To read on a Kindle, link it on your <a href="{{ route('account') }}#link">Account page</a>.
+                    @if(\App\Support\AndroidApp::available())
+                        <a href="{{ \App\Support\AndroidApp::url(request()) }}" class="welcome-android" data-turbo="false" download>{{ \App\Support\AndroidApp::linkText() }}</a>
+                    @endif
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            @endif
             {{-- System pages pass a trail: @section('breadcrumb') … --}}
             @hasSection('breadcrumb')
                 <nav class="page-breadcrumb" aria-label="Breadcrumb">

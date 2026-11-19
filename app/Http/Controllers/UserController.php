@@ -4,11 +4,12 @@ namespace App\Http\Controllers;
 
 use App\ApiToken;
 use App\Http\Controllers\Auth\LoginController;
+use App\Support\AccountRules;
 use App\Support\AuthMode;
 use App\Support\CurrentReader;
 use App\User;
+use App\UserInvite;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rules\Password;
 
 /**
  * Settings → Users (admin; also while sign-in is off, so accounts can be
@@ -17,8 +18,10 @@ use Illuminate\Validation\Rules\Password;
  *
  * Rules: one admin — the owner — whose account cannot be deleted, disabled
  * or demoted (roles are not editable at all in this release). Deleting a
- * reader deletes their read state, positions, highlights and tokens
- * (App\User's deleted hook). The admin types a reader's first password.
+ * reader deletes their read state, positions, highlights, tokens and
+ * invite (App\User's deleted hook). Readers are invited by email
+ * (App\Http\Controllers\UserInviteController); "Add without an invite"
+ * (store) still lets the admin type a first password.
  */
 class UserController extends Controller
 {
@@ -35,6 +38,7 @@ class UserController extends Controller
             'authForced' => AuthMode::forced(),
             'authRefused' => AuthMode::forcedOnButRefused(),
             'cannotTurnOn' => AuthMode::cannotTurnOnReason(),
+            'invites' => UserInvite::unaccepted()->orderBy('expires_at')->orderBy('id')->get(),
         ]);
     }
 
@@ -43,7 +47,7 @@ class UserController extends Controller
         $data = $request->validateWithBag('add', [
             'name' => 'required|string|max:80',
             'username' => $this->usernameRules(),
-            'password' => ['required', 'string', Password::min(8), 'max:255'],
+            'password' => AccountRules::password(),
         ], $this->messages());
 
         $user = new User();
@@ -80,7 +84,7 @@ class UserController extends Controller
     {
         $user = User::findOrFail($id);
         $data = $request->validateWithBag('password' . $user->id, [
-            'password' => ['required', 'string', Password::min(8), 'max:255'],
+            'password' => AccountRules::password(),
         ], ['password.required' => 'Type the new password.']);
 
         $user->setNewPassword($data['password']);
@@ -160,22 +164,7 @@ class UserController extends Controller
 
     private function usernameRules(?int $ignoreId = null): array
     {
-        return [
-            'required', 'string', 'max:60',
-            function ($attribute, $value, $fail) {
-                if (!preg_match(User::USERNAME_PATTERN, User::normaliseUsername($value))) {
-                    $fail('Use 2 to 60 letters, numbers, dots, dashes or underscores, starting with a letter or number.');
-                }
-            },
-            function ($attribute, $value, $fail) use ($ignoreId) {
-                $taken = User::where('username', User::normaliseUsername($value))
-                    ->when($ignoreId !== null, fn($q) => $q->where('id', '!=', $ignoreId))
-                    ->exists();
-                if ($taken) {
-                    $fail('Someone already signs in with that name.');
-                }
-            },
-        ];
+        return AccountRules::username($ignoreId);
     }
 
     private function messages(): array

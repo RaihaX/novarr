@@ -10,8 +10,9 @@ use Illuminate\Routing\Route;
  * tests/Feature/RouteAccessTest (which walks every registered route and fails
  * on any that is not listed here).
  *
- *   public — no credentials (sign-in itself, health checks, discovery, the
- *            KOReader plugin's self-update, the offline shell)
+ *   public — no credentials (sign-in itself, accepting an invite, health
+ *            checks, discovery, the KOReader plugin's self-update, the
+ *            Android app download, the offline shell)
  *   reader — any signed-in account
  *   admin  — the owner only. DEFAULT: a route that is not listed below is
  *            admin-only (default-deny), so a new route is never accidentally
@@ -35,6 +36,11 @@ final class RouteAccess
         'login',
         'login.store',
         'logout',
+        // Accepting an invite (the link is the credential; throttled)
+        'invite.show',
+        'invite.accept',
+        // The Android app download (before or right after accepting an invite)
+        'app.android',
         // The PWA's offline fallback page (no reader data on it)
         'offline',
         // Health checks (Docker, monitoring)
@@ -134,6 +140,7 @@ final class RouteAccess
         'settings.test_notification', 'settings.tailscale_status', 'settings.tailscale_serve', 'settings.tailscale_funnel',
         'settings.users', 'settings.users.store', 'settings.users.update', 'settings.users.password',
         'settings.users.disable', 'settings.users.destroy', 'settings.users.auth',
+        'settings.users.invites.store', 'settings.users.invites.resend', 'settings.users.invites.destroy',
         'api.v1.discover', 'api.v1.discover.browse', 'api.v1.discover.searches.store', 'api.v1.discover.searches.show',
         'api.v1.novels.store',
     ];

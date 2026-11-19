@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 
 /**
- * Username + password checks, shared by the web login, the API's
+ * Username (or email) + password checks, shared by the web login, the API's
  * POST /api/v1/auth/token and HTTP Basic (OPDS). Throttled per
  * username + IP: MAX_ATTEMPTS failures a minute, through the rate limiter's
  * cache store (file in production). Only failures count; a success clears them.
@@ -42,7 +42,7 @@ class Credentials
             ];
         }
 
-        $user = User::findByUsername($username);
+        $user = User::findForSignIn($username);
         $ok = $user !== null && is_string($password) && $password !== '' && static::check($password, (string) $user->password);
         if (!$ok) {
             // Same work whether or not the name exists, so timing does not tell.

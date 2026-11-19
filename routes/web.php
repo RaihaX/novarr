@@ -33,6 +33,13 @@ Route::get('/login', [\App\Http\Controllers\Auth\LoginController::class, 'show']
 Route::post('/login', [\App\Http\Controllers\Auth\LoginController::class, 'store'])->name('login.store');
 Route::post('/logout', [\App\Http\Controllers\Auth\LoginController::class, 'destroy'])->name('logout');
 
+// Accepting an invite (public; App\Http\Controllers\Auth\InviteController)
+Route::get('/invite/{token}', [\App\Http\Controllers\Auth\InviteController::class, 'show'])->middleware('throttle:novarr-invite')->name('invite.show');
+Route::post('/invite/{token}', [\App\Http\Controllers\Auth\InviteController::class, 'accept'])->middleware('throttle:novarr-invite')->name('invite.accept');
+
+// The Android app's APK (public download; App\Support\AndroidApp)
+Route::get('/app/android', [\App\Http\Controllers\AndroidAppController::class, 'download'])->middleware('throttle:novarr-download')->name('app.android');
+
 // Your account: name, password, signed-in devices, linking a device by code
 Route::get('/account', [\App\Http\Controllers\AccountController::class, 'show'])->name('account');
 Route::post('/account/profile', [\App\Http\Controllers\AccountController::class, 'updateProfile'])->name('account.profile');
@@ -145,6 +152,9 @@ Route::put('/settings/users/{id}', [\App\Http\Controllers\UserController::class,
 Route::post('/settings/users/{id}/password', [\App\Http\Controllers\UserController::class, 'password'])->whereNumber('id')->name('settings.users.password');
 Route::post('/settings/users/{id}/disable', [\App\Http\Controllers\UserController::class, 'toggleDisabled'])->whereNumber('id')->name('settings.users.disable');
 Route::delete('/settings/users/{id}', [\App\Http\Controllers\UserController::class, 'destroy'])->whereNumber('id')->name('settings.users.destroy');
+Route::post('/settings/users/invites', [\App\Http\Controllers\UserInviteController::class, 'store'])->name('settings.users.invites.store');
+Route::post('/settings/users/invites/{id}/resend', [\App\Http\Controllers\UserInviteController::class, 'resend'])->whereNumber('id')->name('settings.users.invites.resend');
+Route::delete('/settings/users/invites/{id}', [\App\Http\Controllers\UserInviteController::class, 'destroy'])->whereNumber('id')->name('settings.users.invites.destroy');
 Route::post('/settings/sign-in', [\App\Http\Controllers\UserController::class, 'auth'])->name('settings.users.auth');
 
 // Tailscale panel (status + Serve/Funnel toggles)

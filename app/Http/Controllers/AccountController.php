@@ -5,11 +5,11 @@ namespace App\Http\Controllers;
 use App\ApiToken;
 use App\DevicePairing;
 use App\Services\Credentials;
+use App\Support\AccountRules;
 use App\Support\AuthMode;
 use App\Support\CurrentReader;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Validation\Rules\Password;
 
 /**
  * /account — any signed-in user: their display name and password, the
@@ -55,7 +55,7 @@ class AccountController extends Controller
         $user = $reader->user();
         $data = $request->validateWithBag('password', [
             'current_password' => 'required|string',
-            'password' => ['required', 'string', 'confirmed', Password::min(8), 'max:255'],
+            'password' => AccountRules::password(confirmed: true),
         ], [
             'current_password.required' => 'Enter your current password.',
             'password.confirmed' => 'The two new passwords do not match.',

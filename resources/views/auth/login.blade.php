@@ -28,7 +28,7 @@
                 @enderror
 
                 <div class="form-row">
-                    <label for="username" class="form-label">Name</label>
+                    <label for="username" class="form-label">Name or email</label>
                     <input type="text" name="username" id="username" class="form-control @error('username') is-invalid @enderror"
                            value="{{ $username }}" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"
                            required autofocus @error('username') aria-describedby="loginError" @enderror>
@@ -43,6 +43,6 @@
             </form>
         </div>
     </div>
-    <p class="auth-help">No account? Ask the person who runs this Novarr to add you.</p>
+    <p class="auth-help">No account? Ask the person who runs this Novarr to invite you.</p>
 </div>
 @endsection

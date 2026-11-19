@@ -62,6 +62,7 @@ class AuthSwitch extends Command
             ['Owner', $owner ? "{$owner->name} ({$owner->username})" : 'missing — run php artisan migrate'],
             ['Owner password', $owner?->password_set_at ? 'set ' . $owner->password_set_at->toDateTimeString() : 'not set'],
             ['Accounts', (string) User::count()],
+            ['Pending invites', (string) \App\UserInvite::pending()->count()],
         ]);
 
         if ($forced !== null && $forced !== AuthMode::setting()) {

@@ -191,6 +191,14 @@ return [
     'koreader_plugin_path' => env('NOVARR_KOREADER_PLUGIN_PATH', base_path('koreader/novarr.koplugin')),
 
     /*
+    | The Android app readers can install (GET /app/android, public). Put the
+    | APK here out of band; an optional sidecar <path>.json next to it may
+    | hold {"version": "1.0", "build": 1}. Missing file = no download offered
+    | (App\Support\AndroidApp).
+    */
+    'android_apk_path' => env('NOVARR_ANDROID_APK', storage_path('app/apps/novarr.apk')),
+
+    /*
     | Random politeness delay (milliseconds, [min, max]) before each chapter
     | fetch in chapterGenerator(). Tests set it to [0, 0].
     */

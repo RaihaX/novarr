@@ -84,6 +84,11 @@ class AppServiceProvider extends ServiceProvider
             ->response(fn() => response()->json(['message' => 'Too many link codes asked for. Try again later.', 'code' => 'throttled'], 429)));
         // Polling by secret: generous (every 3 s), per IP.
         RateLimiter::for('novarr-pairing-poll', fn(Request $request) => Limit::perMinute(60)->by('pair-poll|' . $request->ip()));
+        // Invite links (public): opening and accepting, per IP. A token is 64
+        // hex characters, so this is about load, not guessing.
+        RateLimiter::for('novarr-invite', fn(Request $request) => Limit::perMinute(30)->by('invite|' . $request->ip()));
+        // Public file downloads (the Android app), per IP.
+        RateLimiter::for('novarr-download', fn(Request $request) => Limit::perMinute(10)->by('download|' . $request->ip()));
         // Readers' "check for new chapters" / "build ePub": the admin is not limited.
         RateLimiter::for('novarr-reader-actions', function (Request $request) {
             $reader = app(CurrentReader::class);

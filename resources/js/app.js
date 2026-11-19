@@ -24,6 +24,10 @@ import {
 } from './offline';
 initDevice();
 
+// Copy buttons (Settings → Users invite link); re-initialised per visit.
+import { initCopyButtons } from './copy-link';
+document.addEventListener('turbo:load', () => initCopyButtons());
+
 // Novel page chapter list (filter, selection); re-initialised per visit.
 import { initNovelPage } from './novel';
 document.addEventListener('turbo:load', initNovelPage);
