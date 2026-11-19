@@ -14,9 +14,10 @@ iPhone app know where you are.
   which KOReader package you need depends on your Kindle model and firmware, so
   follow that guide rather than guessing.
 - Your Novarr server, and the e-reader on the **same network** (the same Wi-Fi at
-  home, for example). Novarr has no login, so nothing else is needed. Away from
-  home, a second address of the server (a Tailscale name, for example) can be added
-  in Settings, see **Two addresses** below.
+  home, for example). Away from home, a second address of the server (a Tailscale
+  name, for example) can be added in Settings, see **Two addresses** below. When your
+  Novarr has sign-in switched on, the Kindle is linked to your account once with a
+  short code (no password to type), see **Linking this Kindle to your account** below.
 - KOReader 2024.11 or newer for the reading info in the status bar (older versions
   work, they just don't show it).
 
@@ -37,7 +38,8 @@ browser and while reading.
 The first time, Novarr asks for the server address: type the address you use to
 open Novarr in a web browser, for example `192.168.1.34:8080`. You can leave out
 `http://`; a pasted `/api/v1` at the end is ignored. Novarr checks the address and
-tells you in plain words if it can't reach the server or if it isn't Novarr.
+tells you in plain words if it can't reach the server or if it isn't Novarr. If the
+server needs sign-in, Novarr then offers to link this Kindle to your account (see below).
 
 Tip: you can also give Novarr a gesture (Settings ▸ Taps and gestures ▸ Gesture
 manager): look for **Novarr**, **Novarr: next chapter** and
@@ -376,9 +378,46 @@ Note: reading progress in a downloaded EPUB stays on the device and is **not** s
 to Novarr, and the EPUB doesn't get new chapters by itself. Reading chapter by chapter
 through Novarr is the way that stays up to date and in sync.
 
+### Linking this Kindle to your account
+
+Since 1.9.0, a Novarr server with sign-in switched on only talks to devices linked to an
+account. Without sign-in (an older server, or sign-in off) nothing changes and none of
+this shows.
+
+To link, tap **Link** on Home (it takes the place of **Sync** while the Kindle isn't
+linked) or **Link this Kindle** in Settings. Novarr shows a short code in large letters,
+for example:
+
+    K7M 4QX
+
+On your phone or computer, open Novarr, go to **Account → Link a device** and enter the
+code. The Kindle notices by itself within a few seconds and says "Linked to" and your name;
+there is nothing to type on the Kindle. **Cancel** stops waiting. A code is good for
+10 minutes; when it runs out, tap **Get a new code**. The Kindle stays on Wi-Fi while
+it waits.
+
+Once linked, Settings shows **Account:** and your name (tap it to see the account and the
+server) and **Unlink this Kindle**, which signs this Kindle out (also on the server when
+it is reachable). The link belongs to the server: the home and away addresses share it,
+and switching to a different server forgets it.
+
+If the server stops accepting this Kindle (the link was removed on the website, or the
+account was deleted), Novarr tells you once and offers to link again. Until then nothing
+is sent and nothing is fetched from the server, so there is no stream of failing
+requests in the background; your reading on this Kindle is **kept**, and every change
+waiting to be sent goes out once the Kindle is linked again. Chapters saved on the
+Kindle can still be read meanwhile.
+
+A **reader** account (one the owner invited to read) can read, sync, check for new
+chapters and download, but not add novels: Home has no **Discover** button for it.
+
+Plugin updates never need the account: the update check and download work linked or not.
+
 ### Settings
 
 - **Server address** and **Second address (away from home)**.
+- When the server needs sign-in: **Link this Kindle**, or **Account:** with your name and
+  **Unlink this Kindle** (see above).
 - **Chapters to fetch ahead while reading**: Off, 20, 50, 100 (default) or 200.
 - **Turn Wi-Fi off while reading when everything is saved** (off), with when Wi-Fi comes
   back and, once there is 10 minutes of reading, how much of it had Wi-Fi on.
@@ -459,6 +498,9 @@ there too). To remove the plugin completely, delete `koreader/plugins/novarr.kop
   menu. A failed connection is tried again after 1, 5 and 15 minutes.
 - **"isn't a Novarr server"**: the address answers, but with something else (another
   web page, a router login page). Check the port.
+- **"This Kindle isn't linked to your Novarr account"**: the server has sign-in on and
+  this Kindle isn't linked (or the link was removed). Tap **Link** on Home and enter the
+  code on the website (Account → Link a device). Nothing waiting to be sent is lost.
 - **"Novarr hasn't downloaded this chapter from its source yet"** or **"has no text on
   the server"**: the server knows the chapter exists but has no text for it yet. Wait
   for Novarr to download it (see the novel's page on the website).

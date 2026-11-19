@@ -395,6 +395,8 @@ function Screen:showItem(it)
             ok = function() s:showNovel(it.novel_id) end })
     elseif it.in_library then
         UI.info(text)
+    elseif not s:allows("add_novel") then
+        UI.info(text) -- a reader account can't add novels (auth.lua)
     else
         UI.confirm({ text = text, ok_text = _("Add to library"), cancel_text = _("Close"),
             ok = function() self:add(it) end })
@@ -434,6 +436,11 @@ function Screen:onClose()
 end
 
 function Screen.show(session)
+    -- Discover is for adding novels: not for a reader account (auth.lua; Home has no button for it then).
+    if not session:allows("discover") then
+        UI.info(_("Your Novarr account can read and sync, but not add novels."))
+        return nil
+    end
     local self = setmetatable({ session = session, kind = "discover", cover_list = session:showCovers() }, Screen)
     self.menu = UI.showMenu(session, {
         title = _("Discover"),
