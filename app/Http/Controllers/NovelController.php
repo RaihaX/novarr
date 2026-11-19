@@ -236,7 +236,8 @@ class NovelController extends Controller
         $aggregates = static::libraryAggregates();
         $totals = static::libraryTotals(array_intersect_key($aggregates, $memberIds));
 
-        $attentionIds = \App\Services\NovelHealth::attentionIds();
+        // Download health is the admin's business: readers get no attention chip or badges.
+        $attentionIds = \Illuminate\Support\Facades\Gate::allows('admin') ? \App\Services\NovelHealth::attentionIds() : [];
 
         $sets = [
             'reading' => array_keys(array_filter($reading, fn($r) => $r['read'] > 0 && !$r['finished'])),

@@ -20,6 +20,9 @@
         'offline' => ['Offline', null, null],
         'finished' => ['Finished', null, null],
     ];
+    if (!\Illuminate\Support\Facades\Gate::allows('admin')) {
+        unset($chips['attention']);
+    }
     // Translated / Original only exist in the Novels library.
     foreach (['translated' => 'Translated', 'original' => 'Original'] as $originKey => $originLabel) {
         if (in_array($originKey, $originChips, true)) {

@@ -167,7 +167,14 @@ class IdentifyReader
             return new JsonResponse(['message' => 'Sign in to continue.', 'code' => 'unauthenticated'], 401);
         }
 
-        return $request->isMethod('GET') || $request->isMethod('HEAD')
+        // Only a page the person asked for is where sign-in returns to: the
+        // service worker's background fetches (it precaches "/" and
+        // "/library") must not replace it. Browsers label the kind of fetch;
+        // clients that don't (curl, old browsers) count as navigating.
+        $mode = $request->header('Sec-Fetch-Mode');
+        $navigating = $mode === null || $mode === 'navigate';
+
+        return $navigating && ($request->isMethod('GET') || $request->isMethod('HEAD'))
             ? redirect()->guest(route('login'))
             : redirect()->route('login');
     }

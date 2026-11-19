@@ -53,6 +53,12 @@ class WebSignInTest extends TestCase
         $oldSession = $cookies[config('session.cookie')] ?? null;
         $this->assertNotNull($oldSession);
 
+        // The service worker's background fetches (it precaches "/library")
+        // are redirected too, but do not replace the remembered page.
+        $this->withBrowser($cookies)->withHeader('Sec-Fetch-Mode', 'cors')->get('/library')
+            ->assertRedirect(route('login'));
+        $this->flushHeaders();
+
         $login = $this->withBrowser($cookies)->post('/login', ['username' => 'SAM', 'password' => self::READER_PASSWORD]);
         $login->assertRedirect(route('stats.index'));
         $after = $this->cookiesOf($login);

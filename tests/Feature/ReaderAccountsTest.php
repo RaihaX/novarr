@@ -395,7 +395,7 @@ class ReaderAccountsTest extends TestCase
         $adminOnly = [
             'nav' => ['id="systemDropdown"', 'href="' . route('settings.index') . '"', 'href="' . route('activity.index') . '"', 'id="funnelBanner"'],
             'home' => ['id="statusCard"', 'home-navstat', 'novels/discover'],
-            'library' => ['id="bulkDelete"', 'id="bulkComplete"', '+ Add'],
+            'library' => ['id="bulkDelete"', 'id="bulkComplete"', '+ Add', 'Needs attention'],
             'library-table' => ['novel-delete-btn" data-id', 'novel-complete-btn" data-id'],
             'series' => ['Edit details', 'id="deleteNovel"', 'id="pauseToggle"', 'id="maintenancePanel"', 'id="editTags"',
                 'data-command="epub"', 'send_to_kindle', 'id="frequentToggle"', 'href="' . route('novels.edit', $novel->id) . '"'],
