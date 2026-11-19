@@ -133,8 +133,16 @@ class DevicePairing extends Model
     }
 
     /** Link to $user: issues the device's token, held (encrypted) until collected. */
-    public function link(User $user): ApiToken
+    public function link(User $user): ?ApiToken
     {
+        // Claim it first, atomically: of two confirmations (a double submit,
+        // two people typing the same code) only one links; the other gets null.
+        $claimed = static::whereKey($this->id)->whereNull('user_id')->where('expires_at', '>', now())
+            ->update(['user_id' => (int) $user->id, 'linked_at' => now()]);
+        if ($claimed !== 1) {
+            return null;
+        }
+
         [$token, $plain] = ApiToken::issue($user, $this->device_name ?: 'Linked device', $this->device_id);
         $this->forceFill([
             'user_id' => (int) $user->id,

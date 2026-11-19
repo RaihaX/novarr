@@ -44,7 +44,9 @@ class PairingController extends Controller
         if ($pairing === null) {
             return $this->gone();
         }
-        if ($pairing->user_id === null) {
+        // Not linked yet — or being linked this instant (claimed, token not
+        // written yet): ask again.
+        if ($pairing->user_id === null || $pairing->token === null) {
             return response()->json(['status' => 'pending']);
         }
 

@@ -252,6 +252,74 @@ class ReaderAccountsTest extends TestCase
         $this->assertSame(1, ChapterRead::where('user_id', $owner->id)->count(), "the owner's state stays");
     }
 
+    public function test_turning_an_account_off_and_on_again_does_not_bring_old_sign_ins_back(): void
+    {
+        $owner = $this->enableSignIn();
+        $reader = $this->makeReader();
+        $login = $this->asNobody()->post('/login', ['username' => 'sam', 'password' => self::READER_PASSWORD]);
+        $browser = $this->cookiesOf($login);
+        $remember = collect($browser)->filter(fn($v, $k) => str_starts_with($k, 'remember_web_'))->all();
+        $token = $this->tokenFor($reader);
+        $admin = $this->webSignIn($owner->username, self::OWNER_PASSWORD);
+
+        // Off and straight back on, while the reader's browser made no request.
+        $this->withBrowser($admin)->post(route('settings.users.disable', $reader->id))->assertSessionHas('status');
+        $this->withBrowser($admin)->post(route('settings.users.disable', $reader->id));
+        $this->assertNull($reader->fresh()->disabled_at);
+
+        $this->withBrowser($browser)->get('/')->assertRedirect(route('login'));
+        $this->withBrowser($remember)->get('/')->assertRedirect(route('login'));
+        $this->asToken($token)->getJson('/api/v1/auth/me')->assertStatus(401);
+        // A new sign-in works.
+        $this->withBrowser($this->webSignIn('sam', self::READER_PASSWORD))->get('/')->assertOk();
+    }
+
+    public function test_a_password_reset_signs_the_account_out_everywhere(): void
+    {
+        $owner = $this->enableSignIn();
+        $reader = $this->makeReader();
+        $browser = $this->webSignIn('sam', self::READER_PASSWORD);
+        $token = $this->tokenFor($reader);
+        $admin = $this->webSignIn($owner->username, self::OWNER_PASSWORD);
+
+        $this->withBrowser($admin)->post(route('settings.users.password', $reader->id), ['password' => 'reset-by-admin'])->assertRedirect();
+
+        $this->withBrowser($browser)->get('/')->assertRedirect(route('login'));
+        $this->asToken($token)->getJson('/api/v1/auth/me')->assertStatus(401);
+        // The admin is still in.
+        $this->withBrowser($admin)->get(route('settings.users'))->assertOk();
+    }
+
+    public function test_changing_your_own_password_keeps_this_browser_and_your_devices(): void
+    {
+        $this->enableSignIn();
+        $reader = $this->makeReader();
+        $other = $this->webSignIn('sam', self::READER_PASSWORD);
+        $this->travel(2)->seconds();
+        $here = $this->webSignIn('sam', self::READER_PASSWORD);
+        $token = $this->tokenFor($reader);
+
+        $change = $this->withBrowser($here)->post(route('account.password'), [
+            'current_password' => self::READER_PASSWORD, 'password' => 'brand-new-2', 'password_confirmation' => 'brand-new-2',
+        ])->assertRedirect(route('account'));
+
+        $this->withBrowser($this->cookiesOf($change) + $here)->get(route('account'))->assertOk();
+        $this->withBrowser($other)->get('/')->assertRedirect(route('login'));
+        $this->asToken($token)->getJson('/api/v1/auth/me')->assertOk();
+    }
+
+    public function test_a_pairing_links_to_one_account_only(): void
+    {
+        $first = $this->makeReader('first', 'First');
+        $second = $this->makeReader('second', 'Second');
+        [$pairing] = \App\DevicePairing::begin('k', 'Kindle');
+
+        $this->assertNotNull($pairing->link($first));
+        $this->assertNull(\App\DevicePairing::find($pairing->id)->link($second));
+        $this->assertSame($first->id, $pairing->fresh()->user_id);
+        $this->assertSame(1, ApiToken::count());
+    }
+
     public function test_readers_cannot_manage_users(): void
     {
         $this->enableSignIn();
@@ -283,8 +351,10 @@ class ReaderAccountsTest extends TestCase
 
         $this->withBrowser($browser)->post(route('account.password'), ['current_password' => 'wrong', 'password' => 'brand-new-1', 'password_confirmation' => 'brand-new-1'])
             ->assertSessionHasErrors(['current_password'], null, 'password');
-        $this->withBrowser($browser)->post(route('account.password'), ['current_password' => self::READER_PASSWORD, 'password' => 'brand-new-1', 'password_confirmation' => 'brand-new-1'])
+        $changed = $this->withBrowser($browser)->post(route('account.password'), ['current_password' => self::READER_PASSWORD, 'password' => 'brand-new-1', 'password_confirmation' => 'brand-new-1'])
             ->assertRedirect(route('account'));
+        // This browser carries on with the cookies the change handed it.
+        $browser = $this->cookiesOf($changed) + $browser;
         $this->asNobody()->post('/login', ['username' => 'sam', 'password' => 'brand-new-1'])->assertRedirect(route('home'));
 
         $token = ApiToken::where('user_id', $reader->id)->sole();

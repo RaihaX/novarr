@@ -55,11 +55,22 @@ class LoginController extends Controller
                 ->setStatusCode(302);
         }
 
-        Auth::guard('web')->login($result, true);
-        $request->session()->regenerate();
-        $request->session()->flash(self::FLASH_SIGNED, 'in');
+        static::signInHere($request, $result);
 
         return redirect()->intended(route('home'));
+    }
+
+    /**
+     * Sign $user in on this browser: remembered (a year), a new session id,
+     * stamped with the sign-in time (App\User::sessionStillValid), and the
+     * page told to empty its cached pages.
+     */
+    public static function signInHere(Request $request, User $user): void
+    {
+        Auth::guard('web')->login($user, true);
+        $request->session()->regenerate();
+        $request->session()->put(User::SESSION_SIGNED_IN_AT, $user->signInStamp());
+        $request->session()->flash(self::FLASH_SIGNED, 'in');
     }
 
     public function destroy(Request $request)

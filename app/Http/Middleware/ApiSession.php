@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Support\AuthMode;
 use Closure;
 use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Http\Request;
 use Illuminate\Pipeline\Pipeline;
 use Illuminate\Session\Middleware\StartSession;
@@ -18,8 +19,9 @@ use Symfony\Component\HttpFoundation\Response;
  * Only when sign-in is on, and only for a request that carries the session
  * or remember-me cookie and no bearer token: the native clients (no cookies)
  * never start a session, so no session file is written per API call.
- * Cross-site requests do not carry the session cookie (SameSite=Lax), so a
- * cookie-authenticated API write can only come from this origin's pages.
+ * Writes signed in this way need the page's CSRF token (X-CSRF-TOKEN):
+ * SameSite=Lax alone would let another site on the same host (another
+ * port) or tailnet post with the cookie.
  */
 class ApiSession
 {
@@ -29,9 +31,11 @@ class ApiSession
             return $next($request);
         }
 
+        // CSRF too: a cookie-signed write must come from this app's own pages
+        // (X-CSRF-TOKEN), not from another site on the same host or tailnet.
         return (new Pipeline(app()))
             ->send($request)
-            ->through([EncryptCookies::class, StartSession::class])
+            ->through([EncryptCookies::class, StartSession::class, ValidateCsrfToken::class])
             ->then($next);
     }
 

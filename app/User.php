@@ -57,6 +57,7 @@ class User extends Authenticatable
         'disabled_at' => 'datetime',
         'last_seen_at' => 'datetime',
         'password_set_at' => 'datetime',
+        'sessions_valid_after' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -114,6 +115,46 @@ class User extends Authenticatable
             'password' => $plain,
             'password_set_at' => now(),
         ])->save();
+    }
+
+    /** Session key: when this browser signed in (unix seconds). */
+    public const SESSION_SIGNED_IN_AT = 'novarr_signed_in_at';
+
+    /**
+     * Sign this account out everywhere: every web session signed in before
+     * now ends (IdentifyReader compares the session's sign-in time), every
+     * remember-me cookie stops working, and — unless $keepTokens — every
+     * app / device token is revoked.
+     */
+    public function signOutEverywhere(bool $keepTokens = false): void
+    {
+        $this->forceFill([
+            'sessions_valid_after' => now(),
+            'remember_token' => \Illuminate\Support\Str::random(60),
+        ])->save();
+        if (!$keepTokens) {
+            ApiToken::where('user_id', $this->id)->whereNull('revoked_at')->update(['revoked_at' => now()]);
+        }
+    }
+
+    /** Whether a web session signed in at $signedInAt (unix seconds, null: unknown) is still valid. */
+    public function sessionStillValid(?int $signedInAt): bool
+    {
+        if ($this->sessions_valid_after === null) {
+            return true;
+        }
+
+        // Strictly after: a sign-in in the same second as the reset is stale.
+        return $signedInAt !== null && $signedInAt > $this->sessions_valid_after->getTimestamp();
+    }
+
+    /** The sign-in time to stamp on a new session: now, and always after the last sign-out-everywhere. */
+    public function signInStamp(): int
+    {
+        $now = now()->getTimestamp();
+        $after = $this->sessions_valid_after?->getTimestamp();
+
+        return $after !== null && $after >= $now ? $after + 1 : $now;
     }
 
     /** The shape the API returns for a user (auth contract). */

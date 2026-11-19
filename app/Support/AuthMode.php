@@ -46,9 +46,21 @@ class AuthMode
         return static::forced() === true && !static::ownerHasPassword();
     }
 
+    /**
+     * Remembered on the current request (NOVARR_AUTH=on asks on every
+     * @can and signed URL); a console run always asks the database.
+     */
     public static function ownerHasPassword(): bool
     {
-        return User::whereKey(CurrentReader::ownerId())->whereNotNull('password_set_at')->exists();
+        $request = app()->bound('request') && !app()->runningInConsole() ? app('request') : null;
+        if ($request !== null && $request->attributes->has('novarr.owner_has_password')) {
+            return $request->attributes->get('novarr.owner_has_password');
+        }
+
+        $has = User::whereKey(CurrentReader::ownerId())->whereNotNull('password_set_at')->exists();
+        $request?->attributes->set('novarr.owner_has_password', $has);
+
+        return $has;
     }
 
     /** true / false when NOVARR_AUTH forces it, null when the setting decides. */

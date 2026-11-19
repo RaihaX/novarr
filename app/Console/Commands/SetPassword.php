@@ -49,7 +49,10 @@ class SetPassword extends Command
         }
 
         $user->setNewPassword((string) $password);
-        $this->info("Password set for {$user->name}. They sign in as \"{$user->username}\".");
+        // Browsers signed in with the old password are signed out; the
+        // account's apps and devices (tokens) stay.
+        $user->signOutEverywhere(keepTokens: true);
+        $this->info("Password set for {$user->name}. They sign in as \"{$user->username}\"; other browsers are signed out.");
 
         return self::SUCCESS;
     }

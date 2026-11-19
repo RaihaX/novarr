@@ -120,13 +120,29 @@ class IdentifyReader
         if ($request->hasSession()) {
             $guard = Auth::guard('web');
             $user = $guard->user();
-            if ($user instanceof User && $user->isDisabled()) {
-                $guard->logout();
+            if (!$user instanceof User) {
+                return null;
+            }
+
+            $session = $request->session();
+            // Signed in just now by the remember-me cookie (its token was
+            // still current): this session starts now.
+            if ($guard->viaRemember()) {
+                $session->put(User::SESSION_SIGNED_IN_AT, $user->signInStamp());
+            }
+            $signedInAt = $session->get(User::SESSION_SIGNED_IN_AT);
+
+            // Turned off, or signed out everywhere (password reset, turned
+            // off) after this session signed in. Only this browser is signed
+            // out: logout() would also cycle the remember token and sign out
+            // the account's newer browsers.
+            if ($user->isDisabled() || !$user->sessionStillValid(is_numeric($signedInAt) ? (int) $signedInAt : null)) {
+                $guard->logoutCurrentDevice();
 
                 return null;
             }
 
-            return $user instanceof User ? $user : null;
+            return $user;
         }
 
         return null;

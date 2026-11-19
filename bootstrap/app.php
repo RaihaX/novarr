@@ -22,8 +22,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // ValidateCsrfToken in the default web group (the custom
         // App\Http\Middleware\VerifyCsrfToken is no longer registered).
         // Read-state endpoints are replayed from the offline sync queue, where
-        // a session CSRF token may have rotated. Single-user app behind
-        // Tailscale with no auth, so the tokenless replay is acceptable.
+        // a session CSRF token may have rotated. They only change the
+        // signed-in reader's own read state (sign-in on) or the owner's
+        // (sign-in off), and cross-site posts carry no session cookie
+        // (SameSite=Lax); a same-site page (another port on this host)
+        // could still mark chapters read for a signed-in reader.
         $middleware->validateCsrfTokens(except: [
             'chapters/*/toggle-read',
             'chapters/*/read-through',

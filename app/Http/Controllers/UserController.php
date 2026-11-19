@@ -8,7 +8,6 @@ use App\Support\AuthMode;
 use App\Support\CurrentReader;
 use App\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rules\Password;
 
 /**
@@ -86,7 +85,17 @@ class UserController extends Controller
 
         $user->setNewPassword($data['password']);
 
-        return redirect()->route('settings.users')->with('status', "New password set for {$user->name}.");
+        // A reset ends the account's other sign-ins: someone who knew the
+        // old password is out. Your own: this browser and your devices stay.
+        $self = (int) $user->id === app(CurrentReader::class)->id();
+        $user->signOutEverywhere(keepTokens: $self);
+        if ($self && AuthMode::required()) {
+            LoginController::signInHere($request, $user->fresh());
+        }
+
+        return redirect()->route('settings.users')->with('status', $self
+            ? 'Your new password is set.'
+            : "New password set for {$user->name}. They are signed out everywhere.");
     }
 
     public function toggleDisabled($id)
@@ -96,6 +105,10 @@ class UserController extends Controller
             return redirect()->route('settings.users')->with('error', 'The owner account cannot be turned off.');
         }
 
+        if (!$user->isDisabled()) {
+            // Turning it back on later must not bring old sign-ins back.
+            $user->signOutEverywhere();
+        }
         $user->forceFill(['disabled_at' => $user->isDisabled() ? null : now()])->save();
 
         return redirect()->route('settings.users')->with('status', $user->isDisabled()
@@ -136,9 +149,7 @@ class UserController extends Controller
             // Whoever turned it on is the owner (with sign-in off every
             // request is): sign them in on the spot so they are not locked out.
             $owner = User::findOrFail(CurrentReader::ownerId());
-            Auth::guard('web')->login($owner, true);
-            $request->session()->regenerate();
-            $request->session()->flash(LoginController::FLASH_SIGNED, 'in');
+            LoginController::signInHere($request, $owner);
 
             return redirect()->route('settings.users')
                 ->with('status', "Sign-in is on. You are signed in as {$owner->username}. The iOS app and Kindle need to sign in / be linked again.");

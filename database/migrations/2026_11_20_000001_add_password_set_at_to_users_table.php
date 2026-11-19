@@ -19,12 +19,19 @@ return new class extends Migration
         if (!Schema::hasColumn('users', 'password_set_at')) {
             Schema::table('users', fn(Blueprint $t) => $t->timestamp('password_set_at')->nullable());
         }
+        // Web sessions signed in before this moment are over (account turned
+        // off, password reset): App\Http\Middleware\IdentifyReader.
+        if (!Schema::hasColumn('users', 'sessions_valid_after')) {
+            Schema::table('users', fn(Blueprint $t) => $t->timestamp('sessions_valid_after')->nullable());
+        }
     }
 
     public function down(): void
     {
-        if (Schema::hasColumn('users', 'password_set_at')) {
-            Schema::table('users', fn(Blueprint $t) => $t->dropColumn('password_set_at'));
+        foreach (['sessions_valid_after', 'password_set_at'] as $column) {
+            if (Schema::hasColumn('users', $column)) {
+                Schema::table('users', fn(Blueprint $t) => $t->dropColumn($column));
+            }
         }
     }
 };

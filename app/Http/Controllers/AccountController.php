@@ -66,8 +66,12 @@ class AccountController extends Controller
         }
 
         $user->setNewPassword($data['password']);
+        // Other browsers signed in with the old password are signed out;
+        // this one stays, and so do the apps and devices listed below.
+        $user->signOutEverywhere(keepTokens: true);
+        \App\Http\Controllers\Auth\LoginController::signInHere($request, $user->fresh());
 
-        return redirect()->route('account')->with('status', 'Password changed.');
+        return redirect()->route('account')->with('status', 'Password changed. Other browsers are signed out; your apps and devices stay signed in.');
     }
 
     public function revokeToken(CurrentReader $reader, $id)
@@ -120,7 +124,10 @@ class AccountController extends Controller
                 ->withErrors(['code' => 'That code has expired or was already used. Ask the device for a new one.'], 'link');
         }
 
-        $pairing->link($reader->user());
+        if ($pairing->link($reader->user()) === null) {
+            return redirect()->route('account')->withFragment('link')
+                ->withErrors(['code' => 'That code has expired or was already used. Ask the device for a new one.'], 'link');
+        }
 
         return redirect()->route('account')->withFragment('link')
             ->with('status', "Linked “{$pairing->displayName()}”. It signs in on its own within a few seconds.");
