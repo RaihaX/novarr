@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,9 +7,29 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// Release settings that are not for the repository: a properties file named by
+// -Pnovarr.release=/path/to/file (or NOVARR_RELEASE_PROPERTIES) with
+// storeFile, storePassword, keyAlias, keyPassword and, optionally,
+// defaultServer (an address the connect screen starts with).
+val releaseProps = Properties().apply {
+    val path = (findProperty("novarr.release") as String?) ?: System.getenv("NOVARR_RELEASE_PROPERTIES")
+    if (path != null && file(path).isFile) file(path).inputStream().use { load(it) }
+}
+
 android {
     namespace = "studio.visns.novarr"
     compileSdk = 35
+
+    signingConfigs {
+        if (releaseProps.getProperty("storeFile") != null) {
+            create("release") {
+                storeFile = file(releaseProps.getProperty("storeFile"))
+                storePassword = releaseProps.getProperty("storePassword")
+                keyAlias = releaseProps.getProperty("keyAlias")
+                keyPassword = releaseProps.getProperty("keyPassword")
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "studio.visns.novarr"
@@ -15,11 +37,12 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("String", "DEFAULT_SERVER", "\"" + (releaseProps.getProperty("defaultServer") ?: "") + "\"")
     }
 
     buildTypes {
         release {
-            // Signing is configured by whoever cuts a release; nothing here.
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

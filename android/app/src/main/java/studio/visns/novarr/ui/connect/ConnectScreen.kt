@@ -62,7 +62,7 @@ import studio.visns.novarr.ui.components.readableWidth
 fun ConnectScreen(initialSetup: Boolean, onDone: () -> Unit) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
-    var address by rememberSaveable { mutableStateOf(app.currentServer.orEmpty()) }
+    var address by rememberSaveable { mutableStateOf(app.currentServer ?: studio.visns.novarr.BuildConfig.DEFAULT_SERVER) }
     var checking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val focus = remember { FocusRequester() }
