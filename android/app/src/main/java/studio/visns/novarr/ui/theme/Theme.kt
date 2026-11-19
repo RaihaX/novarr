@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.em
 import studio.visns.novarr.R
@@ -34,13 +35,10 @@ val AmberInk = Color(0xFF8A5A00)
 
 /** Brand fonts (SIL OFL, licences in assets/licenses). */
 object BrandFonts {
-    /**
-     * Geist for UI text. Only Regular and SemiBold are bundled; Medium (500)
-     * requests use SemiBold until Geist-Medium is added.
-     */
+    /** Geist for UI text. */
     val Geist = FontFamily(
         Font(R.font.geist_regular, FontWeight.Normal),
-        Font(R.font.geist_semibold, FontWeight.Medium),
+        Font(R.font.geist_medium, FontWeight.Medium),
         Font(R.font.geist_semibold, FontWeight.SemiBold),
         Font(R.font.geist_semibold, FontWeight.Bold),
     )
@@ -50,6 +48,15 @@ object BrandFonts {
 
     /** Literata SemiBold for display titles (screen and series titles), as the web's serif. */
     val LiterataDisplay = FontFamily(Font(R.font.literata_semibold, FontWeight.SemiBold))
+
+    /** Literata for reading: chapter text, synopses and quoted passages. */
+    val Literata = FontFamily(
+        Font(R.font.literata_regular, FontWeight.Normal),
+        Font(R.font.literata_italic, FontWeight.Normal, FontStyle.Italic),
+        Font(R.font.literata_semibold, FontWeight.SemiBold),
+        Font(R.font.literata_bold, FontWeight.Bold),
+        Font(R.font.literata_bolditalic, FontWeight.Bold, FontStyle.Italic),
+    )
 }
 
 // Dark is canonical on the web; these are its tokens.

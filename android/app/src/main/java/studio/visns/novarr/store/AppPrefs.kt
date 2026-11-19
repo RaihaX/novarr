@@ -21,7 +21,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 /** Reader appearance, shared by the reader and Settings. */
 data class ReaderSettings(
     val fontSize: Float = 19f,
-    val font: ReaderFont = ReaderFont.SERIF,
+    val font: ReaderFont = ReaderFont.LITERATA,
     val spacing: ReaderSpacing = ReaderSpacing.NORMAL,
     val margins: ReaderMargins = ReaderMargins.MEDIUM,
     val width: ReaderWidth = ReaderWidth.STANDARD,
@@ -38,7 +38,7 @@ data class ReaderSettings(
 }
 
 enum class ReaderTheme(val title: String) { SYSTEM("System"), LIGHT("Light"), SEPIA("Sepia"), DARK("Dark"), BLACK("Black") }
-enum class ReaderFont(val title: String) { SERIF("Serif"), SANS("Sans serif"), MONO("Monospace") }
+enum class ReaderFont(val title: String) { LITERATA("Literata"), GEIST("Geist"), SERIF("Serif"), SANS("Sans") }
 
 /** Line height as a multiple of the font size. */
 enum class ReaderSpacing(val title: String, val lineHeight: Float) {
@@ -84,7 +84,7 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
     val readerSettings: Flow<ReaderSettings> = store.data.map { p ->
         ReaderSettings(
             fontSize = p[R_SIZE] ?: 19f,
-            font = enumOr(p[R_FONT], ReaderFont.SERIF),
+            font = enumOr(p[R_FONT], ReaderFont.LITERATA),
             spacing = enumOr(p[R_SPACING], ReaderSpacing.NORMAL),
             margins = enumOr(p[R_MARGINS], ReaderMargins.MEDIUM),
             width = enumOr(p[R_WIDTH], ReaderWidth.STANDARD),
@@ -128,7 +128,8 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         val SERVER_URL = stringPreferencesKey("serverURL")
         val DEVICE_ID = stringPreferencesKey("deviceID")
         val R_SIZE = floatPreferencesKey("reader.fontSize")
-        val R_FONT = stringPreferencesKey("reader.font")
+        // "reader.font" held the 1.0/1.1 choice (system fonts only); a new key so everyone starts on Literata.
+        val R_FONT = stringPreferencesKey("reader.font2")
         val R_SPACING = stringPreferencesKey("reader.spacing")
         val R_MARGINS = stringPreferencesKey("reader.margins")
         val R_WIDTH = stringPreferencesKey("reader.width")

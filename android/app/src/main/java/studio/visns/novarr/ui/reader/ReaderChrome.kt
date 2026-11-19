@@ -45,6 +45,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import studio.visns.novarr.store.ReaderFont
+import studio.visns.novarr.ui.theme.BrandFonts
 import studio.visns.novarr.store.ReaderTheme
 
 /** Colours of a reading surface. */
@@ -62,9 +63,10 @@ fun ReaderTheme.colors(): ReaderColors = when (this) {
 }
 
 fun ReaderFont.family(): FontFamily = when (this) {
+    ReaderFont.LITERATA -> BrandFonts.Literata
+    ReaderFont.GEIST -> BrandFonts.Geist
     ReaderFont.SERIF -> FontFamily.Serif
     ReaderFont.SANS -> FontFamily.SansSerif
-    ReaderFont.MONO -> FontFamily.Monospace
 }
 
 /**

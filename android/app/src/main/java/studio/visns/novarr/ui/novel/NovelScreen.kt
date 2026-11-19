@@ -341,7 +341,7 @@ private fun NovelHeader(summary: NovelSummary, detail: NovelDetail?, wide: Boole
             Column {
                 Text(
                     synopsis,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Serif),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = studio.visns.novarr.ui.theme.BrandFonts.Literata),
                     maxLines = if (expanded) Int.MAX_VALUE else 4,
                     overflow = TextOverflow.Ellipsis,
                 )
