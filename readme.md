@@ -57,6 +57,7 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 - [Offline reading (PWA)](#offline-reading-pwa)
 - [Tailscale](#tailscale)
 - [Deployment](#deployment)
+  - [Publishing on the internet with a Cloudflare Tunnel](#publishing-on-the-internet-with-a-cloudflare-tunnel)
 - [Backup and restore](#backup-and-restore)
 - [Design & branding](#design--branding)
 - [Project structure](#project-structure)
@@ -344,7 +345,8 @@ Most operational settings are editable from the **Settings** page (stored in `ap
 | `NOVARR_NOVELARROW_HOST` | Canonical host for the NovelPing (ex-novelarrow) source; API, chapter and cover URLs are built on it | `novelping.com` |
 | `NOVARR_SUWAYOMI_URL` / `_LANGUAGES` / `_EXCLUDE_SOURCES` | Manga through your own Suwayomi-Server (see [Suwayomi (manga)](#suwayomi-manga)); empty URL = off | — / `en` / `MangaDex,Local source` |
 | `NOVARR_KOREADER_PLUGIN_PATH` | Folder served to KOReader devices as the plugin update (see [Apps and JSON API](#apps-and-json-api)) | `koreader/novarr.koplugin` |
-| `TRUSTED_PROXIES` | Proxies whose `X-Forwarded-*` headers are trusted (nginx / Tailscale in front) | `*` |
+| `TRUSTED_PROXIES` | Proxies whose `X-Forwarded-*` headers are trusted (nginx / Tailscale / the Cloudflare Tunnel connector in front) | `*` |
+| `NOVARR_PUBLIC_HOSTS` / `NOVARR_PUBLIC_URL` | Hostnames published on the internet (see [Publishing on the internet with a Cloudflare Tunnel](#publishing-on-the-internet-with-a-cloudflare-tunnel)); empty = off | — / `https://` + first host |
 | `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER` | Must exceed the 3600 s job timeout | `3700` |
 
 ### DB-backed settings (Settings UI)
@@ -605,6 +607,35 @@ For PWA installs you'll want HTTPS in front of the stack — terminate TLS at yo
 ### Continuous integration
 
 `.github/workflows/docker-publish.yml` runs on every push and pull request to `master`. The **test** job installs PHP 8.3 (the image's extensions) and the locked Composer and Yarn dependencies, builds the assets, then runs `php artisan test --fail-on-incomplete` and `yarn test:js`; `composer audit` and `yarn audit` run as advisory steps that never fail the build. A second leg runs the PHP suite against a `mariadb:10.11` service, so migrations run on the production engine; it is allowed to fail for now. Only after the tests pass does the **build** job (pushes and tags only, not pull requests) publish `ghcr.io/raihax/novarr`.
+
+### Publishing on the internet with a Cloudflare Tunnel
+
+Novarr can be reached from the internet at one hostname (say `read.example.com`) through a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/): Cloudflare terminates HTTPS and a `cloudflared` connector on your LAN forwards plain HTTP to nginx, keeping the public `Host` header and adding `X-Forwarded-Proto: https` and `X-Forwarded-For`. The LAN and Tailscale addresses keep working as before.
+
+1. Point the tunnel's public hostname at nginx (`http://<novarr-box>:80`) and turn on **Always Use HTTPS** for the zone.
+2. Turn sign-in on (Settings → Users, or `php artisan novarr:auth on`).
+3. In `.env`:
+
+   ```dotenv
+   NOVARR_PUBLIC_HOSTS=read.example.com
+   # optional, default https:// + the first host:
+   # NOVARR_PUBLIC_URL=https://read.example.com
+   # the connector's address (127.0.0.1 if cloudflared runs on the Novarr box;
+   # keep 127.0.0.1 in the list if Tailscale Serve proxies to it):
+   TRUSTED_PROXIES=192.168.1.50,127.0.0.1
+   ```
+
+   then `php artisan config:cache` (deploy.sh does it) and check `php artisan novarr:auth status` — it shows the public address and warns while sign-in is off.
+
+What changes **on the public address only**:
+
+- **No admin features, even for the admin.** Every admin page and API endpoint answers 403 "Admin features are only available on your home network."; admin buttons, Home cards and palette commands are hidden. The admin can sign in there and read like any reader. Do admin work (adding series, settings, users, invites) from the home network or Tailscale.
+- **Sign-in is required.** With sign-in off every page except sign-in, health and the invite/app-download/pairing endpoints answers 403 "This address is only available once sign-in is turned on.", and `/api/v1/meta` reports `auth.required: true`.
+- **HTTPS only:** links are generated as `https://read.example.com/…`, session and remember-me cookies are `Secure`, and responses carry `Strict-Transport-Security: max-age=31536000`.
+- **Not for search engines:** `X-Robots-Tag: noindex, nofollow, noarchive` on every response (and `robots.txt` disallows everything on every host), plus `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and `X-Frame-Options: DENY`.
+- **Tighter limits:** on top of the per-name sign-in limit, at most 20 credential attempts per IP per 10 minutes across the web login, `POST /api/v1/auth/token`, OPDS (HTTP Basic) and invite acceptance (429 with `Retry-After`). This relies on `TRUSTED_PROXIES` naming the connector, so the visitor's address (from `X-Forwarded-For`) is the one counted. `CF-Connecting-IP` is not used.
+
+Invite links and the Android-app link always use the public address once it is set, whichever address you send the invite from.
 
 ---
 

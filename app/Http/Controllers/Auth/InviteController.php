@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Support\AccountRules;
+use App\Services\Credentials;
 use App\Support\AuthMode;
+use App\Support\PublicAddress;
 use App\User;
 use App\UserInvite;
 use Illuminate\Http\Request;
@@ -47,6 +49,15 @@ class InviteController extends Controller
 
     public function accept(Request $request, string $token)
     {
+        // The public address: every acceptance counts toward the per-IP cap
+        // on credential attempts (App\Services\Credentials).
+        if (PublicAddress::isPublicRequest($request)) {
+            if (($seconds = Credentials::publicCapRetryAfter($request->ip())) !== null) {
+                return $this->tooMany($request, $seconds);
+            }
+            Credentials::hitPublicCap($request->ip());
+        }
+
         $invite = UserInvite::findUsable($token);
         if ($invite === null) {
             return $this->unusable();
@@ -121,6 +132,18 @@ class InviteController extends Controller
     private function unusable()
     {
         return $this->page('auth.invite-invalid', [], 404);
+    }
+
+    /** 429 with Retry-After and the sign-in throttle's sentence. */
+    private function tooMany(Request $request, int $seconds)
+    {
+        $message = Credentials::tooManyMessage($seconds);
+        if (\App\Http\Middleware\IdentifyReader::wantsJson($request)) {
+            return response()->json(['message' => $message, 'code' => 'throttled'], 429, ['Retry-After' => (string) $seconds]);
+        }
+
+        return $this->page('auth.forbidden', ['message' => $message, 'title' => 'Too many attempts'], 429)
+            ->header('Retry-After', (string) $seconds);
     }
 
     /** Pages here are never cached (a used link must not come back from a cache). */

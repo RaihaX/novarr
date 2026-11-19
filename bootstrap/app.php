@@ -42,6 +42,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // TrimStrings and ConvertEmptyStringsToNull; appending our own copies
         // ran each twice per request. Configure the framework's instead.
         $middleware->trimStrings(except: ['password', 'password_confirmation']);
+        // X-Forwarded-* are honoured only from these proxies (TRUSTED_PROXIES,
+        // comma-separated IPs/CIDRs; "*" = whoever connects directly). Behind
+        // a Cloudflare Tunnel set it to the cloudflared connector's address so
+        // $request->ip() is the visitor (X-Forwarded-For) and nobody else can
+        // forge it. CF-Connecting-IP is never read.
         $middleware->trustProxies(
             at: env('TRUSTED_PROXIES', '*'),
             headers: \Illuminate\Http\Request::HEADER_X_FORWARDED_FOR
@@ -50,6 +55,10 @@ return Application::configure(basePath: dirname(__DIR__))
                 | \Illuminate\Http\Request::HEADER_X_FORWARDED_PROTO,
         );
         $middleware->append(\App\Http\Middleware\PerformanceMonitoring::class);
+        // The public address (NOVARR_PUBLIC_HOSTS): https URLs, Secure
+        // cookies, HSTS, noindex. Runs after TrustProxies, around the
+        // web/api groups (so it sees every cookie they set).
+        $middleware->append(\App\Http\Middleware\HardenPublicAddress::class);
 
         // Route middleware priority for optimal performance
         $middleware->priority([

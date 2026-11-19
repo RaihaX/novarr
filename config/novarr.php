@@ -105,6 +105,41 @@ return [
         return in_array($value, ['on', 'off'], true) ? $value : null;
     })(),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Public address (internet, e.g. through a Cloudflare Tunnel)
+    |--------------------------------------------------------------------------
+    |
+    | NOVARR_PUBLIC_HOSTS: comma-separated hostnames Novarr is published on to
+    | the internet (read.example.com). Requests on these hosts get no admin
+    | features, need sign-in, and are HTTPS-only (App\Support\PublicAddress,
+    | App\Http\Middleware\HardenPublicAddress). Empty (the default) = off:
+    | nothing changes. Entries are lowercased; a scheme, port or path typed by
+    | mistake is dropped ("https://Read.example.com:443/" → read.example.com).
+    |
+    | NOVARR_PUBLIC_URL: the address invite and app-download links use.
+    | Default https:// + the first public host; null when no host is set.
+    |
+    */
+    'public_hosts' => $publicHosts = array_values(array_unique(array_filter(array_map(
+        static function (string $host): string {
+            $host = strtolower(trim($host));
+            $host = (string) preg_replace('#^[a-z][a-z0-9+.-]*://#', '', $host);
+            $host = (string) preg_replace('#[/?\#].*$#', '', $host);
+
+            return (string) preg_replace('#:\d+$#', '', $host);
+        },
+        explode(',', (string) env('NOVARR_PUBLIC_HOSTS', ''))
+    ), fn(string $host) => $host !== ''))),
+    'public_url' => (static function () use ($publicHosts) {
+        $url = trim((string) env('NOVARR_PUBLIC_URL', ''));
+        if ($url !== '') {
+            return rtrim($url, '/');
+        }
+
+        return $publicHosts === [] ? null : 'https://' . $publicHosts[0];
+    })(),
+
     'flaresolverr_url' => env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'),
     // Verify TLS certificates on every scraper request (App\Scraping\Fetcher).
     // Only turn off for a source with a broken certificate chain.

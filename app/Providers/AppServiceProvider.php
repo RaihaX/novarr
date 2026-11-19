@@ -70,7 +70,12 @@ class AppServiceProvider extends ServiceProvider
 
         // The one admin check (routes, controllers, Blade @can('admin')).
         // Sign-in off: everyone is the owner, so everyone is the admin.
+        // Never on the public address (App\Support\PublicAddress): admin
+        // features are home-network only, even for the admin.
         Gate::define('admin', function (?User $user = null) {
+            if (\App\Support\PublicAddress::current()) {
+                return false;
+            }
             if (!AuthMode::required()) {
                 return true;
             }

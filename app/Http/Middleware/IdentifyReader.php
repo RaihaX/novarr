@@ -6,6 +6,7 @@ use App\ApiToken;
 use App\Services\Credentials;
 use App\Support\AuthMode;
 use App\Support\CurrentReader;
+use App\Support\PublicAddress;
 use App\Support\RouteAccess;
 use App\Support\SignedUrls;
 use App\User;
@@ -37,6 +38,11 @@ use Symfony\Component\HttpFoundation\Response;
  * auth()->user(), @can and the gate see it). Then public routes pass,
  * the rest need a user, admin routes an admin.
  *
+ * On the public address (App\Support\PublicAddress::isPublicRequest): with
+ * sign-in off only public routes answer (403 otherwise, never "everyone is
+ * the owner"); with sign-in on admin routes answer 403 for everyone,
+ * including the admin (who reads there like a reader).
+ *
  * Not signed in → 401 JSON {message, code: unauthenticated} for the API and
  * JSON requests, else a redirect to /login (the intended URL remembered).
  * Not allowed → 403 JSON {message, code: forbidden}, else a plain 403 page.
@@ -54,11 +60,22 @@ class IdentifyReader
 
     public function handle(Request $request, Closure $next): Response
     {
+        $route = $request->route();
+        $access = RouteAccess::classify($route);
+        // The public address (App\Support\PublicAddress): public routes only
+        // while sign-in is off, and no admin routes for anyone.
+        $publicHost = PublicAddress::isPublicRequest($request);
+
         if (!AuthMode::required()) {
+            if ($publicHost && $access !== RouteAccess::PUBLIC) {
+                // Nobody is the owner here: the refusal page shows no one.
+                app()->instance(CurrentReader::class, CurrentReader::guest());
+
+                return static::forbidden($request, PublicAddress::SIGN_IN_OFF_MESSAGE, PublicAddress::TITLE);
+            }
+
             return $next($request);
         }
-
-        $route = $request->route();
 
         // Guards cache their user per instance: start every request from
         // scratch (what Octane does too; the test client reuses the app).
@@ -73,9 +90,12 @@ class IdentifyReader
             app()->instance(CurrentReader::class, CurrentReader::guest());
         }
 
-        $access = RouteAccess::classify($route);
         if ($access === RouteAccess::PUBLIC) {
             return $next($request);
+        }
+        // Signed in or not, admin or not: no admin routes on the public address.
+        if ($publicHost && $access === RouteAccess::ADMIN) {
+            return static::forbidden($request, PublicAddress::ADMIN_MESSAGE, PublicAddress::TITLE);
         }
         if ($user === null) {
             return $basicFailure ?? static::unauthenticated($request, $route);
@@ -108,7 +128,7 @@ class IdentifyReader
         }
 
         if (RouteAccess::acceptsBasic($route) && $request->getUser() !== null) {
-            $result = $this->credentials->attempt($request->getUser(), $request->getPassword(), $request->ip());
+            $result = $this->credentials->attempt($request->getUser(), $request->getPassword(), $request->ip(), PublicAddress::isPublicRequest($request));
             if ($result instanceof User) {
                 return $result;
             }
@@ -179,14 +199,14 @@ class IdentifyReader
             : redirect()->route('login');
     }
 
-    public static function forbidden(Request $request, ?string $message = null): Response
+    public static function forbidden(Request $request, ?string $message = null, ?string $title = null): Response
     {
         $message ??= 'Only the admin can do that.';
         if (static::wantsJson($request) || !$request->hasSession()) {
             return new JsonResponse(['message' => $message, 'code' => 'forbidden'], 403);
         }
 
-        return response()->view('auth.forbidden', ['message' => $message], 403);
+        return response()->view('auth.forbidden', ['message' => $message, 'title' => $title], 403);
     }
 
     /** A browser asking for a page (not an ereader / OPDS client). */

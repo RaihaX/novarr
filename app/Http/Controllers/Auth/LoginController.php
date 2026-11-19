@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Services\Credentials;
 use App\Support\AuthMode;
+use App\Support\PublicAddress;
 use App\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -48,7 +49,12 @@ class LoginController extends Controller
             'password.required' => 'Enter your password.',
         ]);
 
-        $result = $credentials->attempt($data['username'], $data['password'], $request->ip());
+        $result = $credentials->attempt($data['username'], $data['password'], $request->ip(), PublicAddress::isPublicRequest($request));
+        if (!$result instanceof User && !empty($result['public_cap'])) {
+            // The public address's per-IP cap: a real 429 (with Retry-After),
+            // the form shown again with the reason.
+            return static::tooManyPage($result['error'], (int) $result['retry_after'], (string) $data['username']);
+        }
         if (!$result instanceof User) {
             return back()
                 ->withInput($request->only('username'))
@@ -59,6 +65,16 @@ class LoginController extends Controller
         static::signInHere($request, $result);
 
         return redirect()->intended(route('home'));
+    }
+
+    /** The sign-in page at 429 with $message under the name field. */
+    public static function tooManyPage(string $message, int $retryAfter, string $username = ''): \Illuminate\Http\Response
+    {
+        $errors = (new \Illuminate\Support\ViewErrorBag())->put('default', new \Illuminate\Support\MessageBag(['username' => $message]));
+
+        return response()->view('auth.login', ['username' => $username, 'errors' => $errors], 429)
+            ->header('Retry-After', (string) $retryAfter)
+            ->header('Cache-Control', 'no-store, private');
     }
 
     /**

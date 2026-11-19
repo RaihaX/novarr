@@ -30,10 +30,18 @@ final class AndroidApp
         return $path !== '' && is_file($path) && is_readable($path) && filesize($path) > 0;
     }
 
-    /** The download link on the origin $request came in on (like invite links), else the app URL. */
+    /**
+     * The download link: on the public address when one is configured
+     * (like invite links), else on the origin $request came in on, else the
+     * app URL.
+     */
     public static function url(?Request $request = null): string
     {
         $relative = route('app.android', [], false);
+        $public = PublicAddress::url();
+        if ($public !== null) {
+            return $public . $relative;
+        }
 
         return $request !== null
             ? rtrim($request->getSchemeAndHttpHost(), '/') . $relative

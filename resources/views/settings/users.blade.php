@@ -14,6 +14,7 @@
     $result = session(UserInviteController::FLASH);
     $duplicateId = session(UserInviteController::FLASH_DUPLICATE);
     $tz = config('app.timezone');
+    $publicUrl = \App\Support\PublicAddress::url();
 @endphp
 
 @section('content')
@@ -59,6 +60,13 @@
                             Everyone signs in with their own name and password and keeps their own reading progress, highlights and stats. Readers can read, but cannot add, edit or delete series or change settings.
                         @else
                             Anyone who can reach Novarr uses it as you (the owner), with no sign-in. You can add accounts now and turn sign-in on when they are ready.
+                        @endif
+                    </p>
+                    <p class="form-text" id="publicAddress">
+                        @if($publicUrl)
+                            Public address: <strong>{{ $publicUrl }}</strong>. It has no admin features (manage Novarr from your home network or Tailscale)@if($authOn).@else and shows nothing until sign-in is on.@endif
+                        @else
+                            Public address: none configured (<code>NOVARR_PUBLIC_HOSTS</code>).
                         @endif
                     </p>
                     @unless($authOn)
@@ -254,7 +262,11 @@
                         <div class="acct-actions">
                             <button type="submit" class="btn btn-primary">Send invite</button>
                         </div>
-                        <p class="form-text acct-footnote" id="inviteOriginNote">The link uses this address ({{ request()->getSchemeAndHttpHost() }}), so send invites while browsing Novarr at the address your readers will use.</p>
+                        @if($publicUrl)
+                            <p class="form-text acct-footnote" id="inviteOriginNote">Links use {{ $publicUrl }}.</p>
+                        @else
+                            <p class="form-text acct-footnote" id="inviteOriginNote">The link uses this address ({{ request()->getSchemeAndHttpHost() }}), so send invites while browsing Novarr at the address your readers will use.</p>
+                        @endif
                     </form>
 
                     {{-- The old way, kept but secondary: the admin types a first password. --}}
