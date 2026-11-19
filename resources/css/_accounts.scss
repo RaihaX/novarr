@@ -91,7 +91,166 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
     &:focus-visible { background: $t-surface-alt; }
 }
 
-// --- Account: signed-in devices ---------------------------------------------
+// --- Account and Settings → Users: one page shell ----------------------------
+// Title and content share the container's left edge (like the breadcrumb and
+// the flash alerts above them); two columns from lg, one on phones. Cards are
+// the app's .card.form-panel with one inner spacing; the main action of each
+// form is a primary button, at least $s-4 under its last field.
+.acct-shell {
+    max-width: 1120px;
+
+    // Short values (names, emails, passwords) never stretch: a reading width.
+    .form-control { max-width: 420px; }
+}
+
+.acct-head {
+    margin-bottom: $s-7;
+
+    .page-title { margin: 0 0 $s-2; }
+}
+
+.acct-identity {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2 $s-3;
+    margin: 0;
+    color: $text-muted;
+    font-size: $fs-body;
+}
+
+.acct-identity-name {
+    color: $text;
+    font-size: $fs-section-header;
+    font-weight: $fw-section;
+    letter-spacing: $ls-section;
+}
+
+.acct-identity-username,
+.users-username {
+    font-family: $font-mono;
+    font-size: $fs-mono;
+}
+
+.acct-identity-email { overflow-wrap: anywhere; }
+
+.acct-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: $s-6;
+    align-items: start;
+
+    @media (min-width: 992px) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: $s-7;
+    }
+}
+
+// Settings → Users: the lists get the wider column.
+.acct-grid-wide-main {
+    @media (min-width: 992px) {
+        grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    }
+}
+
+.acct-col {
+    display: flex;
+    flex-direction: column;
+    gap: $s-6;
+    min-width: 0;
+}
+
+.acct-card {
+    .card-body {
+        padding: $s-5;
+
+        @media (min-width: 576px) { padding: $s-6; }
+    }
+
+    .form-row + .form-row { margin-top: $s-5; }
+}
+
+.acct-card-title {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    margin: 0 0 $s-4;
+    font-size: $fs-card-title;
+    font-weight: $fw-card-title;
+    color: $text;
+}
+
+.acct-count {
+    font-family: $font-mono;
+    font-size: $fs-caption;
+    font-weight: 500;
+    color: $text-muted;
+}
+
+.acct-text {
+    margin: 0 0 $s-5;
+    color: $text-muted;
+}
+
+.acct-card .acct-text:last-child { margin-bottom: 0; }
+
+.acct-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2 $s-4;
+    margin-top: $s-5;
+}
+
+.acct-footnote { margin-top: $s-4; }
+
+.acct-signout { align-self: flex-start; }
+
+// "Add without an invite": a quiet native disclosure under the invite form.
+.acct-disclosure {
+    margin-top: $s-6;
+    padding-top: $s-5;
+    border-top: $hairline solid $border;
+
+    > summary {
+        display: inline-flex;
+        align-items: center;
+        gap: $s-2;
+        cursor: pointer;
+        color: $link;
+        font-weight: 500;
+        border-radius: $radius;
+        @include focus-ring;
+
+        &:hover { color: $link-hover; }
+    }
+
+    &[open] > summary { margin-bottom: $s-2; }
+}
+
+.acct-aside-note {
+    margin: 0;
+    color: $text-muted;
+    font-size: $fs-caption;
+
+    code { overflow-wrap: anywhere; }
+}
+
+// A calm empty state (no devices, no invites).
+.acct-empty {
+    display: flex;
+    align-items: flex-start;
+    gap: $s-3;
+    padding: $s-4 $s-5;
+    color: $text-muted;
+    border: $hairline dashed $border;
+    border-radius: $radius;
+
+    svg { flex-shrink: 0; margin-top: 2px; }
+    p { margin: 0; }
+}
+
+// --- Lists: devices (Account), accounts and invites (Users) ------------------
 .account-devices,
 .users-list {
     list-style: none;
@@ -104,11 +263,12 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: $s-4;
+    gap: $s-3 $s-4;
     padding: $s-4 0;
-    border-top: $hairline solid $t-border;
+    border-top: $hairline solid $border;
 
-    &:first-child { border-top: 0; }
+    &:first-child { border-top: 0; padding-top: 0; }
+    &:last-child { padding-bottom: 0; }
 }
 
 .account-device-main,
@@ -117,27 +277,80 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
     min-width: 0;
 }
 
+.account-device-name {
+    display: block;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.account-device-meta {
+    display: block;
+    color: $text-muted;
+    font-size: $fs-caption;
+}
+
+.account-device-action { margin-left: auto; }
+
+.acct-android {
+    margin: $s-5 0 0;
+    padding-top: $s-4;
+    border-top: $hairline solid $border;
+    font-size: $fs-caption;
+}
+
+// --- Account: link a device (code + Next on one row) -------------------------
+.link-form-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: $s-2;
+}
+
+.acct-shell .link-code-input,
 .link-code-input {
-    max-width: 12ch;
+    flex: 0 0 auto;
+    width: 7.5em;
+    max-width: 100%;
+    padding: $s-2 $s-4;
     font-family: $font-mono;
+    font-size: 1.375rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
 }
 
+.acct-code {
+    font-family: $font-mono;
+    letter-spacing: 0.08em;
+}
+
 // --- Settings → Users --------------------------------------------------------
-.users-name { font-weight: 600; }
+.users-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2;
+    font-weight: 600;
+}
 
 .users-meta {
     display: block;
-    color: $t-text-muted;
+    color: $text-muted;
     font-size: 0.8125rem;
 }
 
-.users-username { font-family: $font-mono; }
+.users-email { overflow-wrap: anywhere; }
 
 .users-off { color: $warning; font-weight: 600; }
 
-.users-row.is-disabled .users-name { color: $t-text-muted; }
+.users-row.is-disabled .users-name { color: $text-muted; }
+
+// The pending invite a refused duplicate points at.
+.users-row.is-highlighted {
+    margin-inline: -#{$s-3};
+    padding-inline: $s-3;
+    background: $surface-alt;
+    border-radius: $radius;
+}
 
 .users-actions {
     display: flex;
@@ -162,8 +375,78 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
 .users-form {
     margin-top: $s-4;
     padding: $s-5;
-    background: $t-surface-alt;
+    background: $surface-alt;
     border-radius: $radius;
 
-    .form-row { margin-bottom: $s-4; }
+    .form-control { background-color: $surface; }
+    .acct-actions { margin-top: $s-4; }
 }
+
+// Invite made / resent: the link, once, with Copy.
+.invite-result {
+    margin-bottom: $s-7;
+    padding: $s-5 $s-6;
+    background: $surface;
+    border: $hairline solid $border;
+    border-left: $rule-strong solid $success;
+    border-radius: $radius;
+
+    &.is-unsent { border-left-color: $warning; }
+}
+
+.invite-result-title {
+    margin: 0 0 $s-2;
+    font-size: $fs-card-title;
+    font-weight: $fw-card-title;
+    color: $text;
+}
+
+.invite-result-text { margin: 0 0 $s-4; color: $text-muted; }
+
+.invite-link-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-2;
+    max-width: 760px;
+}
+
+.invite-link,
+.acct-shell .invite-link {
+    flex: 1 1 280px;
+    max-width: none;
+    min-width: 0;
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    background-color: $surface-alt;
+    border-color: $border;
+    color: $text;
+}
+
+.invite-result-note {
+    margin: $s-3 0 0;
+    color: $text-muted;
+    font-size: $fs-caption;
+}
+
+// --- Invite acceptance (shares the sign-in page's card) ----------------------
+.auth-card-wide { max-width: 440px; }
+
+.auth-lead {
+    margin-bottom: $s-6;
+    color: $text-muted;
+    text-align: center;
+}
+
+.auth-note-top {
+    margin: -#{$s-4} 0 $s-5;
+    text-align: center;
+}
+
+.auth-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: $s-2;
+}
+
+.welcome-notice .welcome-android { margin-left: $s-2; }

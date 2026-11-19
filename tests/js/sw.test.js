@@ -367,6 +367,19 @@ test('a download also caches the /build files its pages load, once per asset', a
     assert.deepEqual({ ...messages.at(-1) }, { type: 'CACHE_COMPLETE', total: 3 });
 });
 
+test('the Android app download is left to the network: never answered from or stored in a cache', async () => {
+    const fc = fakeCaches();
+    await seed(fc, 'novarr-v6-pages', [['/offline', html('<title>offline</title>')]]);
+    const handlers = loadWorker({ caches: fc.api, fetch: async () => { throw new Error('the worker must not fetch it'); } });
+
+    for (const accept of ['text/html,application/xhtml+xml', '*/*']) {
+        const { res, waits } = await dispatchFetch(handlers, '/app/android', { headers: { accept } });
+        assert.equal(res, undefined, 'the browser fetches it itself (no respondWith)');
+        assert.equal(waits.length, 0);
+    }
+    assert.deepEqual(fc.paths('novarr-v6-pages'), ['/offline']);
+});
+
 test('the old static cache\'s offline page survives an install during maintenance', async () => {
     const fc = fakeCaches();
     await seed(fc, 'novarr-v4-static', [

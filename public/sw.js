@@ -413,6 +413,12 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
+    // File downloads (the Android app's APK at /app/android): straight to the
+    // network, never answered from or stored in a cache, never the offline page.
+    if (url.pathname.startsWith('/app/')) {
+        return;
+    }
+
     // Hashed build files: cache-first, never revalidated.
     if (isHashedBuildAsset(url)) {
         event.respondWith(

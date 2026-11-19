@@ -28,7 +28,8 @@ class AuthController extends Controller
     public function store(Request $request, Credentials $credentials): JsonResponse
     {
         $data = $request->validate([
-            'username' => 'required|string|max:60',
+            // A sign-in name or an email address (App\User::findForSignIn).
+            'username' => 'required|string|max:255',
             'password' => 'required|string|max:255',
             'device_id' => 'nullable|string|max:255',
             'device_name' => 'nullable|string|max:255',

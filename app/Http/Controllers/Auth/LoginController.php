@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * The web sign-in page (/login): name + password, always remembered (a
+ * The web sign-in page (/login): name (or email) + password, always remembered (a
  * one-year cookie, config auth.guards.web.remember). With sign-in off there
  * is nothing to sign in to: /login goes Home.
  */
@@ -40,10 +40,11 @@ class LoginController extends Controller
         }
 
         $data = $request->validate([
-            'username' => 'required|string|max:60',
+            // A sign-in name or an email address (App\User::findForSignIn).
+            'username' => 'required|string|max:255',
             'password' => 'required|string|max:255',
         ], [
-            'username.required' => 'Enter your name.',
+            'username.required' => 'Enter your name or email.',
             'password.required' => 'Enter your password.',
         ]);
 
@@ -79,6 +80,12 @@ class LoginController extends Controller
         if ($request->hasSession()) {
             $request->session()->invalidate();
             $request->session()->regenerateToken();
+        }
+
+        // Signing out to accept an invite (auth.invite): back to that link.
+        $next = (string) $request->input('next', '');
+        if (preg_match('#^/invite/[A-Za-z0-9]{1,128}$#', $next)) {
+            return redirect($next)->with(self::FLASH_SIGNED, 'out');
         }
 
         if (!AuthMode::required()) {
