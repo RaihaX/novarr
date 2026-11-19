@@ -17,18 +17,29 @@ final class LibraryModel {
     var sort: LibraryFilter.Sort {
         didSet { UserDefaults.standard.set(sort.rawValue, forKey: "library.sort") }
     }
+    var shelf: LibraryFilter.Shelf {
+        didSet { UserDefaults.standard.set(shelf.rawValue, forKey: "library.shelf") }
+    }
 
     init() {
         filter = UserDefaults.standard.string(forKey: "library.filter").flatMap(LibraryFilter.Filter.init) ?? .all
         sort = UserDefaults.standard.string(forKey: "library.sort").flatMap(LibraryFilter.Sort.init) ?? .lastRead
+        shelf = UserDefaults.standard.string(forKey: "library.shelf").flatMap(LibraryFilter.Shelf.init) ?? .novels
     }
 
+    /// The series on the chosen shelf (novels or manga).
+    var onShelf: [NovelSummary] { LibraryFilter.shelf(novels, shelf) }
+
     var visible: [NovelSummary] {
-        LibraryFilter.apply(novels, filter: filter, sort: sort, search: search)
+        LibraryFilter.apply(onShelf, filter: filter, sort: sort, search: search)
     }
 
     func count(for filter: LibraryFilter.Filter) -> Int {
-        novels.lazy.filter(filter.matches).count
+        onShelf.lazy.filter(filter.matches).count
+    }
+
+    func count(for shelf: LibraryFilter.Shelf) -> Int {
+        LibraryFilter.shelf(novels, shelf).count
     }
 
     /// Reloads when read state changed elsewhere or the data is a while old.

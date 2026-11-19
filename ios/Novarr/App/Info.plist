@@ -29,6 +29,18 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Novarr connects to your Novarr server on your local network to load your library and chapters.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>geist_regular.ttf</string>
+		<string>geist_medium.ttf</string>
+		<string>geist_semibold.ttf</string>
+		<string>geist_mono_regular.ttf</string>
+		<string>literata_regular.ttf</string>
+		<string>literata_italic.ttf</string>
+		<string>literata_semibold.ttf</string>
+		<string>literata_bold.ttf</string>
+		<string>literata_bolditalic.ttf</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -37,7 +49,7 @@
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
-		<string>AccentColor</string>
+		<string>LaunchBackground</string>
 	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

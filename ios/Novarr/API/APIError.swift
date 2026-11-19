@@ -9,6 +9,9 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
     case decoding(String)
     case notNovarr
     case apiTooOld(serverVersion: Int, required: Int)
+    /// The text endpoint was asked for a manga chapter (422, `medium: manga`):
+    /// it has page images, read in the manga reader.
+    case mangaChapter
 
     static func from(_ error: Error) -> APIError {
         if let api = error as? APIError { return api }
@@ -51,7 +54,17 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
         switch self {
         case .unreachable, .timedOut: true
         case .http(let status, _): status >= 500 || status == 408 || status == 429
-        case .invalidServerURL, .decoding, .notNovarr, .apiTooOld: false
+        case .invalidServerURL, .decoding, .notNovarr, .apiTooOld, .mangaChapter: false
+        }
+    }
+
+    /// A short title for a screen that couldn't load (Home's failure state).
+    var failureTitle: String {
+        switch self {
+        case .unreachable, .timedOut, .invalidServerURL: "Can't reach your server"
+        case .http(401, _): "You're signed out"
+        case .http: "Server error"
+        case .decoding, .notNovarr, .apiTooOld, .mangaChapter: "Unexpected response"
         }
     }
 
@@ -76,6 +89,8 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
             "That address answered, but it isn't a Novarr server (or its API isn't enabled)."
         case .apiTooOld(let server, let required):
             "This Novarr server speaks API v\(server); the app needs v\(required) or newer. Update the server."
+        case .mangaChapter:
+            "This is a manga chapter."
         }
     }
 }

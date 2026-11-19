@@ -15,12 +15,12 @@ struct LatestPositionBanner: View {
         VStack(alignment: .leading, spacing: 12) {
             Label {
                 Text(message)
-                    .font(.callout)
+                    .font(.ui(.callout))
                     .foregroundStyle(theme.text)
                     .fixedSize(horizontal: false, vertical: true)
             } icon: {
                 Image(systemName: "arrow.triangle.2.circlepath")
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.brandAccent)
                     .accessibilityHidden(true)
             }
 
@@ -62,12 +62,12 @@ struct LatestPositionBanner: View {
     private func button(_ title: String, prominent: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.callout.weight(.semibold))
+                .font(.ui(.callout, .semibold))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 11)
-                .foregroundStyle(prominent ? Color.white : theme.text)
-                .background(prominent ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(theme.text.opacity(0.08)),
+                .foregroundStyle(prominent ? Color.onAccent : theme.text)
+                .background(prominent ? AnyShapeStyle(Color.brandAccent) : AnyShapeStyle(theme.text.opacity(0.08)),
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)

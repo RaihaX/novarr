@@ -30,7 +30,17 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
-          UIColorName: AccentColor
+          UIColorName: LaunchBackground
+        UIAppFonts:
+          - geist_regular.ttf
+          - geist_medium.ttf
+          - geist_semibold.ttf
+          - geist_mono_regular.ttf
+          - literata_regular.ttf
+          - literata_italic.ttf
+          - literata_semibold.ttf
+          - literata_bold.ttf
+          - literata_bolditalic.ttf
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
@@ -42,6 +52,10 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # Kept on purpose: self-hosted servers are often plain http under any
+        # name (LAN DNS, DDNS, port forwards). NSAllowsLocalNetworking only
+        # covers IPs, .local and unqualified names, and setting it makes iOS
+        # ignore NSAllowsArbitraryLoads, so it can't be added alongside.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: Novarr connects to your Novarr server on your local network to load your library and chapters.

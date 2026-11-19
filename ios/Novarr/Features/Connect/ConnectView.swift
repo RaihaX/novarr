@@ -19,9 +19,9 @@ struct ConnectView: View {
                         VStack(spacing: 14) {
                             BrandMark().frame(width: 44)
                             Text("Novarr")
-                                .font(.system(.largeTitle, design: .serif).weight(.semibold))
+                                .font(.literata(.largeTitle, .semibold))
                             Text("Connect to the Novarr server you run at home to read your library here.")
-                                .font(.callout)
+                                .font(.ui(.callout))
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
                         }
@@ -53,7 +53,7 @@ struct ConnectView: View {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.red)
-                            .font(.callout)
+                            .font(.ui(.callout))
                     }
                 }
 

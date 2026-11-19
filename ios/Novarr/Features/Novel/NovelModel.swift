@@ -26,6 +26,14 @@ final class NovelModel {
 
     var summary: NovelSummary? { detail?.summary ?? placeholder }
 
+    /// Chapters open in the manga reader and download as page images.
+    var isManga: Bool { summary?.isManga == true }
+
+    /// Where a chapter of this series opens.
+    func readerRoute(chapterId: Int, offerLatest: Bool = true) -> ReaderRoute {
+        ReaderRoute(novelId: novelId, chapterId: chapterId, offerLatest: offerLatest, manga: isManga)
+    }
+
     var visibleChapters: [ChapterListItem] {
         let query = chapterSearch.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return chapters }
@@ -73,7 +81,8 @@ final class NovelModel {
 
     /// Best effort: a server without highlights simply shows no section.
     func loadHighlights(app: AppModel) async {
-        guard let client = app.client,
+        // Manga have pages, not text to highlight.
+        guard !isManga, let client = app.client,
               let page = try? await client.highlights(novelId: novelId, page: 1, perPage: Self.highlightPreviewCount)
         else { return }
         highlights = page.highlights
@@ -152,7 +161,7 @@ final class NovelModel {
         let ids = chapters
             .filter { $0.downloaded && !cachedIDs.contains($0.id) && (selection == .all || !$0.read) }
             .map(\.id)
-        app.downloads.start(novelId: novelId, chapterIds: ids, client: client, store: store)
+        app.downloads.start(novelId: novelId, chapterIds: ids, manga: isManga, client: client, store: store)
     }
 
     func removeDownloads(app: AppModel) async {

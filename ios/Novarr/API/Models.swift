@@ -102,14 +102,25 @@ struct NovelSummary: Codable, Hashable, Sendable, Identifiable {
     var lastReadAt: Date?
     var updatedAt: Date?
     var resumeChapterId: Int?
+    /// "novel" or "manga" (`Medium`); servers before manga send nothing.
+    var medium: String = Medium.novel
+}
+
+/// What a series is made of: text chapters or manga page images.
+enum Medium {
+    static let novel = "novel"
+    static let manga = "manga"
 }
 
 extension NovelSummary {
     enum CodingKeys: String, CodingKey {
         case id, name, author, coverUrl, coverLargeUrl, state, completed, paused, origin, tags
         case chaptersTotal, chaptersDownloaded, chaptersRead, chaptersNew
-        case readPercent, downloadPercent, finished, lastReadAt, updatedAt, resumeChapterId
+        case readPercent, downloadPercent, finished, lastReadAt, updatedAt, resumeChapterId, medium
     }
+
+    /// Read in the manga reader (pages), not the text reader.
+    var isManga: Bool { medium.lowercased() == Medium.manga }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -137,6 +148,7 @@ extension NovelSummary {
         lastReadAt = c.lenientDate(.lastReadAt)
         updatedAt = c.lenientDate(.updatedAt)
         resumeChapterId = c.lenientInt(.resumeChapterId)
+        medium = c.lenientString(.medium).flatMap { $0.isEmpty ? nil : $0 } ?? Medium.novel
     }
 
     /// The short caption under a cover in the library grid.
@@ -388,6 +400,97 @@ extension ChapterContent {
         readProgress = c.lenientInt(.readProgress)
         prev = try? c.decodeIfPresent(ChapterRef.self, forKey: .prev)
         next = try? c.decodeIfPresent(ChapterRef.self, forKey: .next)
+    }
+}
+
+// MARK: - Manga
+
+/// The chapter part of `GET /chapters/{id}/pages`.
+struct MangaChapterInfo: Codable, Hashable, Sendable {
+    var id: Int
+    var novelId: Int
+    var label: String
+    var number: Double?
+    var pageCount: Int?
+    var read: Bool
+    /// 0–100, as on text chapters.
+    var progress: Int?
+}
+
+extension MangaChapterInfo {
+    enum CodingKeys: String, CodingKey { case id, novelId, label, number, pageCount, read, progress }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        guard let id = c.lenientInt(.id) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.id, .init(codingPath: decoder.codingPath, debugDescription: "Manga chapter without id"))
+        }
+        self.id = id
+        novelId = c.lenientInt(.novelId) ?? 0
+        number = c.lenientDouble(.number)
+        label = c.lenientString(.label).flatMap { $0.isEmpty ? nil : $0 } ?? ChapterRef.fallbackLabel(number)
+        pageCount = c.lenientInt(.pageCount)
+        read = c.lenientBool(.read) ?? false
+        progress = c.lenientInt(.progress)
+    }
+}
+
+/// One page image. `url` is pre-signed by the server: it is loaded as-is,
+/// without the bearer token or any other header.
+struct MangaPage: Codable, Hashable, Sendable, Identifiable {
+    var page: Int
+    var url: URL?
+    var width: Int?
+    var height: Int?
+
+    var id: Int { page }
+
+    /// Height over width, when the server knows both.
+    var aspect: Double? {
+        guard let width, let height, width > 0, height > 0 else { return nil }
+        return Double(height) / Double(width)
+    }
+}
+
+extension MangaPage {
+    enum CodingKeys: String, CodingKey { case page, url, width, height }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        guard let page = c.lenientInt(.page) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.page, .init(codingPath: decoder.codingPath, debugDescription: "Page without number"))
+        }
+        self.page = page
+        url = c.lenientURL(.url)
+        width = c.lenientInt(.width)
+        height = c.lenientInt(.height)
+    }
+}
+
+/// `GET /chapters/{id}/pages`: a manga chapter's pages. Also the offline
+/// index of a downloaded manga chapter (`OfflineStore`).
+struct MangaPages: Codable, Hashable, Sendable {
+    var chapter: MangaChapterInfo
+    var pages: [MangaPage]
+    var prev: ChapterRef?
+    var next: ChapterRef?
+    /// The series' layout: "ltr", "rtl" or "vertical" (`MangaReadingMode`).
+    var readingMode: String
+}
+
+extension MangaPages {
+    enum CodingKeys: String, CodingKey { case chapter, pages, prev, next, readingMode }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        chapter = try c.decode(MangaChapterInfo.self, forKey: .chapter)
+        // Pages without a URL can't be shown or saved.
+        pages = c.lossyArray(MangaPage.self, .pages).filter { $0.url != nil }
+        prev = try? c.decodeIfPresent(ChapterRef.self, forKey: .prev)
+        next = try? c.decodeIfPresent(ChapterRef.self, forKey: .next)
+        readingMode = c.lenientString(.readingMode) ?? "ltr"
     }
 }
 

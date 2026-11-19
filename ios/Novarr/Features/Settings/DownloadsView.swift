@@ -17,9 +17,9 @@ struct DownloadsView: View {
                         ForEach(items) { item in
                             NavigationLink(value: NovelRoute(id: item.novelId, summary: nil)) {
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(item.name).font(.body.weight(.medium)).lineLimit(2)
+                                    Text(item.name).font(.ui(.body, .medium)).lineLimit(2)
                                     Text("\(item.chapterCount.formatted()) chapters · \(item.bytes.byteString)")
-                                        .font(.footnote)
+                                        .font(.ui(.footnote))
                                         .foregroundStyle(.secondary)
                                 }
                                 .padding(.vertical, 2)
@@ -38,6 +38,7 @@ struct DownloadsView: View {
                 ProgressView().frame(maxWidth: .infinity)
             }
         }
+        .brandBackground()
         .navigationTitle("Downloads")
         .task(id: app.downloads.revision) { await reload() }
     }

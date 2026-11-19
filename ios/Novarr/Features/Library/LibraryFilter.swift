@@ -2,6 +2,22 @@ import Foundation
 
 /// Pure filter/sort/search logic for the library grid (unit tested).
 enum LibraryFilter {
+    /// The library's two shelves: novels (text) and manga (pages).
+    enum Shelf: String, CaseIterable, Identifiable, Sendable {
+        case novels, manga
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .novels: "Novels"
+            case .manga: "Manga"
+            }
+        }
+    }
+
+    static func shelf(_ novels: [NovelSummary], _ shelf: Shelf) -> [NovelSummary] {
+        novels.filter { $0.isManga == (shelf == .manga) }
+    }
+
     enum Filter: String, CaseIterable, Identifiable, Sendable {
         case all, reading, newChapters, notStarted, finished
         var id: String { rawValue }

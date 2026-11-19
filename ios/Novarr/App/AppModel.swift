@@ -82,7 +82,7 @@ final class AppModel {
         }
         monitor.pathUpdateHandler = { [weak self] path in
             guard path.status == .satisfied else { return }
-            Task { @MainActor in await self?.flushWrites() }
+            Task { @MainActor in await self?.networkBecameAvailable() }
         }
         monitor.start(queue: DispatchQueue(label: "studio.visns.novarr.path"))
     }
@@ -316,6 +316,7 @@ final class AppModel {
         pendingWrites = await queue.count
         switch write {
         case .progress(_, _, let read) where !read: break
+        case .highlight: break // not read state: lists needn't reload
         default: readStateRevision += 1
         }
         await flushWrites()
@@ -351,6 +352,12 @@ final class AppModel {
         return await queue.items
             .filter { $0.novelId == novelId && $0.kind.movesPosition }
             .map(\.recordedAt)
+    }
+
+    /// Whether a progress or read/unread write for this chapter is still waiting to be sent.
+    func hasUnsentWrite(chapterId: Int) async -> Bool {
+        guard let queue else { return false }
+        return PendingWrite.containsChapterWrite(await queue.items, chapterId: chapterId)
     }
 
     // MARK: Latest position prompt
@@ -389,6 +396,14 @@ final class AppModel {
         if wasUnreachable, pendingWrites > 0 {
             Task { await flushWrites() }
         }
+    }
+
+    /// The network path came back: send queued writes and, if the server
+    /// was marked unreachable, ask it again (meta is cheap and public) so
+    /// `isReachable` recovers without waiting for some other request.
+    func networkBecameAvailable() async {
+        if !isReachable { await refreshMeta() }
+        await flushWrites()
     }
 
     func noteFailure(_ error: APIError) {

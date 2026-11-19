@@ -4,12 +4,23 @@ import SwiftUI
 struct NovarrApp: App {
     @State private var app = AppModel()
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(AppAppearance.defaultsKey) private var appearance = AppAppearance.dark
+
+    init() {
+        Self.styleNavigationBars()
+    }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(app)
-                .tint(.accentColor)
+                .tint(.brandAccent)
+                // Geist wherever a view doesn't choose its own font.
+                .font(.ui(.body))
+                // On the window rather than preferredColorScheme, so a themed
+                // reader can switch it while shown (ReaderView).
+                .onAppear { AppAppearance.applyToWindows(appearance.interfaceStyle) }
+                .onChange(of: appearance) { _, value in AppAppearance.applyToWindows(value.interfaceStyle) }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await app.flushWrites() } }
@@ -20,6 +31,18 @@ struct NovarrApp: App {
             default: break
             }
         }
+    }
+}
+
+extension NovarrApp {
+    /// Screen titles in Geist SemiBold (the hand-off's page title), scaling with Dynamic Type.
+    private static func styleNavigationBars() {
+        func geist(_ size: CGFloat, _ style: UIFont.TextStyle) -> UIFont? {
+            UIFont(name: BrandFont.geistSemiBold, size: size).map { UIFontMetrics(forTextStyle: style).scaledFont(for: $0) }
+        }
+        let bar = UINavigationBar.appearance()
+        if let large = geist(34, .largeTitle) { bar.largeTitleTextAttributes = [.font: large] }
+        if let inline = geist(17, .headline) { bar.titleTextAttributes = [.font: inline] }
     }
 }
 
@@ -37,6 +60,12 @@ struct ReaderRoute: Hashable {
     /// whether another device read this series more recently and offer to go
     /// there. Off for highlights and debug routes.
     var offerLatest = false
+    /// Opened from a highlight: the reader goes to its passage instead of
+    /// the saved progress, as a look-up (no position asked for or sent
+    /// until the reader moves to another chapter).
+    var highlight: Highlight? = nil
+    /// A manga chapter: opens the manga reader (pages) instead of the text one.
+    var manga = false
 }
 
 /// All highlights, or one novel's when `novelId` is set.
@@ -52,10 +81,26 @@ extension View {
             NovelView(route: route)
         }
         .navigationDestination(for: ReaderRoute.self) { route in
-            ReaderView(route: route)
+            ReaderDestination(route: route)
         }
         .navigationDestination(for: HighlightsRoute.self) { route in
             HighlightsView(route: route)
+        }
+        #if DEBUG
+        .navigationDestination(for: DebugDownloadsRoute.self) { _ in DownloadsView() }
+        #endif
+    }
+}
+
+/// The reader a route opens: pages for manga, text otherwise.
+struct ReaderDestination: View {
+    let route: ReaderRoute
+
+    var body: some View {
+        if route.manga {
+            MangaReaderView(route: route)
+        } else {
+            ReaderView(route: route)
         }
     }
 }

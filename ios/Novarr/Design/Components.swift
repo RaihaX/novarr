@@ -1,15 +1,19 @@
 import SwiftUI
 
-/// The "Serial" brand mark: four flat bars, 22/22/15/8 units long on a 32 grid.
+/// The "Serial" brand mark: four flat bars, 22/22/15/8 units long on a 32
+/// grid; the last (shortest) bar is amber, the reading accent. `lastBar`
+/// overrides it (nil: amber); a mono mark passes the same colour for both.
 struct BrandMark: View {
-    var color: Color = .accentColor
+    var color: Color = .brandAccent
+    var lastBar: Color? = nil
 
     var body: some View {
         GeometryReader { geo in
             let unit = min(geo.size.width / 22, geo.size.height / 23.5)
             VStack(alignment: .leading, spacing: 2.5 * unit) {
-                ForEach([22.0, 22, 15, 8], id: \.self) { length in
-                    Rectangle().fill(color).frame(width: length * unit, height: 4 * unit)
+                ForEach(Array([22.0, 22, 15, 8].enumerated()), id: \.offset) { index, length in
+                    Rectangle().fill(index == 3 ? (lastBar ?? .brandAmber) : color)
+                        .frame(width: length * unit, height: 4 * unit)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -19,10 +23,11 @@ struct BrandMark: View {
     }
 }
 
-/// Thin, rounded progress bar.
+/// Thin, rounded progress bar. Reading progress is amber (the brand's
+/// reading signal); other progress passes its own tint.
 struct ProgressLine: View {
     var fraction: Double
-    var tint: Color = .accentColor
+    var tint: Color = .brandAmber
     var track: Color = Color.primary.opacity(0.12)
     var height: CGFloat = 4
 
@@ -45,7 +50,7 @@ struct StateBadge: View {
 
     var body: some View {
         Text(state.label.uppercased())
-            .font(.caption2.weight(.semibold))
+            .font(.ui(.caption2, .semibold))
             .tracking(0.6)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
@@ -55,7 +60,7 @@ struct StateBadge: View {
 
     private var color: Color {
         switch state {
-        case .active: .accentColor
+        case .active: .brandAccent
         case .completed: .green
         case .paused: .secondary
         case .attention: .orange
@@ -71,7 +76,7 @@ struct OfflinePill: View {
 
     var body: some View {
         Label(text, systemImage: "icloud.slash")
-            .font(.footnote)
+            .font(.ui(.footnote))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

@@ -48,13 +48,17 @@ struct APIClient: Sendable {
         return meta
     }
 
+    /// Novels and manga together (`medium=all`); the app separates them
+    /// itself. Servers before manga ignore the parameter.
     func novels() async throws -> [NovelSummary] {
-        try await get("novels", as: NovelsEnvelope.self).novels
+        try await get("novels", query: Self.allMedia, as: NovelsEnvelope.self).novels
     }
 
     func home() async throws -> HomeFeed {
-        try await get("home", as: HomeFeed.self)
+        try await get("home", query: Self.allMedia, as: HomeFeed.self)
     }
+
+    private static let allMedia = [URLQueryItem(name: "medium", value: "all")]
 
     func novel(id: Int) async throws -> NovelDetail {
         try await get("novels/\(id)", as: NovelEnvelope.self).novel
@@ -64,8 +68,15 @@ struct APIClient: Sendable {
         try await get("novels/\(novelId)/chapters", as: ChaptersEnvelope.self, timeout: 60).chapters
     }
 
+    /// A text chapter. A manga chapter answers 422 with `medium: manga`,
+    /// thrown as `APIError.mangaChapter`.
     func chapter(id: Int) async throws -> ChapterContent {
         try await get("chapters/\(id)", as: ChapterEnvelope.self, timeout: 30).chapter
+    }
+
+    /// A manga chapter's pages (pre-signed image URLs).
+    func mangaPages(id: Int) async throws -> MangaPages {
+        try await get("chapters/\(id)/pages", as: MangaPages.self, timeout: 30)
     }
 
     /// Where the series was last read, on any device; nil when nobody has
@@ -90,10 +101,21 @@ struct APIClient: Sendable {
         case .progress(let chapterId, let progress, let read):
             try await post("chapters/\(chapterId)/progress",
                            body: ProgressBody(progress: progress, read: read ? true : nil, age: age), headers: headers)
+        case .lookupRead(let chapterId):
+            // A look-up's read mark: the chapter is read, but the series'
+            // latest position stays where it was.
+            try await post("chapters/\(chapterId)/progress",
+                           body: ProgressBody(progress: 100, read: true, lookup: true, age: age), headers: headers)
         case .setRead(let chapterId, let read):
             try await post("chapters/\(chapterId)/read", body: ReadBody(read: read, age: age), headers: headers)
         case .bulkRead(let request):
             try await post("chapters/bulk-read", body: BulkBody(request: request, age: age), headers: headers)
+        case .highlight(let draft):
+            // 201 new, 200 when the chapter already has this excerpt; no `age`:
+            // a highlight isn't a position. Without a note the key is left out,
+            // so a duplicate keeps the note it has.
+            try await post("highlights", body: HighlightBody(chapterId: draft.chapterId, excerpt: draft.excerpt,
+                                                             note: draft.note), headers: headers)
         }
     }
 
@@ -227,14 +249,19 @@ struct APIClient: Sendable {
             throw APIError.unreachable("No HTTP response.")
         }
         guard (200..<300).contains(http.statusCode) else {
-            let message = (try? JSONDecoder().decode(ErrorBody.self, from: data))?.message
+            let body = try? JSONDecoder().decode(ErrorBody.self, from: data)
             if http.statusCode == 401, reportUnauthorized { onUnauthorized?(token) }
-            throw APIError.http(status: http.statusCode, message: message)
+            // The text endpoint's answer for a chapter that is page images.
+            if http.statusCode == 422, body?.medium?.lowercased() == Medium.manga { throw APIError.mangaChapter }
+            throw APIError.http(status: http.statusCode, message: body?.message)
         }
         return data
     }
 
-    private struct ErrorBody: Decodable { var message: String? }
+    private struct ErrorBody: Decodable {
+        var message: String?
+        var medium: String?
+    }
 
     private struct EmptyBody: Encodable {}
 
@@ -248,7 +275,15 @@ struct APIClient: Sendable {
     private struct ProgressBody: Encodable {
         var progress: Int?
         var read: Bool?
+        /// Only sent (true) for a look-up's read mark.
+        var lookup: Bool? = nil
         var age: Int
+    }
+
+    private struct HighlightBody: Encodable {
+        var chapterId: Int
+        var excerpt: String
+        var note: String?
     }
 
     private struct ReadBody: Encodable {
