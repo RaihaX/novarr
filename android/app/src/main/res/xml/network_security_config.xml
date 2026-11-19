@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Novarr is self-hosted: people reach their own server at a LAN address
+  (http://192.168.x.x:8080), a Tailscale name, or localhost, usually without
+  a certificate. Plain HTTP must therefore work for any host the user types
+  in; HTTPS servers keep normal certificate checks (system CAs only).
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

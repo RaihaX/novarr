@@ -128,6 +128,7 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 ### Apps & API
 - **JSON API** at `/api/v1` — library, chapters, reading progress, Discover, adding novels, on-demand checks for new chapters and ePub builds. See [Apps and JSON API](#apps-and-json-api).
 - **iPhone / iPad app** (`ios/`) — a native SwiftUI reader: home, library, novel pages, reader and settings, with reading position shared with the website.
+- **Android app** (`android/`) — a native Compose reader for novels and manga, with offline downloads and the same shared reading position.
 - **KOReader plugin** (`koreader/`) — read on a Kindle or any KOReader device straight from the server: a cover-shelf home, chapters joined into groups so chapter changes are plain page turns, 100 chapters saved ahead with Wi-Fi switched off in between, Discover and "check for new chapters" on the device, reading stats, a second server address for away from home, and plugin updates over Wi-Fi.
 
 ### Operations
@@ -460,6 +461,10 @@ List endpoints answer conditional requests (`ETag` / `If-None-Match`). A Discove
 ### iPhone / iPad app (`ios/`)
 
 A native SwiftUI app (iOS 17+): connect to the server by address, then Home, Library, Discover (browse or search the sources and add novels), novel pages with **Check for new chapters**, the reader, Highlights (per novel and across the library) and Settings. The Xcode project is generated from `ios/project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen); open `ios/Novarr.xcodeproj` to build and run, and `NovarrTests` holds its tests.
+
+### Android app (`android/`)
+
+A native Kotlin / Jetpack Compose reader (Android 8.0+, API 26): connect to the server by address, sign in when the server has accounts, then Home, Library (novels and manga on separate shelves), series pages with **Check for new chapters** and offline downloads, the text reader, a manga reader (paged left-to-right or right-to-left, or vertical scroll, following the series' reading mode), Highlights and Settings. It reads only: there is no Discover or library management, whoever signs in. Reading progress and read marks sync through the API and are queued while offline. Build with the Gradle wrapper from `android/` (JDK 17 and the Android SDK): `./gradlew :app:assembleDebug`, and `./gradlew :app:testDebugUnitTest` for its unit tests.
 
 ### KOReader plugin (`koreader/`)
 
@@ -808,6 +813,7 @@ tests/
 ├── fixtures/              # Saved source pages + expected JSON per adapter
 ├── js/                    # node --test suites: offline queue, service worker, palette, perf
 └── Support/FakeFetcher    # Network fake that fails any un-faked URL
+android/                   # Android app (Kotlin, Jetpack Compose; Gradle wrapper)
 ios/                       # iPhone/iPad app (SwiftUI; project.yml → Novarr.xcodeproj)
 koreader/                  # KOReader plugin: novarr.koplugin/ (served for Wi-Fi updates),
                            #   spec/ (unit tests), Makefile, README
