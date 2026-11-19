@@ -191,7 +191,7 @@ function Novel:askDownload()
         local stored = s.store:storedSet(self.novel_id)
         local resume = s:resumeChapter(self.novel_id, self:summary())
         local ids = Model.downloadSelection(cl.list, mode, limit, resume, stored,
-            function(c) return (s:chapterState(self.novel_id, c.id)) end)
+            function(c) return s:chapterState(self.novel_id, c.id) end)
         s:downloadMany(self.novel_id, ids)
     end
     UI.choice(_("Download for offline reading"), {

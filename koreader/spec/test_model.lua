@@ -84,6 +84,17 @@ T.it("download selections", function()
     T.eq(Model.downloadSelection(small, "unread", nil, nil, {}), { 2, 4, 5 })
     T.eq(Model.downloadSelection(small, "all", nil, 2, {}), { 1, 2, 4, 5, 6 })
     T.eq(Model.downloadSelection(small, "unread", nil, 4, {}, function(c) return c.id == 4 end), { 5, 6 })
+    -- the resume chapter is read but still being read (web: read on open, 40 %): included
+    T.eq(Model.downloadSelection(small, "unread", nil, 4, {}, function(c)
+        if c.id == 4 then return true, 40 end
+        return false
+    end), { 4, 5, 6 })
+    -- ... but only as the resume chapter, and not once finished
+    T.eq(Model.downloadSelection(small, "unread", nil, 4, {}, function(c)
+        if c.id == 4 then return true, 95 end
+        if c.id == 5 then return true, 40 end
+        return false
+    end), { 6 })
 end)
 
 T.it("next chapters for prefetch skip ones the server lacks", function()
@@ -180,11 +191,17 @@ local function L(n, missing)
     return list
 end
 local function readTo(list, k) for i = 1, k do list[i].read = true end return list end
+-- Effective read state and progress (Store.effective): the server row plus the overlay.
 local function effective(overlay)
     return function(c)
         local e = overlay[tostring(c.id)]
-        if e and e.read ~= nil then return e.read end
-        return c.read
+        local read, progress = c.read, c.read_progress
+        if e then
+            if e.read ~= nil then read = e.read end
+            if e.progress ~= nil then progress = e.progress end
+            if e.read == false and e.progress == nil then progress = nil end
+        end
+        return read, progress
     end
 end
 
@@ -193,22 +210,36 @@ local resume_cases = {
     { "server only", readTo(L(20), 4), 105, {}, 105 },
     { "local read further than server", readTo(L(20), 4), 105,
         { ["116"] = { read = true, at = 10 } }, 117 },
-    { "local read behind server (catch-up mark) keeps server", readTo(L(20), 9), 110,
+    { "a newer read mark behind the server's: next unread after it", readTo(L(20), 9), 110,
         { ["102"] = { read = true, at = 10 } }, 110 },
     { "part-read newer than read marks wins", readTo(L(20), 4), 105,
         { ["116"] = { read = true, at = 10 }, ["117"] = { progress = 40, at = 20 } }, 117 },
-    { "re-opening an already read chapter does not move it back", readTo(L(20), 9), 110,
-        { ["103"] = { progress = 30, at = 50 } }, 110 },
+    { "re-reading a read chapter part-way resumes it, as the server will", readTo(L(20), 9), 110,
+        { ["103"] = { progress = 30, at = 50 } }, 103 },
+    { "re-reading a read chapter to its end: next unread after it", readTo(L(20), 9), 110,
+        { ["103"] = { progress = 95, at = 50 } }, 110 },
     { "an unread chapter being read, behind the server's, wins when newest", readTo(L(20), 4), 110,
         { ["106"] = { progress = 30, at = 50 } }, 106 },
     { "older part-read loses to a newer read mark further on", readTo(L(20), 4), 105,
         { ["106"] = { progress = 30, at = 5 }, ["111"] = { read = true, at = 9 } }, 112 },
+    { "an older part-read chapter never pulls back", readTo(L(20), 4), 105,
+        { ["103"] = { progress = 20, at = 1 }, ["105"] = { read = true, progress = 100, at = 9 } }, 106 },
     { "server points at a read chapter (progress < 90), device read past it", readTo(L(20), 5), 105,
         { ["105"] = { read = true, at = 3 }, ["106"] = { read = true, at = 4 } }, 107 },
     { "next after local read skips chapters the server lacks", readTo(L(20, { [8] = true }), 4), 105,
         { ["107"] = { read = true, at = 1 } }, 109 },
+    { "earlier unread chapters do not pull back", L(10), 101,
+        { ["105"] = { read = true, progress = 100, at = 1 } }, 106 },
     { "unread mark never moves it", readTo(L(20), 9), 110, { ["104"] = { read = false, at = 99 } }, 110 },
+    { "opened at 0 % is not reading", readTo(L(20), 4), 105, { ["108"] = { progress = 0, at = 99 } }, 105 },
+    { "reading on a chapter the server lacks is ignored", readTo(L(20, { [8] = true }), 4), 105,
+        { ["108"] = { progress = 50, at = 99 } }, 105 },
+    { "a tie goes to the furthest chapter", readTo(L(20), 2), 103,
+        { ["103"] = { read = true, progress = 100, at = 7 }, ["104"] = { read = true, progress = 100, at = 7 },
+          ["105"] = { read = true, progress = 100, at = 7 } }, 106 },
     { "no server resume, nothing local: first unread", readTo(L(10), 3), nil, {}, 104 },
+    { "caught up locally: the last downloaded chapter, like the server",
+        readTo(L(6, { [6] = true }), 4), 105, { ["105"] = { read = true, at = 1 } }, 105 },
     { "read to the end locally: keep server", readTo(L(5), 4), 105, { ["105"] = { read = true, at = 1 } }, 105 },
 }
 for _i, c in ipairs(resume_cases) do
@@ -216,6 +247,13 @@ for _i, c in ipairs(resume_cases) do
         T.eq(Model.resolveResume(c[2], c[3], c[4], effective(c[4])), c[5])
     end)
 end
+
+T.it("unfinished: unread 1-99 %, read below 90 %", function()
+    T.falsy(Model.unfinished(false, nil)); T.falsy(Model.unfinished(false, 0))
+    T.truthy(Model.unfinished(false, 1)); T.truthy(Model.unfinished(false, 99)); T.falsy(Model.unfinished(false, 100))
+    T.falsy(Model.unfinished(true, nil)); T.truthy(Model.unfinished(true, 0)); T.truthy(Model.unfinished(true, 89))
+    T.falsy(Model.unfinished(true, 90)); T.falsy(Model.unfinished(true, 100))
+end)
 
 T.it("ordinal among downloaded chapters", function()
     local list = L(10, { [3] = true, [7] = true })
