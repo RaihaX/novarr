@@ -233,6 +233,46 @@ class PublicAddressTest extends TestCase
             ->postJson(self::PUBLIC . '/novels/bulk', ['action' => 'complete', 'ids' => [1]])->assertStatus(403);
     }
 
+    public function test_reader_requests_on_the_public_host_search_and_request_but_never_decide(): void
+    {
+        $this->enableSignIn();
+        $this->configurePublic();
+        \Illuminate\Support\Facades\Cache::flush();
+        \Tests\Support\FakeRequestSource::register();
+        \Tests\Support\FakeRequestSource::$search[\Tests\Support\FakeNovelA::class] = [['name' => 'Far Away', 'url' => 'https://novel-a.test/far-away']];
+        $reader = $this->tokenFor($this->makeReader());
+        $owner = $this->tokenFor($this->owner());
+
+        try {
+            // Searching is a reader feature: allowed on the public address.
+            $id = $this->asToken($reader)->viaTunnel()->postJson(self::PUBLIC . '/api/v1/requests/searches', ['q' => 'far', 'medium' => 'novel'])
+                ->assertStatus(202)->json('search.id');
+            (new \App\Jobs\RunRequestSearch($id))->handle(app(\App\Services\Requests\RequestSearch::class), app(\App\Services\Discover::class));
+            $search = $this->asToken($reader)->viaTunnel()->getJson(self::PUBLIC . "/api/v1/requests/searches/{$id}")->assertOk()->json('search');
+            $this->assertSame('Far Away', $search['results'][0]['title']);
+
+            $request = $this->asToken($reader)->viaTunnel()->postJson(self::PUBLIC . '/api/v1/requests', ['search_id' => $id, 'key' => $search['results'][0]['key']])
+                ->assertStatus(201)->json('request');
+            $this->asToken($reader)->viaTunnel()->getJson(self::PUBLIC . '/api/v1/notifications')->assertOk();
+
+            // Approving is the admin's, and admin features are home-network only — even for the admin.
+            foreach (['approve', 'decline', 'rerank'] as $action) {
+                $this->asToken($owner)->viaTunnel()->postJson(self::PUBLIC . "/api/v1/requests/{$request['id']}/{$action}")
+                    ->assertStatus(403)->assertExactJson(['message' => PublicAddress::ADMIN_MESSAGE, 'code' => 'forbidden']);
+            }
+            // The admin reading on the public address gets the reader view: cannot decide.
+            $this->asToken($owner)->viaTunnel()->getJson(self::PUBLIC . '/api/v1/requests?scope=all')->assertStatus(403);
+            $this->asToken($owner)->viaTunnel()->getJson(self::PUBLIC . '/api/v1/requests')->assertOk()->assertJsonPath('can_decide', false);
+            $this->assertTrue(\App\NovelRequest::find($request['id'])->isPending());
+
+            // At home the admin decides.
+            $this->asToken($owner)->getJson(self::LAN . "/api/v1/requests/{$request['id']}")->assertOk()->assertJsonPath('request.can_decide', true);
+            $this->asToken($owner)->postJson(self::LAN . "/api/v1/requests/{$request['id']}/decline")->assertOk();
+        } finally {
+            \Tests\Support\FakeRequestSource::reset();
+        }
+    }
+
     public function test_admin_ui_is_absent_from_pages_for_the_admin_on_the_public_host(): void
     {
         $this->enableSignIn();

@@ -1,0 +1,393 @@
+// ===========================================================================
+// Reader requests (/requests — resources/views/requests/index.blade.php)
+//
+// Built from the existing pieces: the Discover cover cards and synopsis
+// clamp (_library), page head / filter bar / empty state (_dashboard),
+// badges and alerts (_components). Only layout lives here: no new colours,
+// shadows or radii — every value is a token.
+// ===========================================================================
+
+.requests-page {
+    display: flex;
+    flex-direction: column;
+    gap: $s-9;
+    min-width: 0;
+
+    .page-head { margin-bottom: 0; }
+}
+
+.req-section {
+    display: flex;
+    flex-direction: column;
+    gap: $s-4;
+    min-width: 0;
+}
+
+// As the Home section heads.
+.req-section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: $s-3 $s-4;
+}
+
+.req-section-title {
+    margin: 0;
+    font-size: $fs-section-header;
+    font-weight: $fw-section;
+    letter-spacing: $ls-section;
+}
+
+.req-section-note {
+    font-size: 13px;
+    color: $text-muted;
+}
+
+// --- A. Search ---------------------------------------------------------------
+.req-search {
+    // The field takes the row; the switch and the button keep their size and
+    // wrap under it on a phone.
+    .req-query {
+        flex: 1 1 220px;
+        min-width: 0;
+        width: auto;
+        max-width: 420px;
+    }
+
+    .segmented .btn { height: 34px; display: inline-flex; align-items: center; }
+    > .btn-primary { height: 34px; display: inline-flex; align-items: center; }
+}
+
+.req-free-link { margin: 0; }
+
+// A text button in the link colour (the Discover "More" style).
+.req-linkbtn {
+    padding: 0;
+    min-height: 24px;
+    font-size: 13px;
+    font-weight: 500;
+    color: $link;
+    background: none;
+    border: 0;
+
+    &:hover { color: $link-hover; }
+}
+
+.req-status:empty { display: none; }
+
+.req-search-error { margin: 0; }
+
+// Phones: three covers across (as the Library) instead of Discover's two;
+// wider screens keep the Discover columns.
+.req-grid {
+    @media (max-width: 575.98px) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: $s-6 $s-3;
+    }
+}
+
+.req-card {
+    // The action sits on the card's bottom edge, so a row of cards lines up
+    // whatever the length of each title and synopsis.
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+
+    .req-card-action { margin-top: auto; padding-top: 2px; }
+
+    .req-card-title {
+        cursor: default;
+        &:hover { color: $text; }
+    }
+}
+
+.req-sources {
+    margin: 0;
+    font-size: $fs-caption;
+    color: $text-soft;
+    overflow-wrap: anywhere;
+}
+
+.req-card-action {
+    margin-top: 2px;
+
+    .req-action {
+        width: 100%;
+        min-height: 32px;
+        height: auto;
+        padding: 4px $s-2;
+        white-space: normal;
+        line-height: 1.25;
+        justify-content: center;
+        text-align: center;
+    }
+
+    // "Requested" / "Requested by you": focusable but inert.
+    .req-action.is-inert {
+        color: $text-muted;
+        cursor: default;
+        pointer-events: none;
+    }
+}
+
+.req-muted-line {
+    margin: 0;
+    font-size: 13px;
+    color: $text-muted;
+}
+
+// --- B / C. Request rows ---------------------------------------------------------
+.req-list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+
+    &:empty { display: none; }
+
+    > .novels-empty,
+    > .req-list-error { margin: 0; }
+
+    > .req-list-error { border: 0; }
+}
+
+.req-row {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: $s-4;
+    padding: $s-5 $s-6;
+    min-width: 0;
+
+    & + & { border-top: $hairline solid $border; }
+
+    @media (max-width: 575.98px) {
+        grid-template-columns: 56px minmax(0, 1fr);
+        gap: $s-3;
+        padding: $s-4;
+    }
+}
+
+.req-row-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+
+    > p { margin: 0; }
+}
+
+.req-row-who {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: $muted;
+}
+
+.req-row-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px $s-2;
+    min-width: 0;
+
+    .badge { flex: none; }
+}
+
+.req-row-title {
+    font-size: $fs-card-title;
+    font-weight: $fw-card-title;
+    color: $text;
+    overflow-wrap: anywhere;
+    margin-right: $s-1;
+}
+
+.req-row-meta,
+.req-row-detail,
+.req-row-note,
+.req-row-link {
+    font-size: 13px;
+    color: $text-muted;
+    overflow-wrap: anywhere;
+}
+
+.req-row-detail { color: $text; }
+
+.req-row-label { color: $text-soft; }
+
+.req-row-note { white-space: pre-line; }
+
+.req-link-text { font-family: $font-mono; font-size: $fs-mono; }
+
+.req-open-link { white-space: nowrap; }
+
+.req-row-synopsis { min-height: 0; }
+
+.req-row-actions,
+.req-row-error-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-2;
+    margin-top: $s-1;
+}
+
+.req-row-error {
+    margin: 0;
+
+    .req-row-error-actions { margin-top: $s-2; }
+}
+
+// The ranked shortlist / the free-text approve fields.
+.req-cands {
+    display: flex;
+    flex-direction: column;
+    gap: $s-2;
+    margin: $s-1 0 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.req-cands-legend {
+    float: none;
+    width: auto;
+    margin: 0;
+    padding: 0;
+    font-size: $fs-caption;
+    font-weight: $fw-caption;
+    letter-spacing: $ls-caption;
+    text-transform: uppercase;
+    color: $text-muted;
+}
+
+.req-cands-list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: $hairline solid $border;
+    border-radius: $radius;
+
+    &:empty { display: none; }
+
+    > .req-muted-line { padding: $s-2 $s-3; }
+}
+
+.req-cand {
+    & + & { border-top: $hairline solid $border; }
+
+    &.is-disabled .req-cand-label { cursor: default; }
+    &.is-disabled .req-cand-name { color: $text-muted; }
+}
+
+.req-cand-label {
+    display: flex;
+    align-items: flex-start;
+    gap: $s-3;
+    padding: $s-2 $s-3;
+    cursor: pointer;
+    min-width: 0;
+
+    input { flex: none; margin-top: 3px; accent-color: $accent; }
+
+    &:hover { background-color: $surface-alt; }
+}
+
+.req-cand-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.req-cand-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: $text;
+}
+
+.req-cand-reason {
+    font-size: 13px;
+    color: $text;
+}
+
+.req-cand-detail {
+    font-size: $fs-caption;
+    color: $text-muted;
+}
+
+.req-ranking {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    margin: 0;
+    font-size: 13px;
+    color: $text-muted;
+}
+
+.req-rerank { margin: 0; }
+
+.req-free-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 480px;
+
+    .form-label { margin: $s-1 0 0; }
+}
+
+.req-radio-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-2 $s-5;
+}
+
+.req-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    font-size: 13px;
+    color: $text;
+    cursor: pointer;
+
+    input { accent-color: $accent; }
+}
+
+.req-more { display: flex; justify-content: center; }
+
+.req-tab-count { font-family: $font-mono; font-size: $fs-mono; }
+
+.req-away { margin: 0; }
+
+// Dialogs
+.req-dialog-subject {
+    margin: 0 0 $s-4;
+    font-size: $fs-card-title;
+    font-weight: $fw-card-title;
+    color: $text;
+    overflow-wrap: anywhere;
+}
+
+#reqFreeDialog legend.form-label { float: none; }
+
+// The pending count next to "Requests" in the desktop nav.
+.nav-count {
+    margin-left: 6px;
+    vertical-align: 1px;
+}
+
+@media (pointer: coarse) {
+    .req-search .segmented .btn,
+    .req-search > .btn-primary,
+    .req-search .req-query { height: 44px; }
+    .req-cand-label { padding: $s-3; }
+    .req-card-action .req-action { min-height: 44px; }
+}

@@ -154,8 +154,9 @@ class WordCountAndHomeQueriesTest extends TestCase
         // chapters, 3 stats — independent of how many novels are in progress.
         // Per-reader read state added two, also fixed: the settings lookup
         // that names the current reader (cached forever outside this cold
-        // test) and the reader's read counts (chapter_reads).
-        $this->assertLessThanOrEqual(22, $count, "Home ran {$count} queries on an empty cache");
+        // test) and the reader's read counts (chapter_reads). The admin's
+        // pending-requests nav badge adds one (cached 10 minutes).
+        $this->assertLessThanOrEqual(23, $count, "Home ran {$count} queries on an empty cache");
     }
 
     public function test_home_query_count_holds_with_not_started_novels_in_new_chapters(): void
@@ -182,7 +183,8 @@ class WordCountAndHomeQueriesTest extends TestCase
         DB::disableQueryLog();
 
         $response->assertSee('6 novels not started yet')->assertSee('In novels you are reading');
-        $this->assertLessThanOrEqual(22, $count, "Home ran {$count} queries on an empty cache");
+        // As above: 22, plus the admin's pending-requests nav badge (cached).
+        $this->assertLessThanOrEqual(23, $count, "Home ran {$count} queries on an empty cache");
     }
 
     public function test_continue_reading_picks_the_same_chapters_as_before(): void

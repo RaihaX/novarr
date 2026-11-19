@@ -32,6 +32,10 @@ document.addEventListener('turbo:load', () => initCopyButtons());
 import { initNovelPage } from './novel';
 document.addEventListener('turbo:load', initNovelPage);
 
+// Reader requests page (search, my requests, review); re-initialised per visit.
+import { initRequestsPage } from './requests';
+document.addEventListener('turbo:load', initRequestsPage);
+
 // Refresh the current page while keeping the scroll position — a drop-in
 // replacement for location.reload() on long pages (novel chapter tables).
 function softRefresh(delay = 0) {

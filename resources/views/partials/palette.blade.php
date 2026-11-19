@@ -30,11 +30,16 @@
             route('activity.index'), route('commands.index'), route('logs.index'), route('health.index'), route('settings.index')];
         $paletteNav = array_values(array_filter($paletteNav, fn($n) => !in_array($n['url'], $paletteAdminUrls, true)));
     }
+    // Reader requests: everyone, while the feature is on.
+    if ($requestsOn ?? false) {
+        $paletteNav[] = ['title' => 'Requests', 'url' => route('requests.index'), 'icon' => 'inbox',
+            'meta' => !empty($requestsPending) ? $requestsPending . ' pending' : null, 'keywords' => 'request ask suggest wishlist approve decline'];
+    }
     if (!empty($navUser)) {
         $paletteNav[] = ['title' => 'Account', 'url' => route('account'), 'icon' => 'user', 'keywords' => 'account password devices link kindle sign out profile'];
     }
     $paletteIcons = ['book-open', 'file-text', 'arrow-right', 'search', 'refresh-cw', 'download', 'sun', 'moon', 'sun-moon',
-        'house', 'library', 'compass', 'plus', 'highlighter', 'chart-column', 'activity', 'terminal', 'scroll-text', 'heart-pulse', 'settings', 'wifi-off', 'user'];
+        'house', 'library', 'compass', 'plus', 'highlighter', 'chart-column', 'activity', 'terminal', 'scroll-text', 'heart-pulse', 'settings', 'wifi-off', 'user', 'inbox'];
 @endphp
 <div class="nv-sheet palette" id="palette" role="dialog" aria-modal="true" aria-label="Command palette" hidden>
     <div class="nv-sheet-backdrop" data-sheet-close></div>
