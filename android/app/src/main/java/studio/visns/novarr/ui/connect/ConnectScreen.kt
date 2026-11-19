@@ -1,5 +1,8 @@
 package studio.visns.novarr.ui.connect
 
+import androidx.compose.material3.LocalTextStyle
+import studio.visns.novarr.ui.theme.BrandFonts
+import studio.visns.novarr.ui.components.BrandLockup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -52,7 +55,6 @@ import kotlinx.coroutines.launch
 import studio.visns.novarr.api.ApiClient
 import studio.visns.novarr.api.ApiError
 import studio.visns.novarr.api.ServerUrl
-import studio.visns.novarr.ui.components.BrandMark
 import studio.visns.novarr.ui.components.LocalApp
 import studio.visns.novarr.ui.components.readableWidth
 
@@ -117,9 +119,7 @@ fun ConnectScreen(initialSetup: Boolean, onDone: () -> Unit) {
             Column(Modifier.readableWidth(520.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 if (initialSetup) {
                     Spacer(Modifier.height(64.dp))
-                    BrandMark(Modifier.width(44.dp))
-                    Spacer(Modifier.height(16.dp))
-                    Text("Novarr", style = MaterialTheme.typography.displaySmall, modifier = Modifier.semantics { heading() })
+                    BrandLockup(40.dp, Modifier.semantics { heading() })
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "Connect to the Novarr server you run at home to read your library here.",
@@ -133,6 +133,7 @@ fun ConnectScreen(initialSetup: Boolean, onDone: () -> Unit) {
                     value = address,
                     onValueChange = { address = it; error = null },
                     label = { Text("Server address") },
+                    textStyle = LocalTextStyle.current.copy(fontFamily = BrandFonts.GeistMono),
                     placeholder = { Text("http://192.168.0.10:8080") },
                     singleLine = true,
                     enabled = !checking,

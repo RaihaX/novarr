@@ -1,5 +1,6 @@
 package studio.visns.novarr.ui.reader
 
+import studio.visns.novarr.ui.theme.BrandFonts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -63,11 +64,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -84,12 +88,16 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import studio.visns.novarr.api.ApiError
 import studio.visns.novarr.api.ChapterContent
 import studio.visns.novarr.api.ChapterRef
 import studio.visns.novarr.api.rethrowIfCancellation
 import studio.visns.novarr.app.AppModel
 import studio.visns.novarr.domain.LatestPosition
+import studio.visns.novarr.domain.Pagination
+import studio.visns.novarr.domain.TextOffsets
+import studio.visns.novarr.domain.TextReadingMode
 import studio.visns.novarr.store.ReaderSettings
 import studio.visns.novarr.ui.ReaderRoute
 import studio.visns.novarr.ui.components.BrandMark
@@ -101,6 +109,23 @@ class TextReaderViewModel(app: AppModel, route: ReaderRoute) :
     BaseReaderViewModel(app, route.novelId, route.chapterId, route.offerLatest) {
     var content by mutableStateOf<ChapterContent?>(null)
         private set
+
+    /** Character offsets of the open chapter's paragraphs. */
+    var offsets = TextOffsets(emptyList())
+        private set
+
+    /**
+     * Where the reader is: the character offset of the first visible line,
+     * kept by both modes so a re-pagination, rotation or switch between
+     * Scroll and Pages lands on the same text (never the same page number).
+     */
+    var anchorOffset = 0
+
+    /** "12 / 48" while paged; null while scrolling. */
+    var pageLabel by mutableStateOf<Pair<Int, Int>?>(null)
+
+    /** Open the chapter with this id at its end (paging back from the next chapter). */
+    private var openAtEndId: Int? = null
 
     override val itemCount: Int get() = content?.paragraphs?.size ?: 0
     override val shownChapterId: Int? get() = content?.id
@@ -147,15 +172,43 @@ class TextReaderViewModel(app: AppModel, route: ReaderRoute) :
             chapter = chapter.copy(readProgress = forced)
             session?.store?.updateChapterState(id, novelId, forced, null)
         }
+        offsets = TextOffsets(chapter.paragraphs.map { it.length })
         content = chapter
+        val toEnd = forced == null && openAtEndId == id && chapter.paragraphs.isNotEmpty()
+        openAtEndId = null
         val restore = when {
             forced != null -> LatestPosition.itemIndex(forced, chapter.paragraphs.size)
+            toEnd -> chapter.paragraphs.size - 1
             chapter.readProgress != null && chapter.readProgress < 100 -> LatestPosition.itemIndex(chapter.readProgress, chapter.paragraphs.size)
             else -> null
         }
+        anchorOffset = restore?.let(offsets::paragraphStart) ?: 0
         if (chapter.downloaded) app.downloads.contentChanged()
         prefetch(chapter.next)
-        loaded(chapter.read, chapter.readProgress, restore)
+        loaded(chapter.read, chapter.readProgress, restore, toEnd)
+    }
+
+    /** Opens chapter [id] at its last page (paging back past the first page). */
+    fun openAtEnd(id: Int) {
+        openAtEndId = id
+        open(id)
+    }
+
+    /** The page showing [anchorOffset]. */
+    fun pageForAnchor(pages: List<Pagination.Page>): Int = Pagination.pageFor(pages, anchorOffset)
+
+    /** Applies a pending restore / "Go to latest" to the anchor; true when there was one. */
+    fun takeRequest(pages: List<Pagination.Page>): Boolean {
+        val request = takeScrollRequest() ?: return false
+        anchorOffset = if (request.toEnd) pages.lastOrNull()?.startOffset ?: 0 else offsets.paragraphStart(request.index)
+        return true
+    }
+
+    /** A page is on screen: its first line is the position; the last page is the end of the chapter. */
+    fun pageShown(index: Int, pages: List<Pagination.Page>) {
+        val last = index >= pages.size - 1
+        endVisible(last)
+        if (!last) moved(offsets.paragraphAt(pages[index].startOffset))
     }
 
     override fun onMarkedRead() {
@@ -209,7 +262,7 @@ fun TextReaderScreen(nav: NavController, route: ReaderRoute) {
             ReaderPhase.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = colors.secondary)
             is ReaderPhase.Failed -> Failure(phase.message, colors) { model.load() }
             ReaderPhase.Loaded -> model.content?.let { content ->
-                ChapterText(content, model, settings, colors, onTap = { chromeHidden = !chromeHidden }, onBackToSeries = { nav.popBackStack() })
+                ChapterText(content, model, settings, colors, onTap = { chromeHidden = !chromeHidden }, onBackToSeries = { nav.popBackStack() }, onTurn = { chromeHidden = true })
             }
         }
 
@@ -227,8 +280,18 @@ fun TextReaderScreen(nav: NavController, route: ReaderRoute) {
                     next = model.content?.next,
                     onOpen = { model.open(it.id) },
                     middle = {
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Outlined.TextFields, contentDescription = "Reading settings", tint = colors.text)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            model.pageLabel?.let { (page, total) ->
+                                Text(
+                                    "$page / $total",
+                                    color = colors.secondary,
+                                    style = MaterialTheme.typography.labelLarge.copy(fontFamily = BrandFonts.GeistMono),
+                                    modifier = Modifier.padding(end = 4.dp).semantics { contentDescription = "Page $page of $total" },
+                                )
+                            }
+                            IconButton(onClick = { showSettings = true }) {
+                                Icon(Icons.Outlined.TextFields, contentDescription = "Reading settings", tint = colors.text)
+                            }
                         }
                     },
                 )
@@ -246,7 +309,6 @@ fun TextReaderScreen(nav: NavController, route: ReaderRoute) {
     }
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ChapterText(
     content: ChapterContent,
@@ -255,10 +317,8 @@ private fun ChapterText(
     colors: ReaderColors,
     onTap: () -> Unit,
     onBackToSeries: () -> Unit,
+    onTurn: () -> Unit,
 ) {
-    val list = rememberLazyListState()
-    // Follow the system font scale on top of the chosen size.
-    val fontScale = LocalDensity.current.fontScale
     val size = settings.fontSize.sp
     val body = TextStyle(
         fontFamily = settings.font.family(),
@@ -267,15 +327,53 @@ private fun ChapterText(
         color = colors.text,
         textAlign = if (settings.justify) TextAlign.Justify else TextAlign.Start,
     )
+    val title = body.copy(fontSize = size * 1.45f, lineHeight = 1.25.em, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Start)
+    if (settings.mode == TextReadingMode.PAGES && content.hasText) {
+        PagedChapterText(content, model, settings, colors, body, title, onTap, onBackToSeries, onTurn)
+    } else {
+        ScrollChapterText(content, model, settings, colors, body, title, onTap, onBackToSeries)
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun ScrollChapterText(
+    content: ChapterContent,
+    model: TextReaderViewModel,
+    settings: ReaderSettings,
+    colors: ReaderColors,
+    body: TextStyle,
+    titleStyle: TextStyle,
+    onTap: () -> Unit,
+    onBackToSeries: () -> Unit,
+) {
+    val list = rememberLazyListState()
+    // Follow the system font scale on top of the chosen size.
+    val fontScale = LocalDensity.current.fontScale
     val paragraphCount = content.paragraphs.size
     val footerIndex = HEADER_ITEMS + (if (content.hasText) paragraphCount else 1)
+    // Each paragraph's last layout, to turn the scroll position into a character offset.
+    val layouts = remember(content.id) { HashMap<Int, TextLayoutResult>() }
+    var anchorLive by remember(content.id) { mutableStateOf(false) }
 
     // Restore (or "Go to latest" within the chapter), then start tracking.
     LaunchedEffect(content.id, model.scrollRequest) {
-        val request = model.scrollRequest
+        val request = model.takeScrollRequest()
         if (request != null) {
             list.scrollToItem(HEADER_ITEMS + request.index.coerceIn(0, (paragraphCount - 1).coerceAtLeast(0)))
+            model.anchorOffset = model.offsets.paragraphStart(request.index)
+        } else if (!anchorLive && model.anchorOffset > 0 && content.hasText) {
+            // Back from Pages, or a re-created screen: the same line as before.
+            val anchor = model.anchorOffset
+            val paragraph = model.offsets.paragraphAt(anchor)
+            list.scrollToItem(HEADER_ITEMS + paragraph)
+            withFrameNanos { }
+            layouts[paragraph]?.let { l ->
+                val char = (anchor - model.offsets.paragraphStart(paragraph)).coerceIn(0, l.layoutInput.text.length)
+                list.scrollToItem(HEADER_ITEMS + paragraph, l.getLineTop(l.getLineForOffset(char)).roundToInt())
+            }
         }
+        anchorLive = true
         if (!model.tracking) {
             delay(600)
             model.tracking = true
@@ -287,6 +385,24 @@ private fun ChapterText(
         snapshotFlow { list.firstVisibleItemIndex }
             .distinctUntilChanged()
             .collect { index -> model.moved((index - HEADER_ITEMS).coerceIn(0, (paragraphCount - 1).coerceAtLeast(0))) }
+    }
+    LaunchedEffect(content.id) {
+        snapshotFlow { if (anchorLive) list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset else null }
+            .collect { position ->
+                val (index, offset) = position ?: return@collect
+                val paragraph = index - HEADER_ITEMS
+                model.anchorOffset = when {
+                    !content.hasText || paragraph < 0 -> 0
+                    paragraph >= paragraphCount -> model.offsets.paragraphStart(paragraphCount - 1)
+                    else -> model.offsets.paragraphStart(paragraph) +
+                        (layouts[paragraph]?.let { l ->
+                            // The first line fully on screen (not one half-hidden under the top edge).
+                            var line = l.getLineForVerticalPosition(offset.toFloat())
+                            if (l.getLineTop(line) < offset - 1 && line < l.lineCount - 1) line++
+                            l.getLineStart(line)
+                        } ?: 0)
+                }
+            }
     }
     LaunchedEffect(content.id) {
         snapshotFlow { list.layoutInfo.visibleItemsInfo.any { it.index == footerIndex } }
@@ -306,24 +422,15 @@ private fun ChapterText(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         item(key = "header") {
-            Column(
-                Modifier.widthIn(max = settings.width.maxWidthDp.dp).fillMaxWidth().padding(horizontal = margin).padding(top = 20.dp, bottom = 12.dp)
-                    .semantics(mergeDescendants = true) { heading() },
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (content.novelName.isNotEmpty()) {
-                    Text(content.novelName.uppercase(), style = MaterialTheme.typography.labelMedium, color = colors.secondary, maxLines = 2)
-                }
-                Text(content.title, style = body.copy(fontSize = size * 1.45f, lineHeight = 1.25.em, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Start))
-                Box(Modifier.padding(top = 4.dp).width(36.dp).height(3.dp).background(MaterialTheme.colorScheme.primary))
-            }
+            ChapterHeader(content, colors, titleStyle, Modifier.widthIn(max = settings.width.maxWidthDp.dp).fillMaxWidth().padding(horizontal = margin))
         }
         if (content.hasText) {
-            itemsIndexed(content.paragraphs, key = { index, _ -> index }) { _, paragraph ->
+            itemsIndexed(content.paragraphs, key = { index, _ -> index }) { index, paragraph ->
                 // One node per paragraph, so TalkBack reads (and resumes) paragraph by paragraph.
                 Text(
                     paragraph,
                     style = body,
+                    onTextLayout = { layouts[index] = it },
                     modifier = Modifier
                         .widthIn(max = settings.width.maxWidthDp.dp)
                         .fillMaxWidth()
@@ -337,6 +444,21 @@ private fun ChapterText(
         item(key = "footer") {
             Footer(content, model, colors, onBackToSeries, Modifier.widthIn(max = settings.width.maxWidthDp.dp).padding(horizontal = margin))
         }
+    }
+}
+
+/** Series name, chapter title and a short rule; the paged layout measures the same pieces (HeaderMetrics). */
+@Composable
+internal fun ChapterHeader(content: ChapterContent, colors: ReaderColors, titleStyle: TextStyle, modifier: Modifier) {
+    Column(
+        modifier.padding(top = HeaderMetrics.TOP.dp, bottom = HeaderMetrics.BOTTOM.dp).semantics(mergeDescendants = true) { heading() },
+        verticalArrangement = Arrangement.spacedBy(HeaderMetrics.GAP.dp),
+    ) {
+        if (content.novelName.isNotEmpty()) {
+            Text(content.novelName.uppercase(), style = MaterialTheme.typography.labelMedium, color = colors.secondary, maxLines = 2)
+        }
+        Text(content.title, style = titleStyle, color = colors.text)
+        Box(Modifier.padding(top = 4.dp).width(36.dp).height(3.dp).background(MaterialTheme.colorScheme.primary))
     }
 }
 
@@ -359,7 +481,7 @@ private fun NotDownloaded(colors: ReaderColors) {
 }
 
 @Composable
-private fun Footer(content: ChapterContent, model: BaseReaderViewModel, colors: ReaderColors, onBackToSeries: () -> Unit, modifier: Modifier) {
+internal fun Footer(content: ChapterContent, model: BaseReaderViewModel, colors: ReaderColors, onBackToSeries: () -> Unit, modifier: Modifier) {
     Column(modifier.fillMaxWidth().padding(top = 16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (content.hasText) BrandMark(Modifier.width(22.dp).padding(top = 24.dp), color = colors.secondary.copy(alpha = 0.5f))
         ChapterButtons(content.prev, content.next, colors) { model.open(it.id) }
@@ -399,7 +521,14 @@ fun ChapterButtons(prev: ChapterRef?, next: ChapterRef?, colors: ReaderColors, o
 }
 
 @Composable
-fun ReaderTopBar(title: String, subtitle: String, colors: ReaderColors, showingCache: Boolean = false, onBack: () -> Unit) {
+fun ReaderTopBar(
+    title: String,
+    subtitle: String,
+    colors: ReaderColors,
+    showingCache: Boolean = false,
+    actions: @Composable () -> Unit = {},
+    onBack: () -> Unit,
+) {
     Surface(color = colors.background, contentColor = colors.text, shadowElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
         Row(
             Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
@@ -413,6 +542,7 @@ fun ReaderTopBar(title: String, subtitle: String, colors: ReaderColors, showingC
                 val sub = listOfNotNull(subtitle.takeIf { it.isNotBlank() }, "offline copy".takeIf { showingCache }).joinToString(" · ")
                 if (sub.isNotEmpty()) Text(sub, color = colors.secondary, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            actions()
         }
     }
 }

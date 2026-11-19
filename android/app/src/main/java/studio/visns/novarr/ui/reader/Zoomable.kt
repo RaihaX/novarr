@@ -58,14 +58,14 @@ class ZoomState(private val maxScale: Float = 5f) {
 
 /**
  * Pinch to zoom, pan while zoomed, double-tap to toggle zoom, single tap for
- * [onTap]. Gestures are read in the Initial pass so a pinch wins over the
+ * [onTap] (with where it landed, in the unzoomed page's coordinates). Gestures are read in the Initial pass so a pinch wins over the
  * pager or list underneath; a one-finger drag at 1x is left alone so paging
  * and scrolling keep working.
  *
  * [panY]: false for the vertical (webtoon) list, where vertical movement must
  * keep scrolling the list even when zoomed in.
  */
-fun Modifier.zoomable(state: ZoomState, panY: Boolean = true, onTap: () -> Unit = {}): Modifier = this
+fun Modifier.zoomable(state: ZoomState, panY: Boolean = true, onTap: (at: Offset, width: Int) -> Unit = { _, _ -> }): Modifier = this
     .pointerInput(state, panY) {
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -81,7 +81,7 @@ fun Modifier.zoomable(state: ZoomState, panY: Boolean = true, onTap: () -> Unit 
         }
     }
     .pointerInput(state) {
-        detectTapGestures(onDoubleTap = { state.toggle(it, size) }, onTap = { onTap() })
+        detectTapGestures(onDoubleTap = { state.toggle(it, size) }, onTap = { onTap(it, size.width) })
     }
     .graphicsLayer {
         scaleX = state.scale

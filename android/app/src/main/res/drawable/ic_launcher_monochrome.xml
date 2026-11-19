@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon layer: the mark in one colour (the launcher tints it), the short
+     4th bar quieter as in public/novarr-mark-mono.svg. Same geometry as the foreground. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M34.2,32.85h39.6v7.2h-39.6z M34.2,44.55h39.6v7.2h-39.6z M34.2,56.25h27v7.2h-27z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillAlpha="0.55"
+        android:pathData="M34.2,67.95h14.4v7.2h-14.4z" />
+</vector>

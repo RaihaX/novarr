@@ -1,5 +1,6 @@
 package studio.visns.novarr.ui.reader
 
+import studio.visns.novarr.ui.theme.BrandFonts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -25,6 +26,27 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ViewCarousel
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import studio.visns.novarr.domain.MangaModeOverride
+import studio.visns.novarr.domain.TapAction
+import studio.visns.novarr.domain.TapZones
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -82,11 +104,38 @@ class MangaReaderViewModel(app: AppModel, route: ReaderRoute) :
     override val shownChapterId: Int? get() = pages?.chapter?.id
     override val hasContent: Boolean get() = itemCount > 0
 
-    val mode: ReadingMode get() = ReadingMode.from(pages?.readingMode)
+    /** This device's choice for the series (Follow series / Pages / Scroll); not sent to the server. */
+    var override by mutableStateOf(MangaModeOverride.FOLLOW)
+        private set
+
+    /** The series' own mode, from the server. */
+    val seriesMode: ReadingMode get() = ReadingMode.from(pages?.readingMode)
+
+    /** The layout in use: the series' mode unless overridden on this device. */
+    val mode: ReadingMode get() = override.resolve(seriesMode)
+
+    private val server: String? = app.active?.server
 
     init {
         load()
         checkLatestPosition()
+        server?.let { server ->
+            viewModelScope.launch { app.prefs.mangaMode(server, novelId).collect { override = it } }
+        }
+    }
+
+    /** Remembers [value] for this series on this device and re-lays the chapter out at the same page. */
+    fun chooseMode(value: MangaModeOverride) {
+        if (value == override) return
+        val before = mode
+        override = value
+        if (mode != before && pages != null) {
+            // Positions are ignored until the new layout has settled on the page.
+            tracking = false
+            scrollRequest = ScrollRequest(currentPage)
+        }
+        val server = server ?: return
+        app.scope.launch { app.prefs.setMangaMode(server, novelId, value) }
     }
 
     override suspend fun loadChapter(id: Int) {
@@ -124,6 +173,8 @@ class MangaReaderViewModel(app: AppModel, route: ReaderRoute) :
             chapter = chapter.copy(chapter = chapter.chapter.copy(progress = forced))
             session?.store?.updateChapterState(id, novelId, forced, null)
         }
+        // The layout must be known before the first page is shown.
+        server?.let { override = app.prefs.mangaMode(it, novelId).first() }
         pages = chapter
         val progress = forced ?: chapter.chapter.progress
         val restore = if (progress != null && (forced != null || progress < 100)) LatestPosition.itemIndex(progress, chapter.pages.size) else null
@@ -176,7 +227,13 @@ fun MangaReaderScreen(nav: NavController, route: ReaderRoute) {
         }
 
         AnimatedVisibility(!chromeHidden, enter = fadeIn() + slideInVertically(), exit = fadeOut() + slideOutVertically(), modifier = Modifier.align(Alignment.TopCenter)) {
-            ReaderTopBar(model.pages?.chapter?.title.orEmpty(), modeLabel(model), colors, model.showingCache) { nav.popBackStack() }
+            ReaderTopBar(
+                model.pages?.chapter?.title.orEmpty(),
+                modeLabel(model),
+                colors,
+                model.showingCache,
+                actions = { ModeMenu(model, colors) },
+            ) { nav.popBackStack() }
         }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             model.latestOffer?.let { offer ->
@@ -189,7 +246,7 @@ fun MangaReaderScreen(nav: NavController, route: ReaderRoute) {
                         Text(
                             "${model.currentPage + 1} / $total",
                             color = colors.text,
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelLarge.copy(fontFamily = BrandFonts.GeistMono),
                             modifier = Modifier.semantics { contentDescription = "Page ${model.currentPage + 1} of $total" },
                         )
                     }
@@ -202,6 +259,53 @@ fun MangaReaderScreen(nav: NavController, route: ReaderRoute) {
 private fun modeLabel(model: MangaReaderViewModel): String = when (model.mode) {
     ReadingMode.RIGHT_TO_LEFT -> "Right to left"
     ReadingMode.LEFT_TO_RIGHT -> "Left to right"
+    ReadingMode.VERTICAL -> "Vertical scroll"
+}
+
+/** The reader's menu: how this series is laid out on this device. */
+@Composable
+private fun ModeMenu(model: MangaReaderViewModel, colors: ReaderColors) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(Icons.Outlined.ViewCarousel, contentDescription = "Reading mode: ${model.override.title}", tint = colors.text)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            Text(
+                "Reading mode",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).semantics { heading() },
+            )
+            MangaModeOverride.entries.forEach { option ->
+                val selected = option == model.override
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(option.title)
+                            if (option == MangaModeOverride.FOLLOW) {
+                                Text(seriesLabel(model.seriesMode), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    },
+                    leadingIcon = { RadioButton(selected = selected, onClick = null) },
+                    onClick = {
+                        open = false
+                        model.chooseMode(option)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp).semantics {
+                        this.selected = selected
+                        role = Role.RadioButton
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun seriesLabel(mode: ReadingMode): String = when (mode) {
+    ReadingMode.RIGHT_TO_LEFT -> "Pages, right to left"
+    ReadingMode.LEFT_TO_RIGHT -> "Pages, left to right"
     ReadingMode.VERTICAL -> "Vertical scroll"
 }
 
@@ -221,18 +325,41 @@ private fun PagedChapter(pages: MangaPages, model: MangaReaderViewModel, colors:
     LaunchedEffect(pages.chapter.id) {
         snapshotFlow { pager.currentPage }.distinctUntilChanged().collect { model.pageShown(it.coerceAtMost(count - 1)) }
     }
+    val scope = rememberCoroutineScope()
+    val rightToLeft = model.mode.rightToLeft
+    fun turn(forward: Boolean) {
+        val target = pager.currentPage + if (forward) 1 else -1
+        when {
+            target in 0..count -> scope.launch { pager.animateScrollToPage(target) }
+            // Past the end page: the next chapter, as its button would.
+            forward -> pages.next?.let(onOpen)
+        }
+    }
     HorizontalPager(
         state = pager,
-        reverseLayout = model.mode.rightToLeft,
+        reverseLayout = rightToLeft,
         beyondViewportPageCount = 1,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().semantics {
+            customActions = listOf(
+                CustomAccessibilityAction("Next page") { turn(true); true },
+                CustomAccessibilityAction("Previous page") { turn(false); true },
+            )
+        },
         key = { it },
     ) { index ->
         if (index == count) {
             EndOfChapter(pages, model, colors, onOpen)
         } else {
             val zoom = remember(index) { ZoomState() }
-            Box(Modifier.fillMaxSize().zoomable(zoom, onTap = onTap), contentAlignment = Alignment.Center) {
+            // Outer thirds turn the page (the left one goes forward in right-to-left series); the middle toggles the controls.
+            val onPageTap: (Offset, Int) -> Unit = { at, width ->
+                when (TapZones.actionFor(at.x, width.toFloat(), rightToLeft)) {
+                    TapAction.NEXT -> turn(true)
+                    TapAction.PREVIOUS -> turn(false)
+                    TapAction.TOGGLE_CONTROLS -> onTap()
+                }
+            }
+            Box(Modifier.fillMaxSize().zoomable(zoom, onTap = onPageTap), contentAlignment = Alignment.Center) {
                 PageImage(model.model(pages.pages[index]), index, count, ContentScale.Fit, Modifier.fillMaxSize())
             }
         }
@@ -244,7 +371,7 @@ private fun PagedChapter(pages: MangaPages, model: MangaReaderViewModel, colors:
 @Composable
 private fun VerticalChapter(pages: MangaPages, model: MangaReaderViewModel, colors: ReaderColors, onTap: () -> Unit, onOpen: (ChapterRef) -> Unit) {
     val count = pages.pages.size
-    val list = rememberLazyListState()
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = model.scrollRequest?.index?.coerceIn(0, count - 1) ?: 0)
     val zoom = remember(pages.chapter.id) { ZoomState(maxScale = 3f) }
     LaunchedEffect(pages.chapter.id, model.scrollRequest) {
         model.scrollRequest?.let { list.scrollToItem(it.index.coerceIn(0, count - 1)) }
@@ -263,7 +390,7 @@ private fun VerticalChapter(pages: MangaPages, model: MangaReaderViewModel, colo
     }
     LazyColumn(
         state = list,
-        modifier = Modifier.fillMaxSize().zoomable(zoom, panY = false, onTap = onTap),
+        modifier = Modifier.fillMaxSize().zoomable(zoom, panY = false, onTap = { _, _ -> onTap() }),
         horizontalAlignment = Alignment.CenterHorizontally,
         // Page 1 starts below the reader's top bar; stable while system bars hide and show.
         contentPadding = WindowInsets.systemBarsIgnoringVisibility.asPaddingValues().let {

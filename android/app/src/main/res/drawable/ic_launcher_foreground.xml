@@ -1,13 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The "Serial" mark: four bars 22/22/15/8 units long, 4 tall, 6.5 apart,
-     at 1.8dp per unit and centred on the 108dp canvas so the whole mark
-     stays inside the 66dp safe circle of every launcher mask. -->
+<!-- The "Serial" mark as in public/novarr-app-icon-512.svg: four bars 22/22/15/8
+     units long, 4 tall, 6.5 apart; bars 1-3 brand indigo, the short 4th amber.
+     1.8dp per unit, centred on the 108dp canvas: the mark spans the same share
+     of the visible icon as on the 512px tile and stays inside the 66dp safe
+     circle of every launcher mask (its corners reach 29dp from the centre). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M34.2,32.85h39.6v7.2h-39.6z M34.2,44.55h39.6v7.2h-39.6z M34.2,56.25h27v7.2h-27z M34.2,67.95h14.4v7.2h-14.4z" />
+        android:fillColor="#FF6470FF"
+        android:pathData="M34.2,32.85h39.6v7.2h-39.6z M34.2,44.55h39.6v7.2h-39.6z M34.2,56.25h27v7.2h-27z" />
+    <path
+        android:fillColor="#FFF0B429"
+        android:pathData="M34.2,67.95h14.4v7.2h-14.4z" />
 </vector>

@@ -1,5 +1,8 @@
 package studio.visns.novarr.ui.connect
 
+import androidx.compose.material3.LocalTextStyle
+import studio.visns.novarr.ui.theme.BrandFonts
+import studio.visns.novarr.ui.components.BrandLockup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -60,7 +63,6 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import studio.visns.novarr.api.ApiError
 import studio.visns.novarr.app.Session
-import studio.visns.novarr.ui.components.BrandMark
 import studio.visns.novarr.ui.components.LocalApp
 import studio.visns.novarr.ui.components.readableWidth
 
@@ -130,8 +132,8 @@ fun SignInScreen(session: Session.SignIn) {
         ) {
             Column(Modifier.readableWidth(520.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(Modifier.height(48.dp))
-                BrandMark(Modifier.width(44.dp))
-                Spacer(Modifier.height(16.dp))
+                BrandLockup(32.dp)
+                Spacer(Modifier.height(28.dp))
                 Text("Sign in", style = MaterialTheme.typography.displaySmall, modifier = Modifier.semantics { heading() })
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -168,6 +170,7 @@ fun SignInScreen(session: Session.SignIn) {
                     value = username,
                     onValueChange = { username = it },
                     label = { Text("Name or email") },
+                    textStyle = LocalTextStyle.current.copy(fontFamily = BrandFonts.GeistMono),
                     singleLine = true,
                     enabled = !busy,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next, autoCorrectEnabled = false),

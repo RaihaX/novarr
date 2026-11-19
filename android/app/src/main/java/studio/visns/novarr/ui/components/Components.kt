@@ -54,19 +54,91 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
 import studio.visns.novarr.app.AppModel
+import androidx.compose.runtime.remember
+import androidx.compose.ui.layout.FirstBaseline
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.em
+import kotlin.math.roundToInt
+import studio.visns.novarr.ui.theme.Amber
+import studio.visns.novarr.ui.theme.BrandFonts
+import studio.visns.novarr.ui.theme.Indigo
+import studio.visns.novarr.ui.theme.brandAmber
 import studio.visns.novarr.ui.theme.success
 import studio.visns.novarr.ui.theme.warning
 
 /** The app model, provided once at the root (manual wiring, no DI framework). */
 val LocalApp = staticCompositionLocalOf<AppModel> { error("No AppModel") }
 
-/** The "Serial" brand mark: four flat bars, 22/22/15/8 units long, 4 tall, 6.5 apart. */
+/**
+ * The "Serial" brand mark (public/logo.svg): four flat bars, 22/22/15/8 units
+ * long, 4 tall, 6.5 apart; bars 1-3 brand indigo and the short 4th amber.
+ * With [color] it is the single-colour mark (public/novarr-mark-mono.svg),
+ * the 4th bar at 55%.
+ */
 @Composable
-fun BrandMark(modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
+fun BrandMark(modifier: Modifier = Modifier, color: Color? = null) {
     Canvas(modifier.aspectRatio(22f / 23.5f)) {
         val unit = minOf(size.width / 22f, size.height / 23.5f)
         listOf(22f, 22f, 15f, 8f).forEachIndexed { index, length ->
-            drawRect(color, topLeft = Offset(0f, index * 6.5f * unit), size = Size(length * unit, 4f * unit))
+            val fill = when {
+                color == null -> if (index == 3) Amber else Indigo
+                index == 3 -> color.copy(alpha = color.alpha * 0.55f)
+                else -> color
+            }
+            drawRect(fill, topLeft = Offset(0f, index * 6.5f * unit), size = Size(length * unit, 4f * unit))
+        }
+    }
+}
+
+/**
+ * The lockup (public/logo.svg, 211x44): the mark, then "NOVARR" in Geist
+ * SemiBold with 0.17em tracking and an amber full stop. [height] is the
+ * lockup's height; it does not follow the font scale (it is a logo). The
+ * wordmark takes the theme's on-surface colour; the bars keep theirs.
+ */
+@Composable
+fun BrandLockup(height: Dp, modifier: Modifier = Modifier, wordColor: Color = MaterialTheme.colorScheme.onSurface) {
+    val density = LocalDensity.current
+    val amber = MaterialTheme.colorScheme.brandAmber
+    // Units of the 44-unit-high logo.
+    val u = height / 44f
+    val fontSize = with(density) { (u * 30f).toSp() }
+    val text = remember(wordColor, amber) {
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = wordColor)) { append("NOVARR") }
+            withStyle(SpanStyle(color = amber)) { append(".") }
+        }
+    }
+    Layout(
+        modifier = modifier.height(height).clearAndSetSemantics { contentDescription = "Novarr" },
+        content = {
+            // Mark: 30.25 x 32.3 units, vertically centred.
+            BrandMark(Modifier.width(u * 30.25f).height(u * 32.3125f))
+            Text(
+                text,
+                style = TextStyle(fontFamily = BrandFonts.Geist, fontWeight = FontWeight.SemiBold, fontSize = fontSize, letterSpacing = 0.17.em),
+                maxLines = 1,
+                softWrap = false,
+            )
+        },
+    ) { measurables, constraints ->
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val mark = measurables[0].measure(loose)
+        val word = measurables[1].measure(loose)
+        val h = height.roundToPx()
+        // The N's stem starts 16 units after the mark (minus Geist's ~1.3-unit side bearing).
+        val gap = (u * 14.7f).roundToPx()
+        // Cap height is 0.71em in Geist: centre the capitals on the mark, as the SVG does.
+        val baseline = word[FirstBaseline]
+        val capCentreToBaseline = (u * 30f * 0.71f / 2f).toPx()
+        val wordTop = (h / 2f + capCentreToBaseline - baseline).roundToInt()
+        layout(mark.width + gap + word.width, h) {
+            mark.placeRelative(0, (h - mark.height) / 2)
+            word.placeRelative(mark.width + gap, wordTop)
         }
     }
 }
@@ -100,25 +172,24 @@ fun Cover(url: String?, title: String, modifier: Modifier = Modifier, corner: Dp
 
 @Composable
 private fun CoverPlaceholder(title: String) {
-    // A stable muted hue per title so placeholders don't all look identical.
-    var hash = 5381L
-    title.forEach { hash = hash * 33 + it.code }
-    val hue = ((hash % 360 + 360) % 360).toFloat()
+    // As on the web (.cover-placeholder-panel): surface-alt fading into the
+    // background, muted title, the single-colour mark.
+    val scheme = MaterialTheme.colorScheme
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color.hsv(hue, 0.18f, 0.42f), Color.hsv(hue, 0.22f, 0.28f)))),
+            .background(Brush.verticalGradient(listOf(scheme.surfaceContainerHigh, scheme.background))),
     ) {
         Column(Modifier.padding(10.dp).fillMaxSize()) {
             Text(
                 title,
-                color = Color.White.copy(alpha = 0.92f),
-                style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold),
+                color = scheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium.copy(fontFamily = BrandFonts.LiterataDisplay, fontWeight = FontWeight.SemiBold),
                 maxLines = 5,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.weight(1f))
-            BrandMark(Modifier.width(18.dp), color = Color.White.copy(alpha = 0.35f))
+            BrandMark(Modifier.width(18.dp), color = scheme.onSurfaceVariant.copy(alpha = 0.6f))
         }
     }
 }

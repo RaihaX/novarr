@@ -1,5 +1,10 @@
 package studio.visns.novarr.ui.settings
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
+import studio.visns.novarr.ui.theme.BrandFonts
+import androidx.compose.ui.platform.LocalContext
+import studio.visns.novarr.ui.components.BrandLockup
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -67,6 +72,7 @@ fun SettingsScreen(nav: NavController) {
     var offlineBytes by remember { mutableStateOf<Long?>(null) }
     var imageBytes by remember { mutableStateOf<Long?>(null) }
     var totalBytes by remember { mutableStateOf<Long?>(null) }
+    var showFonts by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var confirmSignOut by remember { mutableStateOf(false) }
     var signingOut by remember { mutableStateOf(false) }
@@ -111,7 +117,7 @@ fun SettingsScreen(nav: NavController) {
                 }
 
                 Section("Reading")
-                Link("Reader appearance", chevron = true) { nav.navigate(ReaderSettingsRoute) }
+                Link("Reader defaults", chevron = true) { nav.navigate(ReaderSettingsRoute) }
 
                 Section("Offline")
                 Link("Downloads", trailing = offlineBytes?.let(::formatBytes) ?: "…", chevron = true) { nav.navigate(DownloadsRoute) }
@@ -133,12 +139,17 @@ fun SettingsScreen(nav: NavController) {
                 )
 
                 Section("About")
+                BrandLockup(28.dp, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
                 Value("App version", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                 Value("Server version", meta?.let { it.serverVersion ?: "Unknown" } ?: if (reachable) "…" else "Unavailable offline")
                 meta?.let { Value("API version", "v${it.apiVersion}") }
+                Link("Fonts", trailing = "Geist, Geist Mono, Literata", chevron = true) { showFonts = true }
+                Note("Fonts: Geist, Geist Mono, Literata — SIL Open Font License.")
             }
         }
     }
+
+    if (showFonts) FontLicences { showFonts = false }
 
     if (confirmClear) {
         AlertDialog(
@@ -222,5 +233,28 @@ private fun Note(text: String) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+}
+
+/** The bundled fonts' licences (assets/licenses), as the SIL OFL asks. */
+@Composable
+private fun FontLicences(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val text = remember {
+        listOf("OFL-Geist.txt", "OFL-Literata.txt").joinToString("\n\n") { name ->
+            runCatching { context.assets.open("licenses/$name").bufferedReader().use { it.readText() } }.getOrDefault("")
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Fonts") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("Geist and Geist Mono (Vercel) and Literata (TypeTogether for Google) are used under the SIL Open Font License 1.1.", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(12.dp))
+                Text(text, style = MaterialTheme.typography.bodySmall.copy(fontFamily = BrandFonts.GeistMono), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
 }
