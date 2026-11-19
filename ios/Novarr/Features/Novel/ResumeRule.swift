@@ -8,12 +8,20 @@ import Foundation
 /// the writes arrive.
 ///
 /// Over the downloaded chapters in reading order:
-/// 1. The anchor is this device's most recent unsent reading: the chapter of
-///    the newest pending write (ties: the furthest in reading order) that is
-///    now read, or unread with a position of 1 % or more. A chapter marked
-///    unread, or opened at 0 %, is not reading.
-/// 2. No anchor: the server's chapter (it applied the same rule); without
-///    one, the first downloaded unread chapter.
+/// 1. The anchor is this device's most recent unsent REAL reading: the
+///    chapter of the newest pending position write (ties: the furthest in
+///    reading order) that is now read, or unread with a position of 1 % or
+///    more. A chapter marked unread, or opened at 0 %, is not reading. Only
+///    reading counts: a hand mark (mark read / unread, "mark to here", "mark
+///    all read") and a look-up (a chapter opened from Highlights or search)
+///    change the replayed read state but never make a chapter the anchor. A
+///    real position write after a hand mark makes the chapter a candidate
+///    again; a hand mark after one keeps that write's time.
+/// 2. No anchor: the server's chapter (it applied the same rule) — unless
+///    the unsent writes finished it (it was unread, or read but unfinished,
+///    and is now read and finished, e.g. a bulk mark covered it): then it
+///    stands in for the anchor in rule 4, which is what the server will
+///    answer. Without a server chapter, the first downloaded unread chapter.
 /// 3. An unfinished anchor is resumed: unread at 1–99 %, or read below 90 %
 ///    (a read chapter being re-read; the web reader marks read on open).
 /// 4. Otherwise the first downloaded unread chapter after it; none (caught
@@ -51,26 +59,23 @@ enum ResumeRule {
         }
 
         // Replay the unsent writes, oldest first, as the server will apply them.
-        var touched: [Int: Date] = [:]
+        // Only real reading (position writes) is recorded as activity; hand
+        // marks and look-ups change the read state only.
+        var readingAt: [Int: Date] = [:]
         for write in pending {
             let at = write.recordedAt
             switch write.kind {
             case .progress(let id, let value, let isRead):
                 set(id, read: isRead ? true : nil, progress: value.map { .some($0) })
-                touched[id] = at
+                if position[id] != nil { readingAt[id] = at }
             case .setRead(let id, let isRead):
                 set(id, read: isRead, progress: .some(isRead ? 100 : nil))
-                touched[id] = at
             case .lookupRead(let id):
                 // The server marks it read; a look-up leaves a read chapter as it was.
-                if read[id] == false {
-                    set(id, read: true, progress: nil)
-                    touched[id] = at
-                }
+                if read[id] == false { set(id, read: true, progress: nil) }
             case .bulkRead(let request):
                 for id in bulkIDs(request, chapters: chapters, position: position) {
                     set(id, read: request.read, progress: .some(request.read ? 100 : nil))
-                    touched[id] = at
                 }
             case .highlight:
                 break
@@ -78,7 +83,7 @@ enum ResumeRule {
         }
 
         var anchor: (index: Int, at: Date)?
-        for (id, at) in touched {
+        for (id, at) in readingAt {
             guard let index = position[id], chapters[index].downloaded else { continue }
             guard read[id] == true || ((progress[id] ?? nil) ?? 0) >= 1 else { continue }
             if let current = anchor, at < current.at || (at == current.at && index < current.index) { continue }
@@ -86,14 +91,24 @@ enum ResumeRule {
         }
         let isRead = { (chapter: ChapterListItem) in read[chapter.id] ?? chapter.read }
 
-        guard let anchor else {
-            return serverId ?? chapters.first { $0.downloaded && !isRead($0) }?.id
+        let anchorIndex: Int
+        if let anchor {
+            anchorIndex = anchor.index
+        } else {
+            guard let serverId else { return chapters.first { $0.downloaded && !isRead($0) }?.id }
+            // The server's chapter, unless the unsent writes finished it (rule 2).
+            guard let serverIndex = position[serverId] else { return serverId }
+            let row = chapters[serverIndex]
+            let wasFinished = row.read && !isUnfinished(read: true, progress: row.readProgress)
+            let isFinished = isRead(row) && !isUnfinished(read: true, progress: progress[serverId] ?? nil)
+            if wasFinished || !isFinished { return serverId }
+            anchorIndex = serverIndex
         }
-        let anchorChapter = chapters[anchor.index]
+        let anchorChapter = chapters[anchorIndex]
         if isUnfinished(read: isRead(anchorChapter), progress: progress[anchorChapter.id] ?? nil) {
             return anchorChapter.id
         }
-        let after = chapters[(anchor.index + 1)...].filter(\.downloaded)
+        let after = chapters[(anchorIndex + 1)...].filter(\.downloaded)
         return (after.first { !isRead($0) } ?? after.last ?? anchorChapter).id
     }
 

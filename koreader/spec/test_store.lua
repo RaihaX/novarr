@@ -157,6 +157,30 @@ T.it("overlay: unread clears progress; bulk delivery marks the novel", function(
     T.eq(s:settleOverlay(3, 21), 2)
 end)
 
+T.it("overlay: reading sets reading_at, a hand mark keeps it (the resume rule's activity)", function()
+    local Model = require("novarr.model")
+    local s, clock = newStore(T.tmpdir())
+    clock.t = 100
+    local e = s:setOverlay(4, 10, { progress = 40, reading = true })
+    T.eq(e.reading_at, 100); T.eq(e.hand, nil)
+    clock.t = 200
+    e = s:setOverlay(4, 10, { read = true, progress = 100, hand = true })
+    T.eq(e.reading_at, 100); T.eq(e.hand, true); T.eq(e.at, 200)
+    clock.t = 300
+    e = s:setOverlay(4, 11, { read = true, progress = 100, hand = true })
+    T.eq(e.reading_at, nil)
+    -- Ch 11 (hand mark only) is no anchor; ch 10 (reading at 100) is: the next unread after it.
+    local list = {}
+    for i = 1, 14 do list[i] = { id = i, downloaded = true, read = i < 10, read_progress = i < 10 and 100 or nil } end
+    local overlay = s:getOverlay(4)
+    local state = function(c) return Store.effective(c, overlay[tostring(c.id)]) end
+    T.eq(Model.resolveResume(list, 10, overlay, state), 12)
+    clock.t = 400
+    e = s:setOverlay(4, 11, { progress = 50, reading = true })
+    T.eq(e.reading_at, 400)
+    T.eq(Model.resolveResume(list, 10, overlay, state), 11)
+end)
+
 T.it("overlay survives a reload and tolerates corruption", function()
     local root = T.tmpdir()
     local s = newStore(root)

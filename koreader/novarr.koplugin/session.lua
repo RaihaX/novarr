@@ -789,10 +789,11 @@ the chapter, via the progress call), "set" (explicit mark read/unread).
 ]]
 function Session:markChapter(novel_id, chapter_id, read, kind)
     if kind == "end" then
-        self.store:setOverlay(novel_id, chapter_id, { read = true, progress = 100 })
+        self.store:setOverlay(novel_id, chapter_id, { read = true, progress = 100, reading = true })
         self.queue:enqueue({ kind = "progress", chapter_id = chapter_id, novel_id = novel_id, progress = 100, read = true })
     else
-        self.store:setOverlay(novel_id, chapter_id, { read = read, progress = read and 100 or nil })
+        -- A hand mark: the read state only, never the resume anchor (Model.resolveResume).
+        self.store:setOverlay(novel_id, chapter_id, { read = read, progress = read and 100 or nil, hand = true })
         self.queue:enqueue({ kind = "set_read", chapter_id = chapter_id, novel_id = novel_id, read = read })
     end
 end
@@ -800,7 +801,7 @@ end
 --- Records reading progress locally and queues it (coalesced).
 function Session:recordProgress(novel_id, chapter_id, percent)
     percent = math.max(0, math.min(100, math.floor(percent + 0.5)))
-    self.store:setOverlay(novel_id, chapter_id, { progress = percent })
+    self.store:setOverlay(novel_id, chapter_id, { progress = percent, reading = true })
     self.queue:enqueue({ kind = "progress", chapter_id = chapter_id, novel_id = novel_id, progress = percent })
 end
 
@@ -815,7 +816,7 @@ function Session:bulkMark(novel_id, scope, anchor_id, read)
         if scope == "up_to" and anchor_id then last = cl.pos[anchor_id] or 0 end
         for i = 1, last do
             local c = cl.list[i]
-            self.store:setOverlay(novel_id, c.id, { read = read, progress = read and 100 or nil }, false)
+            self.store:setOverlay(novel_id, c.id, { read = read, progress = read and 100 or nil, hand = true }, false)
         end
         self.store:saveOverlay(novel_id)
     end

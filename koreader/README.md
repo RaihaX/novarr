@@ -71,7 +71,11 @@ manager): look for **Novarr**, **Novarr: next chapter** and
   the website; since 1.10.1): the chapter you read last if you have not finished it
   (or are only part-way into it again), otherwise the first unread chapter after it.
   Unread chapters earlier in the novel, and chapters you left half-read long ago, do
-  not pull you back. Reading on this Kindle that has not reached the server yet
+  not pull you back. Only reading counts (since 1.10.2): marking chapters read or
+  unread by hand (one chapter, *mark all up to here*, *Mark all as read*) changes
+  what is read but never makes a chapter "the one you read last"; when such a mark
+  covers the chapter Continue pointed at, Continue moves to the first unread chapter
+  after it. Reading on this Kindle that has not reached the server yet
   counts at once. *Download for offline… Next N unread* starts at that chapter and
   includes it even when it is marked read but not finished.
 - **Chapters** lists every chapter in order and opens on the one you are reading.

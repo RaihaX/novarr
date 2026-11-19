@@ -197,16 +197,19 @@ class ReadState
 
     /**
      * Opening a downloaded chapter: mark it read now unless it already is
-     * (its in-chapter position is left alone). Returns whether it was marked.
+     * (its in-chapter position is left alone) — read, not marked by hand
+     * (manual = false), unless it was opened as a look-up ($lookup: from
+     * Highlights or search), which must not move Continue. Returns whether
+     * it was marked.
      */
-    public function markOpened(NovelChapter $chapter, ?int $userId = null): bool
+    public function markOpened(NovelChapter $chapter, ?int $userId = null, bool $lookup = false): bool
     {
         $userId = $this->userId($userId);
         $now = now();
 
-        $marked = DB::table(self::TABLE)->insertOrIgnore($this->row($chapter, $userId, ['read_at' => $now, 'bulk' => false])) > 0
+        $marked = DB::table(self::TABLE)->insertOrIgnore($this->row($chapter, $userId, ['read_at' => $now, 'bulk' => false, 'manual' => $lookup])) > 0
             || DB::table(self::TABLE)->where('user_id', $userId)->where('novel_chapter_id', $chapter->id)
-                ->whereNull('read_at')->update(['read_at' => $now, 'bulk' => false]) > 0;
+                ->whereNull('read_at')->update(['read_at' => $now, 'bulk' => false, 'manual' => $lookup]) > 0;
 
         $this->get($chapter, $userId);
         if ($marked) {
@@ -220,8 +223,10 @@ class ReadState
      * An explicit mark read / unread. It also settles the in-chapter
      * position — done (100) when read, forgotten when unread — and its time
      * supersedes positions recorded before $recordedAt. A chapter already
-     * read keeps its original date (and with it its bulk flag); a newly
-     * marked one is a single read (bulk = false).
+     * read keeps its original date (and with it its bulk and manual flags);
+     * a newly marked one is a single read (bulk = false) marked by hand
+     * (manual = true: not reading activity, see ResumePoint). Unread clears
+     * both.
      */
     public function setRead(NovelChapter $chapter, bool $read, CarbonInterface $recordedAt, ?int $userId = null): ?ChapterRead
     {
@@ -232,6 +237,7 @@ class ReadState
         $this->put($chapter, $userId, [
             'read_at' => $read ? ($current?->read_at ?? now()) : null,
             'bulk' => $keep && (bool) $current->bulk,
+            'manual' => $read && (!$keep || (bool) $current->manual),
             'progress' => $read ? 100 : null,
             'progress_at' => $recordedAt,
         ]);
@@ -246,8 +252,14 @@ class ReadState
      * downloaded, unread chapter is marked). A position older than the
      * stored one is ignored (offline replays carry their own time); the
      * read mark still applies. Returns whether the position was stale.
+     *
+     * A stored position is reading there, so the row stops being a hand
+     * mark (manual = false). A read mark without a stored position is
+     * reading too, except on a $lookup (a chapter opened from Highlights or
+     * search to check a passage): that mark is manual, not activity, so it
+     * does not move Continue (ResumePoint).
      */
-    public function recordProgress(NovelChapter $chapter, ?int $progress, bool $markRead, CarbonInterface $at, ?int $userId = null): bool
+    public function recordProgress(NovelChapter $chapter, ?int $progress, bool $markRead, CarbonInterface $at, ?int $userId = null, bool $lookup = false): bool
     {
         $userId = $this->userId($userId);
         $current = $this->get($chapter, $userId);
@@ -259,6 +271,7 @@ class ReadState
             if (!$storedAt || !$at->lt($storedAt)) {
                 $values['progress'] = $progress;
                 $values['progress_at'] = $at;
+                $values['manual'] = false;
             } else {
                 $stale = true;
             }
@@ -267,6 +280,7 @@ class ReadState
         if ($markRead) {
             $values['read_at'] = now();
             $values['bulk'] = false;
+            $values['manual'] ??= $lookup;
         }
 
         if ($values !== []) {
@@ -289,7 +303,8 @@ class ReadState
      * rows, insert the missing ones. Read = read now, position 100; unread =
      * no date, no position. Either way the position time becomes
      * $recordedAt. Chapters marked read here are flagged bulk (counted in the
-     * all-time stats, not as daily activity). With $onlyUnread, chapters
+     * all-time stats, not as daily activity) and manual (not reading
+     * activity for ResumePoint). With $onlyUnread, chapters
      * already read are left exactly as they are (their date is kept).
      * Returns how many chapters changed.
      */
@@ -299,6 +314,7 @@ class ReadState
         $values = [
             'read_at' => $read ? now() : null,
             'bulk' => $read,
+            'manual' => $read,
             'progress' => $read ? 100 : null,
             'progress_at' => $recordedAt,
         ];
@@ -313,9 +329,9 @@ class ReadState
                 ->update($values);
 
             $inserted = DB::table(self::TABLE)->insertOrIgnoreUsing(
-                ['user_id', 'novel_id', 'novel_chapter_id', 'read_at', 'bulk', 'progress', 'progress_at'],
+                ['user_id', 'novel_id', 'novel_chapter_id', 'read_at', 'bulk', 'manual', 'progress', 'progress_at'],
                 (clone $base)
-                    ->selectRaw('?, novel_chapters.novel_id, novel_chapters.id, ?, ?, ?, ?', [$userId, $values['read_at'], $values['bulk'], $values['progress'], $values['progress_at']])
+                    ->selectRaw('?, novel_chapters.novel_id, novel_chapters.id, ?, ?, ?, ?, ?', [$userId, $values['read_at'], $values['bulk'], $values['manual'], $values['progress'], $values['progress_at']])
                     ->whereNotExists(fn($q) => $q->from(self::TABLE . ' as ex')
                         ->selectRaw('1')
                         ->where('ex.user_id', $userId)

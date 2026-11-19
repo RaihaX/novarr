@@ -16,12 +16,20 @@ import studio.visns.novarr.store.WriteKind
  * server will answer once the writes arrive.
  *
  * Over the downloaded chapters in reading order:
- * 1. The anchor is this device's most recent unsent reading: the chapter of
- *    the newest pending write (ties: the furthest in reading order) that is
- *    now read, or unread with a position of 1 % or more. A chapter marked
- *    unread, or opened at 0 %, is not reading.
- * 2. No anchor: the server's chapter (it applied the same rule); without
- *    one, the first downloaded unread chapter.
+ * 1. The anchor is this device's most recent unsent REAL reading: the
+ *    chapter of the newest pending position write (ties: the furthest in
+ *    reading order) that is now read, or unread with a position of 1 % or
+ *    more. A chapter marked unread, or opened at 0 %, is not reading. Only
+ *    reading counts: a hand mark (mark read / unread, "mark to here", "mark
+ *    all read") and a look-up (a chapter opened from Highlights or search)
+ *    change the replayed read state but never make a chapter the anchor. A
+ *    real position write after a hand mark makes the chapter a candidate
+ *    again; a hand mark after one keeps that write's time.
+ * 2. No anchor: the server's chapter (it applied the same rule) — unless
+ *    the unsent writes finished it (it was unread, or read but unfinished,
+ *    and is now read and finished, e.g. a bulk mark covered it): then it
+ *    stands in for the anchor in rule 4, which is what the server will
+ *    answer. Without a server chapter, the first downloaded unread chapter.
  * 3. An unfinished anchor is resumed: unread at 1–99 %, or read below 90 %
  *    (a read chapter being re-read; the web reader marks read on open).
  * 4. Otherwise the first downloaded unread chapter after it; none (caught
@@ -51,10 +59,10 @@ object ResumeRule {
         if (chapters.isEmpty()) return serverId
         val state = Replay(chapters, pending)
 
-        // The anchor: the newest touched chapter that is now reading (ties: the furthest).
+        // The anchor: the chapter with the newest real reading that is now reading (ties: the furthest).
         var anchorIndex = -1
         var anchorAt = Long.MIN_VALUE
-        for ((id, at) in state.touched) {
+        for ((id, at) in state.readingAt) {
             val index = state.position[id] ?: continue
             if (!chapters[index].downloaded) continue
             if (!state.isRead(id) && (state.progress(id) ?: 0) < 1) continue
@@ -64,7 +72,14 @@ object ResumeRule {
         }
 
         if (anchorIndex < 0) {
-            return serverId ?: chapters.firstOrNull { it.downloaded && !state.isRead(it.id) }?.id
+            if (serverId == null) return chapters.firstOrNull { it.downloaded && !state.isRead(it.id) }?.id
+            // The server's chapter, unless the unsent writes finished it (rule 2).
+            val serverIndex = state.position[serverId] ?: return serverId
+            val row = chapters[serverIndex]
+            val wasFinished = row.read && !isUnfinished(true, row.readProgress)
+            val isFinished = state.isRead(serverId) && !isUnfinished(true, state.progress(serverId))
+            if (wasFinished || !isFinished) return serverId
+            anchorIndex = serverIndex
         }
         val anchor = chapters[anchorIndex]
         if (isUnfinished(state.isRead(anchor.id), state.progress(anchor.id))) return anchor.id
@@ -106,8 +121,12 @@ object ResumeRule {
         private val read = HashMap<Int, Boolean>()
         private val progress = HashMap<Int, Int?>()
 
-        /** Chapters the writes touched, with the time of the newest write touching each. */
-        val touched = LinkedHashMap<Int, Long>()
+        /**
+         * Chapters with real reading in the writes (position writes, not look-ups),
+         * with the time of the newest such write. Hand marks and look-ups change
+         * the read state only.
+         */
+        val readingAt = LinkedHashMap<Int, Long>()
 
         init {
             chapters.forEachIndexed { index, chapter ->
@@ -136,26 +155,18 @@ object ResumeRule {
                     if (id !in position) return
                     if (kind.lookup) {
                         // A look-up's position is never stored; its read mark is,
-                        // and leaves a chapter already read as it was.
-                        if (kind.read && read[id] == false) {
-                            read[id] = true
-                            touched[id] = at
-                        }
+                        // and leaves a chapter already read as it was. Not reading.
+                        if (kind.read && read[id] == false) read[id] = true
                         return
                     }
                     if (kind.read) read[id] = true
                     kind.progress?.let { progress[id] = it }
-                    touched[id] = at
+                    readingAt[id] = at
                 }
-                is WriteKind.SetRead -> {
-                    if (kind.chapterId !in position) return
-                    set(kind.chapterId, kind.read, if (kind.read) 100 else null)
-                    touched[kind.chapterId] = at
-                }
+                // Hand marks: the read state only, never reading.
+                is WriteKind.SetRead -> set(kind.chapterId, kind.read, if (kind.read) 100 else null)
                 is WriteKind.BulkRead -> for (id in bulkIds(kind.request)) {
-                    if (id !in position) continue
                     set(id, kind.request.read, if (kind.request.read) 100 else null)
-                    touched[id] = at
                 }
                 is WriteKind.CreateHighlight -> Unit
             }

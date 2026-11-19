@@ -65,7 +65,7 @@ class NovelChapterController extends Controller
         $readerId = $this->readState->userId();
 
         if (!$background && $unread) {
-            $this->readState->markOpened($chapter);
+            $this->readState->markOpened($chapter, lookup: $request->boolean('lookup'));
         }
         // A look-up (`?lookup=1`: a Highlights entry or a full-text search
         // hit) opens an old chapter to check a passage, not to read on from
@@ -290,12 +290,13 @@ class NovelChapterController extends Controller
         // A look-up is not reading there: its position is not stored, so
         // the chapter's position time does not make it the chapter read last
         // and move Continue (App\Services\ResumePoint). Its read mark still
-        // applies.
+        // applies, as a manual one (not reading activity).
         $stale = $this->readState->recordProgress(
             $chapter,
             isset($data['progress']) && empty($data['lookup']) ? (int) $data['progress'] : null,
             !empty($data['read']),
-            $at
+            $at,
+            lookup: !empty($data['lookup'])
         );
 
         // The series' latest position follows this write unless the write

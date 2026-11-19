@@ -99,9 +99,78 @@ class ResumeRuleTest {
     }
 
     @Test
-    fun aBulkMarkTiesGoToTheFurthestChapter() {
+    fun aTieGoesToTheFurthestChapter() {
+        val pending = listOf(
+            write(progress(104, 100, true), 3),
+            write(progress(106, 100, true), 3),
+            write(progress(105, 100, true), 3),
+        )
+        assertEquals(107, ResumeRule.resolve(list(10, read = 2), 103, pending))
+    }
+
+    @Test
+    fun aBulkMarkOverTheServersChapterGoesToTheFirstUnreadAfterIt() {
+        // Not an anchor (a hand mark), but it finished the server's chapter: as the server will answer.
         val pending = listOf(write(WriteKind.BulkRead(BulkReadRequest.upTo(106, novelId = 1, read = true)), 3))
         assertEquals(107, ResumeRule.resolve(list(10), 101, pending))
+        // Server says ch 11; "mark to here" through ch 50 covers it: the first downloaded unread after it.
+        val through50 = listOf(write(WriteKind.BulkRead(BulkReadRequest.upTo(150, novelId = 1, read = true)), 3))
+        assertEquals(151, ResumeRule.resolve(list(60, read = 10), 111, through50))
+        assertEquals(152, ResumeRule.resolve(list(60, read = 10, missing = setOf(51)), 111, through50))
+        // Everything marked read: caught up, the last downloaded chapter.
+        val all = listOf(write(WriteKind.BulkRead(BulkReadRequest.upTo(160, novelId = 1, read = true)), 3))
+        assertEquals(159, ResumeRule.resolve(list(60, read = 10, missing = setOf(60)), 111, all))
+    }
+
+    @Test
+    fun aBulkMarkNotCoveringTheServersChapterKeepsIt() {
+        val pending = listOf(write(WriteKind.BulkRead(BulkReadRequest.upTo(105, novelId = 1, read = true)), 3))
+        assertEquals(111, ResumeRule.resolve(list(60, read = 10), 111, pending))
+    }
+
+    @Test
+    fun aHandMarkIsNotReading() {
+        // Server says ch 11; ch 40 marked read by hand: Continue stays ch 11.
+        val pending = listOf(write(WriteKind.SetRead(140, true), 9))
+        assertEquals(111, ResumeRule.resolve(list(60, read = 10), 111, pending))
+    }
+
+    @Test
+    fun aLaterHandMarkDoesNotTakeOverFromReading() {
+        val pending = listOf(
+            write(progress(110, 40, false), 1),
+            write(WriteKind.SetRead(130, true), 2),
+        )
+        assertEquals(110, ResumeRule.resolve(list(60, read = 9), 110, pending))
+    }
+
+    @Test
+    fun aHandMarkLaterOnAReadChapterKeepsItsReadingTime() {
+        // Ch 10 read at 2, ch 12 read to 40 % at 3, ch 10 then marked read by hand at 9:
+        // ch 12 is still the newest reading.
+        val pending = listOf(
+            write(progress(110, 100, true), 2),
+            write(progress(112, 40, false), 3),
+            write(WriteKind.SetRead(110, true), 9),
+        )
+        assertEquals(112, ResumeRule.resolve(list(60, read = 9), 110, pending))
+    }
+
+    @Test
+    fun readingAfterAHandMarkCounts() {
+        // Marked read, then really read to 50 %: a read chapter below 90 % is unfinished.
+        val pending = listOf(
+            write(WriteKind.SetRead(140, true), 1),
+            write(progress(140, 50, false), 2),
+        )
+        assertEquals(140, ResumeRule.resolve(list(60, read = 10), 111, pending))
+    }
+
+    @Test
+    fun aLookUpReadIsNotReading() {
+        // Ch 40 opened from Highlights/search (marked read by the look-up): Continue stays ch 11.
+        val pending = listOf(write(progress(140, 100, true, lookup = true), 9))
+        assertEquals(111, ResumeRule.resolve(list(60, read = 10), 111, pending))
     }
 
     @Test

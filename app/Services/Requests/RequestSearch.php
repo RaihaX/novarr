@@ -38,8 +38,11 @@ use Illuminate\Support\Facades\RateLimiter;
  *
  * The sources are asked by a SearchRunner: ProcessSearchRunner asks up to
  * novarr.requests.search_parallelism lanes at once, each in its own PHP
- * process; a lane is the sources of one host (lanes()), asked one after
- * another, so two calls never go to the same host at the same time.
+ * process; a lane holds sources of one host (lanes()), asked one after
+ * another. A host with several sources (the Suwayomi server) is spread
+ * over up to novarr.requests.search_host_parallelism lanes, so one slow
+ * source there holds up only its own lane and the host never gets more
+ * than that many calls at once.
  *
  * Results are remembered (cache "request_search_results_v1_*", see
  * cacheKey()) for novarr.requests.search_cache_minutes per medium +
@@ -264,30 +267,48 @@ class RequestSearch
         return array_slice($sources, 0, max(1, (int) config('novarr.requests.max_sources_per_search', 12)), true);
     }
 
+    /** Lanes one host's sources are spread over (calls that host gets at the same time). */
+    public static function hostParallelism(): int
+    {
+        return max(1, (int) config('novarr.requests.search_host_parallelism', 3));
+    }
+
     /**
-     * The sources grouped into lanes: sources on one host (every Suwayomi
-     * entry is the one Suwayomi server) form one lane, asked one after
-     * another. Lanes with more sources come first (they take longest), then
-     * search order; within a lane, search order. Pure but for the sources'
-     * own discoverHost().
+     * The sources grouped into lanes; a lane's sources are asked one after
+     * another. Sources on one host (every Suwayomi entry is the one Suwayomi
+     * server) are dealt in turn over up to $perHost lanes (default:
+     * hostParallelism()), so the host gets at most that many calls at once
+     * and a slow source delays only the ones behind it in its lane. Lanes
+     * with more sources come first (they take longest), then search order;
+     * within a lane, search order. Pure but for the sources' own
+     * discoverHost().
      *
      * @param  array<string, Source>  $sources  in search order
      * @return array<int, string[]>
      */
-    public static function lanes(array $sources): array
+    public static function lanes(array $sources, ?int $perHost = null): array
     {
-        $lanes = [];
+        $perHost = max(1, $perHost ?? static::hostParallelism());
+        $hosts = [];
         foreach ($sources as $key => $source) {
             try {
                 $host = strtolower(trim($source->discoverHost()));
             } catch (\Throwable) {
                 $host = '';
             }
-            $lanes[$host !== '' ? $host : 'source:' . $key][] = (string) $key;
+            $hosts[$host !== '' ? $host : 'source:' . $key][] = (string) $key;
         }
-        $lanes = array_values($lanes);
-        $position = array_flip(array_map(fn(array $lane) => $lane[0], $lanes));
-        usort($lanes, fn(array $a, array $b) => (count($b) <=> count($a)) ?: ($position[$a[0]] <=> $position[$b[0]]));
+        $lanes = [];
+        foreach ($hosts as $keys) {
+            $split = array_fill(0, min($perHost, count($keys)), []);
+            foreach ($keys as $i => $key) {
+                $split[$i % count($split)][] = $key;
+            }
+            array_push($lanes, ...$split);
+        }
+        // Search order of each lane's first source: the tie-break.
+        $order = array_flip(array_map('strval', array_keys($sources)));
+        usort($lanes, fn(array $a, array $b) => (count($b) <=> count($a)) ?: ($order[$a[0]] <=> $order[$b[0]]));
 
         return $lanes;
     }

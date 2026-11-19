@@ -17,16 +17,21 @@ use Illuminate\Support\Facades\DB;
  * reading order (NovelChapter::scopeOrdered()):
  *  1. The anchor is the chapter with the reader's most recent activity: the
  *     later of read_at and progress_at on their chapter_reads row (ties go to
- *     the furthest in reading order). A row counts as activity when the
- *     chapter is marked read, or unread with a position of at least 1 % (an
- *     app or the manga reader part-way through); a row left by "mark unread"
- *     or a chapter opened at 0 % is not activity.
+ *     the furthest in reading order). Only real reading is activity: a row
+ *     counts when the chapter is read (opened in the web reader, finished in
+ *     an app), or unread with a position of at least 1 % (an app or the manga
+ *     reader part-way through). A read mark set by hand — a single mark read,
+ *     "Mark to here", "Mark all read", a bulk read — or by a look-up (a
+ *     chapter opened from Highlights or search) is not activity
+ *     (chapter_reads.manual) until the reader reads in that chapter; nor is a
+ *     row left by "mark unread" or a chapter opened at 0 %.
  *  2. An unfinished anchor is resumed (RESUME): unread with progress 1–99
  *     (the apps, the Kindle and the manga reader mark read only at the end),
  *     or read with progress below 90 (the web reader marks read on open, then
  *     the position follows the scroll). Read with no position is finished.
  *  3. Otherwise the first unread chapter after the anchor (NEXT).
- *  4. No activity at all: the first chapter (START).
+ *  4. No activity at all: the first unread chapter (START), so chapters
+ *     marked read by hand are skipped.
  *  5. Nothing unread after a finished anchor: CAUGHT_UP (the API answers the
  *     last chapter; the web's Continue list leaves the series out).
  * Older half-read chapters and earlier skipped chapters never pull back.
@@ -50,12 +55,18 @@ class ResumePoint
 
     /**
      * SQL for a chapter_reads row's activity time (NULL = not activity), on
-     * the row aliased $cr. MariaDB's GREATEST() is NULL when either side is,
-     * so the later of the two is spelled out.
+     * the row aliased $cr: a manual row (marked by hand or by a look-up) is
+     * none. MariaDB's GREATEST() is NULL when either side is, so the later
+     * of the two is spelled out.
+     *
+     * $withManual counts manual rows too: "has the reader touched this
+     * series, and when" (which series Home's Continue shelf lists and in
+     * what order), not where to resume inside it.
      */
-    public static function activitySql(string $cr = 'cr'): string
+    public static function activitySql(string $cr = 'cr', bool $withManual = false): string
     {
-        return "CASE WHEN {$cr}.read_at IS NULL AND ({$cr}.progress IS NULL OR {$cr}.progress < 1) THEN NULL"
+        return 'CASE' . ($withManual ? '' : " WHEN {$cr}.manual = 1 THEN NULL")
+            . " WHEN {$cr}.read_at IS NULL AND ({$cr}.progress IS NULL OR {$cr}.progress < 1) THEN NULL"
             . " WHEN {$cr}.progress_at IS NULL OR ({$cr}.read_at IS NOT NULL AND {$cr}.read_at > {$cr}.progress_at) THEN {$cr}.read_at"
             . " ELSE {$cr}.progress_at END";
     }
@@ -176,9 +187,14 @@ class ResumePoint
      *     firstPerNovel()) over the reader's chapter_reads rows of that series
      *     (user_id, novel_id range), each chapter by primary key;
      *  2. the targets — one member per series walking idx_reading_order from
-     *     the anchor (NOT EXISTS probe on chapter_reads' primary key) or from
-     *     the start; skipped when every anchor is unfinished;
-     *  3. only with $lastWhenCaughtUp and a caught-up series: its last chapter.
+     *     the anchor or from the start (NOT EXISTS probe on chapter_reads'
+     *     primary key: the first unread); skipped when every anchor is
+     *     unfinished;
+     *  3. only with $lastWhenCaughtUp and a caught-up series: its last chapter;
+     *  4. only for a series with no activity and nothing unread (every
+     *     chapter marked read by hand): its last chapter, telling caught up
+     *     from nothing downloaded — and with $startFilter, the first unread
+     *     without it, telling caught up from a series the filter emptied.
      *
      * @param  int[]  $novelIds
      * @param  string[]  $columns  novel_chapters columns the caller reads
@@ -222,8 +238,11 @@ class ResumePoint
 
         $targets = NovelHealth::firstPerNovel($pending, function ($q, int $novelId) use ($anchors, $columns, $userId, $startFilter) {
             $q->where('status', 1)->where('blacklist', 0)->select($columns);
+            // No anchor: the first unread (chapters marked read by hand are
+            // not activity, but they are read).
+            $this->readState->whereUnread($q, $userId);
             if ($anchor = $anchors->get($novelId)) {
-                $this->readState->whereUnread($q, $userId)->relativeTo($anchor, '>');
+                $q->relativeTo($anchor, '>');
             } elseif ($startFilter !== null) {
                 $startFilter($q, $novelId);
             }
@@ -232,6 +251,7 @@ class ResumePoint
         });
 
         $caughtUp = [];
+        $unanchored = [];
         foreach ($pending as $novelId) {
             $anchor = $anchors->get($novelId);
             if ($chapter = $targets->get($novelId)) {
@@ -239,8 +259,27 @@ class ResumePoint
             } elseif ($anchor !== null) {
                 $out[$novelId] = ['chapter' => null, 'kind' => self::CAUGHT_UP];
                 $caughtUp[] = $novelId;
+            } else {
+                $unanchored[] = $novelId;
             }
-            // No anchor and no chapter: nothing downloaded (or $startFilter left it empty).
+        }
+
+        // No activity and no (filtered) unread chapter: every chapter marked
+        // read by hand (caught up), or nothing downloaded / $startFilter left
+        // it empty (absent).
+        if ($unanchored !== []) {
+            $last = NovelHealth::firstPerNovel($unanchored, fn($q) => $q->where('status', 1)->where('blacklist', 0)
+                ->select($columns)
+                ->orderedDesc());
+            $unread = $startFilter === null || $last->isEmpty() ? collect() : NovelHealth::firstPerNovel(
+                $last->keys()->all(),
+                fn($q) => $this->readState->whereUnread($q->where('status', 1)->where('blacklist', 0)->select(['id', 'novel_id']), $userId)
+            );
+            foreach ($unanchored as $novelId) {
+                if ($last->has($novelId) && !$unread->has($novelId)) {
+                    $out[$novelId] = ['chapter' => $lastWhenCaughtUp ? $last->get($novelId) : null, 'kind' => self::CAUGHT_UP];
+                }
+            }
         }
 
         if ($lastWhenCaughtUp && $caughtUp !== []) {
