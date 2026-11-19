@@ -132,6 +132,8 @@ class MultiUserReadStateTest extends TestCase
 
     public function test_bulk_marks_touch_only_the_current_reader(): void
     {
+        // Frozen: the test compares two now() readings a few statements apart.
+        Carbon::setTestNow('2026-11-19 12:00:00');
         $this->markRead($this->chapters[1], $this->owner, now()->subDays(5));
 
         $this->asReader();
