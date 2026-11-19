@@ -63,8 +63,10 @@ class NovelPageRedesignTest extends TestCase
     public function test_a_failed_row_shows_its_reason_and_downloaded_rows_carry_no_badge(): void
     {
         $novel = $this->novel();
-        $ok = $this->chapter($novel, 1);
-        $read = $this->chapter($novel, 2, ['read_at' => now()]);
+        // Read 1; 2 is next (an unread chapter before the one read last
+        // would not be: Continue never goes back).
+        $read = $this->chapter($novel, 1, ['read_at' => now()]);
+        $ok = $this->chapter($novel, 2);
         $failed = $this->chapter($novel, 3, ['status' => 0, 'download_date' => null, 'attempts' => 2, 'last_failure_reason' => 'not_found']);
         $queued = $this->chapter($novel, 4, ['status' => 0, 'download_date' => null]);
         $review = $this->chapter($novel, 5, ['status' => 0, 'download_date' => null, 'attempts' => NovelChapter::REVIEW_ATTEMPTS, 'last_failure_reason' => 'no_content']);
@@ -93,7 +95,8 @@ class NovelPageRedesignTest extends TestCase
         $this->assertStringContainsString('Needs review', $reviewRow);
         $this->assertStringContainsString('The page loaded but contains no chapter text.', $reviewRow);
 
-        // The first unread downloaded chapter is marked as the current one.
+        // The resume chapter (the first unread after the one read last) is
+        // marked as the current one.
         $this->assertStringContainsString('is-current', $this->row($html, $ok->id));
         $this->assertStringContainsString('Up next', $this->row($html, $ok->id));
     }

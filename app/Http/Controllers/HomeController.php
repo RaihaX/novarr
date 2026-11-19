@@ -8,6 +8,7 @@ use App\Enums\NovelState;
 use App\Http\Helpers\CacheHelper;
 use App\Services\NovelHealth;
 use App\Services\ReadState;
+use App\Services\ResumePoint;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
@@ -22,7 +23,7 @@ class HomeController extends Controller
 
     // Stateless (the reader is resolved per call), so safe to hold here even
     // though Octane keeps controller instances across requests.
-    public function __construct(private ReadState $readState)
+    public function __construct(private ReadState $readState, private ResumePoint $resumePoint)
     {
     }
 
@@ -108,9 +109,10 @@ class HomeController extends Controller
     /**
      * Home's "New chapters" groups (newChapters(), cached), each flagged
      * `reading`. A novel that is also on the Continue shelf ($continue, from
-     * continueReading()) continues where the shelf does (an abandoned chapter
-     * resumes), so the two never disagree; its cover comes from the shelf's
-     * already-loaded novel (no extra query).
+     * continueReading()) takes the shelf's chapter (fresher than the
+     * expires-only New chapters cache; both come from ResumePoint), so the
+     * two never disagree; its cover comes from the shelf's already-loaded
+     * novel (no extra query).
      */
     public function newChapterGroups(array $continue): array
     {
@@ -353,16 +355,18 @@ class HomeController extends Controller
      * an author's note, whether you have started the novel, and where to read
      * from.
      *
-     * Where to read from: in a novel you are reading, its first unread
-     * downloaded chapter; in one you have not started, its first downloaded
-     * real chapter (numbered 1 or later, not an author's note), so "Start"
-     * never opens a chapter 0 notice when a chapter 1 is there. Both kinds
-     * share one UNION statement (one member per novel); the fallback query
-     * only runs for a not-started novel with no such chapter downloaded.
+     * Where to read from: in a novel you are reading, its resume point
+     * (App\Services\ResumePoint — the same chapter Continue opens on every
+     * device; none when caught up); in one you have not started, its first
+     * downloaded real chapter (numbered 1 or later, not an author's note), so
+     * "Start" never opens a chapter 0 notice when a chapter 1 is there. Both
+     * kinds share ResumePoint's target statement (one member per novel); the
+     * fallback query only runs for a not-started novel with no such chapter
+     * downloaded.
      *
      * Statements: the grouped window aggregate, the novels (with an EXISTS
      * probe on chapter_reads (user_id, novel_id, read_at) for "started"),
-     * the read-from UNION, and rarely the fallback.
+     * ResumePoint's anchors and targets, and rarely the fallback.
      */
     private function newChapters(int $limit = 10, ?int $userId = null): array
     {
@@ -396,21 +400,27 @@ class HomeController extends Controller
         $readingSet = $novels->filter(fn($n) => (bool) $n->is_reading)->map(fn() => true)->all();
         $columns = ['id', 'novel_id', 'chapter', 'kind'];
 
-        $readFrom = NovelHealth::firstPerNovel($novels->keys()->all(), function ($q, int $novelId) use ($readingSet, $columns, $userId) {
-            $q->where('status', 1)->where('blacklist', 0)->select($columns);
-            $this->readState->whereUnread($q, $userId);
-            if (!isset($readingSet[$novelId])) {
-                self::realChapter($q);
+        // A not-started novel's "Start" prefers a real chapter.
+        $points = $this->resumePoint->forNovels($novels->keys()->all(), $columns, $userId, false, fn($q) => self::realChapter($q));
+        $readFrom = collect();
+        foreach ($points as $novelId => $point) {
+            if ($point['kind'] !== ResumePoint::START) {
+                // Any reading activity (an app's part-read chapter included) is "reading".
+                $readingSet[$novelId] = true;
             }
-            // Exactly NovelChapter::scopeOrdered().
-            $q->ordered();
-        });
+            if ($point['chapter'] !== null) {
+                $readFrom->put($novelId, $point['chapter']);
+            }
+        }
 
         // Not started, and no real chapter downloaded yet (only a chapter 0
-        // or a note): fall back to the first unread downloaded chapter.
-        $unresolved = array_values(array_diff($novels->keys()->all(), array_keys($readingSet), $readFrom->keys()->all()));
+        // or a note): fall back to the first downloaded chapter.
+        $unresolved = array_values(array_diff($novels->keys()->all(), array_keys($points)));
         if ($unresolved !== []) {
-            $readFrom = $readFrom->union($this->firstUnread($unresolved, $columns, $userId));
+            $readFrom = $readFrom->union(NovelHealth::firstPerNovel($unresolved, fn($q) => $q
+                ->where('status', 1)->where('blacklist', 0)
+                ->select($columns)
+                ->ordered()));
         }
 
         $out = [];
@@ -462,8 +472,8 @@ class HomeController extends Controller
     /**
      * GET /continue — the PWA "Continue Reading" shortcut. 302s to the same
      * resume point the dashboard's first Continue-reading card links to (the
-     * most recently read novel's in-progress or next unread chapter), or to
-     * the dashboard when there is nothing to continue.
+     * most recently read novel's ResumePoint), or to the dashboard when
+     * there is nothing to continue.
      */
     public function continue()
     {
@@ -476,36 +486,37 @@ class HomeController extends Controller
 
     /**
      * Novels the reader (default: the current one) is partway through:
-     * most-recently-read first, each with its next unread downloaded
-     * chapter. Skips novels they have fully caught up on. A resumed item's
-     * chapter carries the reader's state (NovelChapter::readState()).
+     * most recent reading activity first, each with its resume point
+     * (App\Services\ResumePoint: the unfinished chapter last read, else the
+     * first unread downloaded chapter after it). Skips novels they have
+     * caught up on. A resumed item's chapter carries the reader's state
+     * (NovelChapter::readState()).
+     *
+     * Statements: the candidates, the novels (+ covers), ResumePoint's
+     * anchors and — unless every candidate resumes — its targets.
      */
     public function continueReading(int $limit = 8, ?int $userId = null): array
     {
         $userId = $this->readState->userId($userId);
 
-        // Candidate novels, most-recently-read first (ordered novel_id => last_read).
-        // Manga: a chapter is only marked read once its last page has been
-        // shown, so a manga being read has a chapter with progress and no
-        // read date yet; its last progress write counts as reading activity
-        // (same statement: text novels only ever match on read_at). The
-        // reader's chapter_reads rows (primary key prefix user_id), each
-        // chapter by primary key.
+        // Candidate novels, most recent activity first (ordered novel_id =>
+        // last activity): ResumePoint's activity — a read mark or a position
+        // on a chapter not read yet (the apps and the manga reader mark read
+        // only at the end). The reader's chapter_reads rows (primary key
+        // prefix user_id), each chapter by primary key.
+        $activity = ResumePoint::activitySql('cr');
         $recent = $this->readState->join(
             NovelChapter::where('status', 1)->where('blacklist', 0),
             [],
             $userId,
             'inner'
         )
-            ->where(fn($q) => $q->whereNotNull('cr.read_at')
-                ->orWhere(fn($m) => $m->whereIn('cr.novel_id', Novel::mangaIdsQuery())
-                    ->whereBetween('cr.progress', [1, 99])
-                    ->whereNotNull('cr.progress_at')))
+            ->whereRaw("({$activity}) IS NOT NULL")
             ->select('cr.novel_id as novel_id')
-            ->selectRaw('MAX(COALESCE(cr.read_at, cr.progress_at)) as last_read')
+            ->selectRaw("MAX({$activity}) as last_read")
             ->groupBy('cr.novel_id')
             ->orderByDesc('last_read')
-            ->limit($limit * 2) // over-fetch; some may be fully read
+            ->limit($limit * 2) // over-fetch; some may be caught up
             ->toBase()
             ->pluck('last_read', 'novel_id');
 
@@ -522,51 +533,18 @@ class HomeController extends Controller
             ->get(['id', 'name', 'author', 'status', 'paused_at', 'last_toc_count', 'translator_url', 'medium'])
             ->keyBy('id');
 
-        // Abandoned mid-chapter? Resume it exactly where the reader left off
-        // (the position syncs from the reader on every device): the most
-        // recently read such chapter per novel, all novels in one query, each
-        // member a range on chapter_reads (user_id, novel_id, read_at). A
-        // manga chapter in progress is not read yet (see above); page_count
-        // lets the cards say "Page 12 of 34".
-        $inProgress = NovelHealth::firstPerNovel($novelIds, function ($q, int $novelId) use ($novels, $userId) {
-            $this->readState->join(
-                $q->where('status', 1)->where('blacklist', 0),
-                ['id', 'novel_id', 'chapter', 'book', 'label', 'page_count'],
-                $userId,
-                'inner'
-            )->where('cr.novel_id', $novelId);
-            if ($novels->get($novelId)?->isManga()) {
-                $q->whereNull('cr.read_at')
-                    ->whereBetween('cr.progress', [1, 99])
-                    ->whereNotNull('cr.progress_at')
-                    ->orderByDesc('cr.progress_at');
-            } else {
-                $q->whereNotNull('cr.read_at')
-                    ->whereNotNull('cr.progress')
-                    ->where('cr.progress', '<', 90)
-                    ->orderByDesc('cr.read_at');
-            }
-            $q->orderByDesc('novel_chapters.id');
-        });
-        $this->readState->attachJoined($inProgress);
-
-        // Otherwise the first unread in reading order.
-        $next = $this->firstUnread($novelIds, ['id', 'novel_id', 'chapter', 'book', 'label', 'page_count'], $userId);
+        // page_count lets the cards say "Page 12 of 34" for a manga.
+        $points = $this->resumePoint->forNovels($novelIds, ['id', 'novel_id', 'chapter', 'book', 'label', 'page_count'], $userId);
 
         $items = [];
         foreach ($recent as $novelId => $lastRead) {
             $novel = $novels->get($novelId);
-            if (!$novel) {
-                continue;
-            }
-
-            if ($chapter = $inProgress->get($novelId)) {
-                $items[] = ['novel' => $novel, 'next' => $chapter, 'resume' => true];
-            } elseif ($chapter = $next->get($novelId)) {
-                $items[] = ['novel' => $novel, 'next' => $chapter, 'resume' => false];
-            } else {
+            $point = $points[(int) $novelId] ?? null;
+            if (!$novel || $point === null || $point['chapter'] === null) {
                 continue; // caught up — nothing to continue
             }
+
+            $items[] = ['novel' => $novel, 'next' => $point['chapter'], 'resume' => $point['kind'] === ResumePoint::RESUME];
 
             if (count($items) >= $limit) {
                 break;
@@ -574,24 +552,5 @@ class HomeController extends Controller
         }
 
         return $items;
-    }
-
-    /**
-     * Each novel's first downloaded chapter the reader has not read, in
-     * reading order (one statement for all novels, see NovelHealth::
-     * firstPerNovel()): each member walks idx_reading_order and stops at the
-     * first chapter without a read row (NOT EXISTS on chapter_reads' primary
-     * key). No state is attached: a not-resumed item never reads it.
-     *
-     * @param  int[]  $novelIds
-     * @return \Illuminate\Support\Collection<int, NovelChapter>  keyed by novel_id
-     */
-    private function firstUnread(array $novelIds, array $columns, ?int $userId = null)
-    {
-        return NovelHealth::firstPerNovel($novelIds, fn($q) => $this->readState->whereUnread($q
-            ->where('status', 1)->where('blacklist', 0)
-            ->select($columns), $userId)
-            // Exactly NovelChapter::scopeOrdered().
-            ->ordered());
     }
 }

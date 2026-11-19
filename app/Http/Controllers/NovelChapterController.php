@@ -287,9 +287,13 @@ class NovelChapterController extends Controller
 
         $chapter = $this->novelchapters->findOrFail($id);
 
+        // A look-up is not reading there: its position is not stored, so
+        // the chapter's position time does not make it the chapter read last
+        // and move Continue (App\Services\ResumePoint). Its read mark still
+        // applies.
         $stale = $this->readState->recordProgress(
             $chapter,
-            isset($data['progress']) ? (int) $data['progress'] : null,
+            isset($data['progress']) && empty($data['lookup']) ? (int) $data['progress'] : null,
             !empty($data['read']),
             $at
         );

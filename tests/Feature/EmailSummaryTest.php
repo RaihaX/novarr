@@ -124,9 +124,10 @@ class EmailSummaryTest extends TestCase
             $this->assertStringContainsString('4 new', $html);
             $this->assertStringContainsString('novelfull.test', $html);
 
-            // Read from the first unread downloaded chapter (Alpha 3, Beta 10).
-            $this->assertStringContainsString('href="' . route('chapters.show', $s['a3']->id) . '"', $html);
-            $this->assertStringContainsString('Read from 3', $html);
+            // Read from the resume point every device shares: Alpha's 2,
+            // read last and only 40 % in; Beta's first chapter (not started).
+            $this->assertStringContainsString('href="' . route('chapters.show', $s['a2']->id) . '"', $html);
+            $this->assertStringContainsString('Read from 2', $html);
             $this->assertStringContainsString('href="' . route('chapters.show', $s['b1']->id) . '"', $html);
 
             // The note chip appears once (Alpha only).
@@ -153,7 +154,7 @@ class EmailSummaryTest extends TestCase
             $mail->assertSeeInText('Alpha Saga');
             $mail->assertSeeInText('Beta Chronicle');
             $mail->assertSeeInText('Delta Finished');
-            $mail->assertSeeInText(route('chapters.show', $s['a3']->id));
+            $mail->assertSeeInText(route('chapters.show', $s['a2']->id));
             $mail->assertSeeInText('Gamma Outside');
 
             return true;

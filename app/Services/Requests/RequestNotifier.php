@@ -23,15 +23,19 @@ use Illuminate\Support\Facades\Mail;
  *   new       → the owner: webhook "<reader> requested <title> (manga)",
  *               an email (the owner's address, else the summary address),
  *               and a request_new feed item for the admins.
- *   approved  → the requester: a request_approved feed item (no email;
- *               "available" follows).
- *   declined  → the requester: a request_declined feed item and an email.
- *   available → the requester: a request_available feed item and an email.
+ *   approved  → the requester and every follower: a request_approved feed
+ *               item each (no email; "available" follows).
+ *   declined  → the requester and every follower: a request_declined feed
+ *               item and an email each.
+ *   available → the requester and every follower: a request_available feed
+ *               item and an email each.
+ *   joined    → nothing (a follower joining is shown on the owner's review
+ *               list, never announced).
  *
  * Emails need mail set up as the other mails do (not the "log" mailer)
  * and a recipient address. A request the admin made (always, with sign-in
- * off) tells nobody that it was made; decisions on one's own request
- * are not announced to oneself.
+ * off) tells nobody that it was made; decisions are not announced to the
+ * one who made them (the admin who requested or joined).
  */
 class RequestNotifier
 {
@@ -63,51 +67,89 @@ class RequestNotifier
 
     public function approved(NovelRequest $request): void
     {
-        if ($this->decidedOwn($request)) {
-            return;
+        foreach ($this->recipients($request) as $user) {
+            $this->feed((int) $user->id, RequestNotification::KIND_APPROVED, 'Request approved',
+                "{$request->title} was approved and is being added to the library.", $request);
         }
-        $this->feed((int) $request->user_id, RequestNotification::KIND_APPROVED, 'Request approved',
-            "{$request->title} was approved and is being added to the library.", $request);
     }
 
     public function declined(NovelRequest $request): void
     {
-        if ($this->decidedOwn($request)) {
-            return;
-        }
         $reason = $request->decline_reason ?: null;
-        $this->feed((int) $request->user_id, RequestNotification::KIND_DECLINED, 'Request declined',
-            "{$request->title} was declined" . ($reason !== null ? ": {$reason}" : '.'), $request);
+        foreach ($this->recipients($request) as $user) {
+            $this->feed((int) $user->id, RequestNotification::KIND_DECLINED, 'Request declined',
+                "{$request->title} was declined" . ($reason !== null ? ": {$reason}" : '.'), $request);
 
-        $requester = $request->requester;
-        if ($requester !== null && static::hasEmail($requester)) {
-            $this->mail((string) $requester->email, new RequestDeclined(
-                static::nameOf($requester),
-                (string) $request->title,
-                $request->mediumLabel(),
-                RequestCoverController::url($request->cover_url, (int) $requester->id, static::readerBase()),
-                $reason,
-                static::readerBase() . '/requests',
-            ));
+            if (static::hasEmail($user)) {
+                $this->mail((string) $user->email, new RequestDeclined(
+                    static::nameOf($user),
+                    (string) $request->title,
+                    $request->mediumLabel(),
+                    RequestCoverController::url($request->cover_url, (int) $user->id, static::readerBase()),
+                    $reason,
+                    static::readerBase() . '/requests',
+                ));
+            }
         }
     }
 
     public function available(NovelRequest $request): void
     {
-        $this->feed((int) $request->user_id, RequestNotification::KIND_AVAILABLE, 'Ready to read',
-            "{$request->title} is in the library and ready to read.", $request);
+        foreach ($this->recipients($request, false) as $user) {
+            $this->feed((int) $user->id, RequestNotification::KIND_AVAILABLE, 'Ready to read',
+                "{$request->title} is in the library and ready to read.", $request);
 
-        $requester = $request->requester;
-        if ($requester !== null && static::hasEmail($requester)) {
-            $this->mail((string) $requester->email, new RequestAvailable(
-                static::nameOf($requester),
-                (string) $request->title,
-                $request->mediumLabel(),
-                RequestCoverController::url($request->cover_url, (int) $requester->id, static::readerBase()),
-                static::readerBase() . ($request->novel_id ? '/novels/' . (int) $request->novel_id : '/requests'),
-            ));
+            if (static::hasEmail($user)) {
+                $this->mail((string) $user->email, new RequestAvailable(
+                    static::nameOf($user),
+                    (string) $request->title,
+                    $request->mediumLabel(),
+                    RequestCoverController::url($request->cover_url, (int) $user->id, static::readerBase()),
+                    static::readerBase() . ($request->novel_id ? '/novels/' . (int) $request->novel_id : '/requests'),
+                ));
+            }
         }
         $request->forceFill(['requester_notified_at' => now()])->save();
+    }
+
+    /**
+     * Who hears about a decision: the requester, then the followers (oldest
+     * first). $skipDecider leaves out whoever decided (their own decision is
+     * not news to them). A requester whose account is gone still gets the
+     * feed item (it goes with nothing); followers without an account are
+     * skipped.
+     *
+     * @return User[]
+     */
+    protected function recipients(NovelRequest $request, bool $skipDecider = true): array
+    {
+        $decider = $skipDecider && $request->decided_by !== null ? (int) $request->decided_by : null;
+        $users = [];
+        $requester = $request->requester;
+        if ($requester === null) {
+            // No account to mail; the feed row is still written (and removed with the account).
+            $requester = new User();
+            $requester->id = (int) $request->user_id;
+        }
+        if ((int) $requester->id !== $decider) {
+            $users[(int) $requester->id] = $requester;
+        }
+
+        try {
+            $followerIds = $request->followers()->orderBy('created_at')->orderBy('id')->pluck('user_id')->map(fn($id) => (int) $id)->all();
+            $followers = $followerIds === [] ? collect() : User::whereIn('id', $followerIds)->get()->keyBy('id');
+        } catch (\Throwable $e) {
+            Log::warning("Request {$request->id}: followers not read: " . $e->getMessage());
+            $followerIds = [];
+            $followers = collect();
+        }
+        foreach ($followerIds as $id) {
+            if ($id !== $decider && !isset($users[$id]) && $followers->has($id)) {
+                $users[$id] = $followers->get($id);
+            }
+        }
+
+        return array_values($users);
     }
 
     /** The web Requests page (config novarr.requests.page_url, else APP_URL/requests). */
@@ -158,11 +200,6 @@ class RequestNotifier
     private static function hasEmail(User $user): bool
     {
         return filter_var(trim((string) $user->email), FILTER_VALIDATE_EMAIL) !== false;
-    }
-
-    private function decidedOwn(NovelRequest $request): bool
-    {
-        return $request->decided_by !== null && (int) $request->decided_by === (int) $request->user_id;
     }
 
     private function ownerId(): ?int

@@ -4,6 +4,7 @@ namespace App;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * A reader's request for a series (App\Services\Requests\Requests).
@@ -17,6 +18,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * chapters, status} plus, for manga once ranked, the evaluation
  * (App\Services\Requests\CandidateRanking): languages, chapters_available,
  * highest_chapter, gaps, updated_at, error, reason. Best first.
+ *
+ * followers: readers who joined the request ("Me too",
+ * App\NovelRequestFollower); they hear its decisions as the requester does.
+ * Deleting a request deletes its followers (Requests::delete() and the
+ * deleted hook below; a mass delete must remove them itself, as the User
+ * hook does).
  */
 class NovelRequest extends Model
 {
@@ -43,6 +50,30 @@ class NovelRequest extends Model
         'available_at' => 'datetime',
         'requester_notified_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        static::deleted(function (self $request) {
+            NovelRequestFollower::where('novel_request_id', $request->id)->delete();
+        });
+    }
+
+    public function followers(): HasMany
+    {
+        return $this->hasMany(NovelRequestFollower::class, 'novel_request_id');
+    }
+
+    /** Is $userId following (joined) this request? */
+    public function isFollowedBy(int $userId): bool
+    {
+        return NovelRequestFollower::where('novel_request_id', $this->id)->where('user_id', $userId)->exists();
+    }
+
+    /** Displayed as pending or approved (not yet available): a reader may still join or leave it. */
+    public function isOpenForFollowers(): bool
+    {
+        return in_array($this->displayStatus(), [self::STATUS_PENDING, self::STATUS_APPROVED], true);
+    }
 
     public function requester(): BelongsTo
     {

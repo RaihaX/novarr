@@ -5,6 +5,7 @@ import {
     resultAction, sourceLine, skippedLine, searchingLine, statusLabel, pendingUsedLine,
     orderCandidates, defaultCandidate, selectable, candidateDetail, rankingInProgress,
     retryAfterSeconds, relativeTime, oldestFirst, decidedOnly,
+    isFollower, mineAction, alsoWantedLine, requestedAfterLeaving,
     SLOW_AFTER_MS, DEFAULT_RETRY_SECONDS, MAX_RETRY_SECONDS,
 } from '../../resources/js/requests-logic.js';
 
@@ -19,8 +20,8 @@ test('a result card offers one action from in_library / requested', () => {
         'in the library wins over requested');
     assert.deepEqual(resultAction({ in_library: false, requested: { status: 'pending', by_me: true } }),
         { kind: 'requested_by_me', label: 'Requested by you', href: null, disabled: true });
-    assert.deepEqual(resultAction({ in_library: false, requested: { status: 'approved', by_me: false } }),
-        { kind: 'requested', label: 'Requested', href: null, disabled: true });
+    assert.deepEqual(resultAction({ in_library: false, requested: { status: 'available', by_me: false } }),
+        { kind: 'requested', label: 'Requested', href: null, disabled: true }, 'too late to join');
     assert.equal(resultAction({ in_library: true, novel_id: null }).disabled, true, 'no id to link to: inert');
     assert.equal(resultAction(null).kind, 'request');
 });
@@ -135,4 +136,52 @@ test('review lists: pending oldest first, decided without pending', () => {
     assert.deepEqual(oldestFirst(list).map((r) => r.id), [1, 4, 2, 3]);
     assert.deepEqual(decidedOnly(list).map((r) => r.id), [2]);
     assert.deepEqual(oldestFirst(null), []);
+});
+
+test('Me too: someone else\'s pending or approved request can be joined; joined reads as requested by you', () => {
+    assert.deepEqual(resultAction({ in_library: false, requested: { status: 'pending', by_me: false } }),
+        { kind: 'join', label: 'Me too', href: null, disabled: false });
+    assert.equal(resultAction({ in_library: false, requested: { status: 'approved', by_me: false } }).kind, 'join');
+    assert.equal(resultAction({ in_library: false, requested: { status: 'declined', by_me: false } }).kind, 'requested');
+    assert.equal(resultAction({ in_library: false, requested: { status: 'pending', by_me: true } }).label, 'Requested by you',
+        'by_me is true for a follower too');
+    assert.equal(resultAction({ in_library: true, novel_id: 4, requested: { status: 'pending', by_me: false } }).kind, 'open');
+});
+
+test('My requests: Leave for a joined request, Cancel for one\'s own pending one', () => {
+    assert.equal(mineAction({ mine: 'follower', status: 'pending', can_cancel: true }), 'leave');
+    assert.equal(mineAction({ mine: 'follower', status: 'approved', can_cancel: true }), 'leave');
+    assert.equal(mineAction({ mine: 'follower', status: 'available', can_cancel: false }), null);
+    assert.equal(mineAction({ mine: 'requester', status: 'pending', can_cancel: true }), 'cancel');
+    assert.equal(mineAction({ mine: 'requester', status: 'approved', can_cancel: false }), null);
+    assert.equal(mineAction({ status: 'pending', can_cancel: true }), 'cancel', 'an old server without `mine`');
+    assert.equal(mineAction({ mine: 'requester', status: 'approved', can_cancel: true }), null, 'the admin may delete, but not from My requests');
+    assert.equal(mineAction(null), null);
+    assert.equal(isFollower({ mine: 'follower' }), true);
+    assert.equal(isFollower({ mine: 'requester' }), false);
+    assert.equal(isFollower({}), false);
+});
+
+test('joined requests do not count as pending requests used', () => {
+    const mine = [{ status: 'pending', mine: 'requester' }, { status: 'pending', mine: 'follower' }, { status: 'pending' }];
+    assert.equal(pendingUsedLine(mine, 5), '2 of 5 pending requests used');
+});
+
+test('also wanted by: names for review, a count for decided', () => {
+    const req = { also_wanted_by: 2, followers: [{ id: 3, name: 'Ana' }, { id: 4, name: 'Ben' }] };
+    assert.equal(alsoWantedLine(req), 'Also wanted by Ana, Ben');
+    assert.equal(alsoWantedLine(req, { names: false }), 'Also wanted by 2 readers');
+    assert.equal(alsoWantedLine({ also_wanted_by: 1, followers: null }), 'Also wanted by 1 reader', 'the reader view has no names');
+    assert.equal(alsoWantedLine({ also_wanted_by: 3, followers: [{ id: 3, name: 'Ana' }] }), 'Also wanted by Ana +2');
+    assert.equal(alsoWantedLine({ also_wanted_by: 0, followers: [] }), '');
+    assert.equal(alsoWantedLine({}), '', 'an old server without the fields');
+    assert.equal(alsoWantedLine(null), '');
+});
+
+test('after leaving or cancelling, the result card is joinable again only when others still want it', () => {
+    assert.deepEqual(requestedAfterLeaving({ mine: 'follower', status: 'pending', also_wanted_by: 1 }), { status: 'pending', by_me: false });
+    assert.deepEqual(requestedAfterLeaving({ mine: 'requester', status: 'pending', also_wanted_by: 2 }), { status: 'pending', by_me: false },
+        'handed to the oldest follower');
+    assert.equal(requestedAfterLeaving({ mine: 'requester', status: 'pending', also_wanted_by: 0 }), null);
+    assert.equal(requestedAfterLeaving(null), null);
 });

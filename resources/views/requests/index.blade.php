@@ -120,6 +120,8 @@
                 <span class="badge req-status-badge"></span>
             </div>
             <p class="req-row-meta"></p>
+            <p class="req-row-joined"></p>
+            <p class="req-row-also"></p>
             <p class="req-row-detail"></p>
             <p class="disc-synopsis req-row-synopsis"></p>
             <p class="req-row-note"></p>

@@ -5,6 +5,7 @@ namespace App\Services\Requests;
 use App\Jobs\RankRequestCandidates;
 use App\Novel;
 use App\NovelRequest;
+use App\NovelRequestFollower;
 use App\RequestNotification;
 use App\Services\AddSeries;
 use App\Services\Discover;
@@ -28,6 +29,15 @@ use Illuminate\Support\Facades\Log;
  *
  * Approving adds the series through AddSeries (as POST /api/v1/novels
  * does), then starts the chapter check (NovelCheck) so chapters download.
+ *
+ * "Me too": asking for a work (same normalised title + medium) that someone
+ * ELSE has already asked for — pending, or approved and not yet available —
+ * makes the caller a follower of that request instead of a second request
+ * (joined: true). A follower hears the same decisions as the requester,
+ * sees the request in their own list and may leave it; joining tells the
+ * owner nothing new and does not count against the pending cap. When the
+ * requester cancels a pending request others joined, the oldest follower
+ * becomes its requester and the request stays.
  */
 class Requests
 {
@@ -74,11 +84,14 @@ class Requests
     }
 
     /**
-     * A request for one result of the caller's search.
+     * A request for one result of the caller's search (or, for a work
+     * someone else asked for, joining theirs).
+     *
+     * @return array{request: NovelRequest, joined: bool}
      *
      * @throws RequestRefused
      */
-    public function createFromSearch(User $user, string $searchId, string $key, ?string $note): NovelRequest
+    public function createFromSearch(User $user, string $searchId, string $key, ?string $note): array
     {
         $search = $this->searches->find($searchId);
         if ($search === null) {
@@ -132,11 +145,14 @@ class Requests
     }
 
     /**
-     * A request for something no search found: plain text for the owner.
+     * A request for something no search found: plain text for the owner (or,
+     * for a work someone else asked for, joining theirs).
+     *
+     * @return array{request: NovelRequest, joined: bool}
      *
      * @throws RequestRefused
      */
-    public function createFreeText(User $user, string $title, string $medium, ?string $link, ?string $note): NovelRequest
+    public function createFreeText(User $user, string $title, string $medium, ?string $link, ?string $note): array
     {
         return $this->create($user, [
             'medium' => $medium,
@@ -150,8 +166,12 @@ class Requests
         ]);
     }
 
-    /** @throws RequestRefused */
-    private function create(User $user, array $fields): NovelRequest
+    /**
+     * @return array{request: NovelRequest, joined: bool}
+     *
+     * @throws RequestRefused
+     */
+    private function create(User $user, array $fields): array
     {
         $fields['title'] = trim((string) $fields['title']);
         $fields['note'] = static::clean($fields['note'] ?? null);
@@ -162,16 +182,29 @@ class Requests
         }
 
         try {
-            $request = Cache::lock(self::CREATE_LOCK, 10)->block(5, function () use ($user, $fields, $normalized) {
-                $this->refuseIfInLibrary($fields);
-                $this->refuseIfRequested($user, $normalized, $fields['medium']);
+            $made = Cache::lock(self::CREATE_LOCK, 10)->block(5, function () use ($user, $fields, $normalized) {
+                $open = NovelRequest::where('normalized_title', $normalized)
+                    ->where('medium', $fields['medium'])
+                    ->whereIn('status', NovelRequest::OPEN_STATUSES)
+                    ->orderBy('id')
+                    ->get();
+                // Approving adds the series at once, but until a chapter is
+                // downloaded the request is the useful thing to join.
+                $downloading = $open->contains(fn(NovelRequest $r) => $r->displayStatus() === NovelRequest::STATUS_APPROVED);
+                if (!$downloading) {
+                    $this->refuseIfInLibrary($fields);
+                }
+                $joined = $this->joinIfRequested($user, $open);
+                if ($joined !== null) {
+                    return ['request' => $joined, 'joined' => true];
+                }
 
                 if (!$user->isAdmin()
                     && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)->count() >= static::maxPending()) {
                     throw new RequestRefused(429, 'You have ' . static::maxPending() . ' requests waiting already. Wait for the owner to decide on one, or cancel one.', 'pending_limit', ['limit' => static::maxPending()]);
                 }
 
-                return NovelRequest::create([
+                return ['joined' => false, 'request' => NovelRequest::create([
                     'user_id' => (int) $user->id,
                     'medium' => $fields['medium'],
                     'title' => mb_substr($fields['title'], 0, 255),
@@ -183,12 +216,18 @@ class Requests
                     'link' => $fields['link'],
                     'status' => NovelRequest::STATUS_PENDING,
                     'candidates' => $fields['candidates'],
-                ]);
+                ])];
             });
         } catch (LockTimeoutException) {
             throw new RequestRefused(503, 'Another request is being made right now. Try again in a moment.', 'busy');
         }
 
+        if ($made['joined']) {
+            // The owner already knows of this request: nothing to announce or rank.
+            return $made;
+        }
+
+        $request = $made['request'];
         static::forgetPendingCount();
         $this->notify(fn() => $this->notifier->created($request), $request);
 
@@ -196,7 +235,7 @@ class Requests
             $this->queueRanking($request);
         }
 
-        return $request;
+        return $made;
     }
 
     /** @throws RequestRefused 409 in_library */
@@ -218,27 +257,93 @@ class Requests
         }
     }
 
-    /** @throws RequestRefused 409 already_requested */
-    private function refuseIfRequested(User $user, string $normalized, string $medium): void
+    /**
+     * The open requests for this work ($open: pending or approved, oldest
+     * first), if any, decide what asking for it does:
+     *   - already available (approved, a chapter downloaded) → 409 in_library;
+     *   - the caller's own → 409 already_requested (by_me);
+     *   - someone else's → the caller joins it (again, harmlessly, when they
+     *     already follow it): returned.
+     * Null when nobody has asked for it (a new request is made).
+     *
+     * @throws RequestRefused
+     */
+    private function joinIfRequested(User $user, \Illuminate\Support\Collection $open): ?NovelRequest
     {
-        $open = NovelRequest::where('normalized_title', $normalized)
-            ->where('medium', $medium)
-            ->whereIn('status', NovelRequest::OPEN_STATUSES)
-            ->orderByRaw('CASE WHEN user_id = ? THEN 0 ELSE 1 END', [(int) $user->id])
-            ->first();
-        if ($open === null) {
-            return;
+        if ($open->isEmpty()) {
+            return null;
         }
 
-        $mine = (int) $open->user_id === (int) $user->id;
-        $state = $open->status === NovelRequest::STATUS_PENDING ? 'waiting for a decision' : 'already approved';
-        $message = $mine ? "You have already requested this ({$state})." : "Someone has already requested this ({$state}).";
+        $available = $open->first(fn(NovelRequest $r) => $r->displayStatus() === NovelRequest::STATUS_AVAILABLE);
+        if ($available !== null) {
+            $novel = $available->novel_id !== null ? Novel::find($available->novel_id) : null;
+            throw new RequestRefused(409, $novel !== null ? DuplicateSeries::message($novel) : 'This series is already in the library.', 'in_library', ['novel_id' => $available->novel_id !== null ? (int) $available->novel_id : null]);
+        }
 
-        throw new RequestRefused(409, $message, 'already_requested', [
-            'by_me' => $mine,
-            'status' => $open->displayStatus(),
-            'request_id' => $mine ? (int) $open->id : null,
+        $mine = $open->first(fn(NovelRequest $r) => (int) $r->user_id === (int) $user->id);
+        if ($mine !== null) {
+            $state = $mine->isPending() ? 'waiting for a decision' : 'already approved';
+            throw new RequestRefused(409, "You have already requested this ({$state}).", 'already_requested', [
+                'by_me' => true,
+                'status' => $mine->displayStatus(),
+                'request_id' => (int) $mine->id,
+            ]);
+        }
+
+        // Joining is idempotent: one already followed is answered as joined again.
+        $followed = NovelRequestFollower::whereIn('novel_request_id', $open->pluck('id'))->where('user_id', (int) $user->id)->value('novel_request_id');
+        if ($followed !== null) {
+            return $open->first(fn(NovelRequest $r) => (int) $r->id === (int) $followed);
+        }
+
+        $request = $open->first();
+        NovelRequestFollower::insertOrIgnore([
+            'novel_request_id' => (int) $request->id,
+            'user_id' => (int) $user->id,
+            'created_at' => now(),
         ]);
+
+        return $request;
+    }
+
+    /**
+     * A reader stops following a request they joined. True when they were
+     * following it.
+     */
+    public function leave(NovelRequest $request, User $user): bool
+    {
+        return NovelRequestFollower::where('novel_request_id', $request->id)->where('user_id', (int) $user->id)->delete() > 0;
+    }
+
+    /**
+     * The requester cancels their pending request: deleted, unless others
+     * joined it — then the oldest follower becomes the requester and the
+     * request stays (one follower fewer). True when it was handed over.
+     *
+     * @throws RequestRefused 503 busy
+     */
+    public function cancel(NovelRequest $request): bool
+    {
+        try {
+            $handedOver = Cache::lock(self::CREATE_LOCK, 10)->block(5, function () use ($request) {
+                $next = NovelRequestFollower::where('novel_request_id', $request->id)->orderBy('created_at')->orderBy('id')->first();
+                if ($next === null) {
+                    return false;
+                }
+                $request->forceFill(['user_id' => (int) $next->user_id])->save();
+                $next->delete();
+
+                return true;
+            });
+        } catch (LockTimeoutException) {
+            throw new RequestRefused(503, 'Another request is being made right now. Try again in a moment.', 'busy');
+        }
+
+        if (!$handedOver) {
+            $this->delete($request);
+        }
+
+        return $handedOver;
     }
 
     /**
@@ -345,10 +450,11 @@ class Requests
         return $request;
     }
 
-    /** Remove a request and its feed items. */
+    /** Remove a request, its feed items and its followers. */
     public function delete(NovelRequest $request): void
     {
         RequestNotification::where('novel_request_id', $request->id)->delete();
+        NovelRequestFollower::where('novel_request_id', $request->id)->delete();
         $request->delete();
         static::forgetPendingCount();
     }

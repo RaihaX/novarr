@@ -20,6 +20,10 @@ abstract class TestCase extends BaseTestCase
         // The chapter dispatcher starts lanes as detached processes; tests
         // run them in-process (tests that check the dispatch bind their own).
         $this->app->instance(\App\Services\LaneProcessStarter::class, new \Tests\Support\InlineLaneStarter());
+        // Request searches ask their sources in parallel processes, which
+        // cannot see this process's fake sources: tests ask them in-process
+        // (tests of the process runner bind their own).
+        $this->app->instance(\App\Services\Requests\SearchRunner::class, new \App\Services\Requests\InlineSearchRunner());
     }
 
     use CreatesApplication;

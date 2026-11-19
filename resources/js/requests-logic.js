@@ -5,9 +5,9 @@
  *
  * Shapes are the JSON API's (App\Http\Controllers\Api\V1\RequestPresenter):
  * a search result {title, sources, in_library, novel_id, requested}, a
- * request {status, decline_reason, novel_id, candidates, …}, an admin-view
- * candidate {index, source_name, reason, chapters_available, highest_chapter,
- * gaps, updated_at, error}.
+ * request {status, decline_reason, novel_id, candidates, also_wanted_by,
+ * mine, followers, …}, an admin-view candidate {index, source_name, reason,
+ * chapters_available, highest_chapter, gaps, updated_at, error}.
  */
 
 /** How long before the searching line says sources are slow. */
@@ -22,12 +22,16 @@ export const DEFAULT_RETRY_SECONDS = 5;
 /** Longest wait honoured from a Retry-After (a rate limit can say minutes). */
 export const MAX_RETRY_SECONDS = 15 * 60;
 
+/** Statuses of someone else's request a reader can still join ("Me too"). */
+export const JOINABLE_STATUSES = ['pending', 'approved'];
+
 /**
  * The one action a search result card offers.
  *   request          "Request" (opens the note dialog)
  *   open             "In library — Open" (links to the series)
- *   requested_by_me  "Requested by you" (disabled)
- *   requested        "Requested" (disabled; someone else asked)
+ *   requested_by_me  "Requested by you" (disabled; asked or joined)
+ *   join             "Me too" (someone else asked; joins their request)
+ *   requested        "Requested" (disabled; someone else asked, too late to join)
  */
 export function resultAction(result) {
     if (result && result.in_library && result.novel_id) {
@@ -38,11 +42,54 @@ export function resultAction(result) {
     }
     const requested = result && result.requested;
     if (requested) {
-        return requested.by_me
-            ? { kind: 'requested_by_me', label: 'Requested by you', href: null, disabled: true }
-            : { kind: 'requested', label: 'Requested', href: null, disabled: true };
+        if (requested.by_me) return { kind: 'requested_by_me', label: 'Requested by you', href: null, disabled: true };
+        if (JOINABLE_STATUSES.includes(requested.status)) return { kind: 'join', label: 'Me too', href: null, disabled: false };
+        return { kind: 'requested', label: 'Requested', href: null, disabled: true };
     }
     return { kind: 'request', label: 'Request', href: null, disabled: false };
+}
+
+/** Did the caller only join this request (someone else made it)? */
+export function isFollower(request) {
+    return Boolean(request) && request.mine === 'follower';
+}
+
+/**
+ * The action a row of My requests offers besides Open: 'leave' for a
+ * request the reader joined, 'cancel' for their own pending one, null.
+ */
+export function mineAction(request) {
+    if (!request || !request.can_cancel) return null;
+    if (isFollower(request)) return 'leave';
+    return request.status === 'pending' ? 'cancel' : null;
+}
+
+/**
+ * "Also wanted by Ana, Ben" (admin review: names) or "Also wanted by 2
+ * readers" (names: false, or no names given); '' when nobody joined.
+ */
+export function alsoWantedLine(request, { names = true } = {}) {
+    if (!request) return '';
+    const list = Array.isArray(request.followers) ? request.followers : [];
+    const count = Math.max(Number(request.also_wanted_by) || 0, list.length);
+    if (count <= 0) return '';
+    const shown = names ? list.map((f) => String((f && f.name) || '').trim()).filter(Boolean) : [];
+    if (shown.length) {
+        const more = count - shown.length;
+        return `Also wanted by ${shown.join(', ')}${more > 0 ? ` +${more}` : ''}`;
+    }
+    return `Also wanted by ${count} reader${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * The search result's `requested` after the reader leaves / cancels a
+ * request of the same work: still requested by someone else when others
+ * want it (a follower left, or the request went to the next follower).
+ */
+export function requestedAfterLeaving(request) {
+    if (!request) return null;
+    const others = isFollower(request) || (Number(request.also_wanted_by) || 0) > 0;
+    return others ? { status: request.status, by_me: false } : null;
 }
 
 /** "On MangaDex, MangaSee +2" — the first `max` distinct source names. */
@@ -94,10 +141,10 @@ export function statusLabel(request) {
     }
 }
 
-/** "3 of 5 pending requests used"; '' when there is no limit (the admin). */
+/** "3 of 5 pending requests used" (requests the reader only joined do not count); '' when there is no limit (the admin). */
 export function pendingUsedLine(requests, limit) {
     if (limit === null || limit === undefined) return '';
-    const used = (requests || []).filter((r) => r && r.status === 'pending').length;
+    const used = (requests || []).filter((r) => r && r.status === 'pending' && !isFollower(r)).length;
     return `${used} of ${limit} pending request${limit === 1 ? '' : 's'} used`;
 }
 

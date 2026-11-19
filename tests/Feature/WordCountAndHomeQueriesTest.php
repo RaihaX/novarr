@@ -155,15 +155,18 @@ class WordCountAndHomeQueriesTest extends TestCase
         // Per-reader read state added two, also fixed: the settings lookup
         // that names the current reader (cached forever outside this cold
         // test) and the reader's read counts (chapter_reads). The admin's
-        // pending-requests nav badge adds one (cached 10 minutes).
-        $this->assertLessThanOrEqual(23, $count, "Home ran {$count} queries on an empty cache");
+        // pending-requests nav badge adds one (cached 10 minutes). New
+        // chapters' read-from follows the shared resume rule
+        // (App\Services\ResumePoint): its anchors statement adds one, also
+        // fixed (the targets statement replaced the old read-from UNION).
+        $this->assertLessThanOrEqual(24, $count, "Home ran {$count} queries on an empty cache");
     }
 
     public function test_home_query_count_holds_with_not_started_novels_in_new_chapters(): void
     {
         // Same budget as above with the New chapters split exercised: the
         // "started" flag rides on the novels query and both kinds of
-        // read-from target share one UNION statement.
+        // read-from target share one UNION statement (ResumePoint's targets).
         for ($i = 1; $i <= 4; $i++) {
             $novel = $this->novel("Reading {$i}");
             $this->chapter($novel, 1, '<p>read one</p>', ['read_at' => now()->subMinutes(60 - $i)]);
@@ -183,8 +186,9 @@ class WordCountAndHomeQueriesTest extends TestCase
         DB::disableQueryLog();
 
         $response->assertSee('6 novels not started yet')->assertSee('In novels you are reading');
-        // As above: 22, plus the admin's pending-requests nav badge (cached).
-        $this->assertLessThanOrEqual(23, $count, "Home ran {$count} queries on an empty cache");
+        // As above: 22, plus the admin's pending-requests nav badge (cached)
+        // and the resume rule's anchors statement.
+        $this->assertLessThanOrEqual(24, $count, "Home ran {$count} queries on an empty cache");
     }
 
     public function test_continue_reading_picks_the_same_chapters_as_before(): void

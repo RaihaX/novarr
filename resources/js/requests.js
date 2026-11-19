@@ -6,8 +6,11 @@
  *
  *   A. search      POST /api/v1/requests/searches, then GET …/{id} every 1.5 s
  *                  request a result: POST /api/v1/requests {search_id, key, note}
+ *                  "Me too" (someone else asked): the same POST, no note
+ *                  → 200 {joined: true}
  *                  free text:        POST /api/v1/requests {title, medium, link, note}
- *   B. mine        GET /api/v1/requests?scope=mine&page=; cancel: DELETE …/{id}
+ *   B. mine        GET /api/v1/requests?scope=mine&page= (own and joined);
+ *                  cancel / leave: DELETE …/{id}
  *   C. review      (only when the list answers can_decide) GET ?scope=all&status=pending;
  *                  POST …/{id}/approve | decline | rerank; decided: GET ?scope=all
  *
@@ -19,6 +22,7 @@ import {
     POLL_MS, resultAction, sourceLine, skippedLine, searchingLine, statusLabel,
     pendingUsedLine, orderCandidates, defaultCandidate, selectable, candidateDetail,
     rankingInProgress, retryAfterSeconds, relativeTime, oldestFirst, decidedOnly,
+    isFollower, mineAction, alsoWantedLine, requestedAfterLeaving,
 } from './requests-logic';
 
 /** Ranking re-checks: every RANK_POLL_MS, for at most RANK_POLL_MAX tries. */
@@ -378,7 +382,7 @@ export function initRequestsPage() {
             slot.append(a);
             return;
         }
-        const btn = el('button', `btn btn-sm ${action.kind === 'request' ? 'btn-primary' : 'btn-secondary'} req-action`, action.label);
+        const btn = el('button', `btn btn-sm ${action.kind === 'request' || action.kind === 'join' ? 'btn-primary' : 'btn-secondary'} req-action`, action.label);
         btn.type = 'button';
         if (action.disabled) {
             // aria-disabled, not disabled: it stays focusable, so focus can
@@ -390,7 +394,59 @@ export function initRequestsPage() {
             btn.setAttribute('aria-label', `Request ${result.title}`);
             btn.addEventListener('click', () => openNote(key, btn), { signal });
         }
+        if (action.kind === 'join') {
+            btn.setAttribute('aria-label', `Me too: join the request for ${result.title}`);
+            btn.title = 'Someone already asked for this. Join their request to hear when it’s ready.';
+            btn.addEventListener('click', () => joinResult(key, btn), { signal });
+        }
         slot.append(btn);
+    }
+
+    /** A refusal of POST /api/v1/requests for a result card: update the card, say why. True when handled. */
+    function applyRefusal(entry, key, r) {
+        const code = r.data && r.data.code;
+        if (code === 'in_library') {
+            entry.result.in_library = true;
+            entry.result.novel_id = r.data.novel_id || entry.result.novel_id;
+        } else if (code === 'already_requested') {
+            entry.result.requested = { status: r.data.status || 'pending', by_me: Boolean(r.data.by_me) };
+        } else {
+            return false;
+        }
+        renderAction(key);
+        toast(messageOf(r, code === 'in_library' ? 'Already in the library' : 'Already requested'), 'warning');
+        return true;
+    }
+
+    /** "Me too": join someone else's request for a result (no note: the owner already has the request). */
+    async function joinResult(key, btn) {
+        const entry = cards.get(key);
+        if (!entry || !lastSearch || btn.getAttribute('aria-busy') === 'true') return;
+        btn.setAttribute('aria-busy', 'true');
+        btn.disabled = true;
+        try {
+            const r = await api('POST', '/api/v1/requests', { search_id: lastSearch.id, key }, signal);
+            if (r.ok) {
+                const status = (r.data.request && r.data.request.status) || (entry.result.requested && entry.result.requested.status) || 'pending';
+                entry.result.requested = { status, by_me: true };
+                renderAction(key);
+                entry.card.querySelector('.req-action')?.focus({ preventScroll: true });
+                toast(r.data.joined
+                    ? `You joined the request for “${entry.result.title}”. You’ll hear when it’s ready.`
+                    : `Requested “${entry.result.title}”. You’ll see here when the owner decides.`, 'success');
+                refreshAfterChange();
+                return;
+            }
+            if (applyRefusal(entry, key, r)) return;
+            toast(messageOf(r, 'Could not join the request'), 'danger');
+        } catch (err) {
+            if (!signal.aborted) toast(networkMessage(err, 'Could not join the request'), 'danger');
+        } finally {
+            if (!signal.aborted && btn.isConnected) {
+                btn.disabled = false;
+                btn.setAttribute('aria-busy', 'false');
+            }
+        }
     }
 
     // ---- Request a result (note dialog) ----------------------------------------
@@ -416,30 +472,19 @@ export function initRequestsPage() {
         try {
             const r = await api('POST', '/api/v1/requests', { search_id: lastSearch.id, key: noteKey, ...(note ? { note } : {}) }, signal);
             if (r.ok) {
-                entry.result.requested = { status: 'pending', by_me: true };
+                entry.result.requested = { status: (r.data.request && r.data.request.status) || 'pending', by_me: true };
                 renderAction(noteKey);
                 noteDlg.setOpener(entry.card.querySelector('.req-action'));
                 noteDlg.close();
-                toast(`Requested “${entry.result.title}”. You’ll see here when the owner decides.`, 'success');
+                toast(r.data.joined
+                    ? `Someone had just asked for “${entry.result.title}”: you joined their request.`
+                    : `Requested “${entry.result.title}”. You’ll see here when the owner decides.`, 'success');
                 refreshAfterChange();
                 return;
             }
-            const code = r.data && r.data.code;
-            if (code === 'in_library') {
-                entry.result.in_library = true;
-                entry.result.novel_id = r.data.novel_id || entry.result.novel_id;
-                renderAction(noteKey);
+            if (applyRefusal(entry, noteKey, r)) {
                 noteDlg.setOpener(entry.card.querySelector('.req-action'));
                 noteDlg.close();
-                toast(messageOf(r, 'Already in the library'), 'warning');
-                return;
-            }
-            if (code === 'already_requested') {
-                entry.result.requested = { status: r.data.status || 'pending', by_me: Boolean(r.data.by_me) };
-                renderAction(noteKey);
-                noteDlg.setOpener(entry.card.querySelector('.req-action'));
-                noteDlg.close();
-                toast(messageOf(r, 'Already requested'), 'warning');
                 return;
             }
             noteDlg.error(messageOf(r, 'The request was not made'));
@@ -482,7 +527,9 @@ export function initRequestsPage() {
             const r = await api('POST', '/api/v1/requests', body, signal);
             if (r.ok) {
                 freeDlg.close();
-                toast(`Requested “${title}”. You’ll see here when the owner decides.`, 'success');
+                toast(r.data.joined
+                    ? `Someone already asked for “${title}”: you joined their request.`
+                    : `Requested “${title}”. You’ll see here when the owner decides.`, 'success');
                 refreshAfterChange();
                 return;
             }
@@ -499,7 +546,11 @@ export function initRequestsPage() {
     // ============================================================================
     // Request rows (shared by B and C)
     // ============================================================================
-    function baseRow(req, { showWho = false } = {}) {
+    /**
+     * A request row. showWho: "Sam asked 3 days ago" (review lists). also:
+     * the "Also wanted by …" line — 'names' (to review), 'count' (decided).
+     */
+    function baseRow(req, { showWho = false, also = null } = {}) {
         const row = rowTpl.content.firstElementChild.cloneNode(true);
         row.dataset.requestId = String(req.id);
         fillCover(row.querySelector('.cover'), { title: req.title, author: req.author, coverUrl: req.cover_url });
@@ -533,8 +584,18 @@ export function initRequestsPage() {
         if (status.detail) detail.textContent = `Reason: ${status.detail}`;
         else detail.remove();
 
+        const alsoEl = row.querySelector('.req-row-also');
+        const alsoText = also ? alsoWantedLine(req, { names: also === 'names' }) : '';
+        if (alsoText) alsoEl.textContent = alsoText;
+        else alsoEl.remove();
+
+        const joined = row.querySelector('.req-row-joined');
+        if (!showWho && isFollower(req)) joined.textContent = 'You joined this request';
+        else joined.remove();
+
         const note = row.querySelector('.req-row-note');
-        if (req.note) {
+        // A joined request's note is the requester's, not the reader's.
+        if (req.note && (showWho || !isFollower(req))) {
             note.append(el('span', 'req-row-label', showWho ? 'Note: ' : 'Your note: '), document.createTextNode(req.note));
         } else {
             note.remove();
@@ -621,48 +682,67 @@ export function initRequestsPage() {
             open.setAttribute('aria-label', `Open ${req.title}`);
             actions.append(open);
         }
-        if (req.status === 'pending' && req.can_cancel) {
+        const action = mineAction(req);
+        if (action === 'cancel') {
             const cancel = el('button', 'btn btn-sm btn-ghost', 'Cancel');
             cancel.type = 'button';
             cancel.setAttribute('aria-label', `Cancel your request for ${req.title}`);
             cancel.addEventListener('click', () => cancelRequest(req, cancel), { signal });
             actions.append(cancel);
+        } else if (action === 'leave') {
+            const leave = el('button', 'btn btn-sm btn-ghost', 'Leave');
+            leave.type = 'button';
+            leave.setAttribute('aria-label', `Leave the request for ${req.title}`);
+            leave.addEventListener('click', () => cancelRequest(req, leave), { signal });
+            actions.append(leave);
         }
         if (!actions.children.length) actions.remove();
         return row;
     }
 
+    /** Cancel one's own request, or leave one joined (both DELETE …/{id}). */
     async function cancelRequest(req, btn) {
-        const ok = await window.Novarr.confirmDialog(`Cancel your request for “${req.title}”? The owner will no longer see it.`, {
-            title: 'Cancel request', confirmText: 'Cancel request', cancelText: 'Keep it', danger: true,
-        });
+        const leaving = isFollower(req);
+        const others = Number(req.also_wanted_by) || 0;
+        let question;
+        if (leaving) {
+            question = `Leave the request for “${req.title}”? It stays for whoever asked for it; you won’t hear about it any more.`;
+        } else if (others > 0) {
+            question = `Cancel your request for “${req.title}”? ${others === 1 ? 'Another reader wants' : `${others} other readers want`} it too, so the request stays for them.`;
+        } else {
+            question = `Cancel your request for “${req.title}”? The owner will no longer see it.`;
+        }
+        const ok = await window.Novarr.confirmDialog(question, leaving
+            ? { title: 'Leave request', confirmText: 'Leave', cancelText: 'Stay', danger: true }
+            : { title: 'Cancel request', confirmText: 'Cancel request', cancelText: 'Keep it', danger: true });
         if (!ok || signal.aborted) return;
         btn.disabled = true;
+        const failed = leaving ? 'You did not leave the request' : 'The request was not cancelled';
         try {
             const r = await api('DELETE', `/api/v1/requests/${req.id}`, undefined, signal);
             if (!r.ok) {
-                toast(messageOf(r, 'The request was not cancelled'), 'danger');
+                toast(messageOf(r, failed), 'danger');
                 btn.disabled = false;
                 if (r.status === 409 || r.status === 404) loadMine(1);
                 return;
             }
             mine = mine.filter((x) => x.id !== req.id);
             renderMine();
-            // A result card of the same work can be requested again.
+            // A result card of the same work: requestable again, or "Me too" when others still want it.
             for (const [key, entry] of cards) {
                 if (entry.result.requested && entry.result.requested.by_me
                     && entry.result.medium === req.medium && entry.result.title.toLowerCase() === req.title.toLowerCase()) {
-                    entry.result.requested = null;
+                    entry.result.requested = requestedAfterLeaving(req);
                     renderAction(key);
                 }
             }
-            toast(`Cancelled your request for “${req.title}”.`, 'success');
+            toast(leaving ? `You left the request for “${req.title}”.` : `Cancelled your request for “${req.title}”.`, 'success');
             if (canDecide) loadReview();
             mineEl.querySelector('button, a')?.focus({ preventScroll: true });
         } catch (err) {
             if (signal.aborted) return;
             btn.disabled = false;
-            toast(networkMessage(err, 'The request was not cancelled'), 'danger');
+            toast(networkMessage(err, failed), 'danger');
         }
     }
 
@@ -771,7 +851,7 @@ export function initRequestsPage() {
             return;
         }
         decided.forEach((req) => {
-            const row = baseRow(req, { showWho: true });
+            const row = baseRow(req, { showWho: true, also: 'count' });
             row.querySelector('.req-row-synopsis').remove();
             row.querySelector('.req-row-decide').remove();
             renderLink(row, req);
@@ -819,7 +899,7 @@ export function initRequestsPage() {
     }
 
     function reviewRow(req) {
-        const row = baseRow(req, { showWho: true });
+        const row = baseRow(req, { showWho: true, also: 'names' });
         clampSynopsis(row.querySelector('.req-row-synopsis'), req.description, null);
         renderLink(row, req);
         const decide = row.querySelector('.req-row-decide');

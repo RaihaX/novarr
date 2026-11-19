@@ -85,13 +85,13 @@ class FirstPerNovelTest extends TestCase
         $this->assertInstanceOf(NovelChapter::class, $rows[$a->id]);
     }
 
-    public function test_in_progress_order_is_latest_read_then_highest_id(): void
+    public function test_resume_anchor_is_latest_activity_then_furthest_chapter(): void
     {
         $n = $this->novel('Progress');
         $at = now()->subHour();
+        $this->chapter($n, 3, ['status' => 1, 'read_at' => now()->subHours(2), 'progress' => 95]); // older, finished
         $this->chapter($n, 1, ['status' => 1, 'read_at' => $at, 'progress' => 20]);
         $tie = $this->chapter($n, 2, ['status' => 1, 'read_at' => $at, 'progress' => 30]);
-        $this->chapter($n, 3, ['status' => 1, 'read_at' => now(), 'progress' => 95]); // finished
 
         $items = app(HomeController::class)->continueReading(8);
 

@@ -135,5 +135,17 @@ class AppServiceProvider extends ServiceProvider
         // Whose read state this request / job uses: rebuilt per request
         // under Octane and per job in queue workers (scoped, never a singleton).
         $this->app->scoped(\App\Support\CurrentReader::class);
+
+        // How a reader-request search asks its sources: lanes in parallel
+        // PHP processes, or (parallelism 1, or no way to start a process)
+        // one after another in this process. Tests bind the inline runner.
+        $this->app->bind(\App\Services\Requests\SearchRunner::class, function () {
+            $parallelism = \App\Services\Requests\RequestSearch::parallelism();
+            $php = $parallelism > 1 ? \App\Services\Requests\ProcessSearchRunner::phpBinary() : null;
+
+            return $php !== null
+                ? new \App\Services\Requests\ProcessSearchRunner($parallelism, $php)
+                : new \App\Services\Requests\InlineSearchRunner();
+        });
     }
 }
