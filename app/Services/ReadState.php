@@ -204,9 +204,9 @@ class ReadState
         $userId = $this->userId($userId);
         $now = now();
 
-        $marked = DB::table(self::TABLE)->insertOrIgnore($this->row($chapter, $userId, ['read_at' => $now])) > 0
+        $marked = DB::table(self::TABLE)->insertOrIgnore($this->row($chapter, $userId, ['read_at' => $now, 'bulk' => false])) > 0
             || DB::table(self::TABLE)->where('user_id', $userId)->where('novel_chapter_id', $chapter->id)
-                ->whereNull('read_at')->update(['read_at' => $now]) > 0;
+                ->whereNull('read_at')->update(['read_at' => $now, 'bulk' => false]) > 0;
 
         $this->get($chapter, $userId);
         if ($marked) {
@@ -220,15 +220,18 @@ class ReadState
      * An explicit mark read / unread. It also settles the in-chapter
      * position — done (100) when read, forgotten when unread — and its time
      * supersedes positions recorded before $recordedAt. A chapter already
-     * read keeps its original date.
+     * read keeps its original date (and with it its bulk flag); a newly
+     * marked one is a single read (bulk = false).
      */
     public function setRead(NovelChapter $chapter, bool $read, CarbonInterface $recordedAt, ?int $userId = null): ?ChapterRead
     {
         $userId = $this->userId($userId);
         $current = $this->get($chapter, $userId);
 
+        $keep = $read && $current?->read_at !== null;
         $this->put($chapter, $userId, [
             'read_at' => $read ? ($current?->read_at ?? now()) : null,
+            'bulk' => $keep && (bool) $current->bulk,
             'progress' => $read ? 100 : null,
             'progress_at' => $recordedAt,
         ]);
@@ -263,6 +266,7 @@ class ReadState
         $markRead = $markRead && $chapter->status && $current?->read_at === null;
         if ($markRead) {
             $values['read_at'] = now();
+            $values['bulk'] = false;
         }
 
         if ($values !== []) {
@@ -281,14 +285,17 @@ class ReadState
      * unread, in two set-based statements: update the reader's existing
      * rows, insert the missing ones. Read = read now, position 100; unread =
      * no date, no position. Either way the position time becomes
-     * $recordedAt. With $onlyUnread, chapters already read are left exactly
-     * as they are (their date is kept). Returns how many chapters changed.
+     * $recordedAt. Chapters marked read here are flagged bulk (counted in the
+     * all-time stats, not as daily activity). With $onlyUnread, chapters
+     * already read are left exactly as they are (their date is kept).
+     * Returns how many chapters changed.
      */
     public function markMany(Builder $chapters, bool $read, CarbonInterface $recordedAt, bool $onlyUnread = false, ?int $userId = null): int
     {
         $userId = $this->userId($userId);
         $values = [
             'read_at' => $read ? now() : null,
+            'bulk' => $read,
             'progress' => $read ? 100 : null,
             'progress_at' => $recordedAt,
         ];
@@ -303,9 +310,9 @@ class ReadState
                 ->update($values);
 
             $inserted = DB::table(self::TABLE)->insertOrIgnoreUsing(
-                ['user_id', 'novel_id', 'novel_chapter_id', 'read_at', 'progress', 'progress_at'],
+                ['user_id', 'novel_id', 'novel_chapter_id', 'read_at', 'bulk', 'progress', 'progress_at'],
                 (clone $base)
-                    ->selectRaw('?, novel_chapters.novel_id, novel_chapters.id, ?, ?, ?', [$userId, $values['read_at'], $values['progress'], $values['progress_at']])
+                    ->selectRaw('?, novel_chapters.novel_id, novel_chapters.id, ?, ?, ?, ?', [$userId, $values['read_at'], $values['bulk'], $values['progress'], $values['progress_at']])
                     ->whereNotExists(fn($q) => $q->from(self::TABLE . ' as ex')
                         ->selectRaw('1')
                         ->where('ex.user_id', $userId)

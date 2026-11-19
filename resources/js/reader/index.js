@@ -16,6 +16,7 @@ import { initContinuous } from './continuous.js';
 import { initToc } from './toc.js';
 import { initReadState } from './readstate.js';
 import { initHighlights } from './highlights.js';
+import { initCheckNew } from './checknew.js';
 import { initAutoScroll } from './autoscroll.js';
 import { initTts } from './tts.js';
 import { initAutoMark } from './automark.js';
@@ -61,6 +62,7 @@ export function mount(root) {
     const continuousCleanup = initContinuous(ctx);
     cleanups.push(initToc(ctx));
     initReadState(ctx);
+    initCheckNew(ctx);
     const highlightsCleanup = initHighlights(ctx);
     initAutoScroll(ctx);
     initTts(ctx);

@@ -113,7 +113,7 @@
                     @if($tokens->isEmpty())
                         <div class="acct-empty">
                             <x-icon name="book-open" :size="18" />
-                            <p>No apps or devices are signed in yet. The iOS app signs in with your name and password; a Kindle is linked with a code.</p>
+                            <p>No apps or devices are signed in yet. The Android and iOS apps sign in with your name and password; a Kindle is linked with a code.</p>
                         </div>
                     @else
                         <ul class="account-devices">
@@ -126,7 +126,8 @@
                                             · signed in {{ $token->created_at?->format('j M Y') }}
                                         </span>
                                     </span>
-                                    <form method="POST" action="{{ route('account.tokens.revoke', $token->id) }}" class="account-device-action">
+                                    <form method="POST" action="{{ route('account.tokens.revoke', $token->id) }}" class="account-device-action"
+                                          data-confirm="Sign this device out? A Kindle will need a new code to link again." data-confirm-title="Sign out {{ $token->name }}?" data-confirm-text="Sign out">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="btn btn-outline-danger btn-sm" aria-label="Revoke {{ $token->name }} (signs it out)" title="Signs this app or device out">Revoke</button>

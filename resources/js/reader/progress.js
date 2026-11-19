@@ -2,7 +2,7 @@
 // progress rail and the reader bar's auto-hide.
 import { sectionTop, sectionHeight } from './navigation.js';
 import { appendDeviceFields } from '../device.js';
-import { markLocalWrite } from './latest-position.js';
+import { markLocalWrite, isLookupChapter } from './latest-position.js';
 
 const posKey = id => 'reader_pos_' + id;
 const WPM = 230;   // honest-ish adult reading pace for web fiction
@@ -38,6 +38,8 @@ export function initProgress(ctx) {
         // page is the one on screen — a stale handler or timer from a page
         // we've left must not send progress for the wrong chapter.
         if (signal.aborted || !readerEl.isConnected || !sections.some(s => s.id === id)) return;
+        // A chapter opened as a look-up is not "reading it here".
+        if (isLookupChapter(state, id)) return;
         if (lastSynced.id === id && Math.abs(lastSynced.pct - pct) < 5 && pct < 98) return;
         lastSynced = { id, pct };
         noteWrite();
@@ -76,7 +78,7 @@ export function initProgress(ctx) {
         scrollSaveTimer = setTimeout(() => {
             if (pct >= 98) localStorage.removeItem(posKey(cur.id));
             else localStorage.setItem(posKey(cur.id), String(pct));
-            noteWrite();
+            if (!isLookupChapter(state, cur.id)) noteWrite();
         }, 250);
 
         if (!syncTimer) {
@@ -119,7 +121,7 @@ export function initProgress(ctx) {
     // tap-to-peek in navigation.js). Taps on links/controls/selections are ignored.
     ctx.sectionsEl.addEventListener('click', (e) => {
         if (document.body.classList.contains('reader-focus')) return;
-        if (e.target.closest('a, button, input, select, textarea')) return;
+        if (e.target.closest('a, button, input, select, textarea, mark.reader-highlight')) return;
         const selection = window.getSelection();
         if (selection && !selection.isCollapsed) return;
         const band = window.innerHeight;
@@ -156,6 +158,12 @@ export function initProgress(ctx) {
         localStorage.removeItem('reader_scroll_' + state.id);
 
         requestAnimationFrame(() => {
+            // Opened from the Highlights page: that passage, not the saved
+            // place (reader/highlights.js; false when it isn't drawn here).
+            if (ctx.revealFocusHighlight?.()) {
+                updateProgress();
+                return;
+            }
             if (accepted !== null) {
                 if (accepted > 2) scrollToProgress(accepted);
             } else if (pct !== null && !isNaN(pct) && pct > 2 && pct < 98) {

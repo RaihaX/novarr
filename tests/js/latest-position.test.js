@@ -12,6 +12,7 @@ import {
     shouldOffer, relativeTime, promptText, positionLabel, chapterIdFromUrl,
     markLocalWrite, localWriteAge, lastWriteKey, declinedKey, rememberAnswered, readDeclined,
     markInReaderNav, consumeInReaderNav, markAccepted, consumeAccepted, planLatest,
+    isLookupChapter,
 } from '../../resources/js/reader/latest-position.js';
 import { createProgress } from '../../resources/js/manga-reader/progress.js';
 
@@ -304,6 +305,23 @@ test('in-reader navigation marker: one use, this chapter only, expires', () => {
     markInReaderNav(s, '/chapters/12', 1_000);
     assert.equal(consumeInReaderNav(s, 12, 1_000 + 6 * 60_000), false);
     assert.equal(consumeInReaderNav(null, 12), false);
+});
+
+// ---- Look-up opens (?lookup=1): no progress posted for the opened chapter ----
+test('isLookupChapter: only the chapter this page opened as a look-up', () => {
+    const lookup = { id: 42, lookup: true };
+    assert.equal(isLookupChapter(lookup, 42), true);
+    assert.equal(isLookupChapter(lookup, '42'), true);
+    // A chapter appended inline by continuous reading is tracked normally.
+    assert.equal(isLookupChapter(lookup, 43), false);
+    // A normal open gates nothing.
+    assert.equal(isLookupChapter({ id: 42, lookup: false }, 42), false);
+    assert.equal(isLookupChapter({ id: 42 }, 42), false);
+    // Defensive: missing state or id.
+    assert.equal(isLookupChapter(null, 42), false);
+    assert.equal(isLookupChapter(undefined, 42), false);
+    assert.equal(isLookupChapter(lookup, null), false);
+    assert.equal(isLookupChapter(lookup, undefined), false);
 });
 
 test('accepted marker carries the target progress to the destination', () => {

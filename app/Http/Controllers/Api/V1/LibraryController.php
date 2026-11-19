@@ -22,12 +22,19 @@ use Illuminate\Http\JsonResponse;
 class LibraryController extends Controller
 {
     /** GET /api/v1/meta — lets the app verify a server URL. */
-    public function meta(): JsonResponse
+    public function meta(\Illuminate\Http\Request $request): JsonResponse
     {
         return response()->json([
             'app' => 'novarr',
             'api_version' => 1,
             'server_version' => static::serverVersion(),
+            // The same value on every address of this install, so a client
+            // can tell "same server, new address" from a different server.
+            // Derived from the app key, never the key itself.
+            'instance' => substr(hash('sha256', 'novarr-instance|' . (string) config('app.key')), 0, 16),
+            // The published Android APK (null when there is none), so the
+            // sideloaded app can tell a newer build exists.
+            'android' => \App\Support\AndroidApp::release($request),
             // Auth contract: clients show sign-in only when required.
             'auth' => [
                 // The public address only serves signed-in accounts.

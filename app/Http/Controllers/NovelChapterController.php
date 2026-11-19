@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Bookmark;
 use App\NovelChapter;
 use App\Services\ReadingPositions;
 use App\Services\ReadState;
@@ -61,11 +62,18 @@ class NovelChapterController extends Controller
         // offer to jump there; then this open becomes the latest position
         // (opening a chapter in the web reader is reading it here).
         $latestPosition = $this->positions->latestForWeb((int) $chapter->novel_id);
+        $readerId = $this->readState->userId();
 
         if (!$background && $unread) {
             $this->readState->markOpened($chapter);
         }
-        if (!$background && $chapter->status) {
+        // A look-up (`?lookup=1`: a Highlights entry or a full-text search
+        // hit) opens an old chapter to check a passage, not to read on from
+        // it: it must not become the series' latest position, or the
+        // reader's other devices get offered a jump backwards. The page tells
+        // the reader JS (`lookup`) so its scroll saves skip this chapter too.
+        $lookup = $request->boolean('lookup');
+        if (!$background && !$lookup && $chapter->status) {
             $this->positions->record($chapter, $chapter->readProgress() ?? 0, now(), $this->positions->device($request));
         }
 
@@ -87,9 +95,26 @@ class NovelChapterController extends Controller
                 // Served to a background fetch without being marked read: the
                 // client marks it when the chapter is actually displayed.
                 'deferRead' => $background && $unread,
+                // Opened as a look-up (see above): the reader JS posts no
+                // scroll position for this chapter (chapters it moves on to
+                // are tracked as usual).
+                'lookup' => $lookup,
                 'hasContent' => (bool) $chapter->rawText(),
-                'prev' => $prev ? ['id' => $prev->id, 'chapter' => $prev->chapter, 'label' => $prev->label, 'url' => route('chapters.show', $prev->id)] : null,
-                'next' => $next ? ['id' => $next->id, 'chapter' => $next->chapter, 'label' => $next->label, 'url' => route('chapters.show', $next->id)] : null,
+                // `downloaded`: whether the neighbour has a body yet. A next
+                // chapter that is still pending is not a place to go: the
+                // reader offers "Mark read" (stay) and "Check for new
+                // chapters" instead, and continuous reading stops there.
+                'prev' => static::neighbourState($prev),
+                'next' => static::neighbourState($next),
+                // This reader's own highlights in this chapter, drawn into the
+                // text by the reader JS (resources/js/reader/highlights.js).
+                // Embedded rather than fetched, so continuous reading lifts
+                // them with the section and an offline copy keeps them.
+                'highlights' => static::highlightsFor($chapter, $readerId),
+                // Opened from the Highlights page (`?highlight=<id>`): the
+                // reader scrolls that highlight into view instead of
+                // restoring the saved position, when it is in this chapter.
+                'focusHighlight' => $request->integer('highlight') ?: null,
                 // The series' latest position (any device) as it was before
                 // this open; see ReadingPositions::latest().
                 'latest_position' => $latestPosition,
@@ -105,7 +130,7 @@ class NovelChapterController extends Controller
      *
      * @return array{0: ?NovelChapter, 1: ?NovelChapter}
      */
-    public static function neighbours(NovelChapter $chapter, array $columns = ['id', 'chapter', 'label']): array
+    public static function neighbours(NovelChapter $chapter, array $columns = ['id', 'chapter', 'label', 'status']): array
     {
         $prev = NovelChapter::where('novel_id', $chapter->novel_id)
             ->where('blacklist', 0)
@@ -120,6 +145,44 @@ class NovelChapterController extends Controller
             ->first($columns);
 
         return [$prev, $next];
+    }
+
+    /**
+     * A neighbour as the reader state carries it (null when there is none).
+     *
+     * @return array{id:int, chapter:mixed, label:?string, url:string, downloaded:bool}|null
+     */
+    public static function neighbourState(?NovelChapter $neighbour): ?array
+    {
+        if ($neighbour === null) {
+            return null;
+        }
+
+        return [
+            'id' => $neighbour->id,
+            'chapter' => $neighbour->chapter,
+            'label' => $neighbour->label,
+            'url' => route('chapters.show', $neighbour->id),
+            'downloaded' => (bool) $neighbour->status,
+        ];
+    }
+
+    /**
+     * One reader's highlights in $chapter, oldest first (the order they are
+     * drawn in): only what the reader page needs.
+     *
+     * @return array<int, array{id:int, excerpt:string, note:?string}>
+     */
+    public static function highlightsFor(NovelChapter $chapter, int $userId): array
+    {
+        return Bookmark::where('user_id', $userId)
+            ->where('novel_chapter_id', $chapter->id)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get(['id', 'excerpt', 'note'])
+            ->map(fn(Bookmark $b) => ['id' => (int) $b->id, 'excerpt' => (string) $b->excerpt, 'note' => $b->note])
+            ->values()
+            ->all();
     }
 
     /**
@@ -216,6 +279,9 @@ class NovelChapterController extends Controller
         $data = $request->validate([
             'progress' => 'required_without:read|nullable|integer|min:0|max:100',
             'read' => 'sometimes|boolean',
+            // A look-up chapter's deferred mark-read-on-view (see show()):
+            // mark it, but leave the series' latest position alone.
+            'lookup' => 'sometimes|boolean',
         ]);
         $at = $this->recordedAt($request);
 
@@ -231,7 +297,7 @@ class NovelChapterController extends Controller
         // The series' latest position follows this write unless the write
         // was itself too old for the chapter (record() also checks its age
         // against the series' stored position).
-        if (!$stale && (isset($data['progress']) || !empty($data['read']))) {
+        if (!$stale && empty($data['lookup']) && (isset($data['progress']) || !empty($data['read']))) {
             $this->positions->record($chapter, $chapter->readProgress() ?? 0, $at, $this->positions->device($request));
         }
 
@@ -263,16 +329,22 @@ class NovelChapterController extends Controller
     {
         $recordedAt = $this->recordedAt($request);
         $chapter = $this->novelchapters->findOrFail($id);
+        $chapters = fn() => NovelChapter::where('novel_id', $chapter->novel_id)
+            ->where('blacklist', 0)
+            ->where('status', 1)
+            ->relativeTo($chapter, '<=');
 
-        $count = $this->readState->markMany(
-            NovelChapter::where('novel_id', $chapter->novel_id)
-                ->where('blacklist', 0)
-                ->where('status', 1)
-                ->relativeTo($chapter, '<='),
-            true,
-            $recordedAt,
-            onlyUnread: true
-        );
+        // `dry_run`: only say how many chapters a mark would change (the
+        // reader confirms first when that is a lot), marking nothing.
+        if ($request->boolean('dry_run')) {
+            return response()->json([
+                'success' => true,
+                'dry_run' => true,
+                'marked' => $this->readState->whereUnread($chapters())->count(),
+            ]);
+        }
+
+        $count = $this->readState->markMany($chapters(), true, $recordedAt, onlyUnread: true);
 
         return response()->json(['success' => true, 'marked' => $count]);
     }

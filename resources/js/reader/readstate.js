@@ -4,6 +4,20 @@ import { applyReadUi } from './footer.js';
 import { deviceHeaders } from '../device.js';
 import { markLocalWrite } from './latest-position.js';
 
+/** "Mark to here" asks first when it would change more chapters than this. */
+export const READ_THROUGH_CONFIRM_OVER = 20;
+
+/** "1 chapter" / "12 chapters". */
+export const chapterCount = (n) => `${n} chapter${n === 1 ? '' : 's'}`;
+
+/** The toast after "Mark to here" marked `n` chapters. */
+export function readThroughMessage(n) {
+    n = Number(n) || 0;
+    return n === 0
+        ? 'Nothing to mark — every chapter up to here was already read.'
+        : `Marked ${chapterCount(n)} as read.`;
+}
+
 export function initReadState(ctx) {
     const { state, sections } = ctx;
     const BULK_READ_URL = state.bulkReadUrl;
@@ -15,7 +29,8 @@ export function initReadState(ctx) {
     function readFetch(url, body) {
         // A progress-endpoint write (mark read on view) is "reading here" for
         // the latest-position prompt; bulk marking is not (see the contract).
-        if (/\/progress$/.test(url)) {
+        // A look-up chapter's mark (`lookup`, see continuous.js) is not.
+        if (/\/progress$/.test(url) && !body?.lookup) {
             try { markLocalWrite(localStorage, state.novelId); } catch (e) { /* storage blocked */ }
         }
         if (window.Novarr?.queuedFetch) {
@@ -43,12 +58,44 @@ export function initReadState(ctx) {
     }
     ctx.setSectionRead = setSectionRead;
 
+    // How many chapters "Mark to here" would change (the endpoint's dry
+    // run). Null when it can't be asked (offline): the mark then goes ahead
+    // through the offline queue unconfirmed, as before.
+    async function readThroughCount(id) {
+        if (navigator.onLine === false) return null;
+        try {
+            const res = await fetch(`/chapters/${id}/read-through`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ dry_run: true }),
+            });
+            if (!res.ok) return null;
+            const data = await res.json();
+            return Number.isFinite(data?.marked) ? data.marked : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
     // ---- "Mark to here" (this + all earlier chapters) ----
     const readThrough = document.getElementById('readThrough');
     readThrough.addEventListener('click', async () => {
         readThrough.disabled = true;
         const id = readThrough.dataset.id;
         try {
+            // Many chapters at once is hard to undo by hand: confirm first.
+            const pending = await readThroughCount(id);
+            if (pending !== null && pending > READ_THROUGH_CONFIRM_OVER) {
+                const ok = await window.Novarr.confirmDialog(
+                    `This marks ${chapterCount(pending)} as read — this one and every earlier unread chapter.`,
+                    { title: 'Mark to here?', confirmText: `Mark ${chapterCount(pending)} read` }
+                );
+                if (!ok) return;
+            }
             const data = await readFetch(`/chapters/${id}/read-through`);
             if (data.success) {
                 const upTo = sections.findIndex(s => String(s.id) === String(id));
@@ -56,7 +103,7 @@ export function initReadState(ctx) {
                 window.Novarr.showToast(
                     data.queued
                         ? 'Saved offline — earlier chapters sync when you reconnect.'
-                        : `Marked ${data.marked} earlier chapter(s) as read.`,
+                        : readThroughMessage(data.marked),
                     data.queued ? 'info' : 'success'
                 );
             }
@@ -102,6 +149,31 @@ export function initReadState(ctx) {
                 // Navigating still marks it read server-side when the page loads.
             }
             ctx.visitAdjacent(url);
+        });
+    }
+
+    // ---- "Mark read" when the next chapter isn't downloaded: stay here ----
+    const stay = document.getElementById('markReadStay');
+    if (stay) {
+        stay.addEventListener('click', async () => {
+            const cur = sections[ctx.currentIdx];
+            stay.disabled = true;
+            try {
+                const data = await readFetch(BULK_READ_URL, { ids: [cur.id], read: true });
+                if (data.success) {
+                    setSectionRead(cur.id, true);
+                    window.Novarr.showToast(
+                        data.queued
+                            ? 'Saved offline — will sync when you reconnect.'
+                            : 'Marked read. The next chapter isn’t downloaded yet.',
+                        data.queued ? 'info' : 'success'
+                    );
+                }
+            } catch (err) {
+                window.Novarr.showToast('Error: ' + err.message, 'danger');
+            } finally {
+                stay.disabled = false;
+            }
         });
     }
 

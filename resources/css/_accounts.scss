@@ -475,3 +475,13 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
 }
 
 .welcome-notice .welcome-android { margin-left: $s-2; }
+
+// --- Error pages (resources/views/errors; share the sign-in card) ------------
+.error-page .error-code {
+    margin-bottom: $s-2;
+    font-family: $font-mono;
+    font-size: 0.8125rem;
+    color: $t-text-muted;
+    text-align: center;
+}
+

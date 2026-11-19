@@ -8,6 +8,31 @@ import { markInReaderNav } from './latest-position.js';
 export const sectionTop = (s, scrollY = window.scrollY) => s.el.getBoundingClientRect().top + scrollY;
 export const sectionHeight = s => s.el.offsetHeight || 1;
 
+/** A neighbour the reader can go to: it exists and has a body (older pages carry no flag). */
+export const nextReady = (next) => !!next && next.downloaded !== false;
+
+/** Swipes starting this close to the left/right edge belong to the browser (back / forward). */
+export const SWIPE_EDGE_PX = 24;
+
+/** Does a touch starting at clientX `x` on a viewport `width` wide sit on the browser's edge gesture? */
+export function inSwipeEdge(x, width, edge = SWIPE_EDGE_PX) {
+    return x < edge || x > width - edge;
+}
+
+/**
+ * Is `el` (or an ancestor up to `stop`) a horizontally scrollable box — a
+ * wide table or <pre> in the chapter? A swipe there scrolls it instead.
+ */
+export function inHorizontalScroller(el, stop = null, getStyle = (n) => window.getComputedStyle(n)) {
+    for (let n = el; n && n !== stop && n.nodeType === 1; n = n.parentElement) {
+        if (n.scrollWidth > n.clientWidth + 1) {
+            const ox = getStyle(n).overflowX;
+            if (ox === 'auto' || ox === 'scroll') return true;
+        }
+    }
+    return false;
+}
+
 /** The section whose top has passed 40% of the viewport (the last such one). */
 export function findCurrentIdx(sections, scrollY = window.scrollY, viewportHeight = window.innerHeight) {
     const ref = scrollY + viewportHeight * 0.4;
@@ -50,7 +75,7 @@ export function initNavigation(ctx) {
         // the right one and "Mark read" marks what you're looking at.
         history.replaceState(history.state, '', cur.url);
         setNavBlock(document.getElementById('navPrev'), cur.prev, '← Previous');
-        setNavBlock(document.getElementById('navNext'), cur.next, 'Next →');
+        applyNextUi(cur.next);
         applyFooterState(footer, cur);
         if (cur.title) document.title = cur.title;
         if (announcer) announcer.textContent = 'Now reading ' + chLabel(cur, 200);
@@ -65,6 +90,33 @@ export function initNavigation(ctx) {
         el.querySelector('.reader-navblock-dir').textContent = dir;
         el.querySelector('.reader-navblock-label').textContent = chLabel(target);
     }
+
+    // ---- The next chapter: go there, or (not downloaded yet) stay ----
+    // "Mark read & continue" + the Next link when it can be opened; "Mark
+    // read" + "<label> — not downloaded yet" with a check button when not.
+    const nextUi = {
+        cta: document.getElementById('nextChapterCta'),
+        stay: document.getElementById('markReadStay'),
+        link: document.getElementById('navNext'),
+        pending: document.getElementById('navNextPending'),
+    };
+    function applyNextUi(next) {
+        const ready = nextReady(next);
+        const pending = !!next && !ready;
+        if (nextUi.cta) {
+            nextUi.cta.classList.toggle('d-none', !ready);
+            if (ready) nextUi.cta.href = next.url;
+        }
+        nextUi.stay?.classList.toggle('d-none', !pending);
+        if (ready) setNavBlock(nextUi.link, next, 'Next →');
+        else nextUi.link?.classList.add('d-none');
+        if (nextUi.pending) {
+            nextUi.pending.classList.toggle('d-none', !pending);
+            const label = nextUi.pending.querySelector('.nav-pending-label');
+            if (pending && label) label.textContent = chLabel(next);
+        }
+    }
+    ctx.applyNextUi = applyNextUi;
 
     // ---- Keyboard + swipe navigation, relative to the current section ----
     function visit(url) {
@@ -93,6 +145,9 @@ export function initNavigation(ctx) {
         const cur = sections[ctx.currentIdx];
         if (ctx.currentIdx < sections.length - 1) {
             window.scrollTo({ top: sectionTop(sections[ctx.currentIdx + 1]), behavior: ctx.reducedMotion() ? 'auto' : 'smooth' });
+        } else if (cur.next && !nextReady(cur.next)) {
+            // Its page would only say "No content available".
+            window.Novarr?.showToast('The next chapter isn’t downloaded yet.', 'info');
         } else {
             visitAdjacent(cur.next?.url);
         }
@@ -157,11 +212,16 @@ export function initNavigation(ctx) {
     }, { signal });
 
     // Horizontal swipe on touch devices: left = next, right = previous.
-    // Ignored when it starts on a control, while text is selected, or when
-    // it's mostly vertical (normal scrolling).
+    // Ignored when it starts on a control, within 24px of the screen's
+    // left/right edge (the browser's own back/forward gesture), inside a
+    // horizontally scrollable box (a wide table or <pre>), while text is
+    // selected, or when it's mostly vertical (normal scrolling).
     let touchStart = null;
     document.addEventListener('touchstart', (e) => {
-        if (e.touches.length !== 1 || e.target.closest('a, button, input, select, textarea, .offcanvas, .reader-pop, .reader-playbar, .reader-backdrop')) {
+        if (e.touches.length !== 1
+            || e.target.closest('a, button, input, select, textarea, mark.reader-highlight, .offcanvas, .reader-pop, .reader-hlpop, .reader-playbar, .reader-backdrop')
+            || inSwipeEdge(e.touches[0].clientX, window.innerWidth)
+            || inHorizontalScroller(e.target, document.body)) {
             touchStart = null;
             return;
         }
@@ -181,7 +241,7 @@ export function initNavigation(ctx) {
 
     sectionsEl.addEventListener('click', (e) => {
         if (!document.body.classList.contains('reader-focus')) return;
-        if (e.target.closest('a, button, input, select, textarea')) return;
+        if (e.target.closest('a, button, input, select, textarea, mark.reader-highlight')) return;
         const selection = window.getSelection();
         if (selection && !selection.isCollapsed) return;
         document.body.classList.toggle('chrome-peek');

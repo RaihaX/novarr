@@ -142,7 +142,7 @@ class NovelPageRedesignTest extends TestCase
 
         foreach ([
             'data-scope="unread-next"', 'data-scope="range"', 'id="offlineRemove"',      // offline
-            route('novels.download_epub', $novel->id), 'data-command="epub"', 'data-command="send_to_kindle"',
+            'data-command="epub"', 'data-command="send_to_kindle"',                   // (Download ePub only once built: NovelPageFixesTest)
             route('novels.edit', $novel->id), 'id="pauseToggle"', 'data-command="metadata"', 'id="deleteNovel"',
             route('search.index', ['novel' => $novel->id]),                            // search in novel
             'id="frequentToggle"', 'id="editTags"',

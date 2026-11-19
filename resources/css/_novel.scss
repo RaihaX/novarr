@@ -634,6 +634,17 @@ $amber-text: var(--nv-amber-ink);
         }
 
         .btn-icon { width: 48px; }
+
+        // A reader's "Check for new chapters": icon only (aria-label names it).
+        .nv-check {
+            min-width: 48px;
+            justify-content: center;
+            padding-inline: 0;
+
+            > .cmd-label,
+            > .cmd-done,
+            > .cmd-fail { display: none !important; }
+        }
     }
 
     .nv-progress-part { padding: 14px $s-5; }

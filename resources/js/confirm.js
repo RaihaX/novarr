@@ -61,3 +61,30 @@ export function confirmDialog(message, opts = {}) {
         modal.show();
     });
 }
+
+/**
+ * Forms that ask first: <form data-confirm="Message" [data-confirm-title]
+ * [data-confirm-text] [data-confirm-danger="0"]>. One document listener
+ * (bound once, survives Turbo body swaps); it runs before Turbo's own submit
+ * handling, which skips a prevented submit. Without JS the form just submits.
+ */
+export function initConfirmForms(doc = document) {
+    doc.addEventListener('submit', async (e) => {
+        const form = e.target;
+        if (!(form instanceof HTMLFormElement) || !form.dataset.confirm) return;
+        if (form.dataset.confirmed === '1') {
+            delete form.dataset.confirmed;
+            return;
+        }
+        e.preventDefault();
+        const ok = await confirmDialog(form.dataset.confirm, {
+            title: form.dataset.confirmTitle || 'Are you sure?',
+            confirmText: form.dataset.confirmText || 'Confirm',
+            danger: form.dataset.confirmDanger !== '0',
+        });
+        if (!ok) return;
+        form.dataset.confirmed = '1';
+        if (form.requestSubmit) form.requestSubmit(e.submitter || undefined);
+        else form.submit();
+    });
+}

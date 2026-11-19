@@ -5,18 +5,19 @@
 @section('content')
 <h1 class="page-title mb-4">Highlights</h1>
 
-@if($grouped->isEmpty())
-    <div class="empty-state">
-        <x-brand-mark variant="mono" :size="40" class="empty-state-mark" />
-        <div class="empty-state-title">No highlights yet</div>
-        <p class="empty-state-body">Select any text while reading and tap &ldquo;Save highlight&rdquo; — saved passages collect here, grouped by novel.</p>
-    </div>
-@else
+{{-- Shown from the start when there are none, and by the script once the
+     last one is deleted. --}}
+<div class="empty-state {{ $grouped->isEmpty() ? '' : 'd-none' }}" id="highlightsEmpty">
+    <x-brand-mark variant="mono" :size="40" class="empty-state-mark" />
+    <div class="empty-state-title">No highlights yet</div>
+    <p class="empty-state-body">Select any text while reading and tap &ldquo;Save highlight&rdquo; — saved passages collect here, grouped by novel.</p>
+</div>
+@unless($grouped->isEmpty())
     @foreach($grouped as $novelName => $rows)
-        <div class="card stack-card mb-3">
+        <div class="card stack-card mb-3" data-highlight-group>
             <div class="stack-head">
                 <a href="{{ route('novels.show', $rows->first()->novel_id) }}" class="stack-head-title">{{ $novelName }}</a>
-                <span class="stack-head-count">{{ $rows->count() }} highlight{{ $rows->count() === 1 ? '' : 's' }}</span>
+                <span class="stack-head-count" data-highlight-count>{{ $rows->count() }} highlight{{ $rows->count() === 1 ? '' : 's' }}</span>
             </div>
             @foreach($rows as $bookmark)
                 <div class="stack-row" data-bookmark="{{ $bookmark->id }}">
@@ -25,7 +26,9 @@
                         <div class="bookmark-note">{{ $bookmark->note }}</div>
                     @endif
                     <div class="bookmark-foot">
-                        <a href="{{ route('chapters.show', $bookmark->novel_chapter_id) }}" class="bookmark-source">
+                        {{-- Opens the chapter at this passage (the reader scrolls
+                             to the highlight and pulses it). --}}
+                        <a href="{{ route('chapters.show', ['id' => $bookmark->novel_chapter_id, 'lookup' => 1, 'highlight' => $bookmark->id]) }}" class="bookmark-source">
                             {{ $bookmark->chapter->label ?: 'Chapter ' . $bookmark->chapter->chapter }} · {{ $bookmark->created_at->diffForHumans() }}
                         </a>
                         <button type="button" class="btn btn-danger bookmark-delete" data-id="{{ $bookmark->id }}">Delete</button>
@@ -34,7 +37,7 @@
             @endforeach
         </div>
     @endforeach
-@endif
+@endunless
 @endsection
 
 @push('scripts')
@@ -53,8 +56,17 @@
             });
             const data = await res.json();
             if (data.success) {
+                const group = btn.closest('[data-highlight-group]');
                 btn.closest('[data-bookmark]').remove();
-                Novarr.showToast('Bookmark deleted.', 'success');
+                // Keep the novel's count true; drop its card with its last one.
+                const left = group ? group.querySelectorAll('[data-bookmark]').length : 0;
+                if (group && left === 0) group.remove();
+                else if (group) group.querySelector('[data-highlight-count]').textContent = `${left} highlight${left === 1 ? '' : 's'}`;
+                if (!document.querySelector('[data-highlight-group]')) document.getElementById('highlightsEmpty')?.classList.remove('d-none');
+                Novarr.showToast('Highlight deleted.', 'success');
+            } else {
+                btn.disabled = false;
+                Novarr.showToast(data.message || 'Could not delete the highlight.', 'danger');
             }
         } catch (err) {
             btn.disabled = false;

@@ -3,8 +3,15 @@
 // reading, a beacon when the page goes away (pagehide / hidden tab), and
 // window.Novarr.queuedFetch otherwise, which parks the write in the offline
 // queue when there is no connection.
+//
+// A look-up open (`?lookup=1`, a full-text search hit) is checking a page,
+// not reading there: no page percents are posted and it is not a local write
+// for the latest-position prompt (as reader/progress.js does for text). The
+// last page still marks the chapter read, flagged `lookup` so the server
+// leaves the series' latest position alone (as reader/continuous.js does).
 import { pageToPercent, shouldSaveProgress } from './logic.js';
 import { appendDeviceFields, deviceHeaders } from '../device.js';
+import { isLookupChapter } from '../reader/latest-position.js';
 
 const SAVE_DELAY_MS = 1500;
 const localKey = (id) => 'manga_pos_' + id;
@@ -20,6 +27,17 @@ export function readLocalPosition(storage, chapterId) {
 }
 
 /**
+ * Whether this open is a look-up of chapter `id`: the text reader's rule
+ * (reader/latest-position.js), on the manga page's config.
+ *
+ * @param {{lookup?: boolean|string}} config  data-lookup from the view ('1' / '')
+ */
+export function isMangaLookup(config, id) {
+    const on = config?.lookup === true || config?.lookup === '1';
+    return isLookupChapter({ lookup: on, id: config?.id }, id);
+}
+
+/**
  * @param {object} o
  * @param {number} o.chapterId
  * @param {string} o.url         chapters.progress
@@ -28,8 +46,9 @@ export function readLocalPosition(storage, chapterId) {
  * @param {number} o.count       pages in the chapter
  * @param {AbortSignal} o.signal this visit's lifetime
  * @param {() => void} [o.onWrite] this device wrote progress (latest-position bookkeeping)
+ * @param {boolean} [o.lookup]  opened as a look-up: no percents, a `lookup` read mark
  */
-export function createProgress({ chapterId, url, stored, read, count, signal, storage, onWrite = () => {} }) {
+export function createProgress({ chapterId, url, stored, read, count, signal, storage, onWrite = () => {}, lookup = false }) {
     let serverPct = stored === null || stored === undefined ? null : Number(stored);
     let readSent = !!read;
     let pending = null;      // percent waiting to be sent
@@ -39,7 +58,7 @@ export function createProgress({ chapterId, url, stored, read, count, signal, st
 
     function send(body, onPageHide = false) {
         if (signal.aborted) return;
-        onWrite();
+        if (!lookup) onWrite();
         if (onPageHide && navigator.sendBeacon && navigator.onLine !== false) {
             const form = new FormData();
             Object.entries(body).forEach(([k, v]) => form.append(k, v === true ? '1' : String(v)));
@@ -89,6 +108,7 @@ export function createProgress({ chapterId, url, stored, read, count, signal, st
             pct = Math.min(pct, 99);
         }
         saveLocal(page, pct);
+        if (lookup) return;
         if (!shouldSaveProgress(pct, pending ?? serverPct, movedBack)) return;
         pending = pct;
         clearTimeout(timer);
@@ -97,7 +117,7 @@ export function createProgress({ chapterId, url, stored, read, count, signal, st
 
     function saveLocal(page, pct) {
         try { storage?.setItem(localKey(chapterId), JSON.stringify({ page, pct })); } catch (e) { /* storage blocked */ }
-        onWrite();
+        if (!lookup) onWrite();
     }
 
     /** The last page has been displayed: 100% and read, sent right away. */
@@ -106,6 +126,12 @@ export function createProgress({ chapterId, url, stored, read, count, signal, st
         timer = null;
         pending = null;
         if (readSent && serverPct === 100) return;
+        if (lookup) {
+            if (readSent) return;
+            readSent = true;
+            send({ read: true, lookup: true });
+            return;
+        }
         readSent = true;
         serverPct = 100;
         send({ progress: 100, read: true });

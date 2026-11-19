@@ -1,8 +1,9 @@
 @extends('layouts.app')
 
 @push('styles')
-{{-- Preload the next chapter body (the direction readers actually go). --}}
-@if($next)
+{{-- Preload the next chapter body (the direction readers actually go) —
+     only when it has one: a pending chapter is not somewhere to go. --}}
+@if($next && $next->status)
     <link rel="prefetch" href="{{ route('chapters.show', $next->id) }}">
 @endif
 @endpush
@@ -19,6 +20,9 @@
         ->relativeTo($chapter, '<=')
         ->count();
     $chapterTitle = $chapter->label ?: 'Chapter ' . $chapter->chapter;
+    // A next chapter that is still pending: "Mark read" (stay here) replaces
+    // "Mark read & continue", and the Next block is plain text with a check.
+    $nextReady = $next && $next->status;
     // Honest minutes-left: real word count of this chapter's body, scaled by
     // how much of it is still below the viewport (see updateMinutesLeft()).
     $wordCount = str_word_count(strip_tags((string) $chapter->description));
@@ -266,9 +270,17 @@
                             <span class="dl-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Downloading&hellip;</span>
                         </button>
                         <div class="reader-empty-note">Fetches just this chapter from the source in the background.</div>
-                        @else
-                        <div class="reader-empty-note">It downloads on its own soon. “Check for new chapters” on the series page speeds it up.</div>
                         @endcan
+                        {{-- Everyone may ask the source for new chapters (the
+                             same API check the series page's button runs). --}}
+                        <div class="reader-empty-check">
+                            <button type="button" class="btn {{ Gate::allows('admin') ? 'btn-secondary' : 'btn-primary' }} reader-check-btn" data-check-novel="{{ $novelId }}" title="Ask the source for new chapters and download them">
+                                <x-icon name="refresh-cw" :size="14" /><span class="check-label">Check for new chapters</span>
+                            </button>
+                        </div>
+                        @cannot('admin')
+                        <div class="reader-empty-note">It downloads on its own soon; checking for new chapters speeds it up.</div>
+                        @endcannot
                     </div>
                 @endif
             </section>
@@ -294,17 +306,29 @@
                     <span class="reader-navblock is-empty" aria-hidden="true"></span>
                 @endif
 
+                {{-- Both forms of the primary action and of the Next block are
+                     rendered; the reader JS shows the pair that fits the
+                     chapter under the viewport (continuous reading moves on
+                     to chapters whose next may differ). --}}
                 @if($next)
-                    <a href="{{ route('chapters.show', $next->id) }}" id="nextChapterCta" class="reader-continue">Mark read &amp; continue</a>
+                    <a href="{{ route('chapters.show', $next->id) }}" id="nextChapterCta" class="reader-continue {{ $nextReady ? '' : 'd-none' }}">Mark read &amp; continue</a>
+                    <button type="button" id="markReadStay" class="reader-continue {{ $nextReady ? 'd-none' : '' }}" title="Mark this chapter read — the next one is not downloaded yet">Mark read</button>
                 @else
                     <span id="endOfNovelNote" class="reader-caughtup">You're all caught up &mdash; no next chapter yet.</span>
                 @endif
 
                 @if($next)
-                    <a href="{{ route('chapters.show', $next->id) }}" id="navNext" class="reader-navblock reader-navblock-next">
+                    <a href="{{ route('chapters.show', $next->id) }}" id="navNext" class="reader-navblock reader-navblock-next {{ $nextReady ? '' : 'd-none' }}">
                         <span class="reader-navblock-dir">Next &rarr;</span>
                         <span class="reader-navblock-label">{{ $navLabel($next) }}</span>
                     </a>
+                    <div id="navNextPending" class="reader-navblock reader-navblock-next is-pending {{ $nextReady ? 'd-none' : '' }}">
+                        <span class="reader-navblock-dir">Next</span>
+                        <span class="reader-navblock-label"><span class="nav-pending-label">{{ $navLabel($next) }}</span> &mdash; not downloaded yet</span>
+                        <button type="button" class="reader-ghost reader-check-btn" data-check-novel="{{ $novelId }}" title="Ask the source for new chapters and download them">
+                            <x-icon name="refresh-cw" :size="13" /><span class="check-label">Check for new chapters</span>
+                        </button>
+                    </div>
                 @else
                     <span class="reader-navblock is-empty" aria-hidden="true"></span>
                 @endif
@@ -313,14 +337,27 @@
     </div>
 </div>
 
-{{-- Floating save-highlight popover (shown over a text selection) --}}
-<div id="highlightPop" class="card p-2 d-none" style="position: absolute; z-index: 1055;" role="dialog" aria-modal="false" aria-label="Save highlight">
-    <div class="d-flex gap-2">
-        <input type="text" id="hlNote" class="form-control form-control-sm" placeholder="Note (optional)" style="width: 170px;" aria-label="Highlight note">
-        <button type="button" id="hlSave" class="btn btn-sm btn-primary text-nowrap">Save</button>
-        <button type="button" id="hlDefine" class="btn btn-sm btn-outline-secondary d-none" title="Look up this word" aria-label="Define word">Define</button>
+{{-- Floating save-highlight popover (shown over a text selection).
+     Enter in the note saves, Esc closes. --}}
+<div id="highlightPop" class="reader-hlpop d-none" role="dialog" aria-modal="false" aria-label="Save highlight">
+    <div class="reader-hlpop-row">
+        <input type="text" id="hlNote" class="reader-hlpop-input" placeholder="Note (optional)" aria-label="Highlight note" enterkeyhint="done" maxlength="2000">
+        <button type="button" id="hlSave" class="reader-hlpop-btn is-primary">Save highlight</button>
+        <button type="button" id="hlDefine" class="reader-hlpop-btn d-none" title="Look up this word" aria-label="Define word">Define</button>
     </div>
-    <div id="hlDefinition" class="d-none mt-2 text-body" style="max-width: 320px; max-height: 200px; overflow-y: auto; font-size: 12px;"></div>
+    <div id="hlDefinition" class="reader-hlpop-definition d-none"></div>
+</div>
+
+{{-- A saved highlight, opened by tapping it in the text: its note + Delete. --}}
+<div id="highlightView" class="reader-hlpop d-none" role="dialog" aria-modal="false" aria-labelledby="hlViewTitle" tabindex="-1">
+    <div class="reader-hlpop-head">
+        <span class="reader-pop-label" id="hlViewTitle">Highlight</span>
+        <button type="button" class="reader-pop-close" data-close-hlview aria-label="Close highlight"><x-icon name="x" :size="14" /></button>
+    </div>
+    <p id="hlViewNote" class="reader-hlpop-note"></p>
+    <div class="reader-hlpop-row is-end">
+        <button type="button" id="hlViewDelete" class="reader-hlpop-btn is-danger">Delete</button>
+    </div>
 </div>
 
 {{-- In-reader chapter list --}}

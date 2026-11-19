@@ -298,3 +298,48 @@ test('the manga reader mounts #manga-reader once per page and does not claim the
     assert.equal(teardowns, 1);
     assert.equal(win.__novarrReaderOwner, undefined, 'the text reader keeps its own owner key');
 });
+
+// ---- look-up opens, per-browser reading mode ----
+
+import { isMangaLookup } from '../../resources/js/manga-reader/progress.js';
+import { readModeOverride, modeOverrideKey } from '../../resources/js/manga-reader/index.js';
+
+test('lookup: only the opened chapter, only when the page says so', () => {
+    assert.equal(isMangaLookup({ lookup: '1', id: 9 }, 9), true);
+    assert.equal(isMangaLookup({ lookup: '', id: 9 }, 9), false);
+    assert.equal(isMangaLookup({ lookup: '1', id: 9 }, 10), false);
+});
+
+test('progress: a look-up posts no page progress and marks read with `lookup` at the end', () => {
+    const sent = fakeGlobals();
+    const store = storage();
+    let writes = 0;
+    const p = createProgress({ chapterId: 5, url: '/p', stored: null, read: false, count: 6, signal: new AbortController().signal, storage: store, lookup: true, onWrite: () => { writes += 1; } });
+    p.pageShown(2);
+    p.pageShown(4);
+    p.flush();
+    assert.deepEqual(sent, [], 'no percents');
+    assert.equal(writes, 0, 'not a local write for the latest-position prompt');
+    assert.deepEqual(readLocalPosition(store, 5), { page: 4, pct: 67 }, 'this device still remembers the page');
+    p.pageShown(6);
+    assert.deepEqual(sent, [{ url: '/p', body: { read: true, lookup: true } }]);
+    p.markRead();
+    assert.equal(sent.length, 1, 'once');
+
+    const alreadyRead = createProgress({ chapterId: 6, url: '/p', stored: 100, read: true, count: 3, signal: new AbortController().signal, storage: storage(), lookup: true });
+    alreadyRead.pageShown(3);
+    assert.equal(sent.length, 1, 'a read chapter sends nothing');
+    restoreGlobals();
+});
+
+test('reading mode override: per series, only real modes', () => {
+    const s = storage();
+    assert.equal(readModeOverride(s, 4), null);
+    s.setItem(modeOverrideKey(4), 'vertical');
+    assert.equal(readModeOverride(s, 4), 'vertical');
+    assert.equal(readModeOverride(s, 5), null, 'another series keeps its default');
+    s.setItem(modeOverrideKey(4), 'sideways');
+    assert.equal(readModeOverride(s, 4), null);
+    const blocked = { getItem: () => { throw new Error('blocked'); } };
+    assert.equal(readModeOverride(blocked, 4), null);
+});

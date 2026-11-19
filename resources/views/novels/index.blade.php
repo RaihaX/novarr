@@ -23,6 +23,10 @@
     if (!\Illuminate\Support\Facades\Gate::allows('admin')) {
         unset($chips['attention']);
     }
+    // A manga's page images are not saved for offline reading on the web.
+    if ($medium === \App\Novel::MEDIUM_MANGA) {
+        unset($chips['offline']);
+    }
     // Translated / Original only exist in the Novels library.
     foreach (['translated' => 'Translated', 'original' => 'Original'] as $originKey => $originLabel) {
         if (in_array($originKey, $originChips, true)) {

@@ -21,12 +21,21 @@ import {
     rememberAnswered, markLocalWrite, promptText,
 } from '../reader/latest-position.js';
 import { showLatestPrompt } from '../reader/latest-prompt.js';
-import { createProgress, readLocalPosition } from './progress.js';
+import { createProgress, readLocalPosition, isMangaLookup } from './progress.js';
 import { createPagedView } from './paged.js';
 import { createVerticalView } from './vertical.js';
 import { chapterUrl } from './endcard.js';
 
 const FIT_KEY = 'manga_fit';
+/** A non-admin's reading mode for one series, in this browser (overrides the series default). */
+export const modeOverrideKey = (novelId) => 'manga_mode_' + novelId;
+
+/** The stored override for a series, or null (none / unreadable / not a mode). */
+export function readModeOverride(storage, novelId) {
+    let v = null;
+    try { v = storage.getItem(modeOverrideKey(novelId)); } catch (e) { return null; }
+    return ['rtl', 'ltr', 'vertical'].includes(v) ? v : null;
+}
 const THEMES = ['dark', 'sepia', 'light'];
 const THEME_LABELS = { dark: 'Dark', sepia: 'Sepia', light: 'Light' };
 const WAKE_IDLE_MS = 10 * 60 * 1000;
@@ -102,6 +111,14 @@ export function mount(root) {
     const announce = $('mrAnnounce');
     const labelEl = $('mrChapterLabel');
     const modeBtns = [...root.querySelectorAll('.mr-modes [data-mode]')];
+    const modeReset = $('mrModeReset');
+    const prevChBtn = $('mrPrevChapter');
+    const nextChBtn = $('mrNextChapter');
+    // The admin saves the series default; anyone else keeps a per-series
+    // choice in this browser.
+    const modeIsLocal = !ds.modeUrl;
+    // Opened as a look-up (?lookup=1): no page progress for this chapter.
+    const lookup = isMangaLookup({ lookup: ds.lookup, id: chapterId }, chapterId);
     const retryIcon = $('mrIconRetry');
 
     document.body.classList.add('mr-open');
@@ -127,6 +144,7 @@ export function mount(root) {
     let data = null;
     let count = 0;
     let mode = 'ltr';
+    let seriesMode = 'ltr';   // the series default (pages.json reading_mode)
     let fit = null;
     let view = null;
     let progress = null;
@@ -271,12 +289,20 @@ export function mount(root) {
         });
         root.dataset.mode = mode;
         fitBtn.hidden = mode === 'vertical';
+        if (modeReset) modeReset.hidden = !(modeIsLocal && readModeOverride(storage, novelId));
     }
 
     function saveMode(m) {
-        // No URL: a reader account (the series' mode is the admin's to
-        // change) — the shortcut still switches this visit's view.
-        if (!ds.modeUrl) return;
+        // No URL: not the admin (the series default is the admin's to
+        // change) — the choice is kept for this series in this browser.
+        if (modeIsLocal) {
+            try {
+                if (m === seriesMode) storage.removeItem(modeOverrideKey(novelId));
+                else storage.setItem(modeOverrideKey(novelId), m);
+            } catch (e) { /* storage blocked: this visit only */ }
+            paintModes();
+            return;
+        }
         fetch(ds.modeUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': csrf() },
@@ -301,6 +327,22 @@ export function mount(root) {
         }
     }
     modeBtns.forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode), { signal }));
+    modeReset?.addEventListener('click', () => {
+        try { storage.removeItem(modeOverrideKey(novelId)); } catch (e) { /* storage blocked */ }
+        setMode(seriesMode, { persist: false });
+        paintModes();
+        announce.textContent = MODE_LABELS[seriesMode];
+    }, { signal });
+
+    // ---- Previous / next chapter buttons (bottom bar) ----
+    function paintChapterNav() {
+        prevChBtn.disabled = !data?.prev;
+        nextChBtn.disabled = !data?.next;
+        if (data?.prev) prevChBtn.title = `Previous: ${data.prev.label} ( [ )`;
+        if (data?.next) nextChBtn.title = `Next: ${data.next.label} ( ] )`;
+    }
+    prevChBtn.addEventListener('click', () => { if (data?.prev) visitAdjacent(chapterUrl(data.prev.id)); }, { signal });
+    nextChBtn.addEventListener('click', () => { if (data?.next) visitAdjacent(chapterUrl(data.next.id)); }, { signal });
 
     // ---- Fit (per device) ----
     function paintFit() {
@@ -362,8 +404,10 @@ export function mount(root) {
         data = json;
         count = Array.isArray(json.pages) ? json.pages.length : 0;
         if (json.chapter?.label) labelEl.textContent = json.chapter.label;
-        mode = normaliseMode(json.reading_mode);
+        seriesMode = normaliseMode(json.reading_mode);
+        mode = (modeIsLocal && readModeOverride(storage, novelId)) || seriesMode;
         paintModes();
+        paintChapterNav();
 
         if (count === 0) {
             root.classList.add('is-empty');
@@ -423,7 +467,7 @@ export function mount(root) {
 
         progress = createProgress({
             chapterId, url: ds.progressUrl, stored: json.chapter.progress, read: json.chapter.read,
-            count, signal, storage,
+            count, signal, storage, lookup,
             onWrite: () => markLocalWrite(storage, novelId),
         });
         render(start);

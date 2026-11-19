@@ -450,17 +450,20 @@ class ReaderAccountsTest extends TestCase
         $this->withBrowser($admin)->get(route('novels.index'))->assertOk()->assertSee('Add your first');
     }
 
-    public function test_the_manga_reader_hides_the_reading_mode_from_readers(): void
+    public function test_the_manga_reader_keeps_a_readers_mode_in_the_browser(): void
     {
         $owner = $this->enableSignIn();
         $this->makeReader();
         [, $chapter] = $this->mangaWithPage();
 
         $readerHtml = $this->withBrowser($this->webSignIn('sam', self::READER_PASSWORD))->get(route('chapters.show', $chapter->id))->assertOk()->getContent();
+        // A reader switches mode for this browser only (no series save), with a reset.
         $this->assertStringNotContainsString('data-mode-url', $readerHtml);
-        $this->assertStringNotContainsString('mr-modes', $readerHtml);
+        $this->assertStringContainsString('mr-modes', $readerHtml);
+        $this->assertStringContainsString('id="mrModeReset"', $readerHtml);
         $adminHtml = $this->withBrowser($this->webSignIn($owner->username, self::OWNER_PASSWORD))->get(route('chapters.show', $chapter->id))->getContent();
         $this->assertStringContainsString('data-mode-url', $adminHtml);
+        $this->assertStringNotContainsString('id="mrModeReset"', $adminHtml);
     }
 
     public function test_the_page_names_its_reader_for_the_offline_queue(): void

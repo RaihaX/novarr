@@ -136,6 +136,19 @@
             Tests use the FlareSolverr URL currently in the form (save first to test the others).
         </p>
 
+        {{-- Apps: the Android APK, once one is published (App\Support\AndroidApp). --}}
+        @if(\App\Support\AndroidApp::available())
+        <div class="card mt-4 form-panel" id="appsCard">
+            <div class="panel-head">
+                <h2 class="panel-title">Apps</h2>
+            </div>
+            <div class="card-body">
+                <p class="mb-2">Readers on Android can install the app from this server. Share this link:</p>
+                <p class="mb-0"><a href="{{ \App\Support\AndroidApp::url(request()) }}" data-turbo="false" download>{{ \App\Support\AndroidApp::linkText() }}</a></p>
+            </div>
+        </div>
+        @endif
+
         {{-- Tailscale --}}
         <div class="card mt-4 form-panel" id="tailscaleCard">
             <div class="panel-head">

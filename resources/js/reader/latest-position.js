@@ -117,6 +117,18 @@ function remove(storage, key) {
     try { storage?.removeItem(key); } catch (e) { /* storage blocked */ }
 }
 
+/**
+ * Whether chapter `id` is the one this page opened as a look-up (`?lookup=1`:
+ * a Highlights entry or a full-text search hit; the server sets
+ * `state.lookup`). Checking a passage is not reading there, so the reader
+ * posts no scroll position for it and does not count it as a local write;
+ * any other chapter on the page (appended inline by continuous reading) is
+ * tracked as usual.
+ */
+export function isLookupChapter(state, id) {
+    return !!state?.lookup && id !== null && id !== undefined && String(id) === String(state.id);
+}
+
 /** Remember that this browser just wrote progress for the series. */
 export function markLocalWrite(storage, novelId, now = Date.now()) {
     if (novelId === null || novelId === undefined) return;

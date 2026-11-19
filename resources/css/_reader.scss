@@ -30,6 +30,12 @@ body {
     --rd-accent-press: #{$accent-press};
     --rd-accent-fg:    #fff;
     --rd-mark:         #{rgba($accent, 0.18)};
+    // Saved highlights are amber (the bookmark colour), with an amber
+    // underline so they stay distinct from the read-aloud paragraph tint.
+    --rd-hl:           #{rgba($brand-amber, 0.22)};
+    --rd-hl-line:      #{rgba($brand-amber, 0.75)};
+    --rd-hl-pulse:     #{rgba($brand-amber, 0.55)};
+    --rd-danger:       #{$danger};
     --rd-font-read:    #{$font-read};
 
     // Typography prefs — JS overrides these on #reader; these are the defaults
@@ -56,6 +62,10 @@ body.reader-theme-sepia {
     --rd-accent-hover: #9c6a38;
     --rd-accent-press: #74491f;
     --rd-mark:         rgba(201, 138, 0, 0.22);
+    --rd-hl:           rgba(214, 150, 0, 0.26);
+    --rd-hl-line:      #{$amber-light};
+    --rd-hl-pulse:     rgba(214, 150, 0, 0.55);
+    --rd-danger:       #{$danger-light};
 }
 
 body.reader-theme-light {
@@ -71,6 +81,10 @@ body.reader-theme-light {
     --rd-accent-hover: #{$accent-light};
     --rd-accent-press: #{$accent-press-light};
     --rd-mark:         rgba($accent-light, 0.16);
+    --rd-hl:           #{rgba($brand-amber, 0.30)};
+    --rd-hl-line:      #{$amber-light};
+    --rd-hl-pulse:     #{rgba($brand-amber, 0.60)};
+    --rd-danger:       #{$danger-light};
 }
 
 // --- Shell ----------------------------------------------------------------
@@ -906,6 +920,160 @@ body.reader-playbar-open .reader-latest { bottom: calc(76px + env(safe-area-inse
     border-radius: 3px;
 }
 
+// Saved highlights drawn into the text (reader/highlights.js): one <mark>
+// per text node; the last one of a highlight with a note carries a dot.
+.reader-col mark.reader-highlight {
+    padding: 0;
+    color: inherit;
+    background: var(--rd-hl);
+    box-shadow: inset 0 -2px 0 var(--rd-hl-line);
+    border-radius: 2px;
+    cursor: pointer;
+    // Nested marks (overlapping highlights) don't stack their tint twice.
+    mark.reader-highlight { background: transparent; }
+
+    &.has-note::after {
+        content: "";
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        margin-left: 2px;
+        vertical-align: super;
+        border-radius: 50%;
+        background: var(--rd-hl-line);
+    }
+
+    &:focus-visible { outline-offset: 1px; }
+
+    // Opened from the Highlights page: a short pulse to find it by.
+    &.is-pulse { animation: reader-hl-pulse 0.8s ease-in-out 3; }
+}
+
+@keyframes reader-hl-pulse {
+    0%, 100% { background: var(--rd-hl); }
+    50%      { background: var(--rd-hl-pulse); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .reader-col mark.reader-highlight.is-pulse { animation: none; }
+}
+
+// Save-highlight popover (over a selection) and a saved highlight's popover
+// (note + Delete). Absolutely positioned by the script; reader theme tokens.
+.reader-hlpop {
+    position: absolute;
+    z-index: 1055;
+    width: max-content;
+    max-width: min(360px, calc(100vw - 16px));
+    padding: $s-2;
+    font-family: $font-ui;
+    font-size: 13px;
+    color: var(--rd-title);
+    background: var(--rd-raise);
+    border: $hairline solid var(--rd-border);
+    border-radius: $radius;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+
+    &:focus { outline: none; }
+
+    .reader-hlpop-row {
+        display: flex;
+        align-items: center;
+        gap: $s-2;
+
+        &.is-end { justify-content: flex-end; }
+    }
+
+    .reader-hlpop-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: $s-3;
+        padding-left: $s-1;
+    }
+
+    .reader-hlpop-input {
+        flex: 1 1 200px;
+        min-width: 0;
+        height: 32px;
+        padding: 0 $s-2;
+        font-size: 13px;
+        color: var(--rd-title);
+        background: var(--rd-ground);
+        border: $hairline solid var(--rd-border);
+        border-radius: $radius;
+
+        &::placeholder { color: var(--rd-muted); }
+        &:focus { outline: 2px solid var(--rd-accent); outline-offset: 0; border-color: transparent; }
+    }
+
+    .reader-hlpop-btn {
+        flex: none;
+        height: 32px;
+        padding: 0 $s-3;
+        font-size: 13px;
+        font-weight: 500;
+        white-space: nowrap;
+        color: var(--rd-title);
+        background: transparent;
+        border: $hairline solid var(--rd-border);
+        border-radius: $radius;
+        transition: background-color $transition;
+
+        &:hover { background: var(--rd-line); }
+
+        &.is-primary {
+            color: var(--rd-accent-fg);
+            background: var(--rd-accent);
+            border-color: var(--rd-accent);
+
+            &:hover { background: var(--rd-accent-hover); }
+        }
+
+        &.is-danger {
+            color: var(--rd-danger);
+            border-color: currentColor;
+
+            &:hover { background: var(--rd-line); }
+        }
+
+        &:disabled { opacity: 0.6; }
+    }
+
+    .reader-hlpop-definition {
+        max-width: 320px;
+        max-height: 200px;
+        overflow-y: auto;
+        margin-top: $s-2;
+        font-size: 12px;
+        color: var(--rd-text);
+
+        .text-muted { color: var(--rd-muted) !important; }
+    }
+
+    .reader-hlpop-note {
+        max-width: 320px;
+        max-height: 40vh;
+        overflow-y: auto;
+        margin: $s-1 $s-1 $s-2;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        color: var(--rd-text);
+
+        &.is-empty { color: var(--rd-muted); }
+    }
+
+    .reader-pop-close { width: 28px; height: 28px; }
+}
+
+// Phones: the save popover's field takes the row, buttons wrap under it.
+@include media-breakpoint-down(sm) {
+    .reader-hlpop .reader-hlpop-row { flex-wrap: wrap; }
+    .reader-hlpop .reader-hlpop-input { flex-basis: 100%; height: 38px; }
+    .reader-hlpop .reader-hlpop-btn { flex: 1 1 auto; height: 38px; }
+    .reader-hlpop .reader-hlpop-row.is-end .reader-hlpop-btn { flex: none; }
+}
+
 // Pending chapter (no body yet).
 .reader-empty {
     font-family: $font-ui;
@@ -918,6 +1086,21 @@ body.reader-playbar-open .reader-latest { bottom: calc(76px + env(safe-area-inse
         margin-top: $s-2;
         font-size: $fs-caption;
     }
+
+    .reader-empty-check { margin-top: $s-4; }
+}
+
+// "Check for new chapters" (the Next block and the empty state).
+.reader-check-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    &.is-busy .icon { animation: palette-spin 1s linear infinite; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .reader-check-btn.is-busy .icon { animation: none; }
 }
 
 // --- Footer ---------------------------------------------------------------
@@ -1000,6 +1183,23 @@ body.reader-playbar-open .reader-latest { bottom: calc(76px + env(safe-area-inse
     &.reader-navblock-next {
         align-items: flex-end;
         text-align: right;
+    }
+
+    // Next chapter not downloaded yet: text, not a link, plus a check.
+    &.is-pending {
+        border-style: dashed;
+
+        &:hover { background: transparent; }
+
+        .reader-navblock-label {
+            white-space: normal;
+            color: var(--rd-muted);
+        }
+
+        .reader-check-btn {
+            margin-top: $s-1;
+            margin-right: -$s-2;
+        }
     }
 
     // Keeps the primary action optically centred when there is no prev/next.
