@@ -260,11 +260,15 @@
                 @else
                     <div class="reader-empty">
                         <p>No content available for this chapter yet.</p>
+                        @can('admin')
                         <button type="button" id="downloadChapterBtn" class="btn btn-primary" data-id="{{ $chapter->id }}">
                             <span class="dl-label">Download this chapter now</span>
                             <span class="dl-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Downloading&hellip;</span>
                         </button>
                         <div class="reader-empty-note">Fetches just this chapter from the source in the background.</div>
+                        @else
+                        <div class="reader-empty-note">It downloads on its own soon. “Check for new chapters” on the series page speeds it up.</div>
+                        @endcan
                     </div>
                 @endif
             </section>

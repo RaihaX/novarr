@@ -10,6 +10,16 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    {{-- Whose read state this page shows: the offline write queue tags its
+         entries with it and replays only this reader's (resources/js/offline.js). --}}
+    @if($readerId !== null)
+    <meta name="novarr-reader" content="{{ $readerId }}" data-owner="{{ $readerIsOwner ? '1' : '0' }}">
+    @endif
+    {{-- Just signed in or out: cached pages hold the previous account's read
+         flags, so the page JS empties the service worker's page caches. --}}
+    @if(session(\App\Http\Controllers\Auth\LoginController::FLASH_SIGNED) || View::hasSection('signed-out'))
+    <meta name="novarr-signed" content="{{ session(\App\Http\Controllers\Auth\LoginController::FLASH_SIGNED) ?: 'out' }}">
+    @endif
     {{-- Inline page scripts bind listeners; cached snapshot restores would revive dead DOM --}}
     <meta name="turbo-cache-control" content="no-cache">
 
@@ -59,9 +69,31 @@
 </head>
 {{-- Views that @section('chromeless') (the reader) render without the global
      navbar: the reader's own bar carries the way back. --}}
-<body class="{{ $isChromeless ? 'is-chromeless' : 'has-tabbar' }}">
+@php
+    // Nobody signed in (sign-in on: the login page, the offline shell): the
+    // shell shows only the brand and the theme toggle.
+    $isGuestShell = $authOn && $navUser === null;
+@endphp
+<body class="{{ $isChromeless ? 'is-chromeless' : ($isGuestShell ? 'is-guest' : 'has-tabbar') }}">
     <a href="#main-content" class="skip-link">Skip to content</a>
-    @unless($isChromeless)
+    @if(!$isChromeless && $isGuestShell)
+    <nav class="navbar">
+        <div class="container d-flex align-items-center">
+            <a class="navbar-brand" href="{{ url('/') }}">
+                <x-brand-mark :size="28" />
+                <span class="brand-wordmark">NOVARR<span class="brand-dot">.</span></span>
+                <span class="visually-hidden">Novarr home</span>
+            </a>
+            <div class="navbar-tools ms-auto">
+                <button type="button" class="theme-toggle" data-theme-toggle aria-label="Theme: System. Switch to Light" title="Theme">
+                    <x-icon name="sun-moon" :size="16" class="theme-icon theme-icon-system" />
+                    <x-icon name="sun" :size="16" class="theme-icon theme-icon-light" />
+                    <x-icon name="moon" :size="16" class="theme-icon theme-icon-dark" />
+                </button>
+            </div>
+        </div>
+    </nav>
+    @elseif(!$isChromeless)
     <nav class="navbar navbar-expand-lg">
         <div class="container d-flex align-items-center">
             {{-- Brand lockup: 28px mark + 15px wordmark (handoff §4) --}}
@@ -100,6 +132,7 @@
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('bookmarks.*') ? 'active' : '' }}" @if(request()->routeIs('bookmarks.*')) aria-current="page" @endif href="{{ route('bookmarks.index') }}">Highlights</a>
                     </li>
+                    @can('admin')
                     @php $systemActive = request()->routeIs('commands.*') || request()->routeIs('logs.*') || request()->routeIs('health.*') || request()->routeIs('activity.*'); @endphp
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle {{ $systemActive ? 'active' : '' }}" href="#" id="systemDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" @if($systemActive) aria-current="true" @endif>System</a>
@@ -113,6 +146,7 @@
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('settings.*') ? 'active' : '' }}" @if(request()->routeIs('settings.*')) aria-current="page" @endif href="{{ route('settings.index') }}">Settings</a>
                     </li>
+                    @endcan
                 </ul>
 
                 <div class="navbar-tools">
@@ -130,21 +164,45 @@
                         <x-icon name="sun" :size="16" class="theme-icon theme-icon-light" />
                         <x-icon name="moon" :size="16" class="theme-icon theme-icon-dark" />
                     </button>
+                    {{-- Sign-in on: who is signed in, their account, sign out. --}}
+                    @if($navUser)
+                        <div class="dropdown nav-account">
+                            <button type="button" class="nav-account-btn" id="accountMenuBtn" data-bs-toggle="dropdown" aria-expanded="false" title="Signed in as {{ $navUser->username }}">
+                                <x-icon name="user" :size="16" />
+                                <span class="nav-account-name">{{ $navUser->name }}</span>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="accountMenuBtn">
+                                <li><span class="dropdown-item-text nav-account-meta">Signed in as <strong>{{ $navUser->username }}</strong></span></li>
+                                <li><a class="dropdown-item {{ request()->routeIs('account') ? 'active' : '' }}" href="{{ route('account') }}">Account</a></li>
+                                <li>
+                                    <form method="POST" action="{{ route('logout') }}" data-turbo="false">
+                                        @csrf
+                                        <button type="submit" class="dropdown-item">Sign out</button>
+                                    </form>
+                                </li>
+                            </ul>
+                        </div>
+                    @endif
                 </div>
             </div>
         </div>
     </nav>
-    @endunless
+    @endif
 
     {{-- Shown by resources/js/funnel.js while Tailscale Funnel exposes this
-         instance to the public internet. Amber = warning (status triad). --}}
+         instance to the public internet. Amber = warning (status triad).
+         Admin only: the state comes from an admin endpoint. --}}
+    @can('admin')
+    @unless($isGuestShell)
     <div id="funnelBanner" class="funnel-banner d-none" role="status">
         <div class="container funnel-banner-inner">
             <x-icon name="triangle-alert" :size="14" class="icon" />
-            <span class="funnel-banner-text"><strong>Funnel is on.</strong> Novarr is reachable from the public internet, with no login in front of it.</span>
+            <span class="funnel-banner-text"><strong>Funnel is on.</strong> Novarr is reachable from the public internet{{ $authOn ? '' : ', with no login in front of it' }}.</span>
             <a href="{{ route('settings.index') }}#tailscaleCard" class="funnel-banner-link">Turn off in Settings</a>
         </div>
     </div>
+    @endunless
+    @endcan
 
     <main class="py-4" id="main-content" tabindex="-1">
         <div class="container">
@@ -171,10 +229,12 @@
         </div>
     </main>
 
-    @unless($isChromeless)
+    @unless($isChromeless || $isGuestShell)
         @include('partials.tabbar')
     @endunless
-    @include('partials.palette')
+    @unless($isGuestShell)
+        @include('partials.palette')
+    @endunless
 
     <!-- Scripts -->
     @stack('scripts')

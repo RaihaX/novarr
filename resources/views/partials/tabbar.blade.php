@@ -3,8 +3,11 @@
     Rendered by layouts/app.blade.php on every page except the chromeless
     reader. The sheet uses window.Novarr.openSheet (resources/js/modal.js):
     focus trap, inert page, Esc / backdrop to close, focus back to "More".
+    Readers (sign-in on, not the admin) get no Discover tab and no System
+    links; with sign-in on the sheet also has Account and Sign out.
 --}}
 @php
+    $tabAdmin = Gate::allows('admin');
     $tabHome = request()->routeIs('home', 'continue');
     $tabDiscover = request()->routeIs('novels.discover*');
     $tabLibrary = request()->routeIs('novels.*') && !$tabDiscover;
@@ -14,13 +17,16 @@
         ['route' => 'bookmarks.index', 'match' => 'bookmarks.*', 'label' => 'Highlights', 'icon' => 'highlighter'],
         ['route' => 'stats.index', 'match' => 'stats.*', 'label' => 'Stats', 'icon' => 'chart-column'],
     ];
-    $systemLinks = [
+    if (!empty($navUser)) {
+        $moreLinks[] = ['route' => 'account', 'match' => 'account', 'label' => 'Account', 'icon' => 'user', 'meta' => $navUser->username];
+    }
+    $systemLinks = $tabAdmin ? [
         ['route' => 'activity.index', 'match' => 'activity.*', 'label' => 'Activity', 'icon' => 'activity'],
         ['route' => 'commands.index', 'match' => 'commands.*', 'label' => 'Commands', 'icon' => 'terminal'],
         ['route' => 'logs.index', 'match' => 'logs.*', 'label' => 'Logs', 'icon' => 'scroll-text'],
         ['route' => 'health.index', 'match' => 'health.*', 'label' => 'Health', 'icon' => 'heart-pulse'],
         ['route' => 'settings.index', 'match' => 'settings.*', 'label' => 'Settings', 'icon' => 'settings'],
-    ];
+    ] : [];
     $tabMore = collect($moreLinks)->merge($systemLinks)->contains(fn($l) => request()->routeIs($l['match']));
 @endphp
 <nav class="tabbar" aria-label="Primary">
@@ -32,10 +38,12 @@
         <x-icon name="library" :size="22" />
         <span>Library</span>
     </a>
+    @can('admin')
     <a href="{{ route('novels.discover') }}" class="tabbar-item {{ $tabDiscover ? 'is-active' : '' }}" @if($tabDiscover) aria-current="page" @endif>
         <x-icon name="compass" :size="22" />
         <span>Discover</span>
     </a>
+    @endcan
     {{-- Opens the command palette; plain link to /search without JS. --}}
     <a href="{{ route('search.index') }}" class="tabbar-item {{ $tabSearch ? 'is-active' : '' }}" data-palette-open aria-haspopup="dialog" @if($tabSearch) aria-current="page" @endif>
         <x-icon name="search" :size="22" />
@@ -64,6 +72,7 @@
                 </li>
             @endforeach
         </ul>
+        @can('admin')
         <div class="nv-sheet-sep" role="presentation"></div>
         <h3 class="nv-sheet-title" id="moreSheetSystem">System</h3>
         <ul class="nv-sheet-list" aria-labelledby="moreSheetSystem">
@@ -77,6 +86,7 @@
                 </li>
             @endforeach
         </ul>
+        @endcan
         <div class="nv-sheet-sep" role="presentation"></div>
         <ul class="nv-sheet-list">
             <li>
@@ -89,6 +99,17 @@
                     <span class="nv-sheet-item-meta" data-theme-label>System</span>
                 </button>
             </li>
+            @if(!empty($navUser))
+            <li>
+                <form method="POST" action="{{ route('logout') }}" data-turbo="false">
+                    @csrf
+                    <button type="submit" class="nv-sheet-item">
+                        <x-icon name="log-out" :size="20" />
+                        <span>Sign out</span>
+                    </button>
+                </form>
+            </li>
+            @endif
         </ul>
     </div>
 </div>

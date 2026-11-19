@@ -114,11 +114,14 @@ export function novelMeta(n) {
  *
  * @param {string} query
  * @param {{novels?: Array, chapters?: Array}|null} data  server results for serverQuery(query)
- * @param {{nav?: Array, recents?: Array, searchUrl?: string}} ctx
+ * @param {{nav?: Array, recents?: Array, searchUrl?: string, commands?: boolean}} ctx
+ *        commands: false for a reader account (sign-in on, not the admin) —
+ *        no command entries, completions or remembered commands.
  * @returns {Array<{id: string, label: string, items: Array}>}
  */
-export function buildGroups(query, data, { nav = [], recents = [], searchUrl = '/search' } = {}) {
+export function buildGroups(query, data, { nav = [], recents = [], searchUrl = '/search', commands = true } = {}) {
     const q = String(query ?? '').trim();
+    if (!commands) recents = recents.filter((r) => r.kind !== 'command');
     const novels = data?.novels ?? [];
     const chapters = data?.chapters ?? [];
     const groups = [];
@@ -142,7 +145,7 @@ export function buildGroups(query, data, { nav = [], recents = [], searchUrl = '
         return groups;
     }
 
-    const parsed = parseCommand(q);
+    const parsed = commands ? parseCommand(q) : null;
 
     // Commands: an exact verb + novel words → one entry per matching novel;
     // otherwise offer verbs that fuzzy-match as completions.
@@ -159,7 +162,7 @@ export function buildGroups(query, data, { nav = [], recents = [], searchUrl = '
                 title: `${parsed.cmd.title}…`, meta: 'Type a novel name', icon: parsed.cmd.icon,
             });
         }
-    } else {
+    } else if (commands) {
         NOVEL_COMMANDS
             .map((c) => ({ c, s: bestScore(q, c.verb, c.title) }))
             .filter(({ s }) => s >= 400)
@@ -342,6 +345,7 @@ function update(query, data) {
     const cfg = navConfig();
     state.groups = buildGroups(query, data, {
         nav: cfg.nav || [], recents: readRecents(), searchUrl: cfg.searchUrl || '/search',
+        commands: cfg.commands !== false,
     });
     state.items = flatten(state.groups);
     state.active = 0; // first result pre-selected

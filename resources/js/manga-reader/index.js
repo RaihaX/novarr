@@ -274,6 +274,9 @@ export function mount(root) {
     }
 
     function saveMode(m) {
+        // No URL: a reader account (the series' mode is the admin's to
+        // change) — the shortcut still switches this visit's view.
+        if (!ds.modeUrl) return;
         fetch(ds.modeUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': csrf() },

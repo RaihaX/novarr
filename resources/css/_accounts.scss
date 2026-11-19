@@ -1,0 +1,169 @@
+// ===========================================================================
+// Accounts — sign-in page, the navbar account menu, Account and
+// Settings → Users. Theme tokens ($t-*) so both themes follow.
+// ===========================================================================
+
+// --- Sign-in page (and the 403 page) ----------------------------------------
+body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
+
+.auth-page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: $s-8;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 380px;
+
+    .card-body { padding: $s-7; }
+}
+
+.auth-brand {
+    display: flex;
+    justify-content: center;
+    margin-bottom: $s-5;
+}
+
+.auth-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: $s-6;
+}
+
+.auth-form .form-row { margin-bottom: $s-5; }
+
+.auth-note {
+    margin-top: $s-4;
+    text-align: center;
+}
+
+.auth-help {
+    margin-top: $s-5;
+    color: $t-text-muted;
+    font-size: 0.8125rem;
+    text-align: center;
+}
+
+// --- Navbar account menu ------------------------------------------------------
+.nav-account-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: $s-2;
+    height: 34px;
+    max-width: 180px;
+    padding: 0 $s-3;
+    color: $t-text-muted;
+    background: transparent;
+    border: $hairline solid $t-border;
+    border-radius: $radius;
+    transition: $transition;
+    @include focus-ring;
+
+    &:hover,
+    &[aria-expanded="true"] {
+        color: $t-text;
+        background: $t-surface-alt;
+    }
+}
+
+.nav-account-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nav-account-meta {
+    color: $t-text-muted;
+    font-size: 0.8125rem;
+}
+
+.dropdown-menu form .dropdown-item { width: 100%; text-align: start; }
+
+// --- Settings → Users link card ---------------------------------------------
+.settings-link-card {
+    color: inherit;
+    text-decoration: none;
+
+    &:hover,
+    &:focus-visible { background: $t-surface-alt; }
+}
+
+// --- Account: signed-in devices ---------------------------------------------
+.account-devices,
+.users-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.account-device,
+.users-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-4;
+    padding: $s-4 0;
+    border-top: $hairline solid $t-border;
+
+    &:first-child { border-top: 0; }
+}
+
+.account-device-main,
+.users-row-main {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+
+.link-code-input {
+    max-width: 12ch;
+    font-family: $font-mono;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+// --- Settings → Users --------------------------------------------------------
+.users-name { font-weight: 600; }
+
+.users-meta {
+    display: block;
+    color: $t-text-muted;
+    font-size: 0.8125rem;
+}
+
+.users-username { font-family: $font-mono; }
+
+.users-off { color: $warning; font-weight: 600; }
+
+.users-row.is-disabled .users-name { color: $t-text-muted; }
+
+.users-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: $s-2;
+}
+
+.users-detail {
+    > summary {
+        list-style: none;
+
+        &::-webkit-details-marker { display: none; }
+    }
+
+    &[open] {
+        flex-basis: 100%;
+        order: 1;
+    }
+}
+
+.users-form {
+    margin-top: $s-4;
+    padding: $s-5;
+    background: $t-surface-alt;
+    border-radius: $radius;
+
+    .form-row { margin-bottom: $s-4; }
+}
