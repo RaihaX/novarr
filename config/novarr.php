@@ -346,13 +346,29 @@ return [
     | searches_per_window /    — per-account rate limit on starting a
     | search_window_minutes      search (default 12 per 10 minutes).
     | search_budget_seconds    — overall time a search may take; sources not
-    |                            asked by then are skipped.
+    |                            answered by then are skipped (timeout).
+    | search_parallelism       — sources asked at the same time by one search,
+    |                            each batch in its own PHP process
+    |                            (App\Services\Requests\ProcessSearchRunner).
+    |                            Sources on one host (every Suwayomi entry)
+    |                            are always asked one after another. 1 = all
+    |                            sources one after another in the web process.
+    | search_cache_minutes     — a finished search's results are reused for
+    |                            the same medium + query (by anyone) this
+    |                            long; a search that skipped a source only 2
+    |                            minutes. 0 = never reused.
     | max_sources_per_search   — sources asked per search (source_order
     |                            first, then Discover order).
     | max_pending_per_reader   — a reader's pending requests (the admin is
     |                            not limited).
     | max_candidates           — sources kept on a request (one per source).
     | rank_budget_seconds      — overall time evaluating a manga shortlist.
+    | rank_tie_chapters /      — a shortlist's top tier: candidates within
+    | rank_tie_percent           max(rank_tie_chapters, rank_tie_percent % of
+    |                            the best count) chapters of the best count
+    |                            are ordered by most recently updated, so a
+    |                            stale source does not win on a handful of
+    |                            chapters.
     | source_order             — preferred sources, best first: a source key
     |                            ("mangadex"), a Discover entry ("suwayomi:123")
     |                            or a base key covering all its entries
@@ -368,10 +384,14 @@ return [
         'searches_per_window' => (int) env('NOVARR_REQUESTS_SEARCHES_PER_WINDOW', 12),
         'search_window_minutes' => (int) env('NOVARR_REQUESTS_SEARCH_WINDOW_MINUTES', 10),
         'search_budget_seconds' => (int) env('NOVARR_REQUESTS_SEARCH_BUDGET_SECONDS', 90),
+        'search_parallelism' => (int) env('NOVARR_REQUESTS_SEARCH_PARALLELISM', 4),
+        'search_cache_minutes' => (int) env('NOVARR_REQUESTS_SEARCH_CACHE_MINUTES', 10),
         'max_sources_per_search' => (int) env('NOVARR_REQUESTS_MAX_SOURCES_PER_SEARCH', 12),
         'max_pending_per_reader' => (int) env('NOVARR_REQUESTS_MAX_PENDING_PER_READER', 5),
         'max_candidates' => (int) env('NOVARR_REQUESTS_MAX_CANDIDATES', 8),
         'rank_budget_seconds' => (int) env('NOVARR_REQUESTS_RANK_BUDGET_SECONDS', 300),
+        'rank_tie_chapters' => (int) env('NOVARR_REQUESTS_RANK_TIE_CHAPTERS', 3),
+        'rank_tie_percent' => (float) env('NOVARR_REQUESTS_RANK_TIE_PERCENT', 2),
         'source_order' => array_values(array_filter(array_map(
             'trim',
             explode(',', (string) env('NOVARR_REQUESTS_SOURCE_ORDER', 'mangadex'))

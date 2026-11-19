@@ -131,13 +131,38 @@ data class ReaderRequest(
     @Serializable(with = CandidateList::class) val candidates: List<RequestCandidate> = emptyList(),
     @SerialName("candidates_ranked_at") val candidatesRankedAt: String? = null,
     @SerialName("can_decide") val canDecide: Boolean = false,
-    @SerialName("can_cancel") val canCancel: Boolean = false,
+    /**
+     * The server lets this account withdraw it: the requester while pending,
+     * a follower while pending or approved (not yet available). Null when the
+     * server didn't say (an older server).
+     */
+    @SerialName("can_cancel") val canCancel: Boolean? = null,
+    /** How many other readers joined it ("Me too"); absent on older servers. */
+    @SerialName("also_wanted_by") @Serializable(with = LooseCount::class) val alsoWantedBy: Int = 0,
+    /** This account's part in it: requester | follower; null when neither (or an older server). */
+    @Serializable(with = LooseString::class) val mine: String? = null,
+    /** The admin view: who joined it. */
+    @Serializable(with = RequesterList::class) val followers: List<Requester> = emptyList(),
 ) {
     val isManga: Boolean get() = medium == "manga"
+
+    /** This account joined someone else's request ("Me too") rather than making it. */
+    val isFollower: Boolean get() = mine == "follower"
 }
 
 @Serializable
 data class RequestEnvelope(val request: ReaderRequest)
+
+/**
+ * POST /requests from a search result: 201 {request, joined: false} for a
+ * new request, 200 {request, joined: true} when it joined someone else's
+ * ("Me too"). Older servers send no `joined`.
+ */
+@Serializable
+data class CreatedRequest(
+    @Serializable(with = ReaderRequestOrNull::class) val request: ReaderRequest? = null,
+    val joined: Boolean = false,
+)
 
 /** GET /requests. [pendingLimit] is null in the admin view (no limit). */
 @Serializable
@@ -180,6 +205,7 @@ object ResultSourceList : LossyListSerializer<ResultSource>(ResultSource.seriali
 object SearchResultList : LossyListSerializer<SearchResult>(SearchResult.serializer())
 object SkippedSourceList : LossyListSerializer<SkippedSource>(SkippedSource.serializer())
 object ReaderRequestList : LossyListSerializer<ReaderRequest>(ReaderRequest.serializer())
+object RequesterList : LossyListSerializer<Requester>(Requester.serializer())
 object FeedItemList : LossyListSerializer<FeedItem>(FeedItem.serializer())
 object ResultRequestedOrNull : OrNullSerializer<ResultRequested>(ResultRequested.serializer())
 object RequesterOrNull : OrNullSerializer<Requester>(Requester.serializer())
@@ -206,6 +232,19 @@ object CandidateList : KSerializer<List<RequestCandidate>> {
     }
 
     override fun serialize(encoder: Encoder, value: List<RequestCandidate>) = strict.serialize(encoder, value)
+}
+
+/** A count: a whole number (or one in a string), never negative; 0 for anything else. */
+object LooseCount : KSerializer<Int> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("LooseCount", PrimitiveKind.INT)
+
+    override fun deserialize(decoder: Decoder): Int {
+        val json = decoder as? JsonDecoder ?: return decoder.decodeInt().coerceAtLeast(0)
+        val element = json.decodeJsonElement()
+        return ((element as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content?.trim()?.toIntOrNull() ?: 0).coerceAtLeast(0)
+    }
+
+    override fun serialize(encoder: Encoder, value: Int) = encoder.encodeInt(value)
 }
 
 /** A string, number or boolean as text; null for null, objects and arrays. */

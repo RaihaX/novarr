@@ -218,6 +218,14 @@
 
 .req-row-detail { color: $text; }
 
+// "You joined this request" (My requests) / "Also wanted by Ana, Ben" (review).
+.req-row-joined,
+.req-row-also {
+    font-size: 13px;
+    color: $text-soft;
+    overflow-wrap: anywhere;
+}
+
 .req-row-label { color: $text-soft; }
 
 .req-row-note { white-space: pre-line; }

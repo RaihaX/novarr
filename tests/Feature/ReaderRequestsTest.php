@@ -146,9 +146,15 @@ class ReaderRequestsTest extends TestCase
         $this->assertSame('pending', $response->json('request.status'));
         $this->assertFalse($response->json('request.can_decide'));
         $this->assertTrue($response->json('request.can_cancel'));
+        // Every field an old client reads, in the same order; the "Me too" fields after them.
         $this->assertSame(['id', 'title', 'author', 'cover_url', 'description', 'medium', 'note', 'link', 'status', 'decline_reason',
-            'requested_by', 'novel_id', 'created_at', 'decided_at', 'available_at', 'candidates', 'candidates_ranked_at', 'can_decide', 'can_cancel'],
+            'requested_by', 'novel_id', 'created_at', 'decided_at', 'available_at', 'candidates', 'candidates_ranked_at', 'can_decide', 'can_cancel',
+            'also_wanted_by', 'mine', 'followers'],
             array_keys($response->json('request')));
+        $this->assertFalse($response->json('joined'));
+        $this->assertSame(0, $response->json('request.also_wanted_by'));
+        $this->assertSame('requester', $response->json('request.mine'));
+        $this->assertNull($response->json('request.followers'), 'names of other readers are for the admin view only');
 
         // The ranking job ran after the response: evaluated sequentially, best first.
         $request->refresh();
@@ -196,26 +202,28 @@ class ReaderRequestsTest extends TestCase
         $this->freeText('Solo Leveling', null, 'novel')->assertStatus(201);
     }
 
-    public function test_a_work_already_requested_is_refused_and_says_whose(): void
+    public function test_a_work_already_requested_is_refused_for_the_requester_and_joined_by_someone_else(): void
     {
         $mine = $this->requestSolo()->assertStatus(201)->json('request.id');
 
         $again = $this->requestSolo()->assertStatus(409);
         $again->assertJsonPath('code', 'already_requested')->assertJsonPath('by_me', true)->assertJsonPath('request_id', $mine)->assertJsonPath('status', 'pending');
 
+        // The search marks it for someone else (an old client shows "Requested").
         $kim = $this->tokenFor($this->makeReader('kim', 'Kim'));
-        $theirs = $this->freeText('Solo Leveling!', $kim, 'manga')->assertStatus(409);
-        $theirs->assertJsonPath('by_me', false)->assertJsonPath('request_id', null);
-        $this->assertStringStartsWith('Someone has already requested this', $theirs->json('message'));
-
-        // The search marks it.
         [$id] = $this->search($kim);
         $this->asToken($kim)->getJson("/api/v1/requests/searches/{$id}")
             ->assertJsonPath('search.results.0.requested', ['status' => 'pending', 'by_me' => false]);
 
+        // Asking anyway joins it ("Me too"; RequestFollowersTest has the rest).
+        $theirs = $this->freeText('Solo Leveling!', $kim, 'manga')->assertOk();
+        $theirs->assertJsonPath('joined', true)->assertJsonPath('request.id', $mine)->assertJsonPath('request.mine', 'follower');
+        $this->assertSame(1, NovelRequest::count());
+
         // A declined request does not block a new one.
         NovelRequest::whereKey($mine)->update(['status' => 'declined']);
-        $this->freeText('Solo Leveling', $kim, 'manga')->assertStatus(201);
+        $this->travel(61)->seconds();
+        $this->freeText('Solo Leveling', $kim, 'manga')->assertStatus(201)->assertJsonPath('joined', false);
     }
 
     public function test_a_free_text_request_keeps_plain_text_and_never_fetches_the_link(): void
@@ -444,6 +452,24 @@ class ReaderRequestsTest extends TestCase
         $this->assertSame('https://manga-a.test/solo', NovelRequest::find($id)->candidates[0]['url']);
         $novel = $this->freeText('Text one')->json('request.id');
         $this->asToken($this->ownerToken)->postJson("/api/v1/requests/{$novel}/rerank")->assertStatus(422)->assertJsonPath('code', 'nothing_to_rank');
+    }
+
+    public function test_a_source_a_chapter_behind_but_fresher_is_ranked_first_and_says_why(): void
+    {
+        FakeRequestSource::$stats['https://manga-a.test/solo'] = ['numbers' => array_map('strval', range(1, 199)), 'updated_at' => now()->subDay()->subHour()->toIso8601String()];
+
+        $id = $this->requestSolo()->json('request.id');
+
+        $candidates = NovelRequest::find($id)->candidates;
+        $this->assertSame(['https://manga-a.test/solo', 'https://manga-b.test/solo'], array_column($candidates, 'url'));
+        $this->assertSame('199 English chapters, no gaps, updated yesterday — 1 fewer than Fake B (manga) but more recent', $candidates[0]['reason']);
+        $this->assertSame('200 English chapters, no gaps, updated 40 days ago — 1 more than Fake A (manga), but updated less recently', $candidates[1]['reason']);
+        $this->assertArrayNotHasKey('top_tier', $candidates[0]);
+
+        // A narrower tier (config): chapters decide again.
+        config(['novarr.requests.rank_tie_chapters' => 0, 'novarr.requests.rank_tie_percent' => 0]);
+        $this->asToken($this->ownerToken)->postJson("/api/v1/requests/{$id}/rerank")->assertStatus(202);
+        $this->assertSame('https://manga-b.test/solo', NovelRequest::find($id)->candidates[0]['url']);
     }
 
     public function test_a_candidate_whose_source_fails_ranks_last_with_an_error(): void

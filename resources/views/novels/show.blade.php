@@ -135,7 +135,7 @@
         @if($continue_chapter_id)
             <a href="{{ route('chapters.show', $continue_chapter_id) }}" class="btn btn-primary nv-continue">
                 <x-icon name="play" :size="13" />
-                @if($read_count > 0 || !empty($continue_page_number))
+                @if($read_count > 0 || !empty($continue_started) || !empty($continue_page_number))
                     Continue{{ $continueLabel ? ' at ' . $continueLabel : ' reading' }}{{ !empty($continue_page_number) ? ', page ' . number_format($continue_page_number) : '' }}
                 @else
                     Start reading

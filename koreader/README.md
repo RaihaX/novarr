@@ -67,6 +67,13 @@ manager): look for **Novarr**, **Novarr: next chapter** and
   they will take, your reading stats (below), and these actions: *Continue / Start
   reading*, *Chapters*, *Check for new chapters*, *Download for offline…*, *Remove
   downloads*, *Mark all as read*, *Download as EPUB* and *About this novel*.
+- **Continue** opens the same chapter on every device (the Kindle, the phone apps and
+  the website; since 1.10.1): the chapter you read last if you have not finished it
+  (or are only part-way into it again), otherwise the first unread chapter after it.
+  Unread chapters earlier in the novel, and chapters you left half-read long ago, do
+  not pull you back. Reading on this Kindle that has not reached the server yet
+  counts at once. *Download for offline… Next N unread* starts at that chapter and
+  includes it even when it is marked read but not finished.
 - **Chapters** lists every chapter in order and opens on the one you are reading.
   On the right: `40%` for a chapter you are part-way through, ● when it is saved on
   the device, ✓ when it is read. The magnifier at the top left jumps to a chapter

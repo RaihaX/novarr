@@ -143,7 +143,7 @@ struct NovelView: View {
 
     @ViewBuilder
     private func primaryButton(_ summary: NovelSummary) -> some View {
-        if let resume = summary.resumeChapterId {
+        if let resume = model.resumeChapterId {
             // A real button (not an invisible link) so VoiceOver can activate
             // it; the destination is pushed on this stack.
             Button {

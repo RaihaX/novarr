@@ -8,7 +8,8 @@ import java.security.MessageDigest
  * Where an in-app update is: Idle (offer "Update") → Downloading → Verifying
  * → NeedsPermission (only while Android won't let Novarr install apps yet) →
  * AwaitingConfirmation (the system's install dialog) → the new version
- * starts, or back to Idle (cancelled) or Failed.
+ * starts, or Failed. A retry with the file already downloaded and checked
+ * skips the download: Idle/Failed → Verifying ([UpdateEvent.Reuse]).
  */
 sealed interface UpdateState {
     data object Idle : UpdateState
@@ -32,13 +33,31 @@ enum class UpdateFailure(val message: String) {
     Mismatch("The download didn't match the server's file. Try again."),
     Signature("This build is signed differently from the installed app. Uninstall Novarr and install it again from the link."),
     Storage("There isn't enough storage to install the update. Free some space and try again."),
+
+    /** Android refused to start the install (a device policy), before any dialog. */
     Blocked("This device blocked the install. Try installing it from the browser instead."),
     Invalid("The downloaded file isn't a valid app. Try again, or install it from the browser."),
-    Other("The update couldn't be installed. Try again, or install it from the browser."),
+
+    /**
+     * Any other install that didn't go through, including "aborted": Google
+     * Play Protect's "Harmful app blocked" (a false positive on a sideloaded
+     * app) ends the session just like the user cancelling, so the two can't
+     * be told apart. The downloaded file is kept for the retry.
+     */
+    Unfinished("The install didn't finish. If Google Play Protect blocked it, tap Update again, then More details → Install anyway.");
+
+    /** Whether the downloaded file is still good for a retry (only an install that merely didn't finish). */
+    val keepsFile: Boolean get() = this == Unfinished
 }
 
 sealed interface UpdateEvent {
     data object Start : UpdateEvent
+
+    /** Retry with the file a previous attempt downloaded: it is checked again, not downloaded. */
+    data object Reuse : UpdateEvent
+
+    /** The kept file no longer matched meta: download it after all. */
+    data object Redownload : UpdateEvent
     data class Progress(val received: Long, val total: Long?) : UpdateEvent
     data object Downloaded : UpdateEvent
 
@@ -71,6 +90,10 @@ object UpdateMachine {
     fun reduce(state: UpdateState, event: UpdateEvent): UpdateState = when (event) {
         UpdateEvent.Start ->
             if (state is UpdateState.Idle || state is UpdateState.Failed) UpdateState.Downloading(0, null) else state
+        UpdateEvent.Reuse ->
+            if (state is UpdateState.Idle || state is UpdateState.Failed) UpdateState.Verifying else state
+        UpdateEvent.Redownload ->
+            if (state is UpdateState.Verifying) UpdateState.Downloading(0, null) else state
         is UpdateEvent.Progress ->
             if (state is UpdateState.Downloading) UpdateState.Downloading(event.received, event.total) else state
         UpdateEvent.Downloaded ->
@@ -93,18 +116,47 @@ object UpdateMachine {
         STATUS_PENDING_USER_ACTION -> UpdateState.AwaitingConfirmation
         // Android replaces (and restarts) the process; nothing is left to show.
         STATUS_SUCCESS -> UpdateState.Idle
-        // The user said no in the system dialog: offer the update again.
-        STATUS_FAILURE_ABORTED -> UpdateState.Idle
+        // Cancelled in the system dialog, or Play Protect blocked it (the same status): say what to do.
         else -> UpdateState.Failed(failureFor(status))
     }
 
+    /**
+     * The reason for a failed install status. Only what the app can tell for
+     * sure gets its own message; everything else (aborted, blocked, a
+     * generic failure, an unknown status) is [UpdateFailure.Unfinished].
+     */
     fun failureFor(status: Int): UpdateFailure = when (status) {
         STATUS_FAILURE_CONFLICT, STATUS_FAILURE_INCOMPATIBLE -> UpdateFailure.Signature
         STATUS_FAILURE_STORAGE -> UpdateFailure.Storage
-        STATUS_FAILURE_BLOCKED -> UpdateFailure.Blocked
         STATUS_FAILURE_INVALID -> UpdateFailure.Invalid
-        else -> UpdateFailure.Other
+        else -> UpdateFailure.Unfinished
     }
+
+    /**
+     * What the banner and the Settings row show for build [build] while the
+     * updater is at [state] for build [stateBuild]. [unfinishedBuild] is the
+     * build whose last install didn't finish (saved, so it outlives a
+     * restart; null: none). A failure that belongs to an older build than
+     * the one now offered is forgotten; an idle updater for the build whose
+     * install didn't finish shows that message again, until an attempt
+     * succeeds (the app is replaced) or a newer build appears.
+     */
+    fun shown(state: UpdateState, stateBuild: Int?, build: Int?, unfinishedBuild: Int?): UpdateState = when {
+        state is UpdateState.Failed && stateBuild != build -> UpdateState.Idle
+        state is UpdateState.Idle && build != null && build == unfinishedBuild -> UpdateState.Failed(UpdateFailure.Unfinished)
+        else -> state
+    }
+
+    /**
+     * Whether to show the one-line Play Protect hint ("Android may warn…")
+     * under the notice: only while it offers "Update" ([shown] is Idle) and
+     * before the first in-app install attempt of [build]. [attemptedBuild] is
+     * the newest build an attempt was started for (null: never).
+     */
+    fun showsInstallHint(shown: UpdateState, build: Int?, attemptedBuild: Int?): Boolean =
+        shown is UpdateState.Idle && (build == null || attemptedBuild == null || attemptedBuild < build)
+
+    const val INSTALL_HINT = "Android may warn about apps from outside the Play Store. Choose More details → Install anyway."
 }
 
 /** Checks a downloaded APK against the size and SHA-256 the server's meta gives. */

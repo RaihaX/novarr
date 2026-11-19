@@ -112,9 +112,11 @@ end
 --[[--
 Chapter ids to download for a "Download for offline" choice.
 mode: "unread" (next `limit` unread, limit nil = all unread) or "all".
-Starts at the resume chapter when given (unread mode), skips chapters the
-server has not downloaded and ones already stored (stored_set[id]).
-is_read(c) gives the effective read state.
+Starts at the resume chapter when given (unread mode) — included even when
+it is marked read but still being read (Model.unfinished: the web reader
+marks read on open) — skips chapters the server has not downloaded and ones
+already stored (stored_set[id]). is_read(c) gives the effective read state
+and progress.
 ]]
 function Model.downloadSelection(chapters, mode, limit, resume_id, stored_set, is_read)
     local out = {}
@@ -125,8 +127,11 @@ function Model.downloadSelection(chapters, mode, limit, resume_id, stored_set, i
     end
     for i = start, #(chapters or {}) do
         local c = chapters[i]
-        local read = c.read
-        if is_read then read = is_read(c) end
+        local read, progress = c.read, c.read_progress
+        if is_read then read, progress = is_read(c) end
+        if read and i == start and resume_id and c.id == resume_id and Model.unfinished(read, progress) then
+            read = false
+        end
         if c.downloaded and not stored_set[c.id] and (mode == "all" or not read) then
             table.insert(out, c.id)
             if limit and #out >= limit then break end
@@ -250,66 +255,78 @@ end
 -- ---------------------------------------------------------------- resume rule
 
 --[[--
-The chapter "Continue" opens, from the server's snapshot and this device's
-own reading (overlay entries, which only exist until a server snapshot that
-includes them arrives, so they are always newer than the cached snapshot).
+The chapter "Continue" opens: the rule every device shares (the server's
+App\Services\ResumePoint, which answers resume_chapter_id) applied to the
+server's answer plus this device's own reading not sent yet (overlay
+entries, which only exist until a server snapshot that includes them
+arrives, so they are newer than anything the snapshot knows).
 
     list            chapter list (reading order), rows {id, downloaded, read}
     server_id       the server's resume_chapter_id (may be nil)
     overlay         { ["<chapterId>"] = {read=bool|nil, progress=n|nil, at=ms} }
-    is_read(row)    effective read state (server row + overlay)
+    state(row)      effective read (bool) and progress (0..100|nil): server
+                    row + overlay (Store.effective)
 
 Rule:
-  * R = the furthest chapter this device marked read; Rn = the first
-    downloaded unread chapter after it.
-  * base = the further (in reading order) of Rn and the server's chapter.
-  * P = the part-read chapter (0 < progress < 100, not read) this device
-    touched most recently. A read chapter opened again (say, by paging back
-    into it) is not "being read" and never moves Continue back. If P was touched after the latest read
-    mark (or there is none), the user is reading P right now: P wins.
-  * Otherwise base. Marking a chapter unread never moves it.
-  * With no server chapter and nothing local: the first downloaded unread.
+  * The anchor is this device's most recent reading: the overlay entry with
+    the latest `at` (ties: the furthest in reading order) on a downloaded
+    chapter that is now read, or unread with a position of 1 % or more. A
+    chapter marked unread, or opened at 0 %, is not reading.
+  * No anchor: the server's chapter (it applied the same rule); without one,
+    the first downloaded unread chapter.
+  * An unfinished anchor is resumed: unread at 1-99 %, or read below 90 % (a
+    read chapter being re-read; the web reader marks read on open).
+  * Otherwise the first downloaded unread chapter after it; none (caught
+    up): the last downloaded chapter, as the server answers. Earlier
+    unread chapters and older part-read ones never pull back.
 Returns a chapter id or nil.
 ]]
-function Model.resolveResume(list, server_id, overlay, is_read)
+Model.READ_UNFINISHED_BELOW = 90
+
+--- Is a chapter in this state still being read (rule above)?
+function Model.unfinished(read, progress)
+    progress = tonumber(progress)
+    if not progress then return false end
+    if read then return progress < Model.READ_UNFINISHED_BELOW end
+    return progress >= 1 and progress <= 99
+end
+
+function Model.resolveResume(list, server_id, overlay, state)
     list = list or {}
     local pos = {}
     for i, c in ipairs(list) do pos[c.id] = i end
-    local read_pos, read_at = 0, nil
-    local part_pos, part_at = nil, nil
+    local anchor_pos, anchor_at = nil, nil
     for key, e in pairs(overlay or {}) do
         local p = pos[tonumber(key)]
-        if p and type(e) == "table" then
-            local at = tonumber(e.at) or 0
-            if e.read == true then
-                if p > read_pos then read_pos = p end
-                if not read_at or at > read_at then read_at = at end
-            elseif e.read == nil and e.progress and e.progress > 0 and e.progress < 100
-                    and not is_read(list[p]) then
-                if not part_at or at > part_at or (at == part_at and p > part_pos) then
-                    part_pos, part_at = p, at
+        if p and type(e) == "table" and list[p].downloaded then
+            local read, progress = state(list[p])
+            if read or (tonumber(progress) or 0) >= 1 then
+                local at = tonumber(e.at) or 0
+                if not anchor_at or at > anchor_at or (at == anchor_at and p > anchor_pos) then
+                    anchor_pos, anchor_at = p, at
                 end
             end
         end
     end
-    if part_pos and (not read_at or part_at > read_at) then
-        return list[part_pos].id
+    if not anchor_pos then
+        if server_id then return server_id end
+        for _i, c in ipairs(list) do
+            if c.downloaded and not state(c) then return c.id end
+        end
+        return nil
     end
-    local next_pos
-    if read_pos > 0 then
-        for i = read_pos + 1, #list do
-            local c = list[i]
-            if c.downloaded and not is_read(c) then next_pos = i break end
+    local anchor = list[anchor_pos]
+    if Model.unfinished(state(anchor)) then return anchor.id end
+    local last
+    for i = anchor_pos + 1, #list do
+        local c = list[i]
+        if c.downloaded then
+            if not state(c) then return c.id end
+            last = c
         end
     end
-    local server_pos = server_id and pos[server_id] or nil
-    if next_pos and (not server_pos or next_pos > server_pos) then return list[next_pos].id end
-    if server_pos then return server_id end
-    if part_pos then return list[part_pos].id end
-    for _i, c in ipairs(list) do
-        if c.downloaded and not is_read(c) then return c.id end
-    end
-    return server_id
+    -- Caught up: the last downloaded chapter (the anchor when nothing follows it).
+    return (last or anchor).id
 end
 
 --[[--

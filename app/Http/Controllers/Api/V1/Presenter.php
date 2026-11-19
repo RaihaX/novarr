@@ -4,15 +4,14 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\NovelState;
 use App\Http\Controllers\NovelController;
-use App\Http\Helpers\CacheHelper;
 use App\Novel;
 use App\NovelChapter;
 use App\Services\NovelHealth;
 use App\Services\ReadState;
+use App\Services\ResumePoint;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 /**
  * The one place the native app's JSON shapes are built (see the API v1
@@ -152,67 +151,18 @@ class Presenter
 
     /**
      * Each novel's chapter to open for Continue/Start for a reader (default:
-     * the current one), keyed by novel id: the first downloaded unread
-     * chapter after the one they read most recently (latest read date; ties
-     * go to the furthest in reading order), or the first downloaded chapter
-     * when nothing is read. When nothing unread is downloaded after it
-     * (caught up), the last downloaded chapter. Novels with nothing
-     * downloaded are absent.
-     *
-     * One statement for the whole library (window functions; reading order
-     * is exactly NovelChapter::scopeOrdered(), NULL sort_keys first on both
-     * SQLite and MySQL/MariaDB), each chapter joined to the reader's
-     * chapter_reads row by primary key; cached per reader like the Library
-     * index.
+     * the current one), keyed by novel id — App\Services\ResumePoint, the
+     * rule every surface shares: the chapter with the reader's most recent
+     * activity when it is unfinished, else the first downloaded unread
+     * chapter after it, the first downloaded chapter when nothing is read or
+     * started, and the last downloaded chapter when caught up. Novels with
+     * nothing downloaded are absent. One statement, cached per reader.
      *
      * @return array<int, int>
      */
     public static function resumeChapterIds(?int $userId = null): array
     {
-        $userId = app(ReadState::class)->userId($userId);
-
-        return CacheHelper::rememberForReader(CacheHelper::apiResumeKey($userId), CacheHelper::epoch(), 60, function () use ($userId) {
-            // Only rows that can be the anchor (read) or the target (downloaded).
-            $ranked = DB::table('novel_chapters as c')
-                ->leftJoin(ReadState::TABLE . ' as cr', function ($j) use ($userId) {
-                    $j->on('cr.novel_chapter_id', '=', 'c.id')->where('cr.user_id', '=', $userId);
-                })
-                ->where('c.blacklist', 0)
-                ->whereNull('c.deleted_at')
-                ->where(fn($q) => $q->where('c.status', 1)->orWhereNotNull('cr.read_at'))
-                ->selectRaw('c.id as id, c.novel_id as novel_id, c.status as status, cr.read_at as read_at, cr.progress as progress,
-                    ROW_NUMBER() OVER (PARTITION BY c.novel_id ORDER BY c.book, c.sort_key, c.chapter, c.id) as pos');
-
-            $anchored = DB::query()->fromSub($ranked, 'r')
-                ->selectRaw('id, novel_id, status, read_at, progress, pos,
-                    FIRST_VALUE(CASE WHEN read_at IS NOT NULL THEN pos END) OVER (
-                        PARTITION BY novel_id
-                        ORDER BY CASE WHEN read_at IS NULL THEN 1 ELSE 0 END, read_at DESC, pos DESC
-                    ) as anchor');
-
-            // 0 = a chapter abandoned part-way (the web Continue list resumes
-            // it too: HomeController::continueReading()), most recently read
-            // first; 1 = downloaded, unread and after the anchor; 2 = any
-            // other downloaded row (the fallback takes the last of them).
-            $prio = 'CASE WHEN status = 1 AND read_at IS NOT NULL AND progress IS NOT NULL AND progress < 90 THEN 0
-                WHEN status = 1 AND read_at IS NULL AND (anchor IS NULL OR pos > anchor) THEN 1
-                WHEN status = 1 THEN 2 ELSE 3 END';
-
-            $picked = DB::query()->fromSub($anchored, 'a')
-                ->selectRaw("id, novel_id, {$prio} as prio,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY novel_id
-                        ORDER BY {$prio}, CASE WHEN {$prio} = 0 THEN read_at END DESC,
-                            CASE WHEN {$prio} = 1 THEN pos ELSE 0 END, pos DESC
-                    ) as rn");
-
-            return DB::query()->fromSub($picked, 'p')
-                ->where('rn', 1)
-                ->where('prio', '<', 3)
-                ->pluck('id', 'novel_id')
-                ->mapWithKeys(fn($id, $novelId) => [(int) $novelId => (int) $id])
-                ->all();
-        });
+        return app(ResumePoint::class)->libraryChapterIds($userId);
     }
 
     /** `{"id","label","chapter","book"}`, plus `downloaded` for reader prev/next. */

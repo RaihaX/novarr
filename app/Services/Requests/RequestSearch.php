@@ -35,6 +35,19 @@ use Illuminate\Support\Facades\RateLimiter;
  * groups, skipped_sources, sources_asked, created_at, finished_at}. A
  * request made from a search names this record and a group key; the
  * server copies that group's hits from here (Requests::createFromSearch()).
+ *
+ * The sources are asked by a SearchRunner: ProcessSearchRunner asks up to
+ * novarr.requests.search_parallelism lanes at once, each in its own PHP
+ * process; a lane is the sources of one host (lanes()), asked one after
+ * another, so two calls never go to the same host at the same time.
+ *
+ * Results are remembered (cache "request_search_results_v1_*", see
+ * cacheKey()) for novarr.requests.search_cache_minutes per medium +
+ * normalised query, or PARTIAL_CACHE_MINUTES when a source was skipped. A
+ * search for remembered results — by anyone — is recorded as done at once:
+ * no slot, no rate-limit hit, nothing queued. Only the source answers are
+ * remembered; what depends on the reader (requested, in_library, signed
+ * covers) is worked out when the record is read (RequestPresenter).
  */
 class RequestSearch
 {
@@ -56,6 +69,9 @@ class RequestSearch
 
     /** Seconds a client is told to wait when every slot is taken. */
     public const BUSY_RETRY_SECONDS = 15;
+
+    /** How long results that skipped a source are remembered (so it is retried soon). */
+    public const PARTIAL_CACHE_MINUTES = 2;
 
     public static function key(string $id): string
     {
@@ -93,6 +109,28 @@ class RequestSearch
         return max(1, (int) config('novarr.requests.max_concurrent_searches', 3));
     }
 
+    /** Sources (lanes) asked at the same time by one search. */
+    public static function parallelism(): int
+    {
+        return max(1, (int) config('novarr.requests.search_parallelism', 4));
+    }
+
+    public static function cacheMinutes(): int
+    {
+        return max(0, (int) config('novarr.requests.search_cache_minutes', 10));
+    }
+
+    /** The query as results are remembered under: lower case, single spaces. */
+    public static function normalizeQuery(string $query): string
+    {
+        return mb_strtolower(trim(preg_replace('/\s+/u', ' ', $query) ?? ''));
+    }
+
+    public static function cacheKey(string $medium, string $query): string
+    {
+        return 'request_search_results_v1_' . sha1($medium . '|' . static::normalizeQuery($query));
+    }
+
     /**
      * Take the slots, record the search and queue it. Returns the record.
      *
@@ -102,6 +140,30 @@ class RequestSearch
     {
         $id = bin2hex(random_bytes(16));
         $ttl = static::slotSeconds();
+
+        // Remembered results: done at once, no slot, no rate-limit hit.
+        $remembered = $this->remembered($medium, $query);
+        if ($remembered !== null) {
+            $now = now()->toIso8601String();
+            $record = [
+                'id' => $id,
+                'user_id' => $userId,
+                'status' => 'done',
+                'message' => null,
+                'query' => $query,
+                'medium' => $medium,
+                'groups' => $remembered['groups'],
+                'skipped_sources' => $remembered['skipped_sources'],
+                'sources_asked' => $remembered['sources_asked'],
+                'slot' => null,
+                'cached' => true,
+                'created_at' => $now,
+                'finished_at' => $now,
+            ];
+            $this->store($record);
+
+            return $record;
+        }
 
         // One running search per account.
         if (!Cache::add(static::userSlotKey($userId), $id, $ttl)) {
@@ -202,6 +264,52 @@ class RequestSearch
         return array_slice($sources, 0, max(1, (int) config('novarr.requests.max_sources_per_search', 12)), true);
     }
 
+    /**
+     * The sources grouped into lanes: sources on one host (every Suwayomi
+     * entry is the one Suwayomi server) form one lane, asked one after
+     * another. Lanes with more sources come first (they take longest), then
+     * search order; within a lane, search order. Pure but for the sources'
+     * own discoverHost().
+     *
+     * @param  array<string, Source>  $sources  in search order
+     * @return array<int, string[]>
+     */
+    public static function lanes(array $sources): array
+    {
+        $lanes = [];
+        foreach ($sources as $key => $source) {
+            try {
+                $host = strtolower(trim($source->discoverHost()));
+            } catch (\Throwable) {
+                $host = '';
+            }
+            $lanes[$host !== '' ? $host : 'source:' . $key][] = (string) $key;
+        }
+        $lanes = array_values($lanes);
+        $position = array_flip(array_map(fn(array $lane) => $lane[0], $lanes));
+        usort($lanes, fn(array $a, array $b) => (count($b) <=> count($a)) ?: ($position[$a[0]] <=> $position[$b[0]]));
+
+        return $lanes;
+    }
+
+    /**
+     * Ask one source for the query: its raw Discover items, or null when it
+     * failed (threw or answered null). Used in this process
+     * (InlineSearchRunner) and in a lane process (requests:search-lane).
+     */
+    public static function ask(Source $source, string $key, string $query): ?array
+    {
+        try {
+            $items = $source->discover('search', $query);
+        } catch (\Throwable $e) {
+            Log::warning("Request search: {$key} threw: " . $e->getMessage());
+
+            return null;
+        }
+
+        return is_array($items) ? array_values(array_filter($items, 'is_array')) : null;
+    }
+
     /** Run a recorded search (the job's work); a no-op when it is gone or no longer running. */
     public function run(string $id, Discover $discover): void
     {
@@ -210,42 +318,94 @@ class RequestSearch
             return;
         }
 
-        $deadline = now()->getPreciseTimestamp(3) + static::budgetSeconds() * 1000;
+        $medium = (string) $record['medium'];
+        $query = (string) $record['query'];
+        $deadline = (int) now()->getPreciseTimestamp(3) + static::budgetSeconds() * 1000;
+        $sources = $this->sources($discover, $medium);
+        $answers = $this->runner()->run($medium, $query, static::lanes($sources), $sources, $deadline);
+
+        // Hits in search order, whatever order the sources answered in.
         $hits = [];
         $skipped = [];
         $asked = [];
-        foreach ($this->sources($discover, (string) $record['medium']) as $key => $source) {
+        foreach ($sources as $key => $source) {
             $key = (string) $key;
+            $answer = $answers[$key] ?? ['items' => null, 'reason' => 'failed', 'asked' => false];
+            if (!empty($answer['asked'])) {
+                $asked[] = $key;
+            }
+            if (!is_array($answer['items'] ?? null)) {
+                $skipped[] = ['source' => $key, 'source_name' => $this->label($source, $key), 'reason' => $answer['reason'] === 'timeout' ? 'timeout' : 'failed'];
+                continue;
+            }
             $name = $this->label($source, $key);
-            if (now()->getPreciseTimestamp(3) >= $deadline) {
-                $skipped[] = ['source' => $key, 'source_name' => $name, 'reason' => 'timeout'];
-                continue;
-            }
-            $asked[] = $key;
-            try {
-                $items = $source->discover('search', (string) $record['query']);
-            } catch (\Throwable $e) {
-                Log::warning("Request search {$id}: {$key} threw: " . $e->getMessage());
-                $items = null;
-            }
-            if ($items === null) {
-                $skipped[] = ['source' => $key, 'source_name' => $name, 'reason' => 'failed'];
-                continue;
-            }
-            foreach ($items as $item) {
+            foreach ($answer['items'] as $item) {
                 if (is_array($item)) {
                     $hits[] = ['key' => $key, 'name' => $name, 'item' => DiscoverController::item($item, $key)];
                 }
             }
         }
 
-        $this->finish($id, [
+        $outcome = [
             'status' => 'done',
             'message' => null,
-            'groups' => static::group($hits, (string) $record['medium'], (string) $record['query']),
+            'groups' => static::group($hits, $medium, $query),
             'skipped_sources' => $skipped,
             'sources_asked' => $asked,
-        ]);
+        ];
+        $this->finish($id, $outcome);
+        $this->remember($medium, $query, $outcome);
+    }
+
+    /** The runner the container gives (ProcessSearchRunner, or InlineSearchRunner). */
+    protected function runner(): SearchRunner
+    {
+        return app(SearchRunner::class);
+    }
+
+    /**
+     * Remember a finished search's answers: search_cache_minutes, or
+     * PARTIAL_CACHE_MINUTES when a source was skipped (failed or out of
+     * time), so a flaky source is asked again soon.
+     */
+    private function remember(string $medium, string $query, array $outcome): void
+    {
+        $minutes = static::cacheMinutes();
+        if ($minutes === 0) {
+            return;
+        }
+        if ($outcome['skipped_sources'] !== []) {
+            $minutes = min($minutes, self::PARTIAL_CACHE_MINUTES);
+        }
+        try {
+            Cache::put(static::cacheKey($medium, $query), [
+                'groups' => $outcome['groups'],
+                'skipped_sources' => $outcome['skipped_sources'],
+                'sources_asked' => $outcome['sources_asked'],
+                'at' => now()->toIso8601String(),
+            ], now()->addMinutes($minutes));
+        } catch (\Throwable $e) {
+            Log::warning('Request search: results not remembered: ' . $e->getMessage());
+        }
+    }
+
+    /** Remembered answers for this medium + query, or null. */
+    private function remembered(string $medium, string $query): ?array
+    {
+        if (static::cacheMinutes() === 0) {
+            return null;
+        }
+        try {
+            $cached = Cache::get(static::cacheKey($medium, $query));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return is_array($cached) && is_array($cached['groups'] ?? null) ? [
+            'groups' => $cached['groups'],
+            'skipped_sources' => array_values((array) ($cached['skipped_sources'] ?? [])),
+            'sources_asked' => array_values((array) ($cached['sources_asked'] ?? [])),
+        ] : null;
     }
 
     /**

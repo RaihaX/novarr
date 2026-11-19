@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -40,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -56,6 +58,8 @@ import studio.visns.novarr.api.ContinueItem
 import studio.visns.novarr.api.HomeFeed
 import studio.visns.novarr.api.NewChaptersItem
 import studio.visns.novarr.app.AppModel
+import studio.visns.novarr.domain.NewChapters
+import studio.visns.novarr.domain.ResumeRule
 import studio.visns.novarr.store.OfflineStore
 import studio.visns.novarr.ui.NovelRoute
 import studio.visns.novarr.ui.ReaderRoute
@@ -81,6 +85,14 @@ class HomeViewModel(private val app: AppModel) : ViewModel() {
         private set
     var refreshing by mutableStateOf(false)
         private set
+
+    /**
+     * The feed's Continue items, each adjusted for reading on this device not
+     * sent yet (offline) from the cached chapter list ([ResumeRule.adjusted]);
+     * the server's choice otherwise.
+     */
+    var continueItems by mutableStateOf<List<ContinueItem>>(emptyList())
+        private set
     private var loadedRevision = -1
     private var loadedAt = 0L
 
@@ -93,15 +105,37 @@ class HomeViewModel(private val app: AppModel) : ViewModel() {
     fun load(pull: Boolean = false) = viewModelScope.launch {
         if (pull) refreshing = true
         if (feed == null) {
-            app.cached(OfflineStore.Key.home)?.let { feed = it; fromCache = true }
+            app.cached(OfflineStore.Key.home)?.let { feed = it; continueItems = it.continueReading; fromCache = true }
+            applyUnsentReading()
         }
         loadedRevision = app.readStateRevision.value
         val result = app.load(OfflineStore.Key.home) { it.home() }
-        result.value?.let { feed = it }
+        result.value?.let { feed = it; continueItems = it.continueReading }
         if (!result.fromCache && result.value != null) loadedAt = System.currentTimeMillis()
         failure = if (feed == null) result.error?.userMessage ?: "Couldn't load Home." else null
         fromCache = result.fromCache || (result.error != null && feed != null)
+        applyUnsentReading()
         refreshing = false
+    }
+
+    /** Recomputes [continueItems] from the feed and the write queue (no network). */
+    fun applyUnsent() = viewModelScope.launch { applyUnsentReading() }
+
+    private suspend fun applyUnsentReading() {
+        val source = feed
+        val items = source?.continueReading.orEmpty()
+        if (app.pendingWrites.value == 0) {
+            continueItems = items
+            return
+        }
+        val adjusted = items.map { item ->
+            val unsent = app.unsentWrites(item.novel.id)
+            if (unsent.isEmpty()) return@map item
+            val chapters = app.cached(OfflineStore.Key.chapters(item.novel.id)) ?: return@map item
+            ResumeRule.adjusted(item, chapters, unsent)
+        }
+        // A newer feed arrived meanwhile: its own pass sets the items.
+        if (feed === source) continueItems = adjusted
     }
 }
 
@@ -115,6 +149,9 @@ fun HomeScreen(nav: NavController) {
     val model = viewModel { HomeViewModel(app) }
     val revision by app.readStateRevision.collectAsStateWithLifecycle()
     LaunchedEffect(revision) { model.refreshIfStale() }
+    // Reading queued (or sent) since: Continue follows it without a reload, offline too.
+    val queueRevision by app.queueRevision.collectAsStateWithLifecycle()
+    LaunchedEffect(queueRevision) { model.applyUnsent() }
     LaunchedEffect(Unit) { app.refreshMetaIfDue() }
     val update by app.updateBanner.collectAsStateWithLifecycle(null)
     // On screen now: the notification about it goes, and won't come back for this build.
@@ -160,12 +197,20 @@ fun HomeScreen(nav: NavController) {
                     }
                 }
                 if (model.fromCache) item { OfflinePill(modifier = Modifier.padding(bottom = 12.dp)) }
+                // Phones: a labelled entry besides the top bar's icon, which is easy to miss. Tablets have the labelled rail item.
+                if (requestsOffered && !wide) {
+                    // No key: the list then stays at the top when the update banner arrives above it.
+                    item {
+                        RequestsEntry(unseenRequests, Modifier.readableWidth(1000.dp).padding(bottom = 12.dp)) { nav.navigate(RequestsRoute()) }
+                    }
+                }
                 when {
                     feed != null -> {
-                        item { ContinueSection(feed.continueReading, wide, nav) }
-                        if (feed.newChapters.isNotEmpty()) {
+                        item { ContinueSection(model.continueItems, wide, nav) }
+                        val newChapters = NewChapters.shown(feed.newChapters)
+                        if (newChapters.isNotEmpty()) {
                             item { SectionTitle("New chapters", Modifier.readableWidth(1000.dp).padding(top = 28.dp, bottom = 8.dp)) }
-                            items(feed.newChapters, key = { "new-${it.novel.id}" }) { item ->
+                            items(newChapters, key = { "new-${it.novel.id}" }) { item ->
                                 NewChaptersRow(item, Modifier.readableWidth(1000.dp)) {
                                     val first = item.firstChapter
                                     if (first != null) {
@@ -174,7 +219,7 @@ fun HomeScreen(nav: NavController) {
                                         nav.navigate(NovelRoute(item.novel.id))
                                     }
                                 }
-                                if (item != feed.newChapters.last()) HorizontalDivider(Modifier.readableWidth(1000.dp).padding(start = 64.dp))
+                                if (item != newChapters.last()) HorizontalDivider(Modifier.readableWidth(1000.dp).padding(start = 64.dp))
                             }
                         }
                         feed.stats?.let { stats ->
@@ -304,13 +349,40 @@ private fun NewChaptersRow(item: NewChaptersItem, modifier: Modifier, onClick: (
                 Text("From ${it.title}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)) {
-            Text(
-                "${item.newCount} NEW",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            )
+        NewChapters.badge(item.newCount)?.let { badge ->
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)) {
+                Text(
+                    badge,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+/** Home's labelled way into Requests (phones), with the same "new activity" dot as the icon. */
+@Composable
+private fun RequestsEntry(unseen: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        // Read as one button: "Requests, New activity on your requests".
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.clearAndSetSemantics { }) { RequestsIcon(unseen) }
+            Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                Text("Requests", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (unseen > 0) "New activity on your requests" else "Ask for a novel or manga",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

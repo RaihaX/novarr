@@ -77,6 +77,8 @@ class User extends Authenticatable
             $requestIds = NovelRequest::where('user_id', $user->id)->pluck('id');
             RequestNotification::whereIn('novel_request_id', $requestIds)->delete();
             RequestNotification::where('user_id', $user->id)->delete();
+            NovelRequestFollower::whereIn('novel_request_id', $requestIds)->delete();
+            NovelRequestFollower::where('user_id', $user->id)->delete();
             NovelRequest::whereIn('id', $requestIds)->delete();
         });
     }

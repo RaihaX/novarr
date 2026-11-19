@@ -9,6 +9,7 @@ use App\Http\Helpers\LibraryMedium;
 use App\Console\Commands\GenerateePub;
 use App\Services\DuplicateSeries;
 use App\Services\ReadState;
+use App\Services\ResumePoint;
 
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -971,34 +972,11 @@ class NovelController extends Controller
         $this->readState->load($chapters->getCollection());
 
         // Manga: a chapter is only marked read at its last page, so the one
-        // being read has progress and no read date — "Continue" resumes it
-        // (the reader then opens on the saved page). The reader's in-progress
-        // rows of this novel come from chapter_reads (user_id, novel_id,
-        // read_at), each chapter by primary key.
+        // being read has progress and no read date; the resume point
+        // (novelStats()) resumes it and the button names the saved page.
         $continuePage = null;
-        if ($data->isManga()) {
-            $reading = $this->readState->join(
-                NovelChapter::where('novel_chapters.novel_id', $id)->where('blacklist', 0)->where('status', 1),
-                ['id', 'chapter', 'book', 'sort_key', 'number', 'part', 'page_count'],
-                null,
-                'inner'
-            )
-                ->where('cr.novel_id', $id)
-                ->whereNull('cr.read_at')
-                ->whereBetween('cr.progress', [1, 99])
-                ->whereNotNull('cr.progress_at')
-                ->orderByDesc('cr.progress_at')
-                ->first();
-            if ($reading) {
-                $this->readState->attachJoined([$reading]);
-                $stats['continue_chapter_id'] = $reading->id;
-                $stats['continue_number'] = $reading->displayNumber() ?: null;
-                $stats['continue_index'] = NovelChapter::where('novel_id', $id)
-                    ->where('blacklist', 0)
-                    ->relativeTo($reading, '<')
-                    ->count();
-                $continuePage = HomeController::mangaPage($reading->readProgress(), $reading->page_count);
-            }
+        if ($data->isManga() && ($stats['continue_kind'] ?? null) === ResumePoint::RESUME) {
+            $continuePage = HomeController::mangaPage($stats['continue_progress'] ?? null, $stats['continue_page_count'] ?? null);
         }
 
         return view('novels.show', [
@@ -1014,6 +992,9 @@ class NovelController extends Controller
             'read_count' => $stats['read_count'] ?? 0,
             'continue_chapter_id' => $stats['continue_chapter_id'] ?? null,
             'continue_number' => $stats['continue_number'] ?? null,
+            // "Continue" rather than "Start reading": the reader has read or
+            // started something here (ResumePoint found an anchor).
+            'continue_started' => ($stats['continue_kind'] ?? null) !== null && $stats['continue_kind'] !== ResumePoint::START,
             // The list page holding the continue chapter, for "Jump to chapter N".
             'continue_page' => intdiv((int) ($stats['continue_index'] ?? 0), self::CHAPTERS_PER_PAGE) + 1,
             'failed_count' => $stats['failed_count'] ?? 0,
@@ -1260,34 +1241,16 @@ class NovelController extends Controller
             $read_count = $this->readState->readCounts([$id], $userId)[$id]['read_downloaded'] ?? 0;
             $latestChapter = (int) ($aggregates->latest_chapter ?? 0);
 
-            // "Continue reading" target: a chapter abandoned mid-scroll wins
-            // (the position syncs from the reader), else the first
-            // downloaded-but-unread chapter. The first reads the reader's
-            // rows of this novel on chapter_reads (user_id, novel_id,
-            // read_at); the second walks idx_reading_order with a NOT EXISTS
-            // probe per chapter.
-            $continueColumns = ['id', 'chapter', 'book', 'sort_key', 'number', 'part'];
-            $continue = $this->readState->join(
-                NovelChapter::where('novel_chapters.novel_id', $id)->where('blacklist', 0)->where('status', 1),
-                $continueColumns,
-                $userId,
-                'inner'
-            )
-                ->where('cr.novel_id', $id)
-                ->whereNotNull('cr.read_at')
-                ->whereNotNull('cr.progress')
-                ->where('cr.progress', '<', 90)
-                ->orderByDesc('cr.read_at')
-                ->first();
-            if ($continue) {
-                $this->readState->attachJoined([$continue]);
-            }
-
-            $continue = $continue ?: $this->readState->whereUnread(NovelChapter::where('novel_id', $id)
-                ->where('blacklist', 0)
-                ->where('status', 1), $userId)
-                ->ordered()
-                ->first($continueColumns);
+            // "Continue" / "Start reading" target: the resume point every
+            // device shares (App\Services\ResumePoint) — the unfinished
+            // chapter read last, else the first unread chapter after it, the
+            // first chapter when nothing is read; none when caught up. Two
+            // statements: the reader's rows of this novel on chapter_reads
+            // (user_id, novel_id), then a walk of idx_reading_order (skipped
+            // when the chapter read last is unfinished).
+            $point = app(ResumePoint::class)->forNovel($id, ['id', 'chapter', 'book', 'sort_key', 'number', 'part', 'page_count'], $userId);
+            $continue = $point['chapter'] ?? null;
+            $resumed = ($point['kind'] ?? null) === ResumePoint::RESUME;
             $continueChapterId = $continue?->id;
 
             // Its position in the chapter list (rows before it in reading
@@ -1317,6 +1280,10 @@ class NovelController extends Controller
                 'continue_chapter_id' => $continueChapterId,
                 'continue_number' => $continue?->displayNumber() ?: null,
                 'continue_index' => $continueIndex,
+                'continue_kind' => $point['kind'] ?? null,
+                // A resumed chapter's position and pages (a manga's "page 12").
+                'continue_progress' => $resumed ? $continue->readProgress() : null,
+                'continue_page_count' => $continue?->page_count,
                 'failed_count' => (int) ($aggregates->failed_count ?? 0),
                 'review_count' => (int) ($aggregates->review_count ?? 0),
                 'new_chapters' => $not_downloaded_count,

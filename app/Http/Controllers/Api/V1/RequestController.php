@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Novel;
 use App\NovelRequest;
+use App\NovelRequestFollower;
 use App\Services\Requests\RequestRefused;
 use App\Services\Requests\Requests;
 use App\Support\CurrentReader;
@@ -42,8 +43,9 @@ class RequestController extends Controller
 
     /**
      * GET /api/v1/requests?scope=mine|all&status=&page= — newest first. The
-     * caller's own; the admin view may ask for everyone's (scope=all).
-     * status: pending | approved | declined | available.
+     * caller's own and those they joined ("Me too"); the admin view may ask
+     * for everyone's (scope=all). status: pending | approved | declined |
+     * available.
      */
     public function index(Request $request): JsonResponse
     {
@@ -63,7 +65,9 @@ class RequestController extends Controller
         $page = (int) ($data['page'] ?? 1);
 
         $rows = NovelRequest::query()
-            ->when(($data['scope'] ?? 'mine') !== 'all', fn($q) => $q->where('user_id', $user->id))
+            ->when(($data['scope'] ?? 'mine') !== 'all', fn($q) => $q->where(fn($mine) => $mine
+                ->where('user_id', $user->id)
+                ->orWhereIn('id', NovelRequestFollower::select('novel_request_id')->where('user_id', (int) $user->id))))
             ->when(isset($data['status']), function ($q) use ($data) {
                 match ($data['status']) {
                     'approved' => $q->where('status', NovelRequest::STATUS_APPROVED)->whereNull('available_at'),
@@ -79,9 +83,10 @@ class RequestController extends Controller
 
         $pageRows = $rows->take(self::PER_PAGE);
         $requesters = RequestPresenter::requesters($pageRows);
+        $followers = RequestPresenter::followers($pageRows);
 
         return response()->json([
-            'requests' => $pageRows->map(fn(NovelRequest $r) => RequestPresenter::request($r, $user, $admin, $requesters))->values()->all(),
+            'requests' => $pageRows->map(fn(NovelRequest $r) => RequestPresenter::request($r, $user, $admin, $requesters, $followers))->values()->all(),
             'page' => $page,
             'has_more' => $rows->count() > self::PER_PAGE,
             'can_decide' => $admin,
@@ -89,7 +94,7 @@ class RequestController extends Controller
         ]);
     }
 
-    /** GET /api/v1/requests/{id} — the caller's own request, or any in the admin view. */
+    /** GET /api/v1/requests/{id} — the caller's own request or one they joined, or any in the admin view. */
     public function show(int $id): JsonResponse
     {
         if ($off = static::disabled()) {
@@ -107,7 +112,10 @@ class RequestController extends Controller
      * POST /api/v1/requests — from a search result {search_id, key, note?}
      * (any other field is ignored: the candidates come from the server's
      * search record), or free text {title, medium, link?, note?}.
-     * 201 {request}.
+     * 201 {request, joined: false} — a new request;
+     * 200 {request, joined: true}  — someone else already asked for this
+     *     work (pending, or approved and not yet available): the caller now
+     *     follows their request ("Me too"; note and link are ignored).
      */
     public function store(Request $request, Requests $requests): JsonResponse
     {
@@ -137,12 +145,19 @@ class RequestController extends Controller
             return $refused->toResponse();
         }
 
-        return response()->json(['request' => $this->present($made->fresh())], 201);
+        return response()->json([
+            'request' => $this->present($made['request']->fresh()),
+            'joined' => $made['joined'],
+        ], $made['joined'] ? 200 : 201);
     }
 
     /**
-     * DELETE /api/v1/requests/{id} — the requester cancels their own pending
-     * request; the admin view may delete any. 204.
+     * DELETE /api/v1/requests/{id} — 204:
+     *   - a follower leaves the request (only their follow goes), while it is
+     *     pending or approved;
+     *   - the requester cancels their own pending request: it is deleted,
+     *     or, when others joined it, handed to the oldest follower;
+     *   - the admin view may delete any.
      */
     public function destroy(int $id, Requests $requests)
     {
@@ -153,11 +168,30 @@ class RequestController extends Controller
         if ($request === null) {
             return static::notFound();
         }
-        if (!$admin && !$request->isPending()) {
-            return response()->json(['message' => 'Only a pending request can be cancelled.', 'code' => 'not_pending', 'status' => $request->displayStatus()], 409);
-        }
 
-        $requests->delete($request);
+        try {
+            $isRequester = (int) $request->user_id === (int) $user->id;
+            if (!$isRequester && $request->isFollowedBy((int) $user->id)) {
+                if (!$request->isOpenForFollowers() && !$admin) {
+                    return response()->json(['message' => 'This request has already been decided.', 'code' => 'not_pending', 'status' => $request->displayStatus()], 409);
+                }
+                $requests->leave($request, $user);
+
+                return response()->noContent();
+            }
+            if ($isRequester && $request->isPending()) {
+                $requests->cancel($request);
+
+                return response()->noContent();
+            }
+            if (!$admin) {
+                return response()->json(['message' => 'Only a pending request can be cancelled.', 'code' => 'not_pending', 'status' => $request->displayStatus()], 409);
+            }
+
+            $requests->delete($request);
+        } catch (RequestRefused $refused) {
+            return $refused->toResponse();
+        }
 
         return response()->noContent();
     }
@@ -244,7 +278,7 @@ class RequestController extends Controller
         $user = app(CurrentReader::class)->user();
         $admin = static::adminView();
         $request = NovelRequest::find($id);
-        if ($request !== null && !$admin && (int) $request->user_id !== (int) $user->id) {
+        if ($request !== null && !$admin && (int) $request->user_id !== (int) $user->id && !$request->isFollowedBy((int) $user->id)) {
             $request = null;
         }
 

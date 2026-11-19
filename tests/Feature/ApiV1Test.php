@@ -361,6 +361,26 @@ class ApiV1Test extends TestCase
         $this->assertSame(['novels' => 2, 'chapters_downloaded' => 4, 'chapters_queued' => 1], $json['stats']);
     }
 
+    public function test_home_new_chapters_leaves_out_series_with_nothing_to_read(): void
+    {
+        // Every new chapter still queued: nothing to read yet.
+        $queued = $this->novel('All Queued');
+        $this->chapter($queued, 1, ['status' => 0]);
+
+        // Every new chapter already read: nothing left to read.
+        $caughtUp = $this->novel('Caught Up');
+        $this->chapter($caughtUp, 1, ['read_at' => now()->subHour()]);
+
+        $ready = $this->novel('Ready');
+        $first = $this->chapter($ready, 1);
+
+        $rows = $this->getJson('/api/v1/home')->assertOk()->json('new_chapters');
+
+        $this->assertSame([$ready->id], array_map(fn($g) => $g['novel']['id'], $rows));
+        $this->assertSame(1, $rows[0]['count']);
+        $this->assertSame($first->id, $rows[0]['first_chapter']['id']);
+    }
+
     public function test_home_is_empty_on_an_empty_library(): void
     {
         $this->getJson('/api/v1/home')->assertOk()->assertExactJson([

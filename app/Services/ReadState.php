@@ -275,6 +275,9 @@ class ReadState
         }
         if ($markRead) {
             CacheHelper::clearReaderCache($userId, [(int) $chapter->novel_id]);
+        } elseif (isset($values['progress'])) {
+            // A position decides where Continue resumes (ResumePoint).
+            CacheHelper::clearResumeCache($userId, [(int) $chapter->novel_id]);
         }
 
         return $stale;

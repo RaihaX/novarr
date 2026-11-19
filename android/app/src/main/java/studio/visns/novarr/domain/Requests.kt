@@ -73,23 +73,42 @@ object Requests {
         /** Already in the library: "In library" opens it (when the server said which series). */
         data class InLibrary(val novelId: Int?) : CardAction
 
+        /** Someone else's open request: "Me too" joins it (told when it's ready). */
+        data object MeToo : CardAction
+
         /** An open request exists: "Requested by you" or "Requested", disabled. */
         data class Requested(val byMe: Boolean) : CardAction
     }
 
-    /** In the library wins over requested (an approved request becomes a series). */
-    fun cardAction(result: SearchResult): CardAction = when {
-        result.inLibrary || result.novelId != null -> CardAction.InLibrary(result.novelId)
-        result.requested != null -> CardAction.Requested(result.requested.byMe)
-        else -> CardAction.Request
+    /** The statuses of someone else's request that "Me too" can join. */
+    private val JOINABLE = setOf("pending", "approved")
+
+    /**
+     * In the library wins over requested (an approved request becomes a
+     * series). Someone else's pending or approved request offers "Me too",
+     * unless [canJoin] is false: the server turned a "Me too" down as
+     * `already_requested` (an older server that can't join requests).
+     */
+    fun cardAction(result: SearchResult, canJoin: Boolean = true): CardAction {
+        val requested = result.requested
+        return when {
+            result.inLibrary || result.novelId != null -> CardAction.InLibrary(result.novelId)
+            requested == null -> CardAction.Request
+            !requested.byMe && canJoin && requested.status.lowercase() in JOINABLE -> CardAction.MeToo
+            else -> CardAction.Requested(requested.byMe)
+        }
     }
 
     /** The card's button text. */
     fun cardActionLabel(action: CardAction): String = when (action) {
         CardAction.Request -> "Request"
+        CardAction.MeToo -> "Me too"
         is CardAction.InLibrary -> "In library"
         is CardAction.Requested -> if (action.byMe) "Requested by you" else "Requested"
     }
+
+    /** The snackbar after "Me too" joined a request. */
+    const val JOINED_NOTICE = "You'll be told when it's ready."
 
     /** "On MangaDex, MangaSee +2": the first [shown] distinct source names; empty with none. */
     fun sourcesLabel(sources: List<ResultSource>, shown: Int = 2): String {
@@ -105,9 +124,18 @@ object Requests {
         return if (distinct.isEmpty()) null else "Couldn't reach: ${distinct.joinToString(", ")}."
     }
 
-    /** Marks [key] as requested by this account after a successful request, so its card updates at once. */
-    fun markRequested(results: List<SearchResult>, key: String): List<SearchResult> =
-        results.map { if (it.key == key) it.copy(requested = studio.visns.novarr.api.ResultRequested("pending", byMe = true)) else it }
+    /**
+     * Marks [key] as requested by this account after a successful request
+     * (or "Me too"), so its card updates at once; a joined request keeps its
+     * status.
+     */
+    fun markRequested(results: List<SearchResult>, key: String): List<SearchResult> = markTaken(results, key, byMe = true)
+
+    /** Marks [key] as requested ([byMe]: by this account), e.g. after 409 `already_requested`. */
+    fun markTaken(results: List<SearchResult>, key: String, byMe: Boolean): List<SearchResult> =
+        results.map {
+            if (it.key == key) it.copy(requested = studio.visns.novarr.api.ResultRequested(it.requested?.status ?: "pending", byMe)) else it
+        }
 
     // Request status
 
@@ -138,11 +166,51 @@ object Requests {
         return if (status == Status.DECLINED && reason.isNotEmpty()) "${status.label}: $reason" else status.label
     }
 
-    /** "2 of 5 pending"; null without a limit (the admin) . */
+    /**
+     * "2 of 5 pending": this account's own pending requests against the
+     * limit (joined ones don't count). Null without a limit (the admin) and
+     * while none is pending.
+     */
     fun pendingLabel(mine: List<ReaderRequest>, limit: Int?): String? {
         if (limit == null || limit <= 0) return null
-        return "${mine.count { status(it) == Status.PENDING }} of $limit pending"
+        val pending = mine.count { !it.isFollower && status(it) == Status.PENDING }
+        return if (pending == 0) null else "$pending of $limit pending"
     }
+
+    /** The action on a row of My requests. */
+    enum class MineAction { NONE, CANCEL, LEAVE }
+
+    /**
+     * Cancel your own pending request (when the server allows). Leave one you
+     * joined with "Me too" whenever the server allows (`can_cancel`: pending
+     * or approved, not yet available); a server that doesn't say: while
+     * pending only. Nothing otherwise.
+     */
+    fun mineAction(request: ReaderRequest): MineAction {
+        val pending = status(request) == Status.PENDING
+        return when {
+            request.isFollower -> if (request.canCancel ?: pending) MineAction.LEAVE else MineAction.NONE
+            pending && request.canCancel == true -> MineAction.CANCEL
+            else -> MineAction.NONE
+        }
+    }
+
+    /**
+     * The review card's "Also wanted by Ana, Ben" (the admin view's
+     * followers), "Also wanted by Ana and 2 more readers" when the count is
+     * higher than the names given, "Also wanted by 3 readers" with only the
+     * count; null when nobody joined.
+     */
+    fun alsoWantedLabel(request: ReaderRequest): String? {
+        val names = request.followers.mapNotNull { it.name?.trim()?.takeIf(String::isNotEmpty) }.distinct()
+        val count = maxOf(request.alsoWantedBy, request.followers.size)
+        if (names.isEmpty()) return if (count > 0) "Also wanted by ${readers(count)}" else null
+        val more = count - names.size
+        return if (more > 0) "Also wanted by ${names.joinToString(", ")} and ${readers(more, "more ")}"
+        else "Also wanted by ${names.joinToString(", ")}"
+    }
+
+    private fun readers(n: Int, prefix: String = "") = if (n == 1) "1 ${prefix}reader" else "$n ${prefix}readers"
 
     /** "Open" goes to the series once it is available (or approved, as soon as it exists). */
     fun openableNovel(request: ReaderRequest): Int? =

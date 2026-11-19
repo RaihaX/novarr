@@ -8,6 +8,7 @@ use App\Novel;
 use App\NovelChapter;
 use App\Services\DownloadLanes;
 use App\Services\ReadState;
+use App\Services\ResumePoint;
 use App\Services\NovelHealth;
 use App\Setting;
 use Carbon\Carbon;
@@ -303,7 +304,7 @@ class EmailSummary extends Command
         usort($rows, fn($a, $b) => [$b['count'], $a['name']] <=> [$a['count'], $b['name']]);
 
         // Enrich the rendered rows (the first NOVEL_LIMIT of each medium):
-        // one grouped count query + one lookup each.
+        // one grouped count query + the resume points (two statements).
         $seen = [];
         $enrich = [];
         foreach ($rows as $i => $row) {
@@ -323,6 +324,9 @@ class EmailSummary extends Command
             ->get()
             ->keyBy('novel_id');
         $reads = $readState->readCounts($shown);
+        // "Read from": the resume point every device shares (none when
+        // caught up), all rendered novels at once.
+        $points = app(ResumePoint::class)->forNovels($shown, ['id', 'chapter']);
 
         foreach ($rows as $i => &$row) {
             if (isset($enrich[$i])) {
@@ -330,10 +334,7 @@ class EmailSummary extends Command
                 $total = max($row['_toc'], (int) ($c->total ?? 0));
                 $row['percent'] = $total > 0 ? (int) min(100, round(($reads[$row['id']]['read'] ?? 0) / $total * 100)) : 0;
 
-                $readFrom = $readState->whereUnread(NovelChapter::where('novel_id', $row['id'])
-                    ->where('status', 1)->where('blacklist', 0))
-                    ->ordered()
-                    ->first(['id', 'chapter']);
+                $readFrom = $points[$row['id']]['chapter'] ?? null;
                 if ($readFrom) {
                     $row['read_from'] = (float) $readFrom->chapter;
                     $row['read_from_url'] = route('chapters.show', $readFrom->id);

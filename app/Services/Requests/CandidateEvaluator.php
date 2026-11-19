@@ -54,11 +54,16 @@ class CandidateEvaluator
                 : $this->evaluate($candidate, $languages);
         }
 
-        $ranked = CandidateRanking::rank($evaluated, $this->sourceOrder($evaluated));
-        $now = now();
-        foreach ($ranked as &$candidate) {
-            unset($candidate['order']);
-            $candidate['reason'] = CandidateRanking::reason($candidate, $languages, $now);
+        $ranked = CandidateRanking::rank(
+            $evaluated,
+            $this->sourceOrder($evaluated),
+            (int) config('novarr.requests.rank_tie_chapters', CandidateRanking::TIE_CHAPTERS),
+            (float) config('novarr.requests.rank_tie_percent', CandidateRanking::TIE_PERCENT),
+        );
+        $reasons = CandidateRanking::reasons($ranked, $languages, now());
+        foreach ($ranked as $i => &$candidate) {
+            unset($candidate['order'], $candidate['top_tier']);
+            $candidate['reason'] = $reasons[$i];
         }
         unset($candidate);
 

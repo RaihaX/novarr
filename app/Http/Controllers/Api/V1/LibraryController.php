@@ -111,6 +111,13 @@ class LibraryController extends Controller
         foreach ($groups as $g) {
             if ($novel = $novels->get($g['novel_id'])) {
                 $first = isset($g['read_from_id']) ? $firsts->get($g['read_from_id']) : null;
+                // Nothing to read yet (every new chapter still queued) or
+                // nothing left to read (caught up): not news for a reader.
+                // The web Home keeps such rows: its table is the owner's
+                // download status.
+                if ((int) $g['downloaded'] === 0 || $first === null) {
+                    continue;
+                }
                 $out['new_chapters'][] = [
                     'novel' => Presenter::summary($novel, $context),
                     'count' => (int) $g['downloaded'],

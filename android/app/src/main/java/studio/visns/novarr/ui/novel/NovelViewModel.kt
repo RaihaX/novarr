@@ -15,7 +15,9 @@ import studio.visns.novarr.api.NovelDetail
 import studio.visns.novarr.api.NovelSummary
 import studio.visns.novarr.app.AppModel
 import studio.visns.novarr.domain.LibraryFilter
+import studio.visns.novarr.domain.ResumeRule
 import studio.visns.novarr.store.OfflineStore
+import studio.visns.novarr.store.PendingWrite
 import studio.visns.novarr.store.WriteKind
 
 /** A series page: detail, chapter list, read marks and offline downloads (the iOS NovelModel). */
@@ -33,6 +35,10 @@ class NovelViewModel(private val app: AppModel, val novelId: Int) : ViewModel() 
     var fromCache by mutableStateOf(false)
         private set
     var refreshing by mutableStateOf(false)
+        private set
+
+    /** This series' writes not sent yet, oldest first (the local resume rule). */
+    var unsentWrites by mutableStateOf<List<PendingWrite>>(emptyList())
         private set
 
     /** The newest few highlights here (empty when none, or the server has no highlights API). */
@@ -64,6 +70,21 @@ class NovelViewModel(private val app: AppModel, val novelId: Int) : ViewModel() 
     val firstUnread: ChapterListItem?
         get() = chapters.firstOrNull { !it.read && it.downloaded && !it.note } ?: chapters.firstOrNull { !it.read }
 
+    /**
+     * Where "Continue" opens: the server's choice plus this device's unsent
+     * reading, by the rule every device shares ([ResumeRule]). With nothing
+     * unsent, the server's `resume_chapter_id` as is.
+     */
+    val resumeChapterId: Int?
+        get() {
+            val server = summary?.resumeChapterId
+            return if (unsentWrites.isEmpty()) server else ResumeRule.resolve(chapters, server, unsentWrites)
+        }
+
+    /** "Continue reading" rather than "Start reading": something is read or part-read, here or on the server. */
+    val hasStarted: Boolean
+        get() = ResumeRule.hasStarted(chapters, summary?.chaptersRead ?: 0, unsentWrites)
+
     val readCount: Int get() = if (chapters.isEmpty()) summary?.chaptersRead ?: 0 else chapters.count { it.read }
 
     fun load(pull: Boolean = false) = viewModelScope.launch {
@@ -73,6 +94,7 @@ class NovelViewModel(private val app: AppModel, val novelId: Int) : ViewModel() 
             app.cached(OfflineStore.Key.chapters(novelId))?.let { chapters = it }
         }
         refreshCachedIds()
+        refreshUnsentWrites()
         val d = async { app.load(OfflineStore.Key.novel(novelId)) { it.novel(novelId) } }
         val c = async { app.load(OfflineStore.Key.chapters(novelId)) { it.chapters(novelId) } }
         val (dr, cr) = d.await() to c.await()
@@ -80,6 +102,7 @@ class NovelViewModel(private val app: AppModel, val novelId: Int) : ViewModel() 
         cr.value?.let { chapters = it }
         fromCache = dr.error != null || cr.error != null
         failure = if (detail == null && chapters.isEmpty()) (dr.error ?: cr.error)?.userMessage ?: "Couldn't load this series." else null
+        refreshUnsentWrites()
         loaded = true
         refreshing = false
         if (dr.error == null) loadHighlights()
@@ -93,6 +116,10 @@ class NovelViewModel(private val app: AppModel, val novelId: Int) : ViewModel() 
             highlights = it.highlights
             hasMoreHighlights = it.hasMore
         }
+    }
+
+    suspend fun refreshUnsentWrites() {
+        unsentWrites = app.unsentWrites(novelId)
     }
 
     suspend fun refreshCachedIds() {
@@ -164,7 +191,12 @@ class NovelViewModel(private val app: AppModel, val novelId: Int) : ViewModel() 
 
     fun download(unreadOnly: Boolean) = viewModelScope.launch {
         refreshCachedIds()
-        val ids = chapters.filter { it.downloaded && it.id !in cachedIds && (!unreadOnly || !it.read) }.map { it.id }
+        refreshUnsentWrites()
+        // The chapter Continue opens is wanted even when it is marked read
+        // but not finished (the web reader marks read on open).
+        val resume = chapters.firstOrNull { it.id == resumeChapterId }
+            ?.takeIf { ResumeRule.isUnfinished(it.read, it.readProgress) }?.id
+        val ids = chapters.filter { it.downloaded && it.id !in cachedIds && (!unreadOnly || !it.read || it.id == resume) }.map { it.id }
         app.downloads.start(novelId, ids, manga = isManga)
     }
 

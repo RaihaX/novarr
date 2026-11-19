@@ -10,6 +10,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -282,6 +283,34 @@ class ReaderPrefsTest {
         // Other edits keep it.
         prefs.updateReader { it.copy(fontSize = 22f) }
         assertEquals(TextReadingMode.PAGES, prefs.readerSettings.first().mode)
+    }
+
+    @Test
+    fun keepScreenOnDefaultsOnAndAStoredChoiceWins() = withPrefs { prefs, _ ->
+        assertTrue(prefs.readerSettings.first().keepScreenOn)
+        // Another edit doesn't store the untouched default (so it can still change later).
+        prefs.updateReader { it.copy(fontSize = 22f) }
+        assertTrue(prefs.readerSettings.first().keepScreenOn)
+        prefs.updateReader { it.copy(keepScreenOn = false) }
+        assertFalse(prefs.readerSettings.first().keepScreenOn)
+        // Once chosen, it stays through other edits.
+        prefs.updateReader { it.copy(fontSize = 20f) }
+        assertFalse(prefs.readerSettings.first().keepScreenOn)
+        prefs.updateReader { it.copy(keepScreenOn = true) }
+        assertTrue(prefs.readerSettings.first().keepScreenOn)
+    }
+
+    @Test
+    fun updateAttemptsAndUnfinishedInstalls() = withPrefs { prefs, _ ->
+        assertNull(prefs.attemptedUpdateBuild())
+        prefs.noteUpdateAttempted(6)
+        prefs.noteUpdateAttempted(5)
+        assertEquals(6, prefs.attemptedUpdateBuild())
+        assertNull(prefs.unfinishedUpdateBuild())
+        prefs.setUnfinishedUpdateBuild(6)
+        assertEquals(6, prefs.unfinishedUpdateBuild())
+        prefs.setUnfinishedUpdateBuild(null)
+        assertNull(prefs.unfinishedUpdateBuild())
     }
 
     @Test

@@ -41,6 +41,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -301,7 +302,8 @@ private fun SearchPart(model: RequestsViewModel, online: Boolean, nav: NavContro
             }
         }
 
-        if (search != null && search.isDone && model.searchError == null) {
+        // A refused new search (such as "Search is busy") keeps the last results under its message.
+        if (search != null && search.isDone) {
             Requests.skippedLabel(search.skippedSources.map { it.sourceName.ifBlank { it.source } })?.let { skipped ->
                 item(key = "skipped") {
                     Text(skipped, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.readableWidth())
@@ -322,9 +324,12 @@ private fun SearchPart(model: RequestsViewModel, online: Boolean, nav: NavContro
                 items(search.results, key = { "result-${it.key}" }) { result ->
                     ResultCard(
                         result,
+                        action = Requests.cardAction(result, model.canJoin),
                         online = online,
+                        joining = result.key in model.joining,
                         modifier = Modifier.readableWidth(),
                         onRequest = { model.openRequestSheet(result) },
+                        onMeToo = { model.meToo(result) },
                         onOpen = { id -> nav.navigate(NovelRoute(id)) },
                     )
                 }
@@ -353,8 +358,16 @@ private fun MediumSwitch(selected: Medium, modifier: Modifier = Modifier, onSele
 }
 
 @Composable
-private fun ResultCard(result: SearchResult, online: Boolean, modifier: Modifier, onRequest: () -> Unit, onOpen: (Int) -> Unit) {
-    val action = Requests.cardAction(result)
+private fun ResultCard(
+    result: SearchResult,
+    action: CardAction,
+    online: Boolean,
+    joining: Boolean,
+    modifier: Modifier,
+    onRequest: () -> Unit,
+    onMeToo: () -> Unit,
+    onOpen: (Int) -> Unit,
+) {
     Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier) {
         Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Cover(result.coverUrl, result.title, Modifier.width(84.dp), corner = 6.dp)
@@ -374,6 +387,15 @@ private fun ResultCard(result: SearchResult, online: Boolean, modifier: Modifier
                     CardAction.Request -> Button(onClick = onRequest, enabled = online, modifier = Modifier.semantics { contentDescription = "Request ${result.title}" }) {
                         Icon(Icons.AutoMirrored.Outlined.PlaylistAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                         Text("  Request")
+                    }
+                    // No note sheet: it joins the existing request straight away.
+                    CardAction.MeToo -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FilledTonalButton(
+                            onClick = onMeToo,
+                            enabled = online && !joining,
+                            modifier = Modifier.semantics { contentDescription = "Me too: someone already asked for ${result.title}. Join their request." },
+                        ) { Text(Requests.cardActionLabel(action)) }
+                        if (joining) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     }
                     is CardAction.InLibrary -> OutlinedButton(
                         onClick = { action.novelId?.let(onOpen) },
@@ -447,6 +469,7 @@ private fun MinePart(model: RequestsViewModel, online: Boolean, nav: NavControll
                             modifier = Modifier.readableWidth(),
                             onOpen = { id -> nav.navigate(NovelRoute(id)) },
                             onCancel = { model.confirmCancel = request },
+                            onLeave = { model.confirmLeave = request },
                         )
                         HorizontalDivider(Modifier.readableWidth().padding(horizontal = 16.dp))
                     }
@@ -457,8 +480,17 @@ private fun MinePart(model: RequestsViewModel, online: Boolean, nav: NavControll
 }
 
 @Composable
-private fun MineRow(request: ReaderRequest, busy: Boolean, online: Boolean, modifier: Modifier, onOpen: (Int) -> Unit, onCancel: () -> Unit) {
+private fun MineRow(
+    request: ReaderRequest,
+    busy: Boolean,
+    online: Boolean,
+    modifier: Modifier,
+    onOpen: (Int) -> Unit,
+    onCancel: () -> Unit,
+    onLeave: () -> Unit,
+) {
     val status = Requests.status(request)
+    val action = Requests.mineAction(request)
     Row(modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         Cover(request.coverUrl, request.title, Modifier.width(56.dp), corner = 4.dp)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -470,12 +502,16 @@ private fun MineRow(request: ReaderRequest, busy: Boolean, online: Boolean, modi
                     Requests.date(request.createdAt)?.let { "requested $it" },
                 ).joinToString(" · ")
                 Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (request.isFollower) {
+                    Text("You joined this request", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 if (status == Status.DECLINED) {
                     request.declineReason?.takeIf { it.isNotBlank() }?.let {
                         Text("Reason: $it", style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                request.note?.takeIf { it.isNotBlank() }?.let {
+                // A joined request's note is the requester's, not this account's.
+                request.note?.takeIf { it.isNotBlank() && !request.isFollower }?.let {
                     Text("Your note: $it", style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 4, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -483,15 +519,18 @@ private fun MineRow(request: ReaderRequest, busy: Boolean, online: Boolean, modi
                 Requests.openableNovel(request)?.let { id ->
                     Button(onClick = { onOpen(id) }, modifier = Modifier.semantics { contentDescription = "Open ${request.title}" }) { Text("Open") }
                 }
-                if (status == Status.PENDING && request.canCancel) {
+                if (action != Requests.MineAction.NONE) {
                     if (busy) {
                         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     } else {
+                        val leave = action == Requests.MineAction.LEAVE
                         TextButton(
-                            onClick = onCancel,
+                            onClick = if (leave) onLeave else onCancel,
                             enabled = online,
-                            modifier = Modifier.semantics { contentDescription = "Cancel the request for ${request.title}" },
-                        ) { Text("Cancel", color = if (online) MaterialTheme.colorScheme.error else Color.Unspecified) }
+                            modifier = Modifier.semantics {
+                                contentDescription = if (leave) "Leave the request for ${request.title}" else "Cancel the request for ${request.title}"
+                            },
+                        ) { Text(if (leave) "Leave" else "Cancel", color = if (online) MaterialTheme.colorScheme.error else Color.Unspecified) }
                     }
                 }
             }
@@ -574,6 +613,9 @@ private fun ReviewCard(request: ReaderRequest, model: RequestsViewModel, online:
                     Text(request.title, style = titleStyle(), maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
                     val byline = listOfNotNull(request.author?.takeIf { it.isNotBlank() }, Medium.from(request.medium).singular).joinToString(" · ")
                     Text(byline, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Requests.alsoWantedLabel(request)?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
             Synopsis(request.description, key = "review-${request.id}")
@@ -813,6 +855,15 @@ private fun Dialogs(model: RequestsViewModel) {
             text = { Text("${request.title} will no longer be waiting for the owner.") },
             confirmButton = { TextButton(onClick = { model.cancel(request) }) { Text("Cancel request", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { model.confirmCancel = null }) { Text("Keep") } },
+        )
+    }
+    model.confirmLeave?.let { request ->
+        AlertDialog(
+            onDismissRequest = { model.confirmLeave = null },
+            title = { Text("Leave this request?") },
+            text = { Text("You won't be told when ${request.title} is ready. The request stays for the reader who made it.") },
+            confirmButton = { TextButton(onClick = { model.leave(request) }) { Text("Leave", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { model.confirmLeave = null }) { Text("Keep") } },
         )
     }
     model.duplicate?.let { prompt ->

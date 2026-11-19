@@ -9,16 +9,25 @@ use Carbon\CarbonInterface;
  * Ranking a manga request's shortlist: which source should the series be
  * added from. Pure (no I/O): every input is passed in.
  *
- * Best first by:
- *   1. most chapters available in the preferred language(s);
- *   2. most recently updated (unknown last);
- *   3. fewest gaps in the chapter numbering;
- *   4. preferred source order (sourceOrder()).
- * Candidates whose evaluation failed (`error` set) go last, in source order.
- * Equal candidates keep their incoming order.
+ * Best first, in two parts:
+ *   - the top tier: every candidate whose chapter count is within the band
+ *     of the BEST count — max(tie chapters, tie percent of the best count),
+ *     config novarr.requests.rank_tie_chapters / rank_tie_percent — ordered
+ *     by most recently updated (unknown last), then fewest gaps, then
+ *     preferred source order, so a source a handful of chapters ahead but
+ *     long stale does not beat one updated yesterday;
+ *   - everyone else (compare()): most chapters available in the preferred
+ *     language(s), then most recently updated, fewest gaps, source order.
+ * The tier is measured against the best count, never pairwise, so the
+ * order is well defined. Candidates whose evaluation failed (`error` set)
+ * go last, in source order. Equal candidates keep their incoming order.
  */
 final class CandidateRanking
 {
+    public const TIE_CHAPTERS = 3;
+
+    public const TIE_PERCENT = 2.0;
+
     /**
      * Missing whole chapters between the first and the highest chapter:
      * the integers in [floor(min), floor(max)] that no chapter number
@@ -89,22 +98,69 @@ final class CandidateRanking
     }
 
     /**
-     * The candidates best first (compare()), each given its `order` from
-     * $orderOf (source key => position; unknown keys after every known one).
-     * Stable.
+     * Within the top tier: most recently updated, then fewest gaps, then
+     * source order (the chapter count is no longer compared).
+     */
+    public static function compareInTier(array $a, array $b): int
+    {
+        return (self::updated($b) <=> self::updated($a))
+            ?: (self::gapCount($a) <=> self::gapCount($b))
+            ?: (self::order($a) <=> self::order($b));
+    }
+
+    /** The best chapter count among candidates that were checked; null when none was. */
+    public static function bestCount(array $candidates): ?int
+    {
+        $best = null;
+        foreach ($candidates as $candidate) {
+            if (empty($candidate['error'])) {
+                $best = max($best ?? 0, self::chapterCount($candidate));
+            }
+        }
+
+        return $best;
+    }
+
+    /** How many chapters below the best count still make the top tier: max($tieChapters, $tiePercent % of $best). */
+    public static function band(int $best, int $tieChapters = self::TIE_CHAPTERS, float $tiePercent = self::TIE_PERCENT): float
+    {
+        return max((float) max(0, $tieChapters), $best * max(0.0, $tiePercent) / 100);
+    }
+
+    /** Is a checked candidate in the top tier of a shortlist whose best count is $best? */
+    public static function inTier(array $candidate, ?int $best, int $tieChapters = self::TIE_CHAPTERS, float $tiePercent = self::TIE_PERCENT): bool
+    {
+        return $best !== null && empty($candidate['error'])
+            && ($best - self::chapterCount($candidate)) <= self::band($best, $tieChapters, $tiePercent);
+    }
+
+    /**
+     * The candidates best first — the top tier (compareInTier()), then the
+     * rest (compare()), then failed ones — each given its `order` from
+     * $orderOf (source key => position; unknown keys after every known one)
+     * and `top_tier` (bool). Stable.
      *
      * @param  array<int, array>  $candidates
      * @param  array<string, int>  $orderOf
      * @return array<int, array>
      */
-    public static function rank(array $candidates, array $orderOf): array
+    public static function rank(array $candidates, array $orderOf, int $tieChapters = self::TIE_CHAPTERS, float $tiePercent = self::TIE_PERCENT): array
     {
+        $best = self::bestCount($candidates);
         $indexed = [];
         foreach (array_values($candidates) as $i => $candidate) {
             $candidate['order'] = $orderOf[(string) ($candidate['source'] ?? '')] ?? (PHP_INT_MAX >> 1);
+            $candidate['top_tier'] = self::inTier($candidate, $best, $tieChapters, $tiePercent);
             $indexed[] = [$i, $candidate];
         }
-        usort($indexed, fn(array $x, array $y) => self::compare($x[1], $y[1]) ?: ($x[0] <=> $y[0]));
+        usort($indexed, function (array $x, array $y) {
+            [$a, $b] = [$x[1], $y[1]];
+            if ($a['top_tier'] !== $b['top_tier']) {
+                return $a['top_tier'] ? -1 : 1;
+            }
+
+            return ($a['top_tier'] ? self::compareInTier($a, $b) : self::compare($a, $b)) ?: ($x[0] <=> $y[0]);
+        });
 
         return array_map(fn(array $pair) => $pair[1], $indexed);
     }
@@ -163,6 +219,87 @@ final class CandidateRanking
         $parts[] = self::updatedPhrase($candidate['updated_at'] ?? null, $now);
 
         return implode(', ', $parts);
+    }
+
+    /**
+     * The reason lines of a ranked shortlist (rank()'s output, best first),
+     * one per candidate: reason(), plus — where the top tier changed the
+     * order from "most chapters first" — why. The first candidate, when a
+     * tier member has more chapters: "… — 1 fewer than Comet Reader but
+     * more recent". A tier member with more chapters than the first: "… —
+     * 1 more than Atlas Scans, but updated less recently".
+     *
+     * @param  array<int, array>  $ranked
+     * @param  string[]  $preferredLanguages
+     * @return string[]
+     */
+    public static function reasons(array $ranked, array $preferredLanguages, CarbonInterface $now): array
+    {
+        $ranked = array_values($ranked);
+        $first = $ranked[0] ?? null;
+        $reasons = [];
+        foreach ($ranked as $i => $candidate) {
+            $line = self::reason($candidate, $preferredLanguages, $now);
+            if ($first !== null && !empty($first['top_tier']) && !empty($candidate['top_tier']) && empty($candidate['error'])) {
+                if ($i === 0) {
+                    // The tier member with the most chapters (the first of them in rank order).
+                    $most = null;
+                    foreach ($ranked as $other) {
+                        if (!empty($other['top_tier']) && self::chapterCount($other) > self::chapterCount($most ?? $candidate)) {
+                            $most = $other;
+                        }
+                    }
+                    if ($most !== null) {
+                        $line .= ' — ' . (self::chapterCount($most) - self::chapterCount($candidate)) . ' fewer than '
+                            . self::nameOf($most) . ' but ' . self::winsBy($candidate, $most);
+                    }
+                } elseif (self::chapterCount($candidate) > self::chapterCount($first)) {
+                    $line .= ' — ' . (self::chapterCount($candidate) - self::chapterCount($first)) . ' more than '
+                        . self::nameOf($first) . ', but ' . self::losesBy($candidate, $first);
+                }
+            }
+            $reasons[] = $line;
+        }
+
+        return $reasons;
+    }
+
+    /** Why $winner ranks before $other in the tier: "more recent" / "fewer gaps" / "a preferred source". */
+    private static function winsBy(array $winner, array $other): string
+    {
+        if (self::updated($winner) !== self::updated($other)) {
+            return self::updated($other) === 0 ? 'its update date is known' : 'more recent';
+        }
+        if (self::gapCount($winner) !== self::gapCount($other)) {
+            return 'fewer gaps';
+        }
+
+        return 'a preferred source';
+    }
+
+    /** Why $loser ranks after $winner in the tier. */
+    private static function losesBy(array $loser, array $winner): string
+    {
+        if (self::updated($loser) !== self::updated($winner)) {
+            return self::updated($loser) === 0 ? 'its update date is unknown' : 'updated less recently';
+        }
+        if (self::gapCount($loser) !== self::gapCount($winner)) {
+            return 'more gaps';
+        }
+
+        return 'a less preferred source';
+    }
+
+    private static function nameOf(array $candidate): string
+    {
+        $name = trim((string) ($candidate['source_name'] ?? ''));
+
+        return $name !== '' ? $name : (trim((string) ($candidate['source'] ?? '')) ?: 'another source');
+    }
+
+    private static function chapterCount(array $candidate): int
+    {
+        return max(0, (int) ($candidate['chapters_available'] ?? 0));
     }
 
     /** "updated today" / "updated 3 days ago" / "updated 2 months ago" / "update date unknown". */

@@ -663,14 +663,16 @@ end
 
 --[[--
 Resume chapter for a novel: the server's resume chapter combined with this
-device's own reading (see Model.resolveResume for the rule and its tests).
+device's own reading not sent yet, by the rule every device shares (see
+Model.resolveResume for the rule and its tests).
 ]]
 function Session:resumeChapter(novel_id, summary)
     summary = summary or self:novelSummary(novel_id) or {}
     local cl = self:chapterList(novel_id)
     if not cl then return summary.resume_chapter_id end
+    -- Read state and progress: the rule needs both.
     return Model.resolveResume(cl.list, summary.resume_chapter_id, self.store:getOverlay(novel_id),
-        function(c) return (self:chapterState(novel_id, c.id)) end)
+        function(c) return self:chapterState(novel_id, c.id) end)
 end
 
 --- Time (ms) of this device's latest reading in a novel not yet in the server's data, or nil.

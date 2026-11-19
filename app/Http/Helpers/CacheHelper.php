@@ -141,10 +141,23 @@ class CacheHelper
      */
     public static function clearReaderCache(int $userId, array $novelIds): void
     {
+        static::clearResumeCache($userId, $novelIds);
+        Cache::forget(static::libraryReadingKey($userId));
+    }
+
+    /**
+     * One reader's position moved in these novels without a read mark: only
+     * the entries holding a resume point (App\Services\ResumePoint reads
+     * positions — the chapter read last may now be unfinished, or finished):
+     * the novel page's stats, Home's Continue, the API's resume map.
+     *
+     * @param int[] $novelIds
+     */
+    public static function clearResumeCache(int $userId, array $novelIds): void
+    {
         foreach (array_unique(array_map('intval', $novelIds)) as $novelId) {
             Cache::forget(static::novelStatsKey($novelId, $userId));
         }
-        Cache::forget(static::libraryReadingKey($userId));
         Cache::forget(static::dashboardContinueKey($userId));
         Cache::forget(static::apiResumeKey($userId));
     }
