@@ -18,7 +18,6 @@ import studio.visns.novarr.api.ApiClient
 import studio.visns.novarr.api.ApiError
 import studio.visns.novarr.api.ReaderRequest
 import studio.visns.novarr.api.RequestSearch
-import studio.visns.novarr.api.ResultRequested
 import studio.visns.novarr.api.SearchResult
 import studio.visns.novarr.api.rethrowIfCancellation
 import studio.visns.novarr.app.AppModel
@@ -63,6 +62,17 @@ class RequestsViewModel(private val app: AppModel, initial: Section) : ViewModel
     var searchError by mutableStateOf<String?>(null)
         private set
     var slow by mutableStateOf(false)
+        private set
+
+    /** Search results with "Me too" running (their buttons show progress). */
+    var joining by mutableStateOf(setOf<String>())
+        private set
+
+    /**
+     * Whether "Me too" is offered: false once the server answered one with
+     * 409 `already_requested` (a server from before "Me too").
+     */
+    var canJoin by mutableStateOf(true)
         private set
 
     /** The search button waits until then (elapsedRealtime) after a 429. */
@@ -110,6 +120,7 @@ class RequestsViewModel(private val app: AppModel, initial: Section) : ViewModel
     var declineSheet by mutableStateOf<ReaderRequest?>(null)
     var declineReason by mutableStateOf("")
     var confirmCancel by mutableStateOf<ReaderRequest?>(null)
+    var confirmLeave by mutableStateOf<ReaderRequest?>(null)
     var duplicate by mutableStateOf<DuplicatePrompt?>(null)
     var sending by mutableStateOf(false)
         private set
@@ -256,25 +267,64 @@ class RequestsViewModel(private val app: AppModel, initial: Section) : ViewModel
                 e.rethrowIfCancellation()
                 val error = ApiError.from(e)
                 app.noteFailure(error)
-                when (Requests.code(error)) {
-                    // The card was out of date: correct it, close the sheet, say why.
-                    "in_library" -> {
-                        val novelId = ((error as ApiError.Http).body?.get("novel_id") as? JsonPrimitive)?.intOrNull
-                        updateResults { list -> list.map { if (it.key == result.key) it.copy(inLibrary = true, novelId = novelId ?: it.novelId) else it } }
-                        requestSheet = null
-                        errorDialog = Requests.message(error)
-                    }
-                    "already_requested" -> {
-                        val byMe = ((error as ApiError.Http).body?.get("by_me") as? JsonPrimitive)?.booleanOrNull ?: false
-                        updateResults { list -> list.map { if (it.key == result.key) it.copy(requested = ResultRequested("pending", byMe)) else it } }
-                        requestSheet = null
-                        errorDialog = Requests.message(error)
-                    }
-                    else -> sheetError = Requests.message(error)
-                }
+                if (correctCard(error, result)) requestSheet = null else sheetError = Requests.message(error)
             } finally {
                 sending = false
             }
+        }
+    }
+
+    /**
+     * "Me too" on someone else's request: the same POST as Request, without
+     * a note. The server joins their request (200, joined), so this account
+     * is told when it's ready; an older server refuses with 409
+     * `already_requested`, and then the card just says "Requested".
+     */
+    fun meToo(result: SearchResult) {
+        val searchId = search?.id ?: return
+        val client = client ?: return
+        if (result.key in joining) return
+        joining = joining + result.key
+        viewModelScope.launch {
+            try {
+                val created = client.createRequest(searchId, result.key, null)
+                app.noteSuccess()
+                updateResults { Requests.markRequested(it, result.key) }
+                notice = if (created.joined) Requests.JOINED_NOTICE else "Requested. You'll hear when the owner decides."
+                loadLists()
+            } catch (e: Exception) {
+                e.rethrowIfCancellation()
+                val error = ApiError.from(e)
+                app.noteFailure(error)
+                if (Requests.code(error) == "already_requested") canJoin = false
+                if (!correctCard(error, result)) errorDialog = Requests.message(error)
+            } finally {
+                joining = joining - result.key
+            }
+        }
+    }
+
+    /**
+     * A refusal that means the card was out of date (in the library now,
+     * already requested): corrects the card and says why. False for any
+     * other error, which the caller shows.
+     */
+    private fun correctCard(error: ApiError, result: SearchResult): Boolean {
+        val body = (error as? ApiError.Http)?.body
+        return when (Requests.code(error)) {
+            "in_library" -> {
+                val novelId = (body?.get("novel_id") as? JsonPrimitive)?.intOrNull
+                updateResults { list -> list.map { if (it.key == result.key) it.copy(inLibrary = true, novelId = novelId ?: it.novelId) else it } }
+                errorDialog = Requests.message(error)
+                true
+            }
+            "already_requested" -> {
+                val byMe = (body?.get("by_me") as? JsonPrimitive)?.booleanOrNull ?: false
+                updateResults { Requests.markTaken(it, result.key, byMe) }
+                errorDialog = Requests.message(error)
+                true
+            }
+            else -> false
         }
     }
 
@@ -396,6 +446,17 @@ class RequestsViewModel(private val app: AppModel, initial: Section) : ViewModel
             client.cancelRequest(request.id)
             mine = mine.filterNot { it.id == request.id }
             notice = "Request cancelled."
+            loadLists()
+        }
+    }
+
+    /** Leaves a request this account joined with "Me too" (DELETE, 204): no longer told about it. */
+    fun leave(request: ReaderRequest) {
+        confirmLeave = null
+        act(request) { client ->
+            client.cancelRequest(request.id)
+            mine = mine.filterNot { it.id == request.id }
+            notice = "You left the request for ${request.title}."
             loadLists()
         }
     }

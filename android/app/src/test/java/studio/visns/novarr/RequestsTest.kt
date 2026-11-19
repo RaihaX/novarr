@@ -27,6 +27,7 @@ import studio.visns.novarr.api.NovarrJson
 import studio.visns.novarr.api.ReaderRequest
 import studio.visns.novarr.api.RequestCandidate
 import studio.visns.novarr.api.RequestEnvelope
+import studio.visns.novarr.api.Requester
 import studio.visns.novarr.api.RequestsPage
 import studio.visns.novarr.api.ResultRequested
 import studio.visns.novarr.api.ResultSource
@@ -107,7 +108,7 @@ class RequestsTest {
         val request = page.requests.single()
         assertEquals(listOf("Fake B (manga)", "Fake A (manga)"), request.candidates.map { it.sourceName })
         assertTrue(request.candidates.none { it.isDetailed })
-        assertTrue(request.canCancel)
+        assertEquals(true, request.canCancel)
         assertEquals("Ana", request.requestedBy?.name)
         assertEquals("Translated by X", request.note)
     }
@@ -243,13 +244,151 @@ class RequestsTest {
         assertEquals(CardAction.Request, Requests.cardAction(plain))
         assertEquals(CardAction.InLibrary(42), Requests.cardAction(plain.copy(inLibrary = true, novelId = 42)))
         assertEquals(CardAction.Requested(byMe = true), Requests.cardAction(plain.copy(requested = ResultRequested("pending", true))))
-        assertEquals(CardAction.Requested(byMe = false), Requests.cardAction(plain.copy(requested = ResultRequested("approved", false))))
+        // Someone else's open request offers "Me too" (meTooOnSomeoneElsesOpenRequest).
+        assertEquals(CardAction.MeToo, Requests.cardAction(plain.copy(requested = ResultRequested("approved", false))))
         // In the library wins over an open request.
         assertEquals(CardAction.InLibrary(7), Requests.cardAction(plain.copy(inLibrary = true, novelId = 7, requested = ResultRequested("approved", true))))
         assertEquals("Requested by you", Requests.cardActionLabel(CardAction.Requested(true)))
         assertEquals("Requested", Requests.cardActionLabel(CardAction.Requested(false)))
         assertEquals("In library", Requests.cardActionLabel(CardAction.InLibrary(null)))
         assertEquals("Request", Requests.cardActionLabel(CardAction.Request))
+    }
+
+    @Test
+    fun meTooOnSomeoneElsesOpenRequest() {
+        val plain = result()
+        fun action(status: String, byMe: Boolean, canJoin: Boolean = true) =
+            Requests.cardAction(plain.copy(requested = ResultRequested(status, byMe)), canJoin)
+        assertEquals(CardAction.MeToo, action("pending", byMe = false))
+        assertEquals(CardAction.MeToo, action("approved", byMe = false))
+        assertEquals(CardAction.MeToo, action("PENDING", byMe = false))
+        // Your own request, or one that can't be joined, stays "Requested".
+        assertEquals(CardAction.Requested(byMe = true), action("pending", byMe = true))
+        assertEquals(CardAction.Requested(byMe = false), action("declined", byMe = false))
+        assertEquals(CardAction.Requested(byMe = false), action("available", byMe = false))
+        // An older server refused "Me too" (409 already_requested): plain "Requested" from then on.
+        assertEquals(CardAction.Requested(byMe = false), action("pending", byMe = false, canJoin = false))
+        // In the library still wins; nothing requested is "Request".
+        assertEquals(CardAction.InLibrary(3), Requests.cardAction(plain.copy(novelId = 3, requested = ResultRequested("pending", false))))
+        assertEquals(CardAction.Request, Requests.cardAction(plain, canJoin = false))
+        assertEquals("Me too", Requests.cardActionLabel(CardAction.MeToo))
+        assertEquals("You'll be told when it's ready.", Requests.JOINED_NOTICE)
+    }
+
+    @Test
+    fun joiningKeepsTheRequestStatusAndRefusalMarksTheCard() {
+        val results = listOf(result("a").copy(requested = ResultRequested("approved", false)), result("b"))
+        val joined = Requests.markRequested(results, "a")
+        assertEquals(ResultRequested("approved", true), joined[0].requested)
+        assertEquals("Requested by you", Requests.cardActionLabel(Requests.cardAction(joined[0])))
+        val taken = Requests.markTaken(results, "b", byMe = false)
+        assertEquals(ResultRequested("pending", false), taken[1].requested)
+        assertEquals(CardAction.Requested(byMe = false), Requests.cardAction(taken[1], canJoin = false))
+    }
+
+    @Test
+    fun createRequestAnswersOldAndNew() = runTest {
+        // New server: Me too joins (200, joined); a new request is 201 with joined false.
+        val server = HeaderServer { 200 to Triple("""{"request":{"id":7,"title":"Solo","status":"pending","mine":"follower","also_wanted_by":1},"joined":true}""", "X", "") }
+        val client = ApiClient("http://host", server.client, token = "tok")
+        val joined = client.createRequest("s1", "g1", null)
+        assertTrue(joined.joined)
+        assertEquals(7, joined.request?.id)
+        assertTrue(joined.request!!.isFollower)
+        assertEquals("""{"search_id":"s1","key":"g1"}""", server.bodies.single())
+        assertEquals("/api/v1/requests", server.requests.single().url.encodedPath)
+        server.respond = { 201 to Triple("""{"request":{"id":8},"joined":false}""", "X", "") }
+        assertFalse(client.createRequest("s1", "g2", "please").joined)
+        // Older server: no `joined` at all ...
+        server.respond = { 201 to Triple("""{"request":{"id":9}}""", "X", "") }
+        val old = client.createRequest("s1", "g3", null)
+        assertFalse(old.joined)
+        assertEquals(9, old.request?.id)
+        // ... and Me too is refused as already requested.
+        server.respond = { 409 to Triple("""{"message":"Someone has already requested this.","code":"already_requested","by_me":false}""", "X", "") }
+        try {
+            client.createRequest("s1", "g4", null)
+            fail("expected 409")
+        } catch (e: ApiError.Http) {
+            assertEquals("already_requested", Requests.code(e))
+            assertEquals("Someone has already requested this.", Requests.message(e))
+        }
+        // Leave is the same DELETE as cancel (204).
+        server.respond = { 204 to Triple("", "X", "") }
+        client.cancelRequest(7)
+        assertEquals("DELETE", server.requests.last().method)
+        assertEquals("/api/v1/requests/7", server.requests.last().url.encodedPath)
+    }
+
+    @Test
+    fun requestFollowerFieldsDecodeOldAndNewShapes() {
+        // An older server: none of the fields.
+        val old = NovarrJson.decodeFromString(RequestEnvelope.serializer(), """{"request":{"id":1,"title":"A","status":"pending","can_cancel":true}}""").request
+        assertEquals(0, old.alsoWantedBy)
+        assertNull(old.mine)
+        assertTrue(old.followers.isEmpty())
+        assertFalse(old.isFollower)
+        // The reader view.
+        val mine = NovarrJson.decodeFromString(
+            RequestEnvelope.serializer(),
+            """{"request":{"id":2,"title":"B","status":"pending","mine":"follower","also_wanted_by":2,"can_cancel":false}}""",
+        ).request
+        assertTrue(mine.isFollower)
+        assertEquals(2, mine.alsoWantedBy)
+        // The admin view, with names; junk values fall back instead of dropping the request.
+        val page = NovarrJson.decodeFromString(
+            RequestsPage.serializer(),
+            """{"requests":[
+                 {"id":3,"title":"C","also_wanted_by":"2","mine":"requester","followers":[{"id":5,"name":"Ana"},{"id":6,"name":"Ben"},"junk"]},
+                 {"id":4,"title":"D","also_wanted_by":{"n":1},"mine":null,"followers":null},
+                 {"id":5,"title":"E","also_wanted_by":-3,"mine":{"x":1},"followers":{}}
+               ],"can_decide":true}""",
+        )
+        assertEquals(listOf(3, 4, 5), page.requests.map { it.id })
+        val c = page.requests[0]
+        assertEquals(2, c.alsoWantedBy)
+        assertEquals("requester", c.mine)
+        assertEquals(listOf("Ana", "Ben"), c.followers.map { it.name })
+        assertEquals(0, page.requests[1].alsoWantedBy)
+        assertTrue(page.requests[1].followers.isEmpty())
+        assertEquals(0, page.requests[2].alsoWantedBy)
+        assertNull(page.requests[2].mine)
+    }
+
+    @Test
+    fun followersLeaveInsteadOfCancel() {
+        val own = request(status = "pending").copy(canCancel = true, mine = "requester")
+        assertEquals(Requests.MineAction.CANCEL, Requests.mineAction(own))
+        assertEquals(Requests.MineAction.NONE, Requests.mineAction(own.copy(canCancel = false)))
+        val joined = request(status = "pending").copy(mine = "follower")
+        assertEquals(Requests.MineAction.LEAVE, Requests.mineAction(joined))
+        assertEquals(Requests.MineAction.LEAVE, Requests.mineAction(joined.copy(canCancel = true)))
+        // A follower may leave while the server allows it: pending or approved (not yet available).
+        assertEquals(Requests.MineAction.LEAVE, Requests.mineAction(joined.copy(status = "approved", canCancel = true)))
+        assertEquals(Requests.MineAction.NONE, Requests.mineAction(joined.copy(status = "approved", canCancel = false)))
+        assertEquals(Requests.MineAction.NONE, Requests.mineAction(joined.copy(status = "available", canCancel = false)))
+        assertEquals(Requests.MineAction.NONE, Requests.mineAction(joined.copy(canCancel = false)))
+        // A server that doesn't send can_cancel: pending only.
+        assertEquals(Requests.MineAction.NONE, Requests.mineAction(joined.copy(status = "approved")))
+        // The requester's Cancel stays pending-only.
+        assertEquals(Requests.MineAction.NONE, Requests.mineAction(own.copy(status = "approved")))
+        assertEquals(Requests.MineAction.NONE, Requests.mineAction(own.copy(status = "declined")))
+        // An older server (no `mine`) behaves as before.
+        assertEquals(Requests.MineAction.CANCEL, Requests.mineAction(request().copy(canCancel = true)))
+    }
+
+    @Test
+    fun alsoWantedByNamesOrCount() {
+        val r = request()
+        assertNull(Requests.alsoWantedLabel(r))
+        assertEquals("Also wanted by Ana, Ben", Requests.alsoWantedLabel(r.copy(alsoWantedBy = 2, followers = listOf(Requester(1, "Ana"), Requester(2, "Ben")))))
+        // Names without a count still show.
+        assertEquals("Also wanted by Ana", Requests.alsoWantedLabel(r.copy(followers = listOf(Requester(1, "Ana")))))
+        assertEquals("Also wanted by 3 readers", Requests.alsoWantedLabel(r.copy(alsoWantedBy = 3)))
+        assertEquals("Also wanted by 1 reader", Requests.alsoWantedLabel(r.copy(alsoWantedBy = 1)))
+        assertEquals("Also wanted by Ana and 2 more readers", Requests.alsoWantedLabel(r.copy(alsoWantedBy = 3, followers = listOf(Requester(1, "Ana")))))
+        // Followers without names still count.
+        assertEquals("Also wanted by 2 readers", Requests.alsoWantedLabel(r.copy(followers = listOf(Requester(1, null), Requester(2, " ")))))
     }
 
     @Test
@@ -288,6 +427,11 @@ class RequestsTest {
         val mine = listOf(request(1, "pending"), request(2, "pending"), request(3, "declined"))
         assertEquals("2 of 5 pending", Requests.pendingLabel(mine, 5))
         assertNull(Requests.pendingLabel(mine, null))
+        // Nothing pending: no counter (not "0 of 5 pending"); joined requests don't count against the limit.
+        assertNull(Requests.pendingLabel(listOf(request(3, "declined"), request(4, "available")), 5))
+        assertNull(Requests.pendingLabel(emptyList(), 5))
+        assertNull(Requests.pendingLabel(listOf(request(5, "pending").copy(mine = "follower")), 5))
+        assertEquals("1 of 5 pending", Requests.pendingLabel(listOf(request(6, "pending"), request(7, "pending").copy(mine = "follower")), 5))
         assertEquals(9, Requests.openableNovel(request(status = "available").copy(novelId = 9)))
         assertNull(Requests.openableNovel(request(status = "available")))
         assertNull(Requests.openableNovel(request(status = "declined").copy(novelId = 9)))

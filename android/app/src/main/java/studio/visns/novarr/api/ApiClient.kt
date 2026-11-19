@@ -161,14 +161,19 @@ class ApiClient(
         return get("requests", RequestsPage.serializer(), query = query, fresh = true)
     }
 
-    /** Requests a search result: 201 {request}. */
-    suspend fun createRequest(searchId: String, key: String, note: String?): ReaderRequest {
+    /**
+     * Requests a search result: 201 {request, joined: false}. For a series
+     * someone else already asked for ("Me too", no note) the server joins
+     * their request instead: 200 {request, joined: true}; an older server
+     * refuses with 409 `already_requested`.
+     */
+    suspend fun createRequest(searchId: String, key: String, note: String?): CreatedRequest {
         val body = buildJsonObject {
             put("search_id", searchId)
             put("key", key)
             note?.let { put("note", it) }
         }
-        return decode(RequestEnvelope.serializer(), execute(prepare("POST", "requests", body = body))).request
+        return decode(CreatedRequest.serializer(), execute(prepare("POST", "requests", body = body)))
     }
 
     /** A request typed in by hand ("Request it anyway"): 201 {request}. */
@@ -182,7 +187,7 @@ class ApiClient(
         return decode(RequestEnvelope.serializer(), execute(prepare("POST", "requests", body = body))).request
     }
 
-    /** Cancels a pending request (204). */
+    /** Cancels a pending request (204); for a request this account joined, leaves it (204). */
     suspend fun cancelRequest(id: Int) {
         execute(prepare("DELETE", "requests/$id"))
     }

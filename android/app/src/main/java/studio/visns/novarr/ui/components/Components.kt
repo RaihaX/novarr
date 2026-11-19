@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -48,12 +49,16 @@ import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
 import studio.visns.novarr.app.AppModel
+import studio.visns.novarr.domain.CoverTitle
 import androidx.compose.runtime.remember
 import androidx.compose.ui.layout.FirstBaseline
 import androidx.compose.ui.layout.Layout
@@ -174,22 +179,41 @@ fun Cover(url: String?, title: String, modifier: Modifier = Modifier, corner: Dp
 private fun CoverPlaceholder(title: String) {
     // As on the web (.cover-placeholder-panel): surface-alt fading into the
     // background, muted title, the single-colour mark.
+    // The title wraps between words and shrinks to fit its longest word
+    // (CoverTitle); small covers (Home's 50 dp rows) get a smaller inset.
     val scheme = MaterialTheme.colorScheme
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(listOf(scheme.surfaceContainerHigh, scheme.background))),
     ) {
-        Column(Modifier.padding(10.dp).fillMaxSize()) {
-            Text(
-                title,
-                color = scheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelMedium.copy(fontFamily = BrandFonts.LiterataDisplay, fontWeight = FontWeight.SemiBold),
-                maxLines = 5,
-                overflow = TextOverflow.Ellipsis,
-            )
+        val inset = (maxWidth * 0.09f).coerceIn(4.dp, 10.dp)
+        val markWidth = (maxWidth * 0.2f).coerceIn(10.dp, 18.dp)
+        val base = MaterialTheme.typography.labelMedium.copy(fontFamily = BrandFonts.LiterataDisplay, fontWeight = FontWeight.SemiBold)
+        val measurer = rememberTextMeasurer()
+        val density = LocalDensity.current
+        val lineWidth = with(density) { (maxWidth - inset * 2).toPx() }
+        val fit = remember(title, lineWidth, base) {
+            val longest = CoverTitle.words(title).maxOfOrNull { word ->
+                measurer.measure(word, base, softWrap = false, maxLines = 1).size.width.toFloat()
+            } ?: 0f
+            CoverTitle.fit(longest, lineWidth)
+        }
+        val style = base.copy(
+            fontSize = base.fontSize * fit.scale,
+            lineHeight = (if (base.lineHeight.isSp) base.lineHeight else base.fontSize * 1.33f) * fit.scale,
+            lineBreak = LineBreak.Heading,
+            hyphens = if (fit.hyphenate) Hyphens.Auto else Hyphens.None,
+        )
+        // As many lines as fit above the mark; the last one ends in an ellipsis.
+        val lines = with(density) {
+            val room = (maxHeight - inset * 2 - markWidth * (23.5f / 22f) - 4.dp).toPx()
+            (room / style.lineHeight.toPx()).toInt().coerceIn(1, 8)
+        }
+        Column(Modifier.padding(inset).fillMaxSize()) {
+            Text(title, color = scheme.onSurfaceVariant, style = style, maxLines = lines, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.weight(1f))
-            BrandMark(Modifier.width(18.dp), color = scheme.onSurfaceVariant.copy(alpha = 0.6f))
+            BrandMark(Modifier.width(markWidth), color = scheme.onSurfaceVariant.copy(alpha = 0.6f))
         }
     }
 }

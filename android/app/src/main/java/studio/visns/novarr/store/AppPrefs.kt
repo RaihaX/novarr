@@ -28,7 +28,8 @@ data class ReaderSettings(
     val width: ReaderWidth = ReaderWidth.STANDARD,
     val theme: ReaderTheme = ReaderTheme.SYSTEM,
     val justify: Boolean = false,
-    val keepScreenOn: Boolean = false,
+    /** On unless changed: the reader keeps the screen awake, as on iOS and the web. */
+    val keepScreenOn: Boolean = true,
     /** Continuous scroll or screen-sized pages; a reader default for every novel on this device. */
     val mode: TextReadingMode = TextReadingMode.SCROLL,
 ) {
@@ -95,6 +96,20 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         prefs[UPDATE_NOTIFIED] = maxOf(build, prefs[UPDATE_NOTIFIED] ?: build)
     }
 
+    /** The newest app build an in-app install was started for (the Play Protect hint shows before the first). */
+    suspend fun attemptedUpdateBuild(): Int? = snapshot()[UPDATE_ATTEMPTED]
+
+    /** Records [build] as attempted; never moves back to an older build. */
+    suspend fun noteUpdateAttempted(build: Int) = store.edit { prefs ->
+        prefs[UPDATE_ATTEMPTED] = maxOf(build, prefs[UPDATE_ATTEMPTED] ?: build)
+    }
+
+    /** The app build whose last in-app install didn't finish (cancelled, or blocked by Play Protect); null: none. */
+    suspend fun unfinishedUpdateBuild(): Int? = snapshot()[UPDATE_UNFINISHED]
+    suspend fun setUnfinishedUpdateBuild(build: Int?) = store.edit {
+        if (build == null) it.remove(UPDATE_UNFINISHED) else it[UPDATE_UNFINISHED] = build
+    }
+
     /** Whether Home has already asked for the notification permission (Android 13+): it asks once. */
     suspend fun notificationPermissionAsked(): Boolean = snapshot()[NOTIFY_ASKED] ?: false
     suspend fun setNotificationPermissionAsked() = store.edit { it[NOTIFY_ASKED] = true }
@@ -139,13 +154,15 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
             width = enumOr(p[R_WIDTH], ReaderWidth.STANDARD),
             theme = enumOr(p[R_THEME], ReaderTheme.SYSTEM),
             justify = p[R_JUSTIFY] ?: false,
-            keepScreenOn = p[R_SCREEN_ON] ?: false,
+            // 1.5 turned the default on; a stored choice still wins.
+            keepScreenOn = p[R_SCREEN_ON] ?: true,
             mode = TextReadingMode.from(p[R_MODE]),
         )
     }
 
     suspend fun updateReader(transform: (ReaderSettings) -> ReaderSettings) {
-        val next = transform(readerSettings.first())
+        val current = readerSettings.first()
+        val next = transform(current)
         store.edit {
             it[R_SIZE] = next.fontSize.coerceIn(ReaderSettings.MIN_SIZE, ReaderSettings.MAX_SIZE)
             it[R_FONT] = next.font.name
@@ -154,7 +171,8 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
             it[R_WIDTH] = next.width.name
             it[R_THEME] = next.theme.name
             it[R_JUSTIFY] = next.justify
-            it[R_SCREEN_ON] = next.keepScreenOn
+            // Stored only once it has been chosen, so a default that was never touched can still change.
+            if (next.keepScreenOn != current.keepScreenOn || R_SCREEN_ON in it) it[R_SCREEN_ON] = next.keepScreenOn
             it[R_MODE] = next.mode.name
         }
     }
@@ -194,6 +212,8 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         val UPDATE_DISMISSED = intPreferencesKey("update.dismissedBuild")
         val UPDATE_NOTIFY = booleanPreferencesKey("update.notify")
         val UPDATE_NOTIFIED = intPreferencesKey("update.notifiedBuild")
+        val UPDATE_ATTEMPTED = intPreferencesKey("update.attemptedBuild")
+        val UPDATE_UNFINISHED = intPreferencesKey("update.unfinishedBuild")
         val NOTIFY_ASKED = booleanPreferencesKey("notifications.permissionAsked")
         val REQUESTS_NOTIFY = booleanPreferencesKey("requests.notify")
 

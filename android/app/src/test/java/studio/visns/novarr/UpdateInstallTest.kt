@@ -52,8 +52,64 @@ class UpdateInstallTest {
     }
 
     @Test
-    fun cancellingTheConfirmationOffersTheUpdateAgain() {
-        assertEquals(UpdateState.Idle, reduce(UpdateState.AwaitingConfirmation, UpdateEvent.InstallStatus(UpdateMachine.STATUS_FAILURE_ABORTED)))
+    fun cancellingTheConfirmationSaysWhatToDoAboutPlayProtect() {
+        // Play Protect's "Harmful app blocked" ends the session as "aborted", like a cancel: one message for both.
+        val s = reduce(UpdateState.AwaitingConfirmation, UpdateEvent.InstallStatus(UpdateMachine.STATUS_FAILURE_ABORTED))
+        assertEquals(UpdateState.Failed(UpdateFailure.Unfinished), s)
+        assertFalse(s.busy)
+        assertEquals(
+            "The install didn't finish. If Google Play Protect blocked it, tap Update again, then More details → Install anyway.",
+            UpdateFailure.Unfinished.message,
+        )
+        // Only that one keeps the downloaded file for the retry.
+        assertEquals(listOf(UpdateFailure.Unfinished), UpdateFailure.entries.filter { it.keepsFile })
+    }
+
+    @Test
+    fun aRetryReusesTheCheckedFile() {
+        val failed = UpdateState.Failed(UpdateFailure.Unfinished)
+        var s = reduce(failed, UpdateEvent.Reuse)
+        assertEquals(UpdateState.Verifying, s)
+        s = reduce(s, UpdateEvent.Verified(canInstall = true))
+        assertEquals(UpdateState.AwaitingConfirmation, s)
+        assertEquals(UpdateState.Verifying, reduce(UpdateState.Idle, UpdateEvent.Reuse))
+        // The kept file no longer matches: download after all.
+        assertEquals(downloading, reduce(UpdateState.Verifying, UpdateEvent.Redownload))
+        // Neither applies while something else runs.
+        val mid = UpdateState.Downloading(5, 10)
+        assertEquals(mid, reduce(mid, UpdateEvent.Reuse))
+        assertEquals(mid, reduce(mid, UpdateEvent.Redownload))
+        assertEquals(UpdateState.AwaitingConfirmation, reduce(UpdateState.AwaitingConfirmation, UpdateEvent.Reuse))
+        assertEquals(UpdateState.Idle, reduce(UpdateState.Idle, UpdateEvent.Redownload))
+    }
+
+    @Test
+    fun didntFinishShowsUntilANewerBuildOrASuccess() {
+        val unfinished = UpdateState.Failed(UpdateFailure.Unfinished)
+        // In memory, for the build on offer.
+        assertEquals(unfinished, UpdateMachine.shown(unfinished, stateBuild = 6, build = 6, unfinishedBuild = 6))
+        // After a restart (the updater is idle) the saved build brings it back.
+        assertEquals(unfinished, UpdateMachine.shown(UpdateState.Idle, stateBuild = null, build = 6, unfinishedBuild = 6))
+        // A newer build is offered fresh, whatever happened to the older one.
+        assertEquals(UpdateState.Idle, UpdateMachine.shown(UpdateState.Idle, stateBuild = null, build = 7, unfinishedBuild = 6))
+        assertEquals(UpdateState.Idle, UpdateMachine.shown(unfinished, stateBuild = 6, build = 7, unfinishedBuild = 6))
+        assertEquals(UpdateState.Idle, UpdateMachine.shown(UpdateState.Failed(UpdateFailure.Storage), stateBuild = 6, build = 7, unfinishedBuild = null))
+        // A specific failure keeps its own message; a running retry shows its progress.
+        val storage = UpdateState.Failed(UpdateFailure.Storage)
+        assertEquals(storage, UpdateMachine.shown(storage, stateBuild = 6, build = 6, unfinishedBuild = 6))
+        assertEquals(UpdateState.Verifying, UpdateMachine.shown(UpdateState.Verifying, stateBuild = 6, build = 6, unfinishedBuild = 6))
+        assertEquals(UpdateState.Idle, UpdateMachine.shown(UpdateState.Idle, stateBuild = null, build = 6, unfinishedBuild = null))
+    }
+
+    @Test
+    fun theInstallHintShowsOnlyBeforeTheFirstAttempt() {
+        assertTrue(UpdateMachine.showsInstallHint(UpdateState.Idle, build = 6, attemptedBuild = null))
+        assertTrue(UpdateMachine.showsInstallHint(UpdateState.Idle, build = 6, attemptedBuild = 5))
+        assertFalse(UpdateMachine.showsInstallHint(UpdateState.Idle, build = 6, attemptedBuild = 6))
+        // Only in the idle "Update" state.
+        assertFalse(UpdateMachine.showsInstallHint(UpdateState.Verifying, build = 6, attemptedBuild = null))
+        assertFalse(UpdateMachine.showsInstallHint(UpdateState.Failed(UpdateFailure.Unfinished), build = 6, attemptedBuild = null))
+        assertTrue(UpdateMachine.INSTALL_HINT.contains("More details → Install anyway"))
     }
 
     @Test
@@ -62,10 +118,12 @@ class UpdateInstallTest {
         assertEquals(UpdateState.Failed(UpdateFailure.Signature), after(UpdateMachine.STATUS_FAILURE_CONFLICT))
         assertEquals(UpdateState.Failed(UpdateFailure.Signature), after(UpdateMachine.STATUS_FAILURE_INCOMPATIBLE))
         assertEquals(UpdateState.Failed(UpdateFailure.Storage), after(UpdateMachine.STATUS_FAILURE_STORAGE))
-        assertEquals(UpdateState.Failed(UpdateFailure.Blocked), after(UpdateMachine.STATUS_FAILURE_BLOCKED))
         assertEquals(UpdateState.Failed(UpdateFailure.Invalid), after(UpdateMachine.STATUS_FAILURE_INVALID))
-        assertEquals(UpdateState.Failed(UpdateFailure.Other), after(UpdateMachine.STATUS_FAILURE))
-        assertEquals(UpdateState.Failed(UpdateFailure.Other), after(42))
+        // Everything the app can't tell apart is "didn't finish" (Play Protect may report blocked or aborted).
+        assertEquals(UpdateState.Failed(UpdateFailure.Unfinished), after(UpdateMachine.STATUS_FAILURE_BLOCKED))
+        assertEquals(UpdateState.Failed(UpdateFailure.Unfinished), after(UpdateMachine.STATUS_FAILURE_ABORTED))
+        assertEquals(UpdateState.Failed(UpdateFailure.Unfinished), after(UpdateMachine.STATUS_FAILURE))
+        assertEquals(UpdateState.Failed(UpdateFailure.Unfinished), after(42))
         assertTrue(UpdateFailure.Signature.message.startsWith("This build is signed differently"))
     }
 

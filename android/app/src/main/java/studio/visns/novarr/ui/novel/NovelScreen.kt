@@ -107,6 +107,9 @@ fun NovelScreen(nav: NavController, novelId: Int) {
     // Load on open, after a check changed the chapters, and when coming back from the reader.
     LaunchedEffect(checkRevisions[novelId], readRevision) { model.load() }
     LaunchedEffect(downloadRevision) { model.refreshCachedIds() }
+    // Reading queued here (sent or not yet) moves Continue at once, offline too.
+    val queueRevision by app.queueRevision.collectAsStateWithLifecycle()
+    LaunchedEffect(queueRevision) { model.refreshUnsentWrites() }
 
     fun open(chapterId: Int, offerLatest: Boolean = true) =
         nav.navigate(ReaderRoute(novelId, chapterId, manga = model.isManga, offerLatest = offerLatest))
@@ -168,7 +171,7 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                                 if (model.fromCache && model.loaded) OfflinePill(modifier = Modifier.align(Alignment.CenterHorizontally))
                                 NovelHeader(summary, model.detail, wide)
                                 ProgressBlock(summary)
-                                PrimaryButton(summary) { id -> open(id) }
+                                PrimaryButton(summary, model.resumeChapterId, model.hasStarted) { id -> open(id) }
                                 CheckForChaptersControl(novelId)
                                 DownloadBlock(model, reachable, onDownload = { model.download(it) }, onRemove = { confirmRemove = true })
                                 model.detail?.extras?.sourceUnavailable?.takeIf { it.count > 0 }?.let { unavailable ->
@@ -380,11 +383,10 @@ private fun ProgressBlock(summary: NovelSummary) {
 }
 
 @Composable
-private fun PrimaryButton(summary: NovelSummary, onOpen: (Int) -> Unit) {
-    val resume = summary.resumeChapterId
+private fun PrimaryButton(summary: NovelSummary, resume: Int?, started: Boolean, onOpen: (Int) -> Unit) {
     if (resume != null) {
         Button(onClick = { onOpen(resume) }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-            Text(if (summary.chaptersRead > 0) "Continue reading" else "Start reading", style = MaterialTheme.typography.titleSmall)
+            Text(if (started) "Continue reading" else "Start reading", style = MaterialTheme.typography.titleSmall)
         }
     } else {
         Text(

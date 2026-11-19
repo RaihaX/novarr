@@ -41,6 +41,7 @@ import studio.visns.novarr.store.Credential
 import studio.visns.novarr.store.CredentialStore
 import studio.visns.novarr.store.KeystoreSecretBox
 import studio.visns.novarr.store.OfflineStore
+import studio.visns.novarr.store.PendingWrite
 import studio.visns.novarr.store.WriteKind
 import studio.visns.novarr.store.WriteQueue
 import studio.visns.novarr.store.hasUnsentChapterWrite
@@ -122,13 +123,21 @@ class AppModel(private val context: Context) {
     private val _revision = MutableStateFlow(0)
     val readStateRevision: StateFlow<Int> = _revision.asStateFlow()
 
+    /**
+     * Bumped whenever the write queue changed (a write queued, or some sent),
+     * position-only writes included, so screens that apply the unsent writes
+     * locally (Continue: [studio.visns.novarr.domain.ResumeRule]) re-read them.
+     */
+    private val _queueRevision = MutableStateFlow(0)
+    val queueRevision: StateFlow<Int> = _queueRevision.asStateFlow()
+
     lateinit var device: DeviceIdentity
         private set
 
     val downloads = DownloadManager(this)
 
     /** In-app update: downloads the server's APK and hands it to Android's installer. */
-    val updater = AppUpdater(context, imageHttp, scope)
+    val updater = AppUpdater(context, imageHttp, scope, prefs)
     val checks = ChapterChecks(onChaptersChanged = { libraryChanged() })
 
     val active: Session.Active? get() = _session.value as? Session.Active
@@ -519,6 +528,7 @@ class AppModel(private val context: Context) {
         val session = active ?: return
         session.queue.enqueue(kind, novelId)
         _pending.value = session.queue.count()
+        _queueRevision.update { it + 1 }
         if (kind.changesReadState) _revision.update { it + 1 }
         scope.launch { flushWrites() }
     }
@@ -533,6 +543,13 @@ class AppModel(private val context: Context) {
         // The session may have ended (401) while this flush ran.
         if (active?.queue !== session.queue) return
         _pending.value = session.queue.count()
+        val sent = when (outcome) {
+            is WriteQueue.FlushOutcome.Drained -> outcome.sent + outcome.dropped
+            is WriteQueue.FlushOutcome.Stalled -> outcome.sent
+            is WriteQueue.FlushOutcome.Unauthenticated -> outcome.sent
+            WriteQueue.FlushOutcome.Busy -> 0
+        }
+        if (sent > 0) _queueRevision.update { it + 1 }
         when (outcome) {
             is WriteQueue.FlushOutcome.Drained -> if (outcome.sent > 0) {
                 _reachable.value = true
@@ -547,6 +564,10 @@ class AppModel(private val context: Context) {
     /** Position-moving writes for a series still waiting to be sent, by when they were recorded. */
     suspend fun unsentWriteTimes(novelId: Int): List<Long> =
         active?.queue?.items().orEmpty().filter { it.novelId == novelId && it.kind.movesPosition }.map { it.recordedAt }
+
+    /** One series' writes not sent yet, oldest first (the local resume rule, [studio.visns.novarr.domain.ResumeRule]). */
+    suspend fun unsentWrites(novelId: Int): List<PendingWrite> =
+        active?.queue?.items().orEmpty().filter { it.novelId == novelId }
 
     /** New highlights for a series still waiting to be sent. */
     suspend fun unsentHighlights(novelId: Int): List<WriteKind.CreateHighlight> =
