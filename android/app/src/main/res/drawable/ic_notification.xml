@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: the Serial mark from ic_launcher_monochrome, cropped to the
+     bars (the launcher layer's safe zone would make it tiny). Android uses only its alpha. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="50"
+    android:viewportHeight="50">
+    <group
+        android:translateX="-29"
+        android:translateY="-29">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M34.2,32.85h39.6v7.2h-39.6z M34.2,44.55h39.6v7.2h-39.6z M34.2,56.25h27v7.2h-27z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillAlpha="0.55"
+            android:pathData="M34.2,67.95h14.4v7.2h-14.4z" />
+    </group>
+</vector>

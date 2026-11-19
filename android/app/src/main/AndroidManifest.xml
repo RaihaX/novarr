@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- In-app update: installs the server's APK over this app (with the system's confirmation). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- "Novarr 1.4 is available" from the background check; a runtime permission on Android 13+. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- allowBackup off: the cache holds per-account data and the token's
          Keystore key never leaves the device, so a restored backup could
@@ -38,6 +40,15 @@
         <receiver
             android:name=".app.InstallResultReceiver"
             android:exported="false" />
+
+        <!-- This app was updated (in-app or from the browser): clears the "newer version" notification. -->
+        <receiver
+            android:name=".app.UpdateInstalledReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

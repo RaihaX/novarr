@@ -266,3 +266,19 @@ class InstallResultReceiver : BroadcastReceiver() {
         app.model.updater.onInstallStatus(status, confirm, message)
     }
 }
+
+/** MY_PACKAGE_REPLACED: the new version is installed, so its "newer version" notification goes. */
+class UpdateInstalledReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        val app = context.applicationContext as? NovarrApplication ?: return
+        val pending = goAsync()
+        app.model.scope.launch {
+            try {
+                app.model.clearInstalledUpdateNotice()
+            } finally {
+                pending.finish()
+            }
+        }
+    }
+}

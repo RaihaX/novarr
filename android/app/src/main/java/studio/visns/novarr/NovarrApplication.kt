@@ -27,6 +27,8 @@ class NovarrApplication : Application(), SingletonImageLoader.Factory {
                 model.scope.launch { model.flushWrites() }
                 // A newer APK on the server is noticed without waiting for a relaunch.
                 model.refreshMetaIfDue()
+                // Request news since last time: the dot on Requests (no notification while on screen).
+                model.pollRequestFeed()
                 // Back from "Install unknown apps": carry on with a waiting update.
                 model.updater.onForeground()
             }

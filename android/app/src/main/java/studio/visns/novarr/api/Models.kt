@@ -35,6 +35,8 @@ data class ServerMeta(
     @Serializable(with = ServerAuthOrNull::class) val auth: ServerAuth? = null,
     /** The APK this server publishes; null when none (or the server predates the key). */
     @Serializable(with = AndroidReleaseOrNull::class) val android: AndroidRelease? = null,
+    /** Reader requests (search, request, the notification feed) are offered; absent on older servers. */
+    val requests: Boolean = false,
 ) {
     /** Only an explicit `auth.required: true` turns sign-in on. */
     val requiresSignIn: Boolean get() = auth?.required == true
