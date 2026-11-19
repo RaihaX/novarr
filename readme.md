@@ -45,6 +45,7 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 
 - [Quick install (one command)](#quick-install-one-command)
 - [Features](#features)
+- [Accounts and sign-in](#accounts-and-sign-in)
 - [How it works](#how-it-works)
 - [Supported sources](#supported-sources)
 - [Requirements](#requirements)
@@ -78,6 +79,7 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 - **Translated or original** — every novel is marked as a *translated* web novel (with its source language) or an *original* English web serial. The answer comes from the matched NovelUpdates page (its type and language fields) when there is one; otherwise it is inferred from the source, the novel's NovelUpdates match, genres and author name, and left *unknown* rather than guessed when the signals are weak. A quiet chip shows it on covers, the novel header, palette results and the daily email, and the edit page's **Origin** select overrides it permanently (manual choices survive every refresh). `novel:origin` backfills an existing library.
 - **Add novels from 3 sources** with a Sonarr-style discover/search flow, or paste a URL directly. Discover cards carry the cover, author, and a **synopsis** — three clamped lines with a More/Less toggle — so you can tell what a novel is about before adding it. (Synopses come from NovelPing's (formerly novelarrow) list API; the other two sources' search endpoints don't return one.) The Popular / Completed lists leave out novels already in your library (matched by slug on either host, else by name) and say how many were hidden; search results show everything, with library ones marked "In library".
 - **Automatic metadata** — title, author, description, genres, chapter count, cover and origin (translated / original), pulled from the source and enriched/fallback-resolved via **NovelUpdates** (including alias resolution for series listed under a different title).
+- **No duplicate series** — adding a series that is already in the library is refused, even when it comes from a different source: titles are compared with punctuation, case and tags such as "(Novel)" or "[Official]" ignored. Discover marks results you already have, and the add form, the command runner, `novel:create` and the API all apply the same check (each has an explicit override).
 - **Tags** (genre/custom) with a multi-select picker, plus tag filtering on the library.
 - **Bulk actions** — pause, mark complete, delete across many novels at once (desktop and mobile).
 - **Per-novel tools** — remove duplicate chapters, normalize chapter labels/numbers, jump to a chapter, search within the novel, pause/resume automatic downloads, and an **"hourly checks"** priority toggle for actively-updating series.
@@ -125,10 +127,18 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 - **Offline library** view and a **read-state sync queue** that replays your offline progress when you reconnect.
 - See [Offline reading](#offline-reading-pwa) for details.
 
+### Accounts & sharing
+- **Optional sign-in** — off by default (everyone on your network is the owner). Turn it on and every page and API call needs an account.
+- **One admin, invited readers** — the owner manages the library; readers can read everything, check a series for new chapters, download ePubs and see their own stats, and nothing else.
+- **Each reader has their own progress** — read marks, reading position, highlights and stats are kept per account.
+- **Invite by email** — type a name and an email; the person opens the link, picks a password and is signed in. The email also links to the Android app when one is published.
+- **Link a Kindle with a code** — the KOReader plugin shows a 6-character code that you enter on the website; no typing passwords on an e-reader.
+- See [Accounts and sign-in](#accounts-and-sign-in).
+
 ### Apps & API
 - **JSON API** at `/api/v1` — library, chapters, reading progress, Discover, adding novels, on-demand checks for new chapters and ePub builds. See [Apps and JSON API](#apps-and-json-api).
-- **iPhone / iPad app** (`ios/`) — a native SwiftUI reader: home, library, novel pages, reader and settings, with reading position shared with the website.
-- **Android app** (`android/`) — a native Compose reader for novels and manga, with offline downloads and the same shared reading position.
+- **iPhone / iPad app** (`ios/`) — a native SwiftUI reader: sign-in, home, library, novel pages, reader and settings, with reading position shared with the website.
+- **Android app** (`android/`) — a native Compose reader for novels and manga: scroll or page-turn reading, offline downloads and the same shared reading position. The server can hand the APK out at `/app/android`.
 - **KOReader plugin** (`koreader/`) — read on a Kindle or any KOReader device straight from the server: a cover-shelf home, chapters joined into groups so chapter changes are plain page turns, 100 chapters saved ahead with Wi-Fi switched off in between, Discover and "check for new chapters" on the device, reading stats, a second server address for away from home, and plugin updates over Wi-Fi.
 
 ### Operations
@@ -137,6 +147,7 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 - **Log viewer** — live tail, download, clear, delete; logs rotate daily with 14-day retention.
 - **Command runner** — execute whitelisted Artisan commands from the web UI with async job-status polling; a **persistent queue worker** picks jobs up instantly.
 - **Daily email** — one message a day covering everything since the last one was sent (not a fixed 24 hours): where you left off with a Resume link, five figures (chapters downloaded, novels updated, queued, completed, needing attention), one row per novel with the chapter range and a Read link (capped at 25, with the remainder counted), newly completed novels, and an attention list that is only repeated when it changes. Plain-text alternative included; nothing is sent when there is nothing to say.
+- **Stalled-source alert** — an hourly check emails you when a source has stopped delivering chapters, without waiting for the daily email (`novel:email-summary --stalled-only`).
 - **Fast by design** — chapter body text lives in its own `chapter_texts` table so the hot `novel_chapters` table stays small; dashboard panels are pre-warmed by the scheduler.
 
 ---
@@ -347,6 +358,7 @@ Most operational settings are editable from the **Settings** page (stored in `ap
 | `NOVARR_SUWAYOMI_URL` / `_LANGUAGES` / `_EXCLUDE_SOURCES` | Manga through your own Suwayomi-Server (see [Suwayomi (manga)](#suwayomi-manga)); empty URL = off | — / `en` / `MangaDex,Local source` |
 | `NOVARR_KOREADER_PLUGIN_PATH` | Folder served to KOReader devices as the plugin update (see [Apps and JSON API](#apps-and-json-api)) | `koreader/novarr.koplugin` |
 | `TRUSTED_PROXIES` | Proxies whose `X-Forwarded-*` headers are trusted (nginx / Tailscale / the Cloudflare Tunnel connector in front) | `*` |
+| `NOVARR_AUTH` | Force sign-in `on` or `off`, overriding the switch in Settings → Users (which is then shown locked); see [Accounts and sign-in](#accounts-and-sign-in) | — (use the switch) |
 | `NOVARR_PUBLIC_HOSTS` / `NOVARR_PUBLIC_URL` | Hostnames published on the internet (see [Publishing on the internet with a Cloudflare Tunnel](#publishing-on-the-internet-with-a-cloudflare-tunnel)); empty = off | — / `https://` + first host |
 | `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER` | Must exceed the 3600 s job timeout | `3700` |
 
@@ -408,14 +420,14 @@ Run `php artisan queue:restart` after each deploy so the worker reloads new code
 
 | Command | Description |
 |---|---|
-| `novel:create {name} {url}` | Create a novel and auto-fetch its metadata |
+| `novel:create {name} {url} {--force}` | Create a novel and auto-fetch its metadata; refuses a series already in the library unless `--force` |
 | `novel:toc {novel=0} {--frequent-only}` | Scrape table(s) of contents (0 = all active novels) |
 | `novel:chapter {novel=0} {--chapter=}` | Download pending chapters (or one chapter by id) |
 | `novel:metadata {novel?} {--novelupdates-url=}` | Refresh metadata (description, author, genres, cover); `--novelupdates-url` forces a NovelUpdates match (score 1.0) |
 | `novel:epub {novel=0}` | Generate ePub(s) (0 = all not-yet-generated) |
 | `novel:send-to-kindle {novel} {--to=} {--generate}` | Email a novel's ePub to Kindle (`--generate` builds it first and aborts if that fails) |
 | `novel:verify-completion {novel=0} {--dry-run} {--force} {--no-kindle}` | Verify against NovelUpdates and mark complete |
-| `novel:email-summary {--hours=} {--to=}` | Send the daily summary; the window runs from the last summary sent (else 24 h) unless `--hours` is given |
+| `novel:email-summary {--hours=} {--to=} {--stalled-only}` | Send the daily summary; the window runs from the last summary sent (else 24 h) unless `--hours` is given. `--stalled-only` sends only the stalled-source alert (run hourly by the scheduler) |
 | `novel:origin {novel=0} {--force} {--no-fetch} {--delay=2}` | Mark novels translated / original from NovelUpdates, else inference; `--force` re-evaluates inferred rows and re-fetches NovelUpdates ones, `--no-fetch` infers from stored data only. Manual choices are never overwritten |
 | `novel:normalize_labels {novel} {--dry-run} {--renumber} {--dedupe}` | Tidy labels; keeps stored numbers (decimals included) unless `--renumber`; duplicate removal only with `--dedupe` |
 | `novel:fix_chapters {novel=0}` | Resolve chapters with missing numbers by elimination against the sequence |
@@ -423,8 +435,52 @@ Run `php artisan queue:restart` after each deploy so the worker reloads new code
 | `novel:chaptercleaner {novel} {--dry-run}` | Re-queue downloaded chapters that fail the scraper's word gate (text kept until re-downloaded) |
 | `novel:info` | Print novel info, chapter counts, completion % |
 | `queue:health-check` | Report queue system health |
+| `novarr:auth {on\|off\|status}` | Turn "Require sign-in" on or off, or show its state and the public address |
+| `novarr:password {username?} {--password=}` | Set an account's password (prompts when `--password` is not given); the way back in if you are locked out |
 
 Any of these can also be run from the **Commands** page in the UI with live job-status polling, or from the command palette ("scrape toc <novel>"). The destructive ones (normalize, fix, clean, cleaner) run as a **dry run first** from the novel page and ask before applying.
+
+---
+
+## Accounts and sign-in
+
+Novarr starts with **sign-in off**: there is one account, the owner, and every request is treated as the owner. That suits a server only you can reach. To share the library, turn sign-in on.
+
+**Turning it on**
+
+1. Settings → Users: give the owner account a sign-in name and a password. The switch stays locked until that is done.
+2. Flip **Require sign-in** (or run `php artisan novarr:auth on`). You are signed in on the spot.
+3. Sign in again on each app: the iPhone and Android apps ask for the name and password, and a Kindle is linked with a code (below).
+
+`NOVARR_AUTH=on|off` in `.env` overrides the switch. Locked out? `php artisan novarr:password <name>` sets a new password and `php artisan novarr:auth off` turns sign-in off.
+
+**Who can do what**
+
+| | Owner (admin) | Reader |
+|---|---|---|
+| Read novels and manga, own progress, highlights and stats | ✓ | ✓ |
+| Check one series for new chapters, build and download its ePub, OPDS | ✓ | ✓ |
+| Add, edit, pause or delete series; Discover; tags; bulk actions | ✓ | — |
+| Settings, sources, commands, logs, health, Send to Kindle, users | ✓ | — |
+
+The rule is enforced on the server for every route; a route that is not explicitly listed as public or reader is admin-only, and a test walks the route list to keep it that way. There is one admin.
+
+**Inviting a reader**
+
+Settings → Users → **Invite a reader**: enter a name and an email. Novarr emails a link (valid 7 days, shown once on screen as well) where the person picks a sign-in name and password. Pending invites can be resent (the old link stops working) or cancelled. Readers can sign in with their name or their email. Disabling an account stops its sessions and app tokens at once; deleting it removes its read state.
+
+**Devices**
+
+- **Apps** sign in with name and password and keep a token; each one is listed under **Account → Signed-in apps and devices** with a Revoke button.
+- **Kindle / KOReader**: the plugin (1.9.0+) shows a 6-character code; enter it under **Account → Link a device** on the website and confirm. See [koreader/README.md](koreader/README.md).
+- **OPDS** readers use HTTP Basic with the same name and password.
+
+**Details**
+
+- Sign-in attempts are limited to 5 a minute per name and address.
+- Cover and manga page image URLs are signed per reader, so they load in `<img>` tags and in the apps without a session.
+- Pages and API responses that contain reader state are cached per account (`Cache-Control: private`, per-reader `ETag`).
+- To reach Novarr from outside your network, see [Publishing on the internet with a Cloudflare Tunnel](#publishing-on-the-internet-with-a-cloudflare-tunnel): admin features are switched off on the public address.
 
 ---
 
@@ -436,13 +492,15 @@ Every novel with a generated ePub is published as an **OPDS 1.2 acquisition feed
 
 ## Apps and JSON API
 
-Two readers besides the website live in this repository. Both talk to the server through the JSON API and share reading position with the website. Like the rest of Novarr, the API has **no login**: keep the server on your own network or tailnet.
+Three readers besides the website live in this repository: the iPhone / iPad app, the Android app and the KOReader plugin. All talk to the server through the JSON API and share reading position with the website. With sign-in off the API needs no credentials, so keep the server on your own network or tailnet; with sign-in on, every call except `GET /meta`, the sign-in endpoints and the plugin files needs a token (see [Accounts and sign-in](#accounts-and-sign-in)).
 
 ### JSON API (`/api/v1`)
 
 | Endpoint | What it does |
 |---|---|
-| `GET /meta` | App id, API version and server version; the apps use it to check an address is Novarr |
+| `GET /meta` | App id, API version and server version; the apps use it to check an address is Novarr. `auth: {required, methods}` says whether to sign in |
+| `POST /auth/token`, `DELETE /auth/token`, `GET /auth/me` | Sign in with name (or email) and password for a bearer token, sign out, and who is signed in |
+| `POST /auth/pairings`, `GET /auth/pairings/{secret}` | Link a device by code: the device asks for a code, the user enters it on the website, the device collects its token |
 | `GET /home` | The novel being read and the shelves of the home screen |
 | `GET /novels`, `GET /novels/{id}` | The library and one novel's details |
 | `GET /novels/{id}/chapters` | A novel's chapters in reading order |
@@ -450,21 +508,29 @@ Two readers besides the website live in this repository. Both talk to the server
 | `POST /chapters/{id}/progress`, `POST /chapters/{id}/read`, `POST /chapters/bulk-read` | Reading position and read marks |
 | `GET /discover`, `GET /discover/browse` | The sources with their lists, and one page of a list or search (`type`, `source`, `q`, `page`) |
 | `POST /discover/searches`, `GET /discover/searches/{id}` | The same browse or search run in the background (after the response is sent), then fetched by id (kept 15 minutes) |
-| `POST /novels` | Add a novel from a Discover result (`title`, `url`) |
+| `POST /novels` | Add a novel from a Discover result (`title`, `url`); 409 with the existing series when it is already in the library, unless `force=1` |
 | `POST /novels/{id}/check`, `GET /novels/{id}/check` | Ask the server to check a novel's source for new chapters, and follow that check |
 | `POST /novels/{id}/epub`, `GET /novels/{id}/epub` | Build a novel's ePub and download it |
 | `GET /highlights`, `POST /highlights`, `DELETE /highlights/{id}` | Highlights (the website's bookmarks: an excerpt with an optional note), newest first, per novel with `novel_id` |
 | `GET /koreader/plugin`, `GET /koreader/plugin/files/{path}` | The KOReader plugin's update manifest and files |
 
-List endpoints answer conditional requests (`ETag` / `If-None-Match`). A Discover search can take a minute or two when the source sits behind FlareSolverr. A check runs on the queue (`novel:toc`, then `novel:chapter`), so it needs the queue worker or the scheduler's drain. A background Discover search does not use the queue.
+With sign-in on, send `Authorization: Bearer <token>`; a missing or bad token answers 401 `{"message", "code": "unauthenticated"}` and an admin-only endpoint answers 403 `{"message", "code": "forbidden"}` to a reader (Discover and adding novels are admin-only). List endpoints answer conditional requests (`ETag` / `If-None-Match`). A Discover search can take a minute or two when the source sits behind FlareSolverr. A check runs on the queue (`novel:toc`, then `novel:chapter`), so it needs the queue worker or the scheduler's drain. A background Discover search does not use the queue.
 
 ### iPhone / iPad app (`ios/`)
 
-A native SwiftUI app (iOS 17+): connect to the server by address, then Home, Library, Discover (browse or search the sources and add novels), novel pages with **Check for new chapters**, the reader, Highlights (per novel and across the library) and Settings. The Xcode project is generated from `ios/project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen); open `ios/Novarr.xcodeproj` to build and run, and `NovarrTests` holds its tests.
+A native SwiftUI app (iOS 17+): connect to the server by address, sign in when the server has accounts, then Home, Library, novel pages with **Check for new chapters**, the reader, Highlights (per novel and across the library) and Settings. Like the Android app it reads only: Discover and library management stay on the website. The Xcode project is generated from `ios/project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen); open `ios/Novarr.xcodeproj` to build and run, and `NovarrTests` holds its tests.
 
 ### Android app (`android/`)
 
-A native Kotlin / Jetpack Compose reader (Android 8.0+, API 26): connect to the server by address, sign in when the server has accounts, then Home, Library (novels and manga on separate shelves), series pages with **Check for new chapters** and offline downloads, the text reader, a manga reader (paged left-to-right or right-to-left, or vertical scroll, following the series' reading mode), Highlights and Settings. It reads only: there is no Discover or library management, whoever signs in. Reading progress and read marks sync through the API and are queued while offline. Build with the Gradle wrapper from `android/` (JDK 17 and the Android SDK): `./gradlew :app:assembleDebug`, and `./gradlew :app:testDebugUnitTest` for its unit tests.
+A native Kotlin / Jetpack Compose reader (Android 8.0+, API 26): connect to the server by address, sign in when the server has accounts, then Home, Library (novels and manga on separate shelves), series pages with **Check for new chapters** and offline downloads, the text reader, a manga reader, Highlights and Settings. It reads only: there is no Discover or library management, whoever signs in. Reading progress and read marks sync through the API and are queued while offline.
+
+- **Scroll or Pages** — the text reader scrolls continuously or turns screen-sized pages (tap the right or left side, swipe, or use the volume keys). The place is kept when you switch modes, rotate or change the text size.
+- **Manga** — paged left-to-right or right-to-left, or vertical scroll, following the series' reading mode; each series can be overridden on the device (Follow series / Pages / Scroll).
+- **Reading fonts** — Literata (default), Geist, or the device's serif and sans; the app uses the same mark, colours and fonts as the website.
+
+Build with the Gradle wrapper from `android/` (JDK 17 and the Android SDK): `./gradlew :app:assembleDebug`, and `./gradlew :app:testDebugUnitTest` for its unit tests.
+
+**Release and hand-out.** `./gradlew :app:assembleRelease -Pnovarr.release=/path/to/signing.properties` builds a signed APK; the properties file (kept outside the repository) names the keystore and may set `defaultServer`, the address the connect screen starts with. Keep the keystore: an APK signed with another key cannot update an installed one. Copy the APK to `storage/app/apps/novarr.apk` on the server (with an optional `novarr.apk.json` holding `{"version", "build"}`) and Novarr serves it at **`/app/android`** and links it from invite emails.
 
 ### KOReader plugin (`koreader/`)
 
@@ -477,6 +543,7 @@ For a Kindle (jailbroken, with KOReader) or any other KOReader device. Copy `kor
 - **Discover** — browse or search the sources and add novels from the device; searches run in the background on the server, so the device stays usable.
 - **Check for new chapters** when you have caught up, and **reading stats** on the novel page.
 - **Highlights** — text highlighted in KOReader (with its note) is sent to the server and appears on the website's Highlights page and in the iPhone app; the novel page lists them.
+- **Accounts** — when the server requires sign-in, the plugin shows a 6-character code to enter on the website (Account → Link a device); from then on the Kindle reads as that reader.
 - **Two server addresses** (home and away, a Tailscale name for example), and `https://` through KOReader's HTTP proxy.
 - **Updates over Wi-Fi** — the server serves the plugin folder it was deployed with, so deploying Novarr is how a plugin update reaches the device (Novarr ▸ Settings ▸ version row, or automatically with "Install plugin updates automatically"). The Docker image includes the folder; `NOVARR_KOREADER_PLUGIN_PATH` points it elsewhere.
 
@@ -748,6 +815,8 @@ Novarr's look is a documented design system, not ad-hoc CSS. The full brand pack
 - **Type**: **Geist** for UI, **Geist Mono** for counts/timestamps/chapter numbers, **Literata** for reading — all self-hosted (Fontsource, OFL). Static TTF instances are bundled in `resources/fonts/` for server-side (GD) rendering of ePub covers.
 - **One status recipe everywhere** — badges, panels, and progress bars all use the same triad (full-value text, 12% fill, 35% border) across the states in `App\Enums\NovelState`, rendered through `<x-status>`: downloaded (green), queued (**cyan**, deliberately not blue so it never collides with links), needs-attention (amber), failed (red), paused (muted). Amber is otherwise reserved for *reading* signals (bookmark, reading-progress bars); indigo `#6470FF` carries all primary action.
 - **Logo suite** — **Serial**: four flat horizontal bars on a 32×32 grid (three indigo `#6470FF`, stepping down in length, the last and shortest in amber `#F0B429`; radius 0, no gradient), beside the "NOVARR." wordmark (Geist 600, amber full stop). Below 20px a heavier three-bar cut takes over; the mono variant is `currentColor` with the last bar at 55%. Ships as `<x-brand-mark>` in Blade (`variant="mono"`/`"favicon"`, auto three-bar under 20px), `public/logo.svg` (wordmark outlined, no font dependency), `favicon.svg` + pixel-hinted 16/32/48 `favicon.ico`, PWA icons (`icon-192/512`, full-bleed `icon-maskable-512`, `apple-touch-icon`), and the GD-drawn mark on generated ePub covers.
+
+The Android app follows the same system: the Serial mark as its launcher icon, the `_variables.scss` palette as its Material colour scheme, and Geist, Geist Mono and Literata bundled under the OFL (`android/app/src/main/res/font/`).
 
 Restyling something? Start from the tokens and the recipes in `_components.scss`; if a value isn't a token, it probably shouldn't exist.
 
