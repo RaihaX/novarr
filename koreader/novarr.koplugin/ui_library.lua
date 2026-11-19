@@ -123,9 +123,10 @@ function Library:askFilter()
     UI.choice(_("Show"), buttons)
 end
 
+--- Refreshes from the server only when already connected (opening a screen never asks for Wi-Fi).
 function Library:refresh()
     local s = self.session
-    s:whenConnected(function()
+    s:whenOnline(function()
         local closer = UI.loading(_("Loading…"))
         local _data, e = s:fetchInto("novels", function(etag) return s.api:novels(etag) end, true)
         closer()

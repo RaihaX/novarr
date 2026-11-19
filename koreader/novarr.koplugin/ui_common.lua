@@ -55,6 +55,8 @@ function UI.confirm(opts)
         cancel_text = opts.cancel_text or _("Cancel"),
         ok_callback = Session.wrap(opts.ok or function() end),
         cancel_callback = opts.cancel and Session.wrap(opts.cancel) or nil,
+        -- opts.dismissable false: a tap outside does not close it (the answer is one of the buttons).
+        dismissable = opts.dismissable ~= false,
     }
     UIManager:show(box)
     return box
@@ -106,9 +108,10 @@ end
 
 --[[--
 A list of choices in a ButtonDialog. buttons: list of {text, callback} (one
-per row). A Cancel row is added.
+per row). A Cancel row is added (opts.cancel_text: its text, e.g. "Stay here").
 ]]
-function UI.choice(title, buttons)
+function UI.choice(title, buttons, opts)
+    opts = opts or {}
     local dialog
     local rows = {}
     for _i, b in ipairs(buttons) do
@@ -122,7 +125,7 @@ function UI.choice(title, buttons)
         } })
     end
     table.insert(rows, { {
-        text = _("Cancel"),
+        text = opts.cancel_text or _("Cancel"),
         callback = function() UIManager:close(dialog) end,
     } })
     dialog = ButtonDialog:new{
@@ -168,7 +171,8 @@ end
 Creates and shows a full-screen Novarr screen. opts:
     title, items, screen (object with kind/rebuild), on_hold(item),
     left_icon, on_left(), current (item index to open on, bolded),
-    cover_list (thumbnails), covers (a cover cache other than the library's)
+    cover_list (thumbnails), covers (a cover cache other than the library's),
+    multi_line (rows may take two lines)
 Returns the Menu.
 ]]
 function UI.showMenu(session, opts)
@@ -204,7 +208,9 @@ function UI.showMenu(session, opts)
             covers_fullscreen = true,
             title_bar_fm_style = true,
             title_bar_left_icon = opts.left_icon,
-            single_line = true,
+            -- opts.multi_line: a long row wraps onto two lines (Settings) instead of being cut off.
+            single_line = not opts.multi_line,
+            items_max_lines = opts.multi_line and 2 or nil,
             name = "novarr_menu",
         }
     end

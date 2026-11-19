@@ -14,6 +14,10 @@ Errors are tables { kind = ..., status = n|nil, message = text|nil }:
                 not sent at all because this Kindle must be linked first
                 (status nil): queued writes stay queued (see auth.lua)
     forbidden   403: signed in but not allowed; message = the server's words
+                (queued writes stay queued, like unauthenticated)
+    manga       422 with medium = "manga": a manga chapter asked for as text
+    duplicate   409 from POST novels: the same title is already in the
+                library (e.duplicate = {id, title, source}); see addNovel
 
 Since 1.9.0 every request except the exempt ones (Api.authExempt: meta,
 pairing, POST auth/token, plugin updates) carries Authorization: Bearer
@@ -148,7 +152,8 @@ X-Novarr-Device / X-Novarr-Device-Name so the server knows where the
 latest reading happened), auth (optional, see auth.lua): {token() -> the
 bearer token or nil, blocked() -> true while this Kindle must be linked
 first (nothing but exempt requests is sent), on_unauthenticated(err, path)
--> called on every 401 from Novarr}.
+-> called on every 401 from Novarr, on_forbidden(err, path) -> called on
+every 403 from Novarr}. A request with opts.quiet_auth calls neither.
 ]]
 function Api.new(opts)
     return setmetatable({
@@ -186,8 +191,10 @@ Api.err = err
 function Api.isRetryable(e)
     if not e then return false end
     -- unauthenticated: kept until this Kindle is linked again (never dropped).
+    -- forbidden (403): kept too and retried later; a refusal can be passing
+    -- (the public address, a role being changed) and reading must not be lost.
     return e.kind == "offline" or e.kind == "server" or e.kind == "not_novarr" or e.kind == "bad_url"
-        or e.kind == "unauthenticated"
+        or e.kind == "unauthenticated" or e.kind == "forbidden"
 end
 
 -- Calls an optional auth hook without letting it break the request.
@@ -205,28 +212,62 @@ local function header(headers, name)
     return headers[name] or headers[name:lower()]
 end
 
---- The base URL requests go to now.
-function Api:base()
-    if self.router then return self.router:base() end
+--[[--
+The base URL requests go to now. opts.no_reprobe: a pending re-probe of the
+home address is not run in front of this request (address.lua defers it).
+]]
+function Api:base(opts)
+    if self.router then return self.router:base(opts) end
     return self.base_url
+end
+
+--- The address requests would use, without running anything (nil when none is set).
+function Api:configuredBase()
+    local b = self.router and self.router.active or self.base_url
+    if b == nil or b == "" then return nil end
+    return b
+end
+
+--[[--
+Whether an HTTP answer is not Novarr's, where Novarr would have answered
+JSON: a captive portal or hotel router answering on the home address (a
+login page, a redirect, a proxy error page). 204/304 have no body.
+]]
+function Api.foreignAnswer(res)
+    if type(res) ~= "table" then return false end
+    local status = tonumber(res.status) or 0
+    if status == 204 or status == 304 then return false end
+    local data = Json.decode(res.body or "")
+    return type(data) ~= "table"
 end
 
 --[[--
 Sends req (method, headers, body) to <base><suffix>. A request that gets no
 answer at all is retried once on the other server address when the router
-switches to it. Returns res, transport error, the base used.
+switches to it. So is one whose answer is not Novarr's (req.expect_json and
+Api.foreignAnswer: a captive portal on the home address) when two addresses
+are configured. Never more than one retry. req.no_reprobe: see Api:base.
+Returns res, transport error, the base used.
 ]]
 function Api:exchange(suffix, req)
-    local base = self:base()
+    local base = self:base({ no_reprobe = req.no_reprobe })
     local function send(b)
         local r = {}
-        for k, v in pairs(req) do r[k] = v end
+        for k, v in pairs(req) do
+            if k ~= "expect_json" and k ~= "no_reprobe" then r[k] = v end
+        end
         r.url = b .. suffix
         return self.transport(r)
     end
     local res, terr = send(base)
-    if not res and self.router then
-        local other = self.router:failed(base, terr)
+    local why = terr
+    if res and req.expect_json and self.router and self.router.hasTwo and self.router:hasTwo()
+            and Api.foreignAnswer(res) then
+        why = "an answer that is not Novarr's (HTTP " .. tostring(res.status) .. ")"
+        self.log("Novarr API: " .. suffix .. " on " .. base .. ": " .. why)
+    end
+    if (not res or why ~= terr) and self.router then
+        local other = self.router:failed(base, why)
         if other and other ~= base then
             self.log("Novarr API: retrying " .. suffix .. " on " .. other)
             base = other
@@ -239,7 +280,8 @@ end
 --[[--
 Performs a request. opts: method ("GET"), body (Lua table, sent as JSON),
 etag (sends If-None-Match), headers (extra request headers), quiet_auth
-(a 401 does not call auth.on_unauthenticated: Unlink). Returns
+(a 401/403 does not call auth.on_unauthenticated/on_forbidden: Unlink;
+quiet_forbidden: only the 403 one), no_reprobe (see Api:base). Returns
     data (decoded JSON or nil on 304), info {status, etag, body, not_modified}
 or nil, err.
 ]]
@@ -248,7 +290,7 @@ function Api:request(path, opts)
     if Api.isOffline() then
         return nil, err("offline", nil, "simulated offline")
     end
-    if not self:base() or self:base() == "" then
+    if not self:configuredBase() then
         return nil, err("bad_url")
     end
     local headers = {
@@ -278,7 +320,8 @@ function Api:request(path, opts)
         if bearer then headers["Authorization"] = bearer end
     end
     local res, terr = self:exchange("/api/v1/" .. path, { method = method, headers = headers, body = body,
-        block_timeout = opts.block_timeout, total_timeout = opts.total_timeout })
+        block_timeout = opts.block_timeout, total_timeout = opts.total_timeout,
+        expect_json = true, no_reprobe = opts.no_reprobe })
     if not res then
         self.log("Novarr API: " .. method .. " " .. path .. " failed: " .. tostring(terr))
         return nil, err("offline", nil, terr)
@@ -305,7 +348,10 @@ function Api:request(path, opts)
         end
         local message = type(d.message) == "string" and d.message ~= "" and d.message or nil
         if status == 403 then
-            return nil, err("forbidden", 403, message)
+            local e = err("forbidden", 403, message)
+            -- The account's role may have changed: the session asks auth/me again (auth.lua).
+            if not opts.quiet_auth and not opts.quiet_forbidden then authCall(self, "on_forbidden", e, path) end
+            return nil, e
         end
         local e = err("unauthenticated", 401, message)
         if not opts.quiet_auth then authCall(self, "on_unauthenticated", e, path) end
@@ -324,7 +370,16 @@ function Api:request(path, opts)
     local data, derr = Json.decode(text)
     if status >= 400 then
         local message = type(data) == "table" and type(data.message) == "string" and data.message or nil
-        return nil, err("invalid", status, message)
+        -- A manga chapter asked for as text (422 {message, medium = "manga"}):
+        -- its own kind, so the user gets a plain sentence, not the server's
+        -- developer text.
+        if status == 422 and type(data) == "table" and data.medium == "manga" then
+            return nil, err("manga", status, message)
+        end
+        local e = err("invalid", status, message)
+        -- The decoded answer, for callers that read more than the message (409 duplicate).
+        if type(data) == "table" then e.data = data end
+        return nil, e
     end
     if status < 200 or status >= 300 then
         return nil, err("server", status)
@@ -376,8 +431,9 @@ function Api:chapters(novel_id, etag)
     return self:request(string.format("novels/%d/chapters", novel_id), { etag = etag })
 end
 
-function Api:chapter(id)
-    return self:request(string.format("chapters/%d", id))
+--- One chapter. opts.no_reprobe: opening it never waits on a home-address re-probe (address.lua).
+function Api:chapter(id, opts)
+    return self:request(string.format("chapters/%d", id), { no_reprobe = opts and opts.no_reprobe or nil })
 end
 
 --- EPUB status of a novel: {status, stale, generated_at, size, filename, download_url, message}.
@@ -464,11 +520,24 @@ end
 
 --[[--
 Adds a novel from a Discover result. Returns data {novel, already_in_library},
-info {status = 201|200} or nil, err (422 invalid, 503 server).
+info {status = 201|200} or nil, err (422 invalid, 503 server, 409
+duplicate: a novel of the same title from another source is in the library,
+err.duplicate = {id, title, source}). force: add it anyway (force=1).
 ]]
-function Api:addNovel(title, url)
-    local data, e, info = self:request("novels", { method = "POST", body = { title = title, url = url } })
-    if not data then return nil, e end
+function Api:addNovel(title, url, force)
+    local body = { title = title, url = url }
+    if force then body.force = 1 end
+    local data, e, info = self:request("novels", { method = "POST", body = body })
+    if not data then
+        if e and e.kind == "invalid" and e.status == 409 then
+            local d = type(e.data) == "table" and type(e.data.duplicate) == "table" and e.data.duplicate or {}
+            local dup = err("duplicate", 409, e.message)
+            dup.duplicate = { id = tonumber(d.id), title = type(d.title) == "string" and d.title ~= "" and d.title or nil,
+                source = type(d.source) == "string" and d.source or nil }
+            return nil, dup
+        end
+        return nil, e
+    end
     if type(data.novel) ~= "table" or not data.novel.id then return nil, err("server", nil, "bad novel") end
     return data, nil, info
 end
@@ -501,8 +570,9 @@ server has none (null, or an older server without the endpoint: 404), or
 nil, err. Short timeouts (3 s at most).
 ]]
 function Api:position(novel_id)
+    -- Never behind a pending home-address re-probe (up to 4 s more): that runs afterwards.
     local data, e = self:request(string.format("novels/%d/position", novel_id),
-        { block_timeout = Api.POSITION_BLOCK_TIMEOUT, total_timeout = Api.POSITION_TOTAL_TIMEOUT })
+        { block_timeout = Api.POSITION_BLOCK_TIMEOUT, total_timeout = Api.POSITION_TOTAL_TIMEOUT, no_reprobe = true })
     if not data then
         if e and e.kind == "not_found" then return false end
         return nil, e
@@ -595,6 +665,18 @@ function Api:pairingStatus(secret)
     return self:request("auth/pairings/" .. Api.urlEncode(secret), { block_timeout = 8, total_timeout = 10 })
 end
 
+--[[--
+The linked account as the server sees it now (GET auth/me): {id, name,
+username, role} or nil, err. Short timeouts; a 403 here does not start
+another refresh (quiet_forbidden); a 401 is handled as for any request.
+]]
+function Api:me()
+    local data, e = self:request("auth/me", { quiet_forbidden = true, block_timeout = 5, total_timeout = 8 })
+    if not data then return nil, e end
+    if type(data.user) ~= "table" then return nil, err("server", nil, "bad user") end
+    return data.user
+end
+
 --- Revokes the token in use (DELETE auth/token, 204). A 401 here does not count as "signed out by the server".
 function Api:revokeToken()
     return self:request("auth/token", { method = "DELETE", quiet_auth = true, block_timeout = 5, total_timeout = 8 })
@@ -618,7 +700,7 @@ function Api:pluginFile(path)
     if Api.isOffline() then
         return nil, err("offline", nil, "simulated offline")
     end
-    if not self:base() or self:base() == "" then
+    if not self:configuredBase() then
         return nil, err("bad_url")
     end
     local res, terr = self:exchange("/api/v1/koreader/plugin/files/" .. path, { method = "GET",

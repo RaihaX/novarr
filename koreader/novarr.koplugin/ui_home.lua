@@ -7,7 +7,9 @@ a row of buttons: Library · Discover · Downloads · Sync · Settings.
 One tap on a novel opens its resume chapter straight away; hold opens the
 Novel screen. Everything shown prefers this device's own reading (marks
 and positions not yet in the server's data) over the cached snapshot.
-Opens instantly from the cached library, then refreshes.
+Opens instantly from the cached library, then refreshes when the device is
+already connected (opening Home never asks to turn Wi-Fi on; offline it
+says "Offline — showing saved data").
 ]]
 
 local UIManager = require("ui/uimanager")
@@ -150,6 +152,8 @@ function Home:refresh(quiet)
             self:rebuild()
             return
         end
+        -- The account's role (Discover or not), asked again at most once a day.
+        s:refreshUser()
         -- Our own pending marks go first so the server's answer includes them.
         if s.queue:count() > 0 then s:flushQueue() end
         local _data, e = s:fetchInto("novels", function(etag) return s.api:novels(etag) end, true)
@@ -171,10 +175,11 @@ function Home:refresh(quiet)
         self:rebuild()
         if not e then self:scheduleUpdateCheck() end
     end
-    s:whenConnected(run, function()
+    -- Opening Home never asks for Wi-Fi: refreshed only when already connected.
+    s:whenOnline(run, function()
         s.last_errors.novels = s.last_errors.novels or { time = Session.nowMs(), kind = "offline" }
         self:rebuild()
-    end, { quiet = true, reason = "Novarr Home" })
+    end)
 end
 
 --[[--

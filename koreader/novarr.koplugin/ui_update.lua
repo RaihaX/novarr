@@ -9,6 +9,11 @@
 The automatic check never turns Wi-Fi on and never shows a popup: it only
 remembers the update in the settings (update_available_build/_version),
 which makes Home's button read "Settings •" and the Settings row offer it.
+
+Never a downgrade by itself (1.10.0): versions are compared numerically
+(Updater.updateKind); a lower version on the server is not flagged and not
+installed automatically. "Check for update" says so and offers "Install
+version X anyway". The same version with another build is an update.
 ]]
 
 local Device = require("device")
@@ -78,11 +83,28 @@ end
 
 -- ---------------------------------------------------------------- remembered update
 
+--- The installed version (its _meta.lua; the running one when unknown).
+local function installedVersion(session)
+    local m = session.local_plugin
+    return m and m.version or Api.VERSION
+end
+
+--[[--
+"none" | "update" | "older" for the server's manifest m (Updater.updateKind):
+an older version is never an update (no dot, no automatic install).
+]]
+local function kindOf(session, installed, m)
+    return Updater.updateKind(installed.build, m.build, installed.version or Api.VERSION, m.version)
+end
+
 --- The version of the update the last check found (or "?"), or nil.
 function UIUpdate.available(session)
     if session.update_installed then return nil end
     if not session:get("update_available_build") then return nil end
-    return session:get("update_available_version") or "?"
+    local version = session:get("update_available_version") or "?"
+    -- Flagged by an older plugin that offered any other build: a lower version is no update.
+    if Updater.compareVersions(version, installedVersion(session)) == -1 then return nil end
+    return version
 end
 
 local function remember(session, m)
@@ -294,8 +316,11 @@ function UIUpdate.autoInstall(session, on_change)
         return
     end
     local installed = UIUpdate.localManifest(session)
-    if not Updater.updateNeeded(installed.build, m.build) then
-        Session.log("Novarr: automatic plugin install: already up to date")
+    local kind = kindOf(session, installed, m)
+    if kind ~= "update" then
+        -- Never a downgrade by itself: an older version is only installed from Settings.
+        Session.log("Novarr: automatic plugin install: " .. (kind == "older"
+            and ("the server has an older version (" .. tostring(m.version) .. "), not installed") or "already up to date"))
         forget(session)
         if on_change then on_change() end
         return
@@ -332,6 +357,20 @@ function UIUpdate.offer(session, m, on_change)
     })
 end
 
+--[[--
+The server has a lower version than the one installed: said plainly, with
+"Install version X anyway" (the user's choice; never automatic).
+]]
+function UIUpdate.offerOlder(session, m, on_change)
+    local text = Updater.olderText(installedVersion(session), m.version, T, _)
+    UI.confirm({
+        text = text,
+        ok_text = T(_("Install version %1 anyway"), m.version or "?"),
+        cancel_text = _("Keep this version"),
+        ok = function() UIUpdate.install(session, m, on_change) end,
+    })
+end
+
 -- ---------------------------------------------------------------- check
 
 --- "Check for update" from Settings: always asks the server, then offers to install.
@@ -360,11 +399,19 @@ function UIUpdate.check(session, on_change)
             return
         end
         session:set("update_checked_at", Session.nowMs())
-        if not Updater.updateNeeded(installed.build, m.build) then
+        local kind = kindOf(session, installed, m)
+        if kind == "none" then
             Session.log("Novarr: plugin is up to date (build " .. installed.build:sub(1, 12) .. ")")
             forget(session)
             if on_change then on_change() end
             UI.info(T(_("Novarr is up to date (%1)."), Api.VERSION))
+            return
+        elseif kind == "older" then
+            Session.log(string.format("Novarr: the server has an older plugin version: %s (build %s), installed %s",
+                tostring(m.version), m.build:sub(1, 12), tostring(installed.version or Api.VERSION)))
+            forget(session)
+            if on_change then on_change() end
+            UIUpdate.offerOlder(session, m, on_change)
             return
         end
         Session.log(string.format("Novarr: plugin update available: %s (build %s), installed %s (build %s)",
@@ -409,11 +456,14 @@ function UIUpdate.autoCheck(session, on_change)
     end
     session:set("update_checked_at", now)
     local installed = UIUpdate.localManifest(session)
-    if Updater.updateNeeded(installed.build, m.build) then
+    local kind = kindOf(session, installed, m)
+    if kind == "update" then
         Session.log("Novarr: automatic plugin update check: " .. tostring(m.version) .. " available")
         remember(session, m)
     else
-        Session.log("Novarr: automatic plugin update check: up to date")
+        -- An older version on the server is no update: no dot on Home.
+        Session.log("Novarr: automatic plugin update check: " .. (kind == "older"
+            and ("the server has an older version (" .. tostring(m.version) .. ")") or "up to date"))
         forget(session)
     end
     if on_change then on_change() end

@@ -229,12 +229,21 @@ function Discover.detailsText(it, source_name)
 end
 
 --[[--
+A 403 on Discover (or on adding a novel): the server refuses it here. On its
+public address Discover is refused even for the admin; at home it works.
+]]
+function Discover.forbiddenText()
+    return _("Discover isn't available on this address. Use it on your home network.")
+end
+
+--[[--
 What a failed browse/search means for the user. e: the API error. Returns
 the text, or nil for "offline" (no answer at all: the caller uses the
 session's usual message).
 ]]
 function Discover.browseErrorText(e)
     if type(e) ~= "table" then return nil end
+    if e.kind == "forbidden" then return Discover.forbiddenText() end
     if e.kind == "server" and e.status == 502 then
         return _("That source didn't answer. Try again or pick another source.")
     end
@@ -245,11 +254,15 @@ function Discover.browseErrorText(e)
 end
 
 --[[--
-What adding a novel led to. data/e: Api:addNovel's answer. Returns kind
-("added" | "already" | "refused" | "busy" | "error"), text (nil for
-"error": the caller uses the session's usual message).
+What adding a novel led to. data/e: Api:addNovel's answer; title: the
+result's title (for the duplicate question). Returns kind ("added" |
+"already" | "duplicate" | "refused" | "forbidden" | "busy" | "error"), text
+(nil for "error": the caller uses the session's usual message). "duplicate"
+(409): a novel of that title is in the library already, from another
+source; the caller asks Open it / Add anyway / Cancel (e.duplicate.id is
+the one to open).
 ]]
-function Discover.addOutcome(data, e)
+function Discover.addOutcome(data, e, title)
     if data then
         if data.already_in_library then
             return "already", _("This novel is already in your library.")
@@ -257,6 +270,13 @@ function Discover.addOutcome(data, e)
         return "added", _("Added to your library. Novarr is fetching its chapter list from the source now; the chapters show up as they arrive.")
     end
     if type(e) == "table" then
+        if e.kind == "duplicate" then
+            local d = type(e.duplicate) == "table" and e.duplicate or {}
+            return "duplicate", template(_("%1 is already in your library."), d.title or title or _("This novel"))
+        end
+        if e.kind == "forbidden" then
+            return "forbidden", Discover.forbiddenText()
+        end
         if e.kind == "invalid" then
             return "refused", e.message and template(_("The server didn't accept this novel: %1"), e.message)
                 or _("The server didn't accept this novel.")

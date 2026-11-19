@@ -307,6 +307,17 @@ function Novarr:onNetworkConnected()
         local Position = require("novarr.position")
         if Position.pendingDue(Session) then Position.schedule(Position.NETWORK_DELAY, "network connected") end
     end)
+    -- Home opened offline (saved data shown): refreshed quietly now that there is a connection.
+    Session.guard(function()
+        local _menu, screen = Session:topMenu()
+        if screen and screen.kind == "home" and Session.last_errors.novels then
+            UIManager:scheduleIn(3, function()
+                Session.guard(function()
+                    if not screen.closed and Session:isConnected() then screen:refresh(true) end
+                end)
+            end)
+        end
+    end)
     if Session.queue:count() == 0 then return end
     if not self.flush_task then
         self.flush_task = function()

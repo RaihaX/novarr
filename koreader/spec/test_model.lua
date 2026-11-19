@@ -92,6 +92,37 @@ T.it("next chapters for prefetch skip ones the server lacks", function()
     T.eq(Model.nextChapters(chapters, 1000 + 3000, 3), {})
 end)
 
+T.it("neighbour: going forward a missing chapter is reported, never skipped silently", function()
+    local l = {
+        { id = 100, downloaded = true },
+        { id = 101, downloaded = false, label = "Chapter 101" },
+        { id = 102, downloaded = false },
+        { id = 103, downloaded = true, label = "Chapter 103" },
+        { id = 104, downloaded = false },
+    }
+    local stored = {}
+    local function has(id) return stored[id] == true end
+    local c, passed = Model.neighbourIn(l, 1, 1, has)
+    T.eq(c.id, 103, "the next chapter there is")
+    T.eq(passed.id, 101, "the first one passed: the reader asks before going on")
+    T.eq(Model.chapterLabel(passed), "Chapter 101")
+    -- Saved on this device although the server lost it: readable, nothing passed.
+    stored[101] = true
+    c, passed = Model.neighbourIn(l, 1, 1, has)
+    T.eq(c.id, 101)
+    T.eq(passed, nil)
+    -- The end of the list with a missing chapter after it: none to go to, but one passed.
+    c, passed = Model.neighbourIn(l, 4, 1, has)
+    T.eq(c, nil)
+    T.eq(passed.id, 104)
+    -- Backward keeps today's behaviour: gaps are skipped, nothing reported.
+    stored[101] = nil
+    c, passed = Model.neighbourIn(l, 4, -1, has)
+    T.eq(c.id, 100)
+    T.eq(passed, nil)
+    T.eq((Model.neighbourIn(l, 1, -1, has)), nil)
+end)
+
 T.it("removal keeps the 2 most recent read chapters and never unread/part-read", function()
     local stored = {
         { id = 11, order = 1 }, { id = 12, order = 2 }, { id = 13, order = 3 },

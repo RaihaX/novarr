@@ -5,8 +5,9 @@ widgets (TitleBar, ImageWidget, ProgressWidget, Button, groups).
     title bar
     [offline note: one small line]
     page 1: hero block (large cover; title, author, chapter, left, progress bar)
-    grid of covers, 3 columns, as many rows as fit (title + thin progress bar,
-        a black badge with the number of new chapters)
+    grid of covers, 3 columns, as many rows as fit (title on up to two lines
+        over the cell width + thin progress bar, a black badge with the
+        number of new chapters)
     ‹ 2 / 5 ›           (only with more than one page)
     Library · Downloads · Sync · Settings   (always visible)
 
@@ -232,11 +233,31 @@ function Shelf:buildHero(item, w, h)
     }
 end
 
+-- Height of one line of a cell's title (cell_face).
+function Shelf:cellLineHeight()
+    if not self.cell_line_h then
+        local probe = TextBoxWidget:new{ text = "M", face = self.cell_face, width = 100 }
+        self.cell_line_h = probe:getLineHeight()
+        probe:free()
+    end
+    return self.cell_line_h
+end
+
 function Shelf:buildCell(item, cell_w, cover_w, cover_h)
     local group = VerticalGroup:new{ align = "center" }
     table.insert(group, self:coverBox(item.url, item.title or item.text, cover_w, cover_h, item.badge))
     table.insert(group, VerticalSpan:new{ width = math.floor(self.pad / 2) })
-    table.insert(group, TextWidget:new{ text = item.title or item.text or "", face = self.cell_face, max_width = cover_w })
+    -- The title over the whole cell width (about twice the cover's), on up to
+    -- two lines ending with an ellipsis. Every cell reserves the two lines, so
+    -- the covers and bars of a row stay aligned.
+    table.insert(group, TextBoxWidget:new{
+        text = item.title or item.text or "",
+        face = self.cell_face,
+        width = cell_w,
+        alignment = "center",
+        height = 2 * self:cellLineHeight(),
+        height_overflow_show_ellipsis = true,
+    })
     table.insert(group, VerticalSpan:new{ width = math.floor(self.pad / 2) })
     table.insert(group, bar(cover_w, item.progress))
     return CenterContainer:new{ dimen = Geom:new{ w = cell_w, h = group:getSize().h }, group }
@@ -311,9 +332,8 @@ function Shelf:updateItems()
     local cover_h = self.grid_cover_h
     local cover_w = math.floor(cover_h * 2 / 3)
     if cover_w > cell_w then cover_w = cell_w cover_h = math.floor(cell_w * 3 / 2) end
-    local tprobe = TextWidget:new{ text = "M", face = self.cell_face }
-    local cell_h = cover_h + tprobe:getSize().h + Screen:scaleBySize(5) + self.pad * 2 + self.gap
-    tprobe:free()
+    -- Cover, two title lines (buildCell), progress bar, spacing.
+    local cell_h = cover_h + 2 * self:cellLineHeight() + Screen:scaleBySize(5) + self.pad * 2 + self.gap
     local hero_h = (hero_i and covers_mode) and self.hero_h or (hero_i and self.text_row_h or 0)
 
     local function body_h(with_pager)

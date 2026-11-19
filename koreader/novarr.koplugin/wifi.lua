@@ -52,6 +52,7 @@ Wi-Fi on the desktop, with a connect delay and failures.
 
 local UIManager = require("ui/uimanager")
 local logger = require("logger")
+local _ = require("gettext")
 
 local Policy = require("novarr.wifipolicy")
 
@@ -590,6 +591,87 @@ reading, it comes on (wifipolicy's position_due). Evaluates.
 function Wifi.requestPosition(reason)
     Wifi.position_due = reason
     Wifi.evaluate(reason)
+end
+
+-- ---------------------------------------------------------------- a user action, Wi-Fi off
+
+Wifi.USER_CONNECT_TIMEOUT = 45 -- seconds a user action waits for the connection
+
+--[[--
+A user action (Sync, Download, Discover, Link...) needs the network and
+Wi-Fi is off, not by Novarr's doing. KOReader's own "Turn on Wi-Fi?" prompt
+(NetworkMgr:runWhenConnected) never tells its caller that the user said no
+or that the connection did not come, so Novarr asks itself and drives the
+connection: "Turn Wi-Fi on?" -> switched on (backend.turnOn, as for a
+restore) and waited for, at most USER_CONNECT_TIMEOUT. KOReader's "Action
+when Wi-Fi is off" setting is followed: "turn_on" connects without asking,
+"ignore" never connects. on_ok runs once connected; on_fail when the user
+declines, or no connection came in time. Exactly one of them runs.
+]]
+function Wifi.connectForUser(on_ok, on_fail, opts)
+    opts = opts or {}
+    local reason = opts.reason or "a Novarr action needs the network"
+    local done, notice, poll = false, nil, nil
+    local function finish(ok)
+        if done then return end
+        done = true
+        if poll then UIManager:unschedule(poll) end
+        if notice then UIManager:close(notice) notice = nil end
+        if ok then
+            if on_ok then S().guard(on_ok) end
+        elseif on_fail then
+            S().guard(on_fail)
+        end
+    end
+    local function connect()
+        log("switching on for the user (" .. reason .. ")")
+        event("on_user", reason)
+        local InfoMessage = require("ui/widget/infomessage")
+        notice = InfoMessage:new{ text = _("Turning Wi-Fi on…") }
+        UIManager:show(notice)
+        UIManager:forceRePaint()
+        local deadline = now() + Wifi.USER_CONNECT_TIMEOUT * 1000 * Wifi.scale
+        poll = function()
+            S().guard(function()
+                if done then return end
+                if Wifi.backend.isConnected() then
+                    finish(true)
+                elseif now() >= deadline then
+                    log("no connection within " .. Wifi.USER_CONNECT_TIMEOUT .. " s (" .. reason .. ")")
+                    event("user_connect_failed", reason)
+                    finish(false)
+                else
+                    UIManager:scheduleIn(1, poll)
+                end
+            end)
+        end
+        UIManager:scheduleIn(1, poll)
+        if not Wifi.backend.busy() then
+            local ok, err = pcall(Wifi.backend.turnOn, function()
+                S().guard(function() if Wifi.backend.isConnected() then finish(true) end end)
+            end)
+            if not ok then
+                log("couldn't switch it on: " .. tostring(err))
+                finish(false)
+            end
+        end
+    end
+    local action = G_reader_settings and G_reader_settings:readSetting("wifi_enable_action")
+    if action == "turn_on" then
+        connect()
+    elseif action == "ignore" then
+        finish(false)
+    else
+        require("novarr.ui_common").confirm({
+            text = _("Turn Wi-Fi on?"),
+            ok_text = _("Turn on"),
+            cancel_text = _("Not now"),
+            -- No tap outside: the answer is always one of the two buttons.
+            dismissable = false,
+            ok = connect,
+            cancel = function() finish(false) end,
+        })
+    end
 end
 
 --- Whether Novarr may switch Wi-Fi on without asking now.

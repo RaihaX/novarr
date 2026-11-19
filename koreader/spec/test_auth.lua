@@ -259,9 +259,80 @@ T.it("401 keeps the queue, forgets the token, and stops the next flush from send
     T.eq(log2[1].headers["Authorization"], "Bearer 2|newtoken")
 end)
 
-T.it("401 and unauthenticated are retryable; 403 is not", function()
+T.it("401, unauthenticated and 403 are all retryable (1.10.0: a 403 never deletes queued reading)", function()
     T.truthy(Api.isRetryable({ kind = "unauthenticated", status = 401 }))
-    T.falsy(Api.isRetryable({ kind = "forbidden", status = 403 }))
+    T.truthy(Api.isRetryable({ kind = "forbidden", status = 403 }))
+end)
+
+T.it("403 keeps the queue in place (like 401) and asks for the account again", function()
+    local st = settings()
+    Auth.link(st, HOME, TOKEN, { name = "R", role = "admin" })
+    local transport, log = fake({ default = json(403, { message = "Not on this address.", code = "forbidden" }) })
+    local forbidden = {}
+    local api = Api.new({ base_url = HOME, transport = transport,
+        auth = {
+            token = function() return Auth.token(st, HOME) end,
+            on_forbidden = function(e, path) table.insert(forbidden, { e = e, path = path }) end,
+        } })
+    local queue = Queue.new({ load = function() return nil end, save = function() end, now = function() return 1000 end })
+    queue:enqueue({ kind = "progress", chapter_id = 10, novel_id = 1, progress = 50 })
+    queue:enqueue({ kind = "set_read", chapter_id = 11, novel_id = 1, read = true })
+    local before = queue:list()
+    local r = Sync.flush({ api = api, queue = queue, now = function() return 2000 end })
+    T.eq(#log, 1, "stopped at the first entry")
+    T.eq({ r.sent, r.dropped, r.remaining }, { 0, 0, 2 })
+    T.eq(r.error.kind, "forbidden")
+    T.eq(queue:list(), before, "not dropped, not reordered")
+    T.eq(#forbidden, 1)
+    T.eq(forbidden[1].path, "chapters/10/progress")
+    T.eq(Auth.token(st, HOME), TOKEN, "still linked")
+    -- auth/me itself answering 403 never starts another round.
+    local _u, e = api:me()
+    T.eq(e.kind, "forbidden")
+    T.eq(#forbidden, 1)
+end)
+
+T.it("auth/me: the account now; the saved user follows it (role included), the token stays", function()
+    local st = settings()
+    Auth.link(st, HOME, TOKEN, { id = 3, name = "Kid", username = "kid", role = "reader" })
+    local api, log = linkedApi({ json(200, { user = { id = 3, name = "Kid", username = "kid", role = "admin" } }),
+        json(200, { nothing = true }) }, st)
+    local user = api:me()
+    T.eq(log[1].method, "GET")
+    T.eq(log[1].url, HOME .. "/api/v1/auth/me")
+    T.eq(log[1].headers["Authorization"], "Bearer " .. TOKEN)
+    T.truthy(log[1].total_timeout <= 10)
+    T.eq(Auth.role(st, HOME), "reader")
+    T.truthy(Auth.updateUser(st, HOME, user))
+    T.eq(Auth.role(st, HOME), "admin")
+    T.eq(Auth.homeButtons(Auth.role(st, HOME), false), { "library", "discover", "downloads", "sync", "settings" })
+    T.eq(Auth.token(st, HOME), TOKEN)
+    T.falsy(Auth.updateUser(st, HOME, user), "nothing changed the second time")
+    local u2, e2 = api:me()
+    T.eq(u2, nil)
+    T.eq(e2.kind, "server")
+    -- Not for another server, nor without a token.
+    T.falsy(Auth.updateUser(st, OTHER, { role = "reader" }))
+    Auth.forget(st, HOME)
+    T.falsy(Auth.updateUser(st, HOME, { role = "reader" }))
+end)
+
+T.it("auth/me is asked at most once a day, after a 403 at most once a minute", function()
+    local day = Auth.USER_REFRESH_S
+    T.truthy(Auth.userRefreshDue(nil, 1000))
+    T.falsy(Auth.userRefreshDue(1000, 1000 + day - 1))
+    T.truthy(Auth.userRefreshDue(1000, 1000 + day))
+    T.truthy(Auth.userRefreshDue(1000, 999), "the clock went back")
+    T.falsy(Auth.userRefreshDue(1000, 1030, true))
+    T.truthy(Auth.userRefreshDue(1000, 1000 + Auth.USER_REFRESH_FORCED_S, true))
+end)
+
+T.it("link code expiry: HH:MM of the time the server gives", function()
+    local seen
+    local date = function(fmt, t) seen = { fmt, t } return "14:35" end
+    T.eq(Auth.clockTime(1700000000.7, date), "14:35")
+    T.eq(seen, { "%H:%M", 1700000000 })
+    T.eq(#Auth.clockTime(os.time()), 5)
 end)
 
 T.it("403: forbidden with the server's message", function()

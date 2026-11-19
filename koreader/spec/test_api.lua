@@ -224,6 +224,53 @@ T.it("addNovel: POST title and url; 201 and 200 both return the novel", function
     T.contains(e4.server_message, "Another novel")
 end)
 
+T.it("addNovel: 409 is a duplicate with the existing novel; force sends force=1", function()
+    local transport, log = fake({
+        json(409, { message = "Shadow Slave is already in the library (from novelfull.com).",
+            duplicate = { id = 42, title = "Shadow Slave", source = "novelfull.com" } }),
+        json(201, { novel = { id = 43, name = "Shadow Slave" }, already_in_library = false }),
+        json(409, { message = "x" }),
+    })
+    local api = Api.new({ base_url = "http://h", transport = transport })
+    local d, e = api:addNovel("Shadow Slave", "https://novelping.com/novel/shadow-slave")
+    T.eq(d, nil)
+    T.eq(e.kind, "duplicate")
+    T.eq(e.status, 409)
+    T.eq(e.duplicate, { id = 42, title = "Shadow Slave", source = "novelfull.com" })
+    T.eq(Json.decode(log[1].body).force, nil, "no force the first time")
+    local d2 = api:addNovel("Shadow Slave", "https://novelping.com/novel/shadow-slave", true)
+    T.eq(d2.novel.id, 43)
+    T.eq(Json.decode(log[2].body), { title = "Shadow Slave", url = "https://novelping.com/novel/shadow-slave", force = 1 })
+    local _d3, e3 = api:addNovel("x", "u")
+    T.eq(e3.kind, "duplicate")
+    T.eq(e3.duplicate.id, nil, "a 409 without the duplicate object")
+end)
+
+T.it("a manga chapter fetched as text (422 medium manga) is its own kind", function()
+    local api = Api.new({ base_url = "http://h", transport = fake({
+        json(422, { message = "This chapter belongs to a manga: it has page images, not text. Use /api/v1/chapters/5/pages.",
+            medium = "manga" }),
+        json(422, { message = "Something else." }),
+    }) })
+    local _d, e = api:chapter(5)
+    T.eq(e.kind, "manga")
+    T.eq(e.status, 422)
+    T.falsy(Api.isRetryable(e))
+    local _d2, e2 = api:chapter(5)
+    T.eq(e2.kind, "invalid")
+end)
+
+T.it("foreignAnswer: anything but a JSON object where JSON was expected", function()
+    T.truthy(Api.foreignAnswer({ status = 200, body = "<html>Hotel login</html>" }))
+    T.truthy(Api.foreignAnswer({ status = 302, body = "" }))
+    T.truthy(Api.foreignAnswer({ status = 401, body = "<html>Login</html>" }))
+    T.falsy(Api.foreignAnswer({ status = 200, body = '{"novels":[]}' }))
+    T.falsy(Api.foreignAnswer({ status = 404, body = '{"message":"Not Found"}' }))
+    T.falsy(Api.foreignAnswer({ status = 304, body = "" }))
+    T.falsy(Api.foreignAnswer({ status = 204, body = "" }))
+    T.falsy(Api.foreignAnswer(nil))
+end)
+
 T.it("check: POST starts, GET reads, the check object is returned", function()
     local transport, log = fake({
         json(202, { check = { status = "running", new_chapters = 0 } }),

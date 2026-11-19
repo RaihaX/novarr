@@ -162,6 +162,22 @@ T.it("add outcomes: added (one sentence about the chapter list), already, 422, 5
     T.eq({ k, text }, { "error", nil })
 end)
 
+T.it("Discover refused (403, e.g. on the public address): one plain sentence, for lists and for adding", function()
+    local text = "Discover isn't available on this address. Use it on your home network."
+    T.eq(Discover.browseErrorText({ kind = "forbidden", status = 403, message = "This page isn't available on the public address." }), text)
+    local k, t = Discover.addOutcome(nil, { kind = "forbidden", status = 403, message = "x" })
+    T.eq({ k, t }, { "forbidden", text })
+end)
+
+T.it("add outcome: a duplicate title (409) names the novel already in the library", function()
+    local k, text = Discover.addOutcome(nil, { kind = "duplicate", status = 409,
+        duplicate = { id = 42, title = "Shadow Slave", source = "novelfull.com" } }, "Shadow Slave (NP)")
+    T.eq(k, "duplicate")
+    T.eq(text, "Shadow Slave is already in your library.")
+    k, text = Discover.addOutcome(nil, { kind = "duplicate", status = 409, duplicate = {} }, "Lord of the Mysteries")
+    T.eq(text, "Lord of the Mysteries is already in your library.")
+end)
+
 T.it("queries: trimmed, inner spaces collapsed, empty is nil, at most 100 bytes on a character boundary", function()
     T.eq(Discover.cleanQuery("  shadow   slave "), "shadow slave")
     T.eq(Discover.cleanQuery("   "), nil)

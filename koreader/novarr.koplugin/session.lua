@@ -44,6 +44,8 @@ local Session = {
 }
 
 Session.VERSION = Api.VERSION
+-- Seconds after the position check / a chapter open before a re-probe it skipped runs.
+Session.DEFERRED_REPROBE_S = 5
 
 local DEFAULTS = {
     prefetch = 100,
@@ -105,6 +107,13 @@ function Session:init()
         now = nowMs,
         log = log,
         on_switch = function(base) self:set("server_active", base) end,
+        -- A re-probe the position check or a chapter open skipped: run it a moment after.
+        defer = function(fn)
+            -- fn is always the address's own (stable) function: one scheduled run at a time.
+            self.deferred_reprobe = self.deferred_reprobe or function() Session.guard(fn) end
+            UIManager:unschedule(self.deferred_reprobe)
+            UIManager:scheduleIn(Session.DEFERRED_REPROBE_S, self.deferred_reprobe)
+        end,
     })
     self:rebuildApi()
     -- KOReader started: the first request checks the home address again.
@@ -179,6 +188,7 @@ function Session:rebuildApi()
             token = function() return self:authToken() end,
             blocked = function() return self:needsLink() end,
             on_unauthenticated = function(e) self:onUnauthenticated(e) end,
+            on_forbidden = function(e) self:onForbidden(e) end,
         } })
 end
 
@@ -224,28 +234,42 @@ function Session:allows(action)
 end
 
 --[[--
-/api/v1/meta of this server answered: keeps whether sign-in is required.
+/api/v1/meta of this server answered: keeps whether sign-in is required,
+and the server's instance id (server_instance) when it gives one.
 No longer required: nothing is blocked any more (a held token is kept, and
 still sent).
 ]]
-function Session:noteMeta(meta)
+function Session:noteMeta(meta, opts)
     local server = self:serverUrl()
     if not server then return end
+    -- Which install this is (the same id on every address of it): a new
+    -- address with the same id is the same server (Session:setServer).
+    -- opts.keep_instance: the meta of an address the user typed as the second
+    -- one, never trusted over an id already known from the home address.
+    local instance = Address.instanceId(type(meta) == "table" and meta.instance or nil)
+    local known = self:get("server_instance")
+    if instance and known ~= instance and not (opts and opts.keep_instance and known) then
+        self:set("server_instance", instance)
+    end
     if Auth.setRequired(self.settings, server, Auth.requiredFromMeta(meta)) then
         log("Novarr: the server " .. (Auth.requiredFromMeta(meta) and "requires" or "does not require") .. " sign-in")
     end
 end
 
 --[[--
-Asks this server's meta (short timeouts) when sign-in is not known yet, or
+Asks this server's meta (short timeouts) when sign-in is not known yet,
 while this Kindle is blocked waiting to be linked (the server may have
-switched sign-in off). Called by user actions only (Home's refresh, Link).
+switched sign-in off), or once per start while its instance id is not
+known. Called by user actions only (Home's refresh, Link).
 Returns meta or nil.
 ]]
 function Session:refreshAuthState(force)
     local server = self:serverUrl()
     if not server then return nil end
-    if not force and Auth.known(self.settings, server) and not self:needsLink() then return nil end
+    -- Also once per KOReader start while the server's instance id is not known (Session:isSameServer).
+    local instance_known = self:get("server_instance") ~= nil or self.instance_asked
+    if not force and Auth.known(self.settings, server) and not self:needsLink() and instance_known then return nil end
+    self.instance_asked = true
     local meta = self.api:meta({ block_timeout = 5, total_timeout = 8 })
     if meta then self:noteMeta(meta) end
     return meta
@@ -284,6 +308,43 @@ function Session:onUnauthenticated(e)
     UIManager:scheduleIn(1, self.auth_notice_task)
 end
 
+--[[--
+Asks the server who the linked account is now (GET auth/me) and keeps the
+answer: the role decides what the screens offer (Discover). Only with a
+token held and already connected. force: a 403 just came (at most once a
+minute); else at most once a day (Home's refresh). Returns true when the
+saved account changed (the open screens are rebuilt then).
+]]
+function Session:refreshUser(force)
+    local server = self:serverUrl()
+    if not server or not self:authToken() or not self:isConnected() then return false end
+    local now = os.time()
+    if not Auth.userRefreshDue(self:get("auth_me_at"), now, force) then return false end
+    self:set("auth_me_at", now)
+    local user, e = self.api:me()
+    if not user then
+        log("Novarr: asking the server for the account failed (" .. tostring(e and e.kind) .. ")")
+        return false
+    end
+    local changed = Auth.updateUser(self.settings, server, user)
+    if changed then
+        log("Novarr: the account changed on the server; role now " .. self:role())
+        self:refreshScreens()
+    end
+    return changed
+end
+
+--- A 403 from Novarr (api.lua's on_forbidden): the role may have changed; asked again a moment later.
+function Session:onForbidden(e)
+    log("Novarr: the server answered 403" .. (e and e.message and (": " .. e.message) or ""))
+    if not self:authToken() then return end
+    if not self.forbidden_task then
+        self.forbidden_task = function() Session.guard(function() self:refreshUser(true) end) end
+    end
+    UIManager:unschedule(self.forbidden_task)
+    UIManager:scheduleIn(1, self.forbidden_task)
+end
+
 --- Linked (pairing): keeps the token and the account, then sends what waited.
 function Session:linked(token, user)
     Auth.link(self.settings, self:serverUrl(), token, user)
@@ -294,18 +355,26 @@ function Session:linked(token, user)
 end
 
 --[[--
-Unlink: DELETE /auth/token (best effort, only when connected; its answer
-does not matter), then the token is forgotten here. Sign-in stays required,
-so nothing is sent until this Kindle is linked again.
+Unlink: DELETE /auth/token (best effort, only when connected), then the
+token is forgotten here. Sign-in stays required, so nothing is sent until
+this Kindle is linked again. Returns true when the server was told (or
+there was no token to revoke); false when it could not be (offline, an
+error): the access then still shows in the account on the website.
 ]]
 function Session:unlink()
+    local told = not self:authToken()
     if self:authToken() and self:isConnected() then
         local _ok, e = self.api:revokeToken()
-        if e then log("Novarr: revoking the token on the server failed (" .. tostring(e.kind) .. "), forgetting it here anyway") end
+        if e then
+            log("Novarr: revoking the token on the server failed (" .. tostring(e.kind) .. "), forgetting it here anyway")
+        else
+            told = true
+        end
     end
     Auth.forget(self.settings, self:serverUrl())
     self.auth_told = true -- the user did it: no "not linked" notice
     self:refreshScreens()
+    return told
 end
 
 --[[--
@@ -380,16 +449,23 @@ function Session:isConnected()
 end
 
 --[[--
-Runs fn when connected, offering to turn Wi-Fi on first (KOReader's own
-prompt). When Novarr itself had switched Wi-Fi off (wifi.lua), it is
-switched on again without asking ("Turning Wi-Fi on…" shows when that takes
-more than 2 s, unless opts.quiet). Returns true when fn ran right away.
-With the offline test hook it never runs fn and calls on_unavailable instead.
+Runs fn when connected (an explicit user action: Sync, Download, Discover,
+Link, Check for new chapters, Add...). Not connected: when Novarr itself
+had switched Wi-Fi off (wifi.lua), it is switched on again without asking
+("Turning Wi-Fi on…" shows when that takes more than 2 s, unless
+opts.quiet); otherwise Novarr asks "Turn Wi-Fi on?" (Wifi.connectForUser,
+following KOReader's "Action when Wi-Fi is off" setting). on_unavailable
+runs whenever no connection results: the user said no, switching Wi-Fi on
+failed or timed out (or the offline test hook is on). Returns true when fn
+ran right away.
 ]]
 function Session:whenConnected(fn, on_unavailable, opts)
     opts = opts or {}
+    local function unavailable()
+        if on_unavailable then Session.guard(on_unavailable) end
+    end
     if Api.simulate_offline then
-        if on_unavailable then on_unavailable() end
+        unavailable()
         return false
     end
     if self:isConnected() then
@@ -398,13 +474,26 @@ function Session:whenConnected(fn, on_unavailable, opts)
     end
     local wrapped = Session.wrap(fn)
     local Wifi = require("novarr.wifi")
-    if Wifi.restore(opts.reason or "a Novarr action needs the network", wrapped, function()
-        -- Couldn't connect by itself: KOReader's own way, as before.
-        NetworkMgr:runWhenConnected(wrapped)
-    end, { notice = not opts.quiet and _("Turning Wi-Fi on…") or nil }) then
+    if Wifi.restore(opts.reason or "a Novarr action needs the network", wrapped, unavailable,
+            { notice = not opts.quiet and _("Turning Wi-Fi on…") or nil }) then
         return false
     end
-    NetworkMgr:runWhenConnected(wrapped)
+    Wifi.connectForUser(wrapped, unavailable, { reason = opts.reason })
+    return false
+end
+
+--[[--
+Opening a screen (Home, Library, a novel, its chapters): fn runs only when
+already connected (a quiet refresh); otherwise on_offline runs at once (the
+screen shows its saved data). Never asks to turn Wi-Fi on. Returns true
+when fn ran.
+]]
+function Session:whenOnline(fn, on_offline)
+    if self:isConnected() then
+        fn()
+        return true
+    end
+    if on_offline then on_offline() end
     return false
 end
 
@@ -425,6 +514,8 @@ function Session:errorText(e)
         -- The message says how to link: the "not linked" notice is not needed any more.
         self.auth_told = true
         return _("This Kindle isn't linked to your Novarr account (or the link was removed).\n\nLink it in Novarr → Settings → Link this Kindle. Your reading on this Kindle is kept and sent once it is linked.")
+    elseif kind == "manga" then
+        return _("Manga can't be read on this device. Open it on the website or the Android app.")
     elseif kind == "forbidden" then
         return e.message or _("Your Novarr account isn't allowed to do this.")
     elseif kind == "server" and e.message == "login page" then
@@ -980,10 +1071,12 @@ end
 
 --[[--
 Fetches a chapter from the server and stores it. Returns path or nil plus
-a reason ("not_downloaded" or an API error table).
+a reason ("not_downloaded" or an API error table). opts.no_reprobe: the
+user is waiting for this chapter to open, so a pending re-probe of the home
+address runs afterwards, not in front of it (address.lua).
 ]]
-function Session:downloadChapter(chapter_id)
-    local data, e = self.api:chapter(chapter_id)
+function Session:downloadChapter(chapter_id, opts)
+    local data, e = self.api:chapter(chapter_id, { no_reprobe = opts and opts.no_reprobe or nil })
     if not data then return nil, e end
     local ch = data.chapter
     if type(ch) ~= "table" or not ch.id or not ch.novel_id then
@@ -1138,7 +1231,7 @@ function Session:openChapter(novel_id, chapter_id, opts)
     end
     local function fetch()
         local closer = UI.loading(_("Fetching chapter…"))
-        local fetched, why, ch = self:downloadChapter(chapter_id)
+        local fetched, why, ch = self:downloadChapter(chapter_id, { no_reprobe = true })
         closer()
         if fetched then
             self.opened_from_novarr = true
@@ -1536,6 +1629,9 @@ function Session:downloadMany(novel_id, ids, done)
         elseif type(why) == "table" and why.kind == "offline" then
             finish(T(_("Stopped: the Novarr server can't be reached any more. %1 chapter(s) saved."), job.done))
             return
+        elseif type(why) == "table" and why.kind == "manga" then
+            finish(self:errorText(why))
+            return
         elseif type(why) == "table" and why.kind == "storage" then
             finish(T(_("Stopped: couldn't write to this device's storage. %1 chapter(s) saved."), job.done))
             return
@@ -1558,8 +1654,13 @@ end
 --[[--
 Switching to a different server: cached lists, local marks, the queue and
 stored chapters belong to the old one (ids differ), so they are cleared.
+The same server under another address (the second address, or a new one
+whose meta has the same instance id: opts.same_server, see
+Session:isSameServer) keeps everything, and the account link moves to the
+new address.
 ]]
-function Session:setServer(url)
+function Session:setServer(url, opts)
+    opts = opts or {}
     local old = self:serverUrl()
     local away = self:get("server_url_away")
     if away and away == url then
@@ -1567,6 +1668,10 @@ function Session:setServer(url)
         self:unset("server_url_away")
         -- The account link is the same server's: it follows the home address.
         Auth.moveServer(self.settings, old, url)
+    elseif old and old ~= url and opts.same_server then
+        -- A new address of the same install (same instance id): nothing is cleared.
+        Auth.moveServer(self.settings, old, url)
+        log("Novarr: " .. tostring(url) .. " is the same server as " .. tostring(old) .. " (same instance): everything kept")
     elseif old and old ~= url then
         -- A different server: its account link (and whether it needs one) is not this one's.
         Auth.clear(self.settings)
@@ -1578,6 +1683,8 @@ function Session:setServer(url)
         self.queue:clear()
         self:unset("last_sync_at")
         self:unset("position_declined")
+        self:unset("server_instance")
+        self:unset("auth_me_at")
         for _i, novel_id in ipairs(self.store:novelsWithDownloads()) do
             self:removeNovelDownloads(novel_id)
         end
@@ -1633,6 +1740,33 @@ function Session:fetchUrl(url, opts, make_sink)
         end
     end
     return res, err
+end
+
+--[[--
+Whether a new address (whose /api/v1/meta answered `meta`) is the server
+already configured: the second address, or the same instance id as the one
+remembered (both present: an older server gives none).
+]]
+function Session:isSameServer(url, meta)
+    if url == self:serverUrl() or url == self:get("server_url_away") then return true end
+    return Address.sameInstance(self:get("server_instance"), type(meta) == "table" and meta.instance or nil)
+end
+
+--[[--
+Before switching to a different server: one quick try to send the queued
+changes to the old one, if it answers within the probe timeout (4 s), so
+reading is not lost. Returns the flush summary, or nil when nothing was
+tried (empty queue, not linked, not answering).
+]]
+function Session:flushBeforeSwitch()
+    if self.queue:count() == 0 or not self:serverUrl() or self:needsLink() then return nil end
+    if not self:probeAddress(self:activeUrl()) then
+        log("Novarr: the old server isn't answering; its queued changes can't be sent before switching")
+        return nil
+    end
+    local r = self:flushQueue()
+    log(string.format("Novarr: before switching server: sent %d, dropped %d, %d left", r.sent or 0, r.dropped or 0, r.remaining or 0))
+    return r
 end
 
 --- Whether switching to url would discard local data.

@@ -176,6 +176,38 @@ T.it("update needed only when the server build differs", function()
     T.falsy(Updater.updateNeeded("aa", ""))
 end)
 
+T.it("versions compare numerically, dotted (1.9.0 < 1.10.0)", function()
+    T.eq(Updater.compareVersions("1.9.0", "1.10.0"), -1)
+    T.eq(Updater.compareVersions("1.10.0", "1.9.0"), 1)
+    T.eq(Updater.compareVersions("1.10.0", "1.10.0"), 0)
+    T.eq(Updater.compareVersions("1.10", "1.10.0"), 0, "a missing part is 0")
+    T.eq(Updater.compareVersions("2.0.0", "1.99.99"), 1)
+    T.eq(Updater.compareVersions("1.10.0-beta", "1.10.0"), 0, "a suffix is ignored")
+    T.eq(Updater.compareVersions("v1.2.0", "1.2.0"), 0)
+    T.eq(Updater.compareVersions("?", "1.2.0"), nil)
+    T.eq(Updater.compareVersions("dev", "1.2.0"), nil)
+    T.eq(Updater.compareVersions(nil, "1.2.0"), nil)
+    T.eq(Updater.compareVersions("1.2.0", ""), nil)
+    T.eq(Updater.compareVersions("1..2", "1.2"), nil)
+end)
+
+T.it("an older version on the server is no update; the same version with another build is", function()
+    T.eq(Updater.updateKind("aa", "bb", "1.10.0", "1.9.0"), "older")
+    T.falsy(Updater.updateNeeded("aa", "bb", "1.10.0", "1.9.0"), "never flagged, never installed by itself")
+    T.eq(Updater.updateKind("aa", "bb", "1.9.0", "1.10.0"), "update")
+    T.eq(Updater.updateKind("aa", "bb", "1.10.0", "1.10.0"), "update", "same version, another build")
+    T.eq(Updater.updateKind("aa", "bb", "1.10.0", nil), "update", "server version unknown: as before")
+    T.eq(Updater.updateKind("aa", "bb", nil, "1.0.0"), "update", "installed version unknown: as before")
+    T.eq(Updater.updateKind("aa", "aa", "1.10.0", "1.9.0"), "none")
+    T.eq(Updater.updateKind("aa", nil, "1.10.0", "2.0.0"), "none")
+end)
+
+T.it("older text names both versions", function()
+    local tpl = function(s, a, b) return (s:gsub("%%1", tostring(a)):gsub("%%2", tostring(b))) end
+    local id = function(s) return s end
+    T.eq(Updater.olderText("1.10.0", "1.9.0", tpl, id), "The server has an older version (1.9.0). Version 1.10.0 is installed.")
+end)
+
 T.it("available text names both versions, or 'a newer build of' when equal", function()
     local tpl = function(s, a, b) return (s:gsub("%%1", tostring(a)):gsub("%%2", tostring(b))) end
     local id = function(s) return s end
