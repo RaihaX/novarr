@@ -34,6 +34,9 @@ actor WriteQueue {
         case drained(sent: Int, dropped: Int)
         /// Stopped at a retryable failure; the remaining writes stay queued.
         case stalled(sent: Int, remaining: Int)
+        /// The server said the sign-in is gone (401). Nothing is dropped: the
+        /// remaining writes wait for the user to sign in again.
+        case unauthenticated(sent: Int, remaining: Int)
         /// Another flush was already running.
         case busy
     }
@@ -86,6 +89,9 @@ actor WriteQueue {
                 remove(next.id)
             } catch {
                 let apiError = APIError.from(error)
+                if apiError.isUnauthenticated {
+                    return .unauthenticated(sent: sent, remaining: items.count)
+                }
                 if apiError.isRetryable {
                     return .stalled(sent: sent, remaining: items.count)
                 }

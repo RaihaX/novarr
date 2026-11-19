@@ -2,8 +2,8 @@ import Foundation
 import Observation
 
 /// Runs "check for new chapters" for any number of novels, app-wide, so a
-/// check started from Discover or the novel screen keeps being watched while
-/// the user moves around. Polls only while the app is in the foreground and
+/// check started from the novel screen keeps being watched while the user
+/// moves around. Polls only while the app is in the foreground and
 /// looks again straight away when it comes back.
 @MainActor
 @Observable

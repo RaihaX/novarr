@@ -8,16 +8,23 @@ struct ServerMeta: Codable, Sendable, Equatable {
     var app: String
     var apiVersion: Int
     var serverVersion: String?
+    /// Missing on servers that predate accounts.
+    var auth: ServerAuth? = nil
+
+    /// Only an explicit `auth.required: true` turns sign-in on.
+    var requiresSignIn: Bool { auth?.required == true }
 }
 
 extension ServerMeta {
-    private enum CodingKeys: String, CodingKey { case app, apiVersion, serverVersion }
+    private enum CodingKeys: String, CodingKey { case app, apiVersion, serverVersion, auth }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         app = c.lenientString(.app) ?? ""
         apiVersion = c.lenientInt(.apiVersion) ?? 0
         serverVersion = c.lenientString(.serverVersion)
+        // A malformed `auth` is treated like a missing one rather than failing meta.
+        auth = try? c.decodeIfPresent(ServerAuth.self, forKey: .auth)
     }
 }
 

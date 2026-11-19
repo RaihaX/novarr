@@ -3,13 +3,18 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppModel.self) private var app
 
-    enum Tab: String { case home, library, discover, settings }
+    // The app is read-only for every account: series are added on the Novarr
+    // website. A tab remembered from an older build that no longer exists
+    // fails to decode and falls back to Home.
+    enum Tab: String { case home, library, settings }
     @SceneStorage("selectedTab") private var selection: Tab = .home
     @State private var libraryPath = NavigationPath()
 
     var body: some View {
         if app.serverURL == nil {
             ConnectView(isInitialSetup: true)
+        } else if app.needsSignIn {
+            SignInView()
         } else {
             TabView(selection: $selection) {
                 NavigationStack { HomeView().novarrDestinations() }
@@ -18,15 +23,12 @@ struct RootView: View {
                 NavigationStack(path: $libraryPath) { LibraryView().novarrDestinations() }
                     .tabItem { Label("Library", systemImage: "books.vertical") }
                     .tag(Tab.library)
-                NavigationStack { DiscoverView().novarrDestinations() }
-                    .tabItem { Label("Discover", systemImage: "safari") }
-                    .tag(Tab.discover)
                 NavigationStack { SettingsView().novarrDestinations() }
                     .tabItem { Label("Settings", systemImage: "gearshape") }
                     .tag(Tab.settings)
             }
-            // Recreate the tabs (and their models) when the server changes.
-            .id(app.serverURL)
+            // Recreate the tabs (and their models) when the server or account changes.
+            .id(app.sessionID)
             #if DEBUG
             .task { openDebugRoute() }
             #endif
@@ -34,7 +36,7 @@ struct RootView: View {
     }
 
     #if DEBUG
-    /// Debug builds only: `-debugRoute settings|library|discover|highlights|highlights:<novelId>|novel:<id>|reader:<novelId>:<chapterId>|latest:<novelId>:<chapterId>`
+    /// Debug builds only: `-debugRoute settings|library|highlights|highlights:<novelId>|novel:<id>|reader:<novelId>:<chapterId>|latest:<novelId>:<chapterId>`
     /// opens a screen at launch, for simulator screenshots without UI automation.
     private func openDebugRoute() {
         guard let route = UserDefaults.standard.string(forKey: "debugRoute") else { return }
@@ -42,7 +44,6 @@ struct RootView: View {
         switch route.split(separator: ":").first {
         case "settings": selection = .settings
         case "library": selection = .library
-        case "discover": selection = .discover
         case "highlights":
             selection = .library
             libraryPath.append(HighlightsRoute(novelId: parts.first, novelName: nil))

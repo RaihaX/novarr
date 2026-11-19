@@ -8,6 +8,8 @@ struct SettingsView: View {
     @State private var totalBytes: Int64?
     @State private var confirmClear = false
     @State private var isSyncing = false
+    @State private var confirmSignOut = false
+    @State private var isSigningOut = false
 
     var body: some View {
         Form {
@@ -20,6 +22,27 @@ struct SettingsView: View {
                         .foregroundStyle(app.isReachable ? Color.green : Color.orange)
                 }
                 Button("Change Server…") { showConnect = true }
+            }
+
+            // Only on servers with sign-in on; with auth off there is no account.
+            if let user = app.account?.user {
+                Section("Account") {
+                    LabeledContent("Signed in as") {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(user.name)
+                            Text("@\(user.username)").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    LabeledContent("Role", value: user.role.label)
+                    if isSigningOut {
+                        HStack {
+                            ProgressView()
+                            Text("Signing out…").padding(.leading, 6)
+                        }
+                    } else {
+                        Button("Sign Out", role: .destructive) { confirmSignOut = true }
+                    }
+                }
             }
 
             Section {
@@ -90,6 +113,19 @@ struct SettingsView: View {
             }
         } message: {
             Text("Offline chapters will need to be downloaded again.")
+        }
+        .confirmationDialog("Sign out of this server?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+            Button("Sign Out", role: .destructive) {
+                Task {
+                    isSigningOut = true
+                    await app.signOut()
+                    isSigningOut = false
+                }
+            }
+        } message: {
+            Text(app.pendingWrites > 0
+                 ? "\(app.pendingWrites) reading updates haven't synced yet. They stay on this device and are sent the next time you sign in to this account."
+                 : "Your offline chapters for this account stay on this device.")
         }
         .task {
             if app.serverMeta == nil { await app.refreshMeta() }
