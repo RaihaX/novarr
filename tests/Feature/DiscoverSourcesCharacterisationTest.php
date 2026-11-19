@@ -77,11 +77,13 @@ class DiscoverSourcesCharacterisationTest extends GoldenTestCase
             . "        <option value=\"novelarrow\">NovelPing (novelarrow)</option>\n"
             . "        <option value=\"empirenovel\">empirenovel.com</option>\n"
             . "        <option value=\"novelfull\">novelfull.com</option>\n"
+            . "        <option value=\"novelfire\">novelfire.net</option>\n"
+            . "        <option value=\"royalroad\">Royal Road</option>\n"
             . "    </select>",
             $html
         );
         $this->assertStringContainsString(
-            'const SOURCE_HOST = {"novelarrow":"novelping.com","empirenovel":"empirenovel.com","novelfull":"novelfull.com"};',
+            'const SOURCE_HOST = {"novelarrow":"novelping.com","empirenovel":"empirenovel.com","novelfull":"novelfull.com","novelfire":"novelfire.net","royalroad":"www.royalroad.com"};',
             $html
         );
         $manga = $this->get('/novels/discover?medium=manga')->assertOk()->getContent();

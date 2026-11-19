@@ -615,7 +615,9 @@ class NovelScraper extends Command
      * number / part / title / source_label / sort_key for a TOC entry, from
      * ChapterLabelParser reconciled with the legacy chapter value (which
      * stays authoritative — `chapter` is written exactly as before). A parse
-     * that disagrees with it beyond the part fraction is logged.
+     * that disagrees with it beyond the part fraction is logged — unless the
+     * source numbered the row by its position ('positional': free-text
+     * titles, Royal Road), where disagreeing is the normal case.
      */
     private function structuredColumns(array $item, float $legacy): array
     {
@@ -624,7 +626,7 @@ class NovelScraper extends Command
         $parsed = ChapterLabelParser::parse($label, $item["url"] ?? null, $book);
         $structured = ChapterLabelParser::reconcile($parsed, $legacy);
 
-        if (!$structured["agrees"]) {
+        if (!$structured["agrees"] && empty($item["positional"])) {
             \Log::warning(
                 "TOC label parse disagrees with the chapter number: \"{$label}\" parsed "
                 . var_export($parsed->number, true) . " (part {$parsed->part}), TOC chapter {$legacy}; ordering by the TOC number"
