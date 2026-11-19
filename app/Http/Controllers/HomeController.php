@@ -502,9 +502,12 @@ class HomeController extends Controller
         // Candidate novels, most recent activity first (ordered novel_id =>
         // last activity): ResumePoint's activity — a read mark or a position
         // on a chapter not read yet (the apps and the manga reader mark read
-        // only at the end). The reader's chapter_reads rows (primary key
-        // prefix user_id), each chapter by primary key.
-        $activity = ResumePoint::activitySql('cr');
+        // only at the end) — hand marks included: a series the reader only
+        // marked ("Mark to here" after reading it elsewhere) is still one
+        // they are following; ResumePoint then opens its first unread
+        // chapter. The reader's chapter_reads rows (primary key prefix
+        // user_id), each chapter by primary key.
+        $activity = ResumePoint::activitySql('cr', withManual: true);
         $recent = $this->readState->join(
             NovelChapter::where('status', 1)->where('blacklist', 0),
             [],

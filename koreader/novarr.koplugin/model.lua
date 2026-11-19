@@ -261,19 +261,31 @@ server's answer plus this device's own reading not sent yet (overlay
 entries, which only exist until a server snapshot that includes them
 arrives, so they are newer than anything the snapshot knows).
 
-    list            chapter list (reading order), rows {id, downloaded, read}
+    list            chapter list (reading order), rows {id, downloaded, read, read_progress}
     server_id       the server's resume_chapter_id (may be nil)
-    overlay         { ["<chapterId>"] = {read=bool|nil, progress=n|nil, at=ms} }
+    overlay         { ["<chapterId>"] = {read=bool|nil, progress=n|nil, at=ms,
+                      reading_at=ms|nil, hand=true|nil} }
     state(row)      effective read (bool) and progress (0..100|nil): server
                     row + overlay (Store.effective)
 
 Rule:
-  * The anchor is this device's most recent reading: the overlay entry with
-    the latest `at` (ties: the furthest in reading order) on a downloaded
-    chapter that is now read, or unread with a position of 1 % or more. A
-    chapter marked unread, or opened at 0 %, is not reading.
-  * No anchor: the server's chapter (it applied the same rule); without one,
-    the first downloaded unread chapter.
+  * The anchor is this device's most recent REAL reading: the overlay entry
+    with the latest reading time (ties: the furthest in reading order) on a
+    downloaded chapter that is now read, or unread with a position of 1 % or
+    more. A chapter marked unread, or opened at 0 %, is not reading. Only
+    reading counts (position writes and reaching a chapter's end: the entry's
+    `reading_at`): a hand mark (mark read / unread, "mark all up to here",
+    "mark all as read": `hand`, no `reading_at`) changes the read state but
+    never makes a chapter the anchor. Reading after a hand mark makes the
+    chapter a candidate again; a hand mark after reading keeps the reading's
+    time. (Entries written before 1.10.2 carry neither field and count with
+    their `at`, as before.) The plugin has no look-up reads.
+  * No anchor: the server's chapter (it applied the same rule) - unless the
+    local marks finished it (it was unread, or read but unfinished, and is
+    now read and finished, e.g. "mark all up to here" covered it): then it
+    stands in for the anchor in the last rule, which is what the server
+    will answer. Without a server chapter, the first downloaded unread
+    chapter.
   * An unfinished anchor is resumed: unread at 1-99 %, or read below 90 % (a
     read chapter being re-read; the web reader marks read on open).
   * Otherwise the first downloaded unread chapter after it; none (caught
@@ -291,6 +303,14 @@ function Model.unfinished(read, progress)
     return progress >= 1 and progress <= 99
 end
 
+--- Time (ms) of an overlay entry's real reading, or nil for a hand mark only (rule above).
+function Model.readingTime(e)
+    if type(e) ~= "table" then return nil end
+    if e.reading_at ~= nil then return tonumber(e.reading_at) or 0 end
+    if e.hand then return nil end
+    return tonumber(e.at) or 0 -- written before 1.10.2
+end
+
 function Model.resolveResume(list, server_id, overlay, state)
     list = list or {}
     local pos = {}
@@ -298,10 +318,10 @@ function Model.resolveResume(list, server_id, overlay, state)
     local anchor_pos, anchor_at = nil, nil
     for key, e in pairs(overlay or {}) do
         local p = pos[tonumber(key)]
-        if p and type(e) == "table" and list[p].downloaded then
+        local at = Model.readingTime(e)
+        if p and at and list[p].downloaded then
             local read, progress = state(list[p])
             if read or (tonumber(progress) or 0) >= 1 then
-                local at = tonumber(e.at) or 0
                 if not anchor_at or at > anchor_at or (at == anchor_at and p > anchor_pos) then
                     anchor_pos, anchor_at = p, at
                 end
@@ -309,11 +329,21 @@ function Model.resolveResume(list, server_id, overlay, state)
         end
     end
     if not anchor_pos then
-        if server_id then return server_id end
-        for _i, c in ipairs(list) do
-            if c.downloaded and not state(c) then return c.id end
+        if not server_id then
+            for _i, c in ipairs(list) do
+                if c.downloaded and not state(c) then return c.id end
+            end
+            return nil
         end
-        return nil
+        -- The server's chapter, unless the local marks finished it (rule above).
+        local p = pos[server_id]
+        if not p then return server_id end
+        local row = list[p]
+        local was_finished = row.read and not Model.unfinished(true, row.read_progress)
+        local read, progress = state(row)
+        local is_finished = read and not Model.unfinished(true, progress)
+        if was_finished or not is_finished then return server_id end
+        anchor_pos = p
     end
     local anchor = list[anchor_pos]
     if Model.unfinished(state(anchor)) then return anchor.id end

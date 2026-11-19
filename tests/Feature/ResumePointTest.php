@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Presenter;
 use App\Http\Controllers\HomeController;
 use App\Novel;
 use App\NovelChapter;
+use App\Services\ReadState;
 use App\Services\ResumePoint;
 use App\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -362,6 +363,224 @@ class ResumePointTest extends TestCase
     }
 
     // ---------------------------------------------------------------------
+    // Only real reading moves the anchor: hand marks (chapter_reads.manual)
+    // and look-ups are not activity.
+    // ---------------------------------------------------------------------
+
+    public function test_a_hand_mark_ahead_does_not_move_continue(): void
+    {
+        $this->series(50);
+        foreach (range(1, 10) as $n) {
+            $this->readState()->markOpened($this->ch["c{$n}"], $this->owner()->id);
+        }
+        $this->travel(5)->minutes();
+        $this->readState()->setRead($this->ch['c40'], true, now(), $this->owner()->id);
+
+        $this->assertTrue((bool) $this->readStateOf($this->ch['c40'])->manual);
+        $this->assertResume(ResumePoint::NEXT, 'c11');
+    }
+
+    public function test_mark_to_here_with_nothing_read_starts_after_the_marks(): void
+    {
+        $this->series(60);
+        $this->readState()->markMany(NovelChapter::where('novel_id', $this->novel->id)->where('chapter', '<=', 50), true, now(), false, $this->owner()->id);
+
+        $this->assertResume(ResumePoint::START, 'c51');
+    }
+
+    public function test_a_series_only_marked_by_hand_stays_on_the_continue_shelf(): void
+    {
+        $this->series(60);
+        $this->readState()->markMany(NovelChapter::where('novel_id', $this->novel->id)->where('chapter', '<=', 50), true, now(), false, $this->owner()->id);
+
+        $items = app(\App\Http\Controllers\HomeController::class)->continueReading(8, $this->owner()->id);
+
+        $this->assertCount(1, $items);
+        $this->assertSame($this->ch['c51']->id, $items[0]['next']->id);
+        $this->assertFalse($items[0]['resume']);
+    }
+
+    public function test_a_web_look_up_of_an_unread_chapter_does_not_move_continue(): void
+    {
+        $this->series(40);
+        $state = $this->readState();
+        $owner = $this->owner()->id;
+        foreach (range(1, 10) as $n) {
+            $state->recordProgress($this->ch["c{$n}"], 100, true, now()->subMinutes(100 - $n), $owner);
+        }
+        $this->actAsReader($this->readers['owner']);
+
+        $this->get(route('chapters.show', $this->ch['c30']->id) . '?lookup=1')->assertOk();
+
+        $this->assertTrue((bool) DB::table('chapter_reads')->where('user_id', $owner)->where('novel_chapter_id', $this->ch['c30']->id)->value('manual'));
+        $this->assertResume(ResumePoint::NEXT, 'c11');
+
+        // Opened to read, it is reading.
+        $this->get(route('chapters.show', $this->ch['c31']->id))->assertOk();
+        $this->assertResume(ResumePoint::NEXT, 'c32');
+    }
+
+    public function test_single_hand_marks_with_nothing_read_start_after_them(): void
+    {
+        $this->series(10);
+        foreach (['c1', 'c2', 'c3'] as $key) {
+            $this->readState()->setRead($this->ch[$key], true, now(), $this->owner()->id);
+            $this->travel(1)->minutes();
+        }
+
+        $this->assertResume(ResumePoint::START, 'c4');
+    }
+
+    public function test_every_chapter_marked_by_hand_is_caught_up(): void
+    {
+        $this->series(5);
+        $this->readState()->markMany(NovelChapter::where('novel_id', $this->novel->id), true, now(), false, $this->owner()->id);
+        $owner = $this->owner()->id;
+        $points = app(ResumePoint::class);
+
+        $this->assertSame(['id' => $this->ch['c5']->id, 'kind' => ResumePoint::CAUGHT_UP], $points->libraryPoints($owner)[$this->novel->id]);
+        $point = $points->forNovels([$this->novel->id], ['id'], $owner, true)[$this->novel->id];
+        $this->assertSame([ResumePoint::CAUGHT_UP, $this->ch['c5']->id], [$point['kind'], $point['chapter']?->id]);
+        $this->assertSame(['chapter' => null, 'kind' => ResumePoint::CAUGHT_UP], $points->forNovels([$this->novel->id], ['id'], $owner)[$this->novel->id]);
+        // A start filter that empties it does not hide that it is caught up.
+        $filtered = $points->forNovels([$this->novel->id], ['id'], $owner, false, fn($q) => $q->where('chapter', '>', 99));
+        $this->assertSame(ResumePoint::CAUGHT_UP, $filtered[$this->novel->id]['kind'] ?? null);
+        // Unread chapters the filter leaves out: absent, for the caller's fallback.
+        $this->readState()->setRead($this->ch['c5'], false, now(), $owner);
+        $this->assertSame([], $points->forNovels([$this->novel->id], ['id'], $owner, false, fn($q) => $q->where('chapter', '>', 99)));
+    }
+
+    public function test_a_hand_mark_does_not_pull_away_from_a_chapter_part_read(): void
+    {
+        $this->series(40);
+        $owner = $this->owner()->id;
+        foreach (range(1, 9) as $n) {
+            $this->readState()->markOpened($this->ch["c{$n}"], $owner);
+        }
+        $this->travel(1)->minutes();
+        $this->readState()->recordProgress($this->ch['c10'], 40, false, now(), $owner);
+        $this->travel(5)->minutes();
+        $this->readState()->setRead($this->ch['c30'], true, now(), $owner);
+
+        $this->assertResume(ResumePoint::RESUME, 'c10');
+    }
+
+    public function test_reading_in_a_hand_marked_chapter_makes_it_the_anchor(): void
+    {
+        $this->series(50);
+        $owner = $this->owner()->id;
+        foreach (range(1, 10) as $n) {
+            $this->readState()->markOpened($this->ch["c{$n}"], $owner);
+        }
+        $this->travel(1)->minutes();
+        $this->readState()->setRead($this->ch['c40'], true, now(), $owner);
+        $this->assertResume(ResumePoint::NEXT, 'c11');
+
+        $this->travel(1)->minutes();
+        $this->readState()->recordProgress($this->ch['c40'], 30, false, now(), $owner);
+
+        $this->assertFalse((bool) $this->readStateOf($this->ch['c40'])->manual);
+        $this->assertResume(ResumePoint::RESUME, 'c40');
+
+        // Re-marking it read keeps it real reading (its date and flags are kept).
+        $this->travel(1)->minutes();
+        $this->readState()->setRead($this->ch['c40'], true, now(), $owner);
+        $this->assertFalse((bool) $this->readStateOf($this->ch['c40'])->manual);
+        $this->assertResume(ResumePoint::NEXT, 'c41');
+    }
+
+    public function test_a_look_up_read_mark_is_not_activity(): void
+    {
+        $this->series(50);
+        $owner = $this->owner()->id;
+        $this->readState()->recordProgress($this->ch['c10'], 40, false, now(), $owner);
+        $this->travel(5)->minutes();
+        $this->readState()->recordProgress($this->ch['c40'], null, true, now(), $owner, lookup: true);
+
+        $state = $this->readStateOf($this->ch['c40']);
+        $this->assertNotNull($state->read_at);
+        $this->assertTrue((bool) $state->manual);
+        $this->assertResume(ResumePoint::RESUME, 'c10');
+
+        // The same mark without `lookup` is reading there.
+        $this->travel(1)->minutes();
+        $this->readState()->recordProgress($this->ch['c45'], null, true, now(), $owner);
+        $this->assertFalse((bool) $this->readStateOf($this->ch['c45'])->manual);
+        $this->assertResume(ResumePoint::NEXT, 'c46');
+    }
+
+    public function test_mark_unread_is_still_not_activity_and_clears_the_flag(): void
+    {
+        $this->series(50);
+        $owner = $this->owner()->id;
+        foreach (range(1, 10) as $n) {
+            $this->readState()->markOpened($this->ch["c{$n}"], $owner);
+        }
+        $this->travel(1)->minutes();
+        $this->readState()->setRead($this->ch['c40'], true, now(), $owner);
+        $this->travel(1)->minutes();
+        $this->readState()->setRead($this->ch['c40'], false, now(), $owner);
+        $this->readState()->markMany(NovelChapter::where('novel_id', $this->novel->id)->where('chapter', '>=', 45), false, now(), false, $owner);
+
+        $this->assertFalse((bool) $this->readStateOf($this->ch['c40'])->manual);
+        $this->assertResume(ResumePoint::NEXT, 'c11');
+    }
+
+    public function test_the_migration_flags_bulk_rows_manual(): void
+    {
+        $this->series(3);
+        foreach (['c1', 'c2', 'c3'] as $key) {
+            $this->markRead($this->ch[$key]);
+        }
+        DB::table('chapter_reads')->where('novel_chapter_id', $this->ch['c1']->id)->update(['bulk' => true]);
+        DB::table('chapter_reads')->where('novel_chapter_id', $this->ch['c2']->id)->update(['bulk' => true, 'manual' => true]);
+
+        $migration = require database_path('migrations/2026_11_24_000001_add_manual_to_chapter_reads_table.php');
+        $migration->up();
+        $migration->up(); // re-runnable
+
+        $this->assertTrue((bool) $this->readStateOf($this->ch['c1'])->manual);
+        $this->assertTrue((bool) $this->readStateOf($this->ch['c2'])->manual);
+        $this->assertFalse((bool) $this->readStateOf($this->ch['c3'])->manual);
+    }
+
+    public function test_the_web_toggle_read_does_not_move_continue(): void
+    {
+        $this->series(10);
+        $this->actAsReader($this->owner());
+        foreach (['c1', 'c2', 'c3'] as $key) {
+            $this->get(route('chapters.show', $this->ch[$key]->id))->assertOk();
+        }
+        $this->travel(5)->minutes();
+        $this->postJson(route('chapters.toggle_read', $this->ch['c8']->id))->assertOk()->assertJson(['read' => true]);
+
+        $this->get('/continue')->assertRedirect(route('chapters.show', $this->ch['c4']->id));
+        $this->get(route('novels.show', $this->novel->id))->assertOk()->assertViewHas('continue_chapter_id', $this->ch['c4']->id);
+        $this->assertSame($this->ch['c4']->id, Presenter::resumeChapterIds()[$this->novel->id]);
+    }
+
+    public function test_the_api_hand_mark_and_look_up_do_not_move_resume_chapter_id(): void
+    {
+        $this->series(10);
+        $this->actAsReader($this->owner());
+        $resumeId = fn() => collect($this->getJson('/api/v1/novels')->assertOk()->json('novels'))->firstWhere('id', $this->novel->id)['resume_chapter_id'];
+
+        $this->postJson(route('api.v1.chapters.progress', $this->ch['c1']->id), ['progress' => 100, 'read' => true])->assertOk();
+        $this->travel(1)->minutes();
+        $this->postJson(route('api.v1.chapters.progress', $this->ch['c2']->id), ['progress' => 50])->assertOk();
+        $this->assertSame($this->ch['c2']->id, $resumeId());
+
+        $this->travel(1)->minutes();
+        $this->postJson(route('api.v1.chapters.read', $this->ch['c6']->id), ['read' => true])->assertOk()->assertJson(['read' => true]);
+        $this->assertSame($this->ch['c2']->id, $resumeId());
+
+        $this->travel(1)->minutes();
+        $this->postJson(route('api.v1.chapters.progress', $this->ch['c8']->id), ['progress' => 100, 'read' => true, 'lookup' => true])
+            ->assertOk()->assertJson(['read' => true]);
+        $this->assertSame($this->ch['c2']->id, $resumeId());
+    }
+
+    // ---------------------------------------------------------------------
 
     private function build(array $case): void
     {
@@ -388,6 +607,32 @@ class ResumePointTest extends TestCase
                 ], $this->readers[$who]);
             }
         }
+    }
+
+    /** A novel of chapters c1..c$count (all downloaded), nothing read. */
+    private function series(int $count): void
+    {
+        $this->build(['chapters' => array_combine(
+            array_map(fn($n) => "c{$n}", range(1, $count)),
+            array_map(fn($n) => [$n, []], range(1, $count))
+        ), 'state' => []]);
+    }
+
+    private function readState(): ReadState
+    {
+        return app(ReadState::class);
+    }
+
+    /** The owner's resume point, asked of libraryPoints(), forNovels() and the API map, which must agree. */
+    private function assertResume(string $kind, string $key): void
+    {
+        $owner = $this->owner()->id;
+        $expected = $this->ch[$key]->id;
+
+        $this->assertSame(['id' => $expected, 'kind' => $kind], app(ResumePoint::class)->libraryPoints($owner)[$this->novel->id] ?? null, "library: {$kind} {$key}");
+        $point = app(ResumePoint::class)->forNovels([$this->novel->id], ['id', 'novel_id', 'chapter'], $owner, true)[$this->novel->id] ?? null;
+        $this->assertSame([$kind, $expected], [$point['kind'] ?? null, $point['chapter']?->id], "forNovels: {$kind} {$key}");
+        $this->assertSame($expected, Presenter::resumeChapterIds($owner)[$this->novel->id] ?? null, "api map: {$kind} {$key}");
     }
 
     private function makeChapter(Novel $novel, string $key, float $number, array $attrs): NovelChapter

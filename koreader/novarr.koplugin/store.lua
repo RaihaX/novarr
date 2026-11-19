@@ -514,8 +514,10 @@ end
 
 --[[--
 Records a local change for a chapter. fields: read (bool, optional),
-progress (0..100, optional). A new change resets sent_at (it has not been
-delivered yet). `save` defaults to true.
+progress (0..100, optional), reading (true: real reading, recorded as
+reading_at, the resume rule's activity time) or hand (true: a hand mark,
+which changes the state only and keeps an earlier reading_at). A new change
+resets sent_at (it has not been delivered yet). `save` defaults to true.
 ]]
 function Store:setOverlay(novel_id, chapter_id, fields, save)
     local overlay = self:getOverlay(novel_id)
@@ -528,6 +530,8 @@ function Store:setOverlay(novel_id, chapter_id, fields, save)
     if fields.progress ~= nil then entry.progress = fields.progress end
     if fields.clear_progress then entry.progress = nil end
     entry.at = self.now()
+    if fields.reading then entry.reading_at = entry.at end
+    if fields.hand then entry.hand = true end
     entry.sent_at = nil
     overlay[key] = entry
     if save ~= false then self:saveOverlay(novel_id) end

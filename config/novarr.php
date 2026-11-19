@@ -350,9 +350,12 @@ return [
     | search_parallelism       — sources asked at the same time by one search,
     |                            each batch in its own PHP process
     |                            (App\Services\Requests\ProcessSearchRunner).
-    |                            Sources on one host (every Suwayomi entry)
-    |                            are always asked one after another. 1 = all
-    |                            sources one after another in the web process.
+    |                            1 = all sources one after another in the
+    |                            web process.
+    | search_host_parallelism  — calls one host gets at the same time: the
+    |                            sources on one host (every Suwayomi entry)
+    |                            are spread over this many batches. 1 = one
+    |                            after another.
     | search_cache_minutes     — a finished search's results are reused for
     |                            the same medium + query (by anyone) this
     |                            long; a search that skipped a source only 2
@@ -385,6 +388,7 @@ return [
         'search_window_minutes' => (int) env('NOVARR_REQUESTS_SEARCH_WINDOW_MINUTES', 10),
         'search_budget_seconds' => (int) env('NOVARR_REQUESTS_SEARCH_BUDGET_SECONDS', 90),
         'search_parallelism' => (int) env('NOVARR_REQUESTS_SEARCH_PARALLELISM', 4),
+        'search_host_parallelism' => (int) env('NOVARR_REQUESTS_SEARCH_HOST_PARALLELISM', 3),
         'search_cache_minutes' => (int) env('NOVARR_REQUESTS_SEARCH_CACHE_MINUTES', 10),
         'max_sources_per_search' => (int) env('NOVARR_REQUESTS_MAX_SOURCES_PER_SEARCH', 12),
         'max_pending_per_reader' => (int) env('NOVARR_REQUESTS_MAX_PENDING_PER_READER', 5),

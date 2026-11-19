@@ -242,6 +242,47 @@ local resume_cases = {
         readTo(L(6, { [6] = true }), 4), 105, { ["105"] = { read = true, at = 1 } }, 105 },
     { "read to the end locally: keep server", readTo(L(5), 4), 105, { ["105"] = { read = true, at = 1 } }, 105 },
 }
+-- Hand marks (Session:markChapter "set", Session:bulkMark: `hand`) and real
+-- reading (`reading_at`) since 1.10.2: only reading is an anchor.
+local function handMarked(from, to, at, extra)
+    local overlay = extra or {}
+    for id = from, to do overlay[tostring(id)] = { read = true, progress = 100, at = at, hand = true } end
+    return overlay
+end
+local function withProgress(list, i, p) list[i].read_progress = p return list end
+local more_cases = {
+    { "a hand mark is not reading: server ch 11, ch 40 marked read", readTo(L(60), 10), 111,
+        handMarked(140, 140, 9), 111 },
+    { "a bulk mark over the server's chapter: the first unread after it", readTo(L(60), 10), 111,
+        handMarked(101, 150, 3), 151 },
+    { "a bulk mark over the server's chapter skips chapters the server lacks", readTo(L(60, { [51] = true }), 10), 111,
+        handMarked(101, 150, 3), 152 },
+    { "everything marked read: the last downloaded chapter", readTo(L(60, { [60] = true }), 10), 111,
+        handMarked(101, 160, 3), 159 },
+    { "a bulk mark short of the server's chapter keeps it", readTo(L(60), 10), 111,
+        handMarked(101, 105, 3), 111 },
+    { "a bulk mark over a server chapter already finished keeps it", readTo(L(60), 20), 120,
+        handMarked(101, 150, 3), 120 },
+    { "a server chapter read but re-read, untouched, is kept", withProgress(readTo(L(60), 20), 12, 30), 112,
+        handMarked(140, 140, 3), 112 },
+    { "a later hand mark does not take over from reading", readTo(L(60), 9), 110,
+        { ["110"] = { progress = 40, at = 1, reading_at = 1 },
+          ["130"] = { read = true, progress = 100, at = 2, hand = true } }, 110 },
+    { "a hand mark after reading keeps the reading's time", readTo(L(60), 9), 110,
+        { ["110"] = { read = true, progress = 100, at = 9, reading_at = 2, hand = true },
+          ["112"] = { progress = 40, at = 3, reading_at = 3 } }, 112 },
+    { "reading after a hand mark counts (read below 90 % is unfinished)", readTo(L(60), 10), 111,
+        { ["140"] = { read = true, progress = 50, at = 2, reading_at = 2, hand = true } }, 140 },
+}
+for _i, c in ipairs(more_cases) do table.insert(resume_cases, c) end
+
+T.it("readingTime: reading_at, none for a hand mark, `at` for entries before 1.10.2", function()
+    T.eq(Model.readingTime({ at = 9, reading_at = 4, hand = true }), 4)
+    T.eq(Model.readingTime({ at = 9, hand = true }), nil)
+    T.eq(Model.readingTime({ at = 9 }), 9)
+    T.eq(Model.readingTime(nil), nil)
+end)
+
 for _i, c in ipairs(resume_cases) do
     T.it("resume rule: " .. c[1], function()
         T.eq(Model.resolveResume(c[2], c[3], c[4], effective(c[4])), c[5])

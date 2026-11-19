@@ -178,21 +178,60 @@ class RequestSearchRunnerTest extends TestCase
 
     public function test_sources_of_one_host_share_a_lane_and_bigger_lanes_go_first(): void
     {
-        $suwayomiLike = new class extends FakeMangaB {
-            public function discoverHost(): string { return '192.168.1.37:4567'; }
-        };
-        $suwayomiLike2 = new class extends FakeMangaC {
-            public function discoverHost(): string { return '192.168.1.37:4567'; }
-        };
-
-        $lanes = RequestSearch::lanes([
+        $sources = [
             'mangadex' => new FakeMangaA(),
-            'suwayomi:1' => $suwayomiLike,
+            'suwayomi:1' => $this->onHost('192.168.1.37:4567'),
             'other' => new FakeMangaC(),
-            'suwayomi:2' => $suwayomiLike2,
-        ]);
+            'suwayomi:2' => $this->onHost('192.168.1.37:4567'),
+        ];
 
-        $this->assertSame([['suwayomi:1', 'suwayomi:2'], ['mangadex'], ['other']], $lanes);
+        $this->assertSame([['suwayomi:1', 'suwayomi:2'], ['mangadex'], ['other']], RequestSearch::lanes($sources, 1));
+
+        config(['novarr.requests.search_host_parallelism' => 1]);
+        $this->assertSame([['suwayomi:1', 'suwayomi:2'], ['mangadex'], ['other']], RequestSearch::lanes($sources));
+        config(['novarr.requests.search_host_parallelism' => 0]);
+        $this->assertSame(1, RequestSearch::hostParallelism());
+    }
+
+    public function test_a_host_with_many_sources_is_spread_over_a_few_lanes(): void
+    {
+        $sources = ['mangadex' => new FakeMangaA()];
+        foreach (range(1, 11) as $n) {
+            $sources["suwayomi:{$n}"] = $this->onHost('192.168.1.37:4567');
+        }
+
+        // Dealt in turn, so each lane keeps search order; bigger lanes first.
+        $this->assertSame([
+            ['suwayomi:1', 'suwayomi:4', 'suwayomi:7', 'suwayomi:10'],
+            ['suwayomi:2', 'suwayomi:5', 'suwayomi:8', 'suwayomi:11'],
+            ['suwayomi:3', 'suwayomi:6', 'suwayomi:9'],
+            ['mangadex'],
+        ], RequestSearch::lanes($sources));
+
+        // Fewer sources than lanes: one each, no empty lane.
+        $two = array_slice($sources, 0, 3, true);
+        $this->assertSame([['mangadex'], ['suwayomi:1'], ['suwayomi:2']], RequestSearch::lanes($two));
+
+        // Every source is in exactly one lane.
+        $flat = array_merge(...RequestSearch::lanes($sources, 5));
+        sort($flat);
+        $keys = array_keys($sources);
+        sort($keys);
+        $this->assertSame($keys, $flat);
+    }
+
+    private function onHost(string $host): FakeMangaB
+    {
+        return new class($host) extends FakeMangaB {
+            public function __construct(private string $onHost)
+            {
+            }
+
+            public function discoverHost(): string
+            {
+                return $this->onHost;
+            }
+        };
     }
 
     public function test_the_container_gives_the_process_runner_unless_parallelism_is_one(): void

@@ -8,8 +8,9 @@ use App\Sources\Source;
  * Asks the sources of one reader-request search (RequestSearch::run()).
  *
  * $lanes groups the source keys: the keys of one lane are asked one after
- * another (they share a host — every Suwayomi entry is the one Suwayomi
- * server), different lanes may be asked at the same time. Nothing is asked
+ * another (they share a host — a host with several sources, the Suwayomi
+ * server, has a few lanes: RequestSearch::lanes()), different lanes may be
+ * asked at the same time. Nothing is asked
  * once the deadline (epoch milliseconds, now()) has passed.
  *
  * The answer has an entry for every key of every lane:

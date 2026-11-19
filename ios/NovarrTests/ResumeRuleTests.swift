@@ -76,9 +76,71 @@ struct ResumeRuleTests {
         #expect(ResumeRule.resolve(chapters: list(10, read: 6), serverId: 107, pending: opened) == 107)
     }
 
-    @Test func aBulkMarkTiesGoToTheFurthestChapter() {
+    @Test func aTieGoesToTheFurthestChapter() {
+        let pending = [
+            write(.progress(chapterId: 104, progress: 100, read: true), at: 3),
+            write(.progress(chapterId: 106, progress: 100, read: true), at: 3),
+            write(.progress(chapterId: 105, progress: 100, read: true), at: 3),
+        ]
+        #expect(ResumeRule.resolve(chapters: list(10, read: 2), serverId: 103, pending: pending) == 107)
+    }
+
+    @Test func aBulkMarkOverTheServersChapterGoesToTheFirstUnreadAfterIt() {
+        // Not an anchor (a hand mark), but it finished the server's chapter: as the server will answer.
         let pending = [write(.bulkRead(.upTo(106, novelId: 1, read: true)), at: 3)]
         #expect(ResumeRule.resolve(chapters: list(10), serverId: 101, pending: pending) == 107)
+        // Server says ch 11; "mark to here" through ch 50 covers it: the first downloaded unread after it.
+        let through50 = [write(.bulkRead(.upTo(150, novelId: 1, read: true)), at: 3)]
+        #expect(ResumeRule.resolve(chapters: list(60, read: 10), serverId: 111, pending: through50) == 151)
+        #expect(ResumeRule.resolve(chapters: list(60, read: 10, missing: [51]), serverId: 111, pending: through50) == 152)
+        // Everything marked read: caught up, the last downloaded chapter.
+        let all = [write(.bulkRead(.upTo(160, novelId: 1, read: true)), at: 3)]
+        #expect(ResumeRule.resolve(chapters: list(60, read: 10, missing: [60]), serverId: 111, pending: all) == 159)
+    }
+
+    @Test func aBulkMarkNotCoveringTheServersChapterKeepsIt() {
+        let pending = [write(.bulkRead(.upTo(105, novelId: 1, read: true)), at: 3)]
+        #expect(ResumeRule.resolve(chapters: list(60, read: 10), serverId: 111, pending: pending) == 111)
+    }
+
+    @Test func aHandMarkIsNotReading() {
+        // Server says ch 11; ch 40 marked read by hand: Continue stays ch 11.
+        let pending = [write(.setRead(chapterId: 140, read: true), at: 9)]
+        #expect(ResumeRule.resolve(chapters: list(60, read: 10), serverId: 111, pending: pending) == 111)
+    }
+
+    @Test func aLaterHandMarkDoesNotTakeOverFromReading() {
+        let pending = [
+            write(.progress(chapterId: 110, progress: 40, read: false), at: 1),
+            write(.setRead(chapterId: 130, read: true), at: 2),
+        ]
+        #expect(ResumeRule.resolve(chapters: list(60, read: 9), serverId: 110, pending: pending) == 110)
+    }
+
+    @Test func aHandMarkLaterOnAReadChapterKeepsItsReadingTime() {
+        // Ch 10 read at 2, ch 12 read to 40 % at 3, ch 10 then marked read by hand at 9:
+        // ch 12 is still the newest reading.
+        let pending = [
+            write(.progress(chapterId: 110, progress: 100, read: true), at: 2),
+            write(.progress(chapterId: 112, progress: 40, read: false), at: 3),
+            write(.setRead(chapterId: 110, read: true), at: 9),
+        ]
+        #expect(ResumeRule.resolve(chapters: list(60, read: 9), serverId: 110, pending: pending) == 112)
+    }
+
+    @Test func readingAfterAHandMarkCounts() {
+        // Marked read, then really read to 50 %: a read chapter below 90 % is unfinished.
+        let pending = [
+            write(.setRead(chapterId: 140, read: true), at: 1),
+            write(.progress(chapterId: 140, progress: 50, read: false), at: 2),
+        ]
+        #expect(ResumeRule.resolve(chapters: list(60, read: 10), serverId: 111, pending: pending) == 140)
+    }
+
+    @Test func aLookUpReadIsNotReading() {
+        // Ch 40 opened from Highlights/search (marked read by the look-up): Continue stays ch 11.
+        let pending = [write(.lookupRead(chapterId: 140), at: 9)]
+        #expect(ResumeRule.resolve(chapters: list(60, read: 10), serverId: 111, pending: pending) == 111)
     }
 
     @Test func theNewestWriteIsTheAnchor() {
