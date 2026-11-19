@@ -84,6 +84,27 @@ return [
     // webnovel chapter URL (the segment after the book id) — NovelScraper.
     'webnovel_unique_id_group_ids' => $idList('NOVARR_WEBNOVEL_UNIQUE_ID_GROUP_IDS', [6]),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Sign-in (reader accounts)
+    |--------------------------------------------------------------------------
+    |
+    | NOVARR_AUTH=on|off forces "Require sign-in" on or off and locks the
+    | Settings → Users toggle. Unset (null) → the app setting `auth_required`
+    | decides (default off). Read through App\Support\AuthMode. Anything that
+    | is not on/off (a typo) counts as unset rather than guessing.
+    |
+    */
+    'auth' => (static function () {
+        $value = env('NOVARR_AUTH');
+        if (is_bool($value)) {
+            return $value ? 'on' : 'off';
+        }
+        $value = is_string($value) ? strtolower(trim($value)) : null;
+
+        return in_array($value, ['on', 'off'], true) ? $value : null;
+    })(),
+
     'flaresolverr_url' => env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'),
     // Verify TLS certificates on every scraper request (App\Scraping\Fetcher).
     // Only turn off for a source with a broken certificate chain.

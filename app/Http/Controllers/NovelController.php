@@ -680,6 +680,12 @@ class NovelController extends Controller
      */
     public function bulk(Request $request)
     {
+        // One route, three actions: "mark read" is the reader's own state;
+        // delete / complete change the library (admin; App\Support\RouteAccess).
+        if ($request->input('action') !== 'read') {
+            \Illuminate\Support\Facades\Gate::authorize('admin');
+        }
+
         $data = $request->validate([
             'action' => 'required|in:delete,complete,read',
             'ids' => 'required|array|min:1',

@@ -2,14 +2,18 @@
 
 namespace App;
 
+use App\Support\CurrentReader;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 /**
- * A reader profile. One is the library's owner (app setting owner_user_id,
- * role admin); everyone else is a reader. Stage 1 of multi-user: nobody signs
- * in yet, every request reads as the owner (App\Support\CurrentReader).
+ * A reader account. One is the library's owner (app setting owner_user_id,
+ * role admin); everyone else is a reader. Accounts sign in by username +
+ * password (usernames are stored lowercase; sign-in is case-insensitive)
+ * when "Require sign-in" is on (App\Support\AuthMode); with it off every
+ * request is the owner (App\Support\CurrentReader).
  */
 class User extends Authenticatable
 {
@@ -18,6 +22,12 @@ class User extends Authenticatable
     public const ROLE_ADMIN = 'admin';
 
     public const ROLE_READER = 'reader';
+
+    /** Allowed characters of a username (stored lowercase). */
+    public const USERNAME_PATTERN = '/^[a-z0-9][a-z0-9._-]{1,59}$/';
+
+    /** users.last_seen_at is written at most this often per user. */
+    public const SEEN_EVERY_SECONDS = 300;
 
     /**
      * The attributes that are mass assignable.
@@ -46,23 +56,87 @@ class User extends Authenticatable
         'password' => 'hashed',
         'disabled_at' => 'datetime',
         'last_seen_at' => 'datetime',
+        'password_set_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
 
     protected static function booted(): void
     {
-        // A reader's own state goes with them (no foreign keys, like the
-        // chapter / novel hooks).
+        // A reader's own state and credentials go with them (no foreign
+        // keys, like the chapter / novel hooks).
         static::deleted(function (self $user) {
             app(\App\Services\ReadState::class)->forgetUser((int) $user->id);
             ReadingPosition::where('user_id', $user->id)->delete();
             Bookmark::where('user_id', $user->id)->delete();
+            ApiToken::where('user_id', $user->id)->delete();
+            DevicePairing::where('user_id', $user->id)->delete();
         });
+    }
+
+    public function tokens(): HasMany
+    {
+        return $this->hasMany(ApiToken::class);
     }
 
     public function isAdmin(): bool
     {
         return $this->role === self::ROLE_ADMIN;
+    }
+
+    public function isOwner(): bool
+    {
+        return (int) $this->id === CurrentReader::ownerId();
+    }
+
+    public function isDisabled(): bool
+    {
+        return $this->disabled_at !== null;
+    }
+
+    /** Usernames are stored lowercase, so sign-in is case-insensitive on every database. */
+    public static function normaliseUsername(?string $username): string
+    {
+        return strtolower(trim((string) $username));
+    }
+
+    public static function findByUsername(?string $username): ?self
+    {
+        $username = static::normaliseUsername($username);
+
+        return $username === '' ? null : static::where('username', $username)->first();
+    }
+
+    /** Set a new password (hashed by the cast) and remember that it was set here. */
+    public function setNewPassword(string $plain): void
+    {
+        $this->forceFill([
+            'password' => $plain,
+            'password_set_at' => now(),
+        ])->save();
+    }
+
+    /** The shape the API returns for a user (auth contract). */
+    public function toApi(): array
+    {
+        return [
+            'id' => (int) $this->id,
+            'name' => (string) $this->name,
+            'username' => (string) $this->username,
+            'role' => $this->isAdmin() ? self::ROLE_ADMIN : self::ROLE_READER,
+        ];
+    }
+
+    /** Record activity, at most once per SEEN_EVERY_SECONDS (no updated_at churn). */
+    public function markSeen(): void
+    {
+        if ($this->last_seen_at !== null && $this->last_seen_at->gt(now()->subSeconds(self::SEEN_EVERY_SECONDS))) {
+            return;
+        }
+        $at = now();
+        // toBase(): an Eloquent update would also bump updated_at.
+        static::whereKey($this->id)->toBase()->update(['last_seen_at' => $at]);
+        $this->last_seen_at = $at;
+        $this->syncOriginalAttribute('last_seen_at');
     }
 }

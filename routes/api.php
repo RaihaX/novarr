@@ -24,18 +24,20 @@ use App\Http\Controllers\NovelChapterController;
 | They must be accessible without authentication.
 |
 */
-Route::get('/health', [HealthController::class, 'index']);
-Route::get('/health/db', [HealthController::class, 'database']);
-Route::get('/health/cache', [HealthController::class, 'cache']);
-Route::get('/ping', [HealthController::class, 'ping']);
+Route::get('/health', [HealthController::class, 'index'])->name('api.health');
+Route::get('/health/db', [HealthController::class, 'database'])->name('api.health.db');
+Route::get('/health/cache', [HealthController::class, 'cache'])->name('api.health.cache');
+Route::get('/ping', [HealthController::class, 'ping'])->name('api.ping');
 
 /*
 |--------------------------------------------------------------------------
 | Native app API (v1) — see the iOS app's API contract
 |--------------------------------------------------------------------------
 |
-| No authentication, deliberately: a single-user app reached over the
-| tailnet, like the web UI. The api group is stateless, so the POST routes
+| Who may call what is App\Support\RouteAccess (enforced by the api group's
+| App\Http\Middleware\IdentifyReader when "Require sign-in" is on: bearer
+| token, or the web session for the web UI's own calls). With sign-in off
+| every call is the owner. The api group is stateless, so the POST routes
 | need no CSRF token. The group's 60/min throttle is lifted here: the app
 | prefetches hundreds of chapters at a time for offline reading.
 |
@@ -48,12 +50,20 @@ Route::prefix('v1')
         $conditionalGet = 'cache.headers:private;max_age=0;etag';
 
         Route::get('/meta', [ApiV1\LibraryController::class, 'meta'])->name('meta');
+
+        // Sign-in (auth contract): password → token, sign out, who am I, and
+        // linking a device by code (the KOReader plugin).
+        Route::post('/auth/token', [ApiV1\AuthController::class, 'store'])->name('auth.token.store');
+        Route::delete('/auth/token', [ApiV1\AuthController::class, 'destroy'])->name('auth.token.destroy');
+        Route::get('/auth/me', [ApiV1\AuthController::class, 'me'])->name('auth.me');
+        Route::post('/auth/pairings', [ApiV1\PairingController::class, 'store'])->middleware('throttle:novarr-pairing-create')->name('auth.pairings.store');
+        Route::get('/auth/pairings/{secret}', [ApiV1\PairingController::class, 'show'])->middleware('throttle:novarr-pairing-poll')->name('auth.pairings.show');
         Route::get('/novels', [ApiV1\LibraryController::class, 'novels'])->middleware($conditionalGet)->name('novels');
         Route::get('/home', [ApiV1\LibraryController::class, 'home'])->name('home');
         Route::get('/novels/{id}', [ApiV1\LibraryController::class, 'show'])->whereNumber('id')->name('novels.show');
         Route::get('/novels/{id}/chapters', [ApiV1\LibraryController::class, 'chapters'])->whereNumber('id')->middleware($conditionalGet)->name('novels.chapters');
         Route::get('/novels/{id}/epub', [ApiV1\EpubController::class, 'show'])->whereNumber('id')->name('novels.epub');
-        Route::post('/novels/{id}/epub', [ApiV1\EpubController::class, 'build'])->whereNumber('id')->name('novels.epub.build');
+        Route::post('/novels/{id}/epub', [ApiV1\EpubController::class, 'build'])->whereNumber('id')->middleware('throttle:novarr-reader-actions')->name('novels.epub.build');
         // Where the series was read last, and on which device (the "go there?" prompt).
         Route::get('/novels/{id}/position', [ApiV1\PositionController::class, 'show'])->whereNumber('id')->name('novels.position');
 
@@ -64,7 +74,7 @@ Route::prefix('v1')
         Route::get('/discover/searches/{id}', [ApiV1\DiscoverSearchController::class, 'show'])->name('discover.searches.show');
         Route::post('/novels', [ApiV1\AddNovelController::class, 'store'])->name('novels.store');
         Route::get('/novels/{id}/check', [ApiV1\CheckController::class, 'show'])->whereNumber('id')->name('novels.check');
-        Route::post('/novels/{id}/check', [ApiV1\CheckController::class, 'start'])->whereNumber('id')->name('novels.check.start');
+        Route::post('/novels/{id}/check', [ApiV1\CheckController::class, 'start'])->whereNumber('id')->middleware('throttle:novarr-reader-actions')->name('novels.check.start');
 
         Route::post('/chapters/bulk-read', [NovelChapterController::class, 'bulkRead'])->name('chapters.bulk_read');
         Route::get('/chapters/{id}', [ApiV1\ChapterController::class, 'show'])->whereNumber('id')->name('chapters.show');
