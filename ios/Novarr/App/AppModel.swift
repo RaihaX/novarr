@@ -322,6 +322,12 @@ final class AppModel {
         await flushWrites()
     }
 
+    /// One series' writes not sent yet, oldest first (the local resume rule, `ResumeRule`).
+    func unsentWrites(novelId: Int) async -> [PendingWrite] {
+        guard let queue else { return [] }
+        return await queue.items.filter { $0.novelId == novelId }
+    }
+
     func flushWrites() async {
         guard let queue, let client else { return }
         guard await queue.count > 0 else {

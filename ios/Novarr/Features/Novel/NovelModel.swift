@@ -15,6 +15,8 @@ final class NovelModel {
     /// The newest few highlights in this novel (empty when none, or the server has no highlights API).
     private(set) var highlights: [Highlight] = []
     private(set) var hasMoreHighlights = false
+    /// This series' writes not sent yet (the local resume rule).
+    private(set) var unsentWrites: [PendingWrite] = []
     var chapterSearch = ""
 
     static let highlightPreviewCount = 3
@@ -49,6 +51,12 @@ final class NovelModel {
         chapters.first { !$0.read && $0.downloaded && !$0.note } ?? chapters.first { !$0.read }
     }
 
+    /// Where "Continue" opens: the server's choice plus this device's unsent
+    /// reading, by the rule every device shares (`ResumeRule`).
+    var resumeChapterId: Int? {
+        ResumeRule.resolve(chapters: chapters, serverId: summary?.resumeChapterId, pending: unsentWrites)
+    }
+
     var readCount: Int { chapters.isEmpty ? (summary?.chaptersRead ?? 0) : chapters.lazy.filter(\.read).count }
 
     // MARK: Loading
@@ -62,6 +70,7 @@ final class NovelModel {
             if let value = await cachedChapters { chapters = value }
         }
         await refreshCachedIDs(app: app)
+        await refreshUnsentWrites(app: app)
 
         let id = novelId
         async let detailResult = app.load(.novel(id)) { try await $0.novel(id: id) }
@@ -89,6 +98,10 @@ final class NovelModel {
         hasMoreHighlights = page.hasMore
     }
 
+    func refreshUnsentWrites(app: AppModel) async {
+        unsentWrites = await app.unsentWrites(novelId: novelId)
+    }
+
     func refreshCachedIDs(app: AppModel) async {
         cachedIDs = await app.store?.cachedChapterIDs(novelId: novelId) ?? []
     }
@@ -101,6 +114,7 @@ final class NovelModel {
         await app.record(.setRead(chapterId: chapter.id, read: read), novelId: novelId)
         await app.store?.updateChapterState(id: chapter.id, novelId: novelId, progress: read ? 100 : 0, read: read)
         await refreshDetailIfOnline(app: app)
+        await refreshUnsentWrites(app: app)
     }
 
     func bulk(_ request: BulkReadRequest, app: AppModel) async {
@@ -119,6 +133,7 @@ final class NovelModel {
         await persistLocalState(app: app)
         await app.record(.bulkRead(request), novelId: novelId)
         await refreshDetailIfOnline(app: app)
+        await refreshUnsentWrites(app: app)
     }
 
     private func apply(read: Bool, where predicate: (ChapterListItem) -> Bool) {
@@ -158,8 +173,12 @@ final class NovelModel {
     func download(_ selection: DownloadSelection, app: AppModel) async {
         guard let client = app.client, let store = app.store else { return }
         await refreshCachedIDs(app: app)
+        // The chapter Continue opens is wanted even when it is marked read
+        // but not finished (the web reader marks read on open).
+        let resume = chapters.first { $0.id == resumeChapterId }
+            .flatMap { ResumeRule.isUnfinished(read: $0.read, progress: $0.readProgress) ? $0.id : nil }
         let ids = chapters
-            .filter { $0.downloaded && !cachedIDs.contains($0.id) && (selection == .all || !$0.read) }
+            .filter { $0.downloaded && !cachedIDs.contains($0.id) && (selection == .all || !$0.read || $0.id == resume) }
             .map(\.id)
         app.downloads.start(novelId: novelId, chapterIds: ids, manga: isManga, client: client, store: store)
     }
