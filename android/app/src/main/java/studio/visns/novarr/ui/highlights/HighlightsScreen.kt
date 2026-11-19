@@ -47,7 +47,6 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -249,7 +248,7 @@ fun HighlightRow(highlight: Highlight, showsNovel: Boolean, modifier: Modifier =
                 Box(Modifier.width(3.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
                 Text(
                     highlight.excerpt,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Serif),
+                    style = MaterialTheme.typography.bodyLarge.copy(fontFamily = studio.visns.novarr.ui.theme.BrandFonts.Literata),
                     maxLines = 6,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = 10.dp),
