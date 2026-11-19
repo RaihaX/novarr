@@ -35,6 +35,10 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
 
 .auth-form .form-row { margin-bottom: $s-5; }
 
+// The sign-in / invite submit spans the card (the trimmed Bootstrap build
+// has no sizing utilities).
+.auth-form > .btn-primary { width: 100%; }
+
 .auth-note {
     margin-top: $s-4;
     text-align: center;
@@ -101,6 +105,23 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
 
     // Short values (names, emails, passwords) never stretch: a reading width.
     .form-control { max-width: 420px; }
+}
+
+// Bootstrap's `.btn:focus-visible { outline: 0 }` outranks the zero-specificity
+// ring in _a11y.scss (and the focus box-shadow is off), so buttons on these
+// pages draw the ring themselves.
+.acct-shell,
+.auth-page,
+.invite-result {
+    .btn:focus-visible,
+    summary.btn:focus-visible {
+        outline: 2px solid $accent;
+        outline-offset: 2px;
+    }
+}
+
+[data-bs-theme="light"] :is(.acct-shell, .auth-page, .invite-result) .btn:focus-visible {
+    outline-color: $accent-light;
 }
 
 .acct-head {
@@ -204,7 +225,11 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
 
 .acct-footnote { margin-top: $s-4; }
 
-.acct-signout { align-self: flex-start; }
+.acct-foot {
+    margin-top: $s-7;
+    padding-top: $s-5;
+    border-top: $hairline solid $border;
+}
 
 // "Add without an invite": a quiet native disclosure under the invite form.
 .acct-disclosure {

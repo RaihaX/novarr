@@ -72,11 +72,6 @@
                     </form>
                 </div>
             </section>
-
-            <form method="POST" action="{{ route('logout') }}" data-turbo="false" class="acct-signout">
-                @csrf
-                <button type="submit" class="btn btn-secondary"><x-icon name="log-out" :size="14" /> Sign out of this browser</button>
-            </form>
         </div>
 
         {{-- ============ Right: devices ============ --}}
@@ -149,5 +144,13 @@
             </section>
         </div>
     </div>
+
+    {{-- Page footer: a secondary action, below both columns at every width. --}}
+    <footer class="acct-foot">
+        <form method="POST" action="{{ route('logout') }}" data-turbo="false">
+            @csrf
+            <button type="submit" class="btn btn-secondary"><x-icon name="log-out" :size="14" /> Sign out of this browser</button>
+        </form>
+    </footer>
 </div>
 @endsection
