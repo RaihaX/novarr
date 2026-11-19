@@ -82,6 +82,8 @@ struct LatestPositionDeclines {
 
     let defaults: UserDefaults
     let server: URL?
+    /// The signed-in user; nil with auth off (keeps the keys from before accounts).
+    var userId: Int? = nil
 
     func declinedAt(novelId: Int) -> Date? {
         let stored = defaults.dictionary(forKey: Self.defaultsKey) as? [String: Double]
@@ -95,7 +97,8 @@ struct LatestPositionDeclines {
     }
 
     private func key(_ novelId: Int) -> String {
-        "\(server?.absoluteString ?? "")#\(novelId)"
+        let account = userId.map { "|user-\($0)" } ?? ""
+        return "\(server?.absoluteString ?? "")\(account)#\(novelId)"
     }
 }
 

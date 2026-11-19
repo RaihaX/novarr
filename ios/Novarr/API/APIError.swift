@@ -32,6 +32,19 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
         }
     }
 
+    /// 401: the token is missing, invalid or revoked. The app forgets the
+    /// token and asks for a sign-in; queued writes are kept.
+    var isUnauthenticated: Bool {
+        if case .http(401, _) = self { return true }
+        return false
+    }
+
+    /// 403: signed in, but this account may not do that.
+    var isForbidden: Bool {
+        if case .http(403, _) = self { return true }
+        return false
+    }
+
     /// Whether a queued write that failed this way should be kept and retried.
     /// Client errors (validation, unknown id) will never succeed, so they are dropped.
     var isRetryable: Bool {
@@ -52,6 +65,9 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
             "The server took too long to answer."
         case .http(let status, let message):
             if status == 404 { "Not found on the server (404)." }
+            else if status == 401 { "You've been signed out. Sign in again to continue." }
+            else if status == 403 { message.flatMap { $0.isEmpty ? nil : $0 } ?? "Your account isn't allowed to do that." }
+            else if status == 429 { message.flatMap { $0.isEmpty ? nil : $0 } ?? "Too many attempts. Wait a minute and try again." }
             else if let message, !message.isEmpty { "\(message) (HTTP \(status))" }
             else { "The server answered with an error (HTTP \(status))." }
         case .decoding:

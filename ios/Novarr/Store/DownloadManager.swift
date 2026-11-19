@@ -66,6 +66,11 @@ final class DownloadManager {
         tasks[novelId]?.cancel()
     }
 
+    /// Stops every download, e.g. when the account or server changes.
+    func cancelAll() {
+        for task in tasks.values { task.cancel() }
+    }
+
     func remove(novelId: Int, store: OfflineStore) async {
         cancel(novelId: novelId)
         await store.removeChapters(novelId: novelId)

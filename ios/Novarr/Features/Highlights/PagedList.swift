@@ -1,6 +1,6 @@
 import Foundation
 
-/// A list loaded page by page (Discover results, highlights). Pure value type
+/// A list loaded page by page (highlights). Pure value type
 /// so the merge rules are unit-tested without a server.
 struct PagedList<Item: Identifiable> where Item.ID: Hashable {
     private(set) var items: [Item] = []
@@ -54,28 +54,3 @@ struct PagedList<Item: Identifiable> where Item.ID: Hashable {
 
 extension PagedList: Equatable where Item: Equatable {}
 extension PagedList: Sendable where Item: Sendable {}
-
-/// What the Discover screen is showing: a source's list, or a search on it.
-struct DiscoverQuery: Hashable, Sendable {
-    static let maxSearchLength = 100
-
-    var sourceId: String?
-    /// `popular`, `new`, `random`, `completed` or `search`.
-    var type: String
-    var text: String?
-
-    var isSearch: Bool { type == DiscoverSource.searchListId }
-
-    /// A search when there is search text, otherwise the chosen list. Nil when
-    /// there is nothing to load (a search-only source with no text yet).
-    static func make(source: DiscoverSource?, listId: String?, searchText: String) -> DiscoverQuery? {
-        let text = String(searchText.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maxSearchLength))
-        if !text.isEmpty {
-            if let source, !source.offersSearch { return nil }
-            return DiscoverQuery(sourceId: source?.id, type: DiscoverSource.searchListId, text: text)
-        }
-        let lists = source?.browseLists ?? []
-        guard let list = lists.first(where: { $0.id == listId }) ?? lists.first else { return nil }
-        return DiscoverQuery(sourceId: source?.id, type: list.id, text: nil)
-    }
-}
