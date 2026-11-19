@@ -41,6 +41,8 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -88,8 +90,8 @@ import studio.visns.novarr.ui.components.CenteredNote
 import studio.visns.novarr.ui.components.CheckForChaptersControl
 import studio.visns.novarr.ui.components.LocalApp
 
-class MangaReaderViewModel(app: AppModel, route: ReaderRoute) :
-    BaseReaderViewModel(app, route.novelId, route.chapterId, route.offerLatest) {
+class MangaReaderViewModel(app: AppModel, route: ReaderRoute, saved: SavedStateHandle) :
+    BaseReaderViewModel(app, route.novelId, route.chapterId, route.offerLatest, saved) {
     var pages by mutableStateOf<MangaPages?>(null)
         private set
 
@@ -149,7 +151,8 @@ class MangaReaderViewModel(app: AppModel, route: ReaderRoute) :
             try {
                 var fresh = session.client.mangaPages(id)
                 app.noteSuccess()
-                if (app.pendingWrites.value > 0 && cached != null) {
+                // Unsent local progress for this chapter is newer than what the server knows.
+                if (cached != null && app.hasUnsentWrite(id)) {
                     fresh = fresh.copy(chapter = fresh.chapter.copy(progress = cached.chapter.progress, read = fresh.chapter.read || cached.chapter.read))
                 }
                 loaded = fresh
@@ -201,12 +204,13 @@ class MangaReaderViewModel(app: AppModel, route: ReaderRoute) :
 @Composable
 fun MangaReaderScreen(nav: NavController, route: ReaderRoute) {
     val app = LocalApp.current
-    val model = viewModel { MangaReaderViewModel(app, route) }
+    val model = viewModel { MangaReaderViewModel(app, route, createSavedStateHandle()) }
     // Pages read best on black, whatever the text reader's theme.
     val colors = ReaderTheme.BLACK.colors().copy(text = Color(0xFFE6E6E6))
     var chromeHidden by rememberSaveable { mutableStateOf(false) }
 
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { model.leave() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { model.stopped() }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { model.started() }
     ReaderSystemBars(hidden = chromeHidden, darkSurface = true, keepScreenOn = true)
 
     Box(Modifier.fillMaxSize().background(colors.background)) {

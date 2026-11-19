@@ -4,6 +4,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- In-app update: installs the server's APK over this app (with the system's confirmation). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- allowBackup off: the cache holds per-account data and the token's
          Keystore key never leaves the device, so a restored backup could
@@ -31,6 +33,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- The in-app update's install result (PackageInstaller calls it through our PendingIntent). -->
+        <receiver
+            android:name=".app.InstallResultReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

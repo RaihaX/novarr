@@ -17,7 +17,8 @@
         ps status health smoke-test smoke-test-verbose backup backup-list restore clean prune \
         artisan \
         queue-work queue-restart queue-failed queue-retry queue-clear queue-health \
-        maintenance-on maintenance-off storage-link storage-permissions key-generate
+        maintenance-on maintenance-off storage-link storage-permissions key-generate \
+        release-android release-android-dry
 
 # POSIX shell: the servers this runs on (Debian, Unraid) have no zsh.
 SHELL := /bin/sh
@@ -62,11 +63,15 @@ help: ## Show this help message
 	@echo "$(GREEN)Artisan, Queue & Maintenance:$(NC)"
 	@grep -E '^(artisan|queue-[a-z]+|maintenance-on|maintenance-off|storage-link|storage-permissions|key-generate):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
+	@echo "$(GREEN)Android App:$(NC)"
+	@grep -E '^(release-android|release-android-dry):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
+	@echo ""
 	@echo "$(YELLOW)Examples:$(NC)"
 	@echo "  make deploy                      # Build the image, start, migrate"
 	@echo "  make logs                        # View all logs"
 	@echo "  make shell                       # Open app shell"
 	@echo "  make artisan CMD=\"migrate\"       # Run artisan command"
+	@echo "  make release-android-dry         # Show what release-android would build and copy"
 	@echo ""
 	@echo "Tests, linting, composer and yarn run on the host, not in the"
 	@echo "production image (it has no dev dependencies, composer or Node)."
@@ -323,3 +328,52 @@ storage-permissions: ## Fix storage permissions
 
 key-generate: ## Print a new APP_KEY (put it in .env; the image has no .env to write)
 	@$(COMPOSE_CMD) exec app php artisan key:generate --show
+
+# =============================================================================
+# Android App
+# =============================================================================
+# Builds the signed release APK on this machine (macOS with Homebrew's JDK 17
+# and Android command-line tools by default) and copies it, with the
+# "<apk>.json" sidecar the server and the app's update check read, to the
+# server. The JSON goes last so the server never advertises a build whose APK
+# isn't there yet. Override any of these on the command line, e.g.
+#   make release-android NOVARR_DEPLOY_HOST=root@myserver
+# DRY_RUN=1 (or release-android-dry) prints the build and copy commands
+# instead of running them.
+
+NOVARR_ANDROID_SIGNING ?= /Volumes/SecondaryStorage/Projects/.secrets/novarr-android-signing.properties
+NOVARR_DEPLOY_HOST ?= root@192.168.1.34
+NOVARR_ANDROID_APK_DEST ?= /var/www/novarr/storage/app/apps/novarr.apk
+NOVARR_JAVA_HOME ?= /opt/homebrew/opt/openjdk@17
+NOVARR_ANDROID_HOME ?= /opt/homebrew/share/android-commandlinetools
+ANDROID_GRADLE_FILE := android/app/build.gradle.kts
+ANDROID_RELEASE_APK := android/app/build/outputs/apk/release/app-release.apk
+ANDROID_RELEASE_JSON := android/app/build/outputs/apk/release/novarr.apk.json
+DRY_RUN ?=
+
+release-android: ## Build the signed Android APK and publish it to the server (DRY_RUN=1: print only)
+	@set -e; \
+	run() { if [ -n "$(DRY_RUN)" ]; then echo "  would run: $$*"; else "$$@"; fi; }; \
+	version=$$(sed -n 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' $(ANDROID_GRADLE_FILE) | head -n 1); \
+	build=$$(sed -n 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' $(ANDROID_GRADLE_FILE) | head -n 1); \
+	if [ -z "$$version" ] || [ -z "$$build" ]; then echo "$(YELLOW)Couldn't read versionName/versionCode from $(ANDROID_GRADLE_FILE)$(NC)"; exit 1; fi; \
+	echo "$(CYAN)Novarr for Android $$version (build $$build)$(NC)"; \
+	if [ -z "$(DRY_RUN)" ] && [ ! -f "$(NOVARR_ANDROID_SIGNING)" ]; then echo "$(YELLOW)Signing properties not found: $(NOVARR_ANDROID_SIGNING)$(NC)"; exit 1; fi; \
+	run env JAVA_HOME="$(NOVARR_JAVA_HOME)" ANDROID_HOME="$(NOVARR_ANDROID_HOME)" ./android/gradlew -p android :app:assembleRelease -Pnovarr.release="$(NOVARR_ANDROID_SIGNING)"; \
+	if [ -z "$(DRY_RUN)" ]; then \
+		[ -f "$(ANDROID_RELEASE_APK)" ] || { echo "$(YELLOW)No signed APK at $(ANDROID_RELEASE_APK): is the signing file complete?$(NC)"; exit 1; }; \
+		printf '{"version": "%s", "build": %s}\n' "$$version" "$$build" > "$(ANDROID_RELEASE_JSON)"; \
+	else \
+		echo "  would write $(ANDROID_RELEASE_JSON): {\"version\": \"$$version\", \"build\": $$build}"; \
+	fi; \
+	run scp "$(ANDROID_RELEASE_APK)" "$(NOVARR_DEPLOY_HOST):$(NOVARR_ANDROID_APK_DEST)"; \
+	run scp "$(ANDROID_RELEASE_JSON)" "$(NOVARR_DEPLOY_HOST):$(NOVARR_ANDROID_APK_DEST).json"; \
+	if [ -n "$(DRY_RUN)" ]; then \
+		echo "$(YELLOW)Dry run: nothing was built or copied.$(NC)"; \
+	else \
+		echo "$(GREEN)Published $$version (build $$build) to $(NOVARR_DEPLOY_HOST):$(NOVARR_ANDROID_APK_DEST)$(NC)"; \
+		ls -l "$(ANDROID_RELEASE_APK)"; \
+	fi
+
+release-android-dry: ## Print what release-android would build and copy, without doing it
+	@$(MAKE) --no-print-directory release-android DRY_RUN=1

@@ -532,6 +532,8 @@ Build with the Gradle wrapper from `android/` (JDK 17 and the Android SDK): `./g
 
 **Release and hand-out.** `./gradlew :app:assembleRelease -Pnovarr.release=/path/to/signing.properties` builds a signed APK; the properties file (kept outside the repository) names the keystore and may set `defaultServer`, the address the connect screen starts with. Keep the keystore: an APK signed with another key cannot update an installed one. Copy the APK to `storage/app/apps/novarr.apk` on the server (with an optional `novarr.apk.json` holding `{"version", "build"}`) and Novarr serves it at **`/app/android`** and links it from invite emails.
 
+**One-command publish.** `make release-android` builds the signed APK, writes `novarr.apk.json` from `versionName` / `versionCode` in `android/app/build.gradle.kts` and copies both to the server with scp (`NOVARR_ANDROID_SIGNING`, `NOVARR_DEPLOY_HOST` and `NOVARR_ANDROID_APK_DEST` override the defaults); `make release-android-dry` prints what it would run. Bump `versionCode` first: installed apps see the new build in meta, offer **Update**, download it, check its size and SHA-256 against the server and hand it to Android's installer (the system still asks to confirm, and the first time asks to allow installs from Novarr).
+
 ### KOReader plugin (`koreader/`)
 
 For a Kindle (jailbroken, with KOReader) or any other KOReader device. Copy `koreader/novarr.koplugin` into the device's `koreader/plugins/` folder once, enter the server address, and read. What it does:

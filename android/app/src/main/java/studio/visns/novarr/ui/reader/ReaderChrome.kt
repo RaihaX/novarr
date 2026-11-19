@@ -51,6 +51,13 @@ import studio.visns.novarr.store.ReaderTheme
 /** Colours of a reading surface. */
 data class ReaderColors(val background: Color, val text: Color, val isDark: Boolean) {
     val secondary: Color get() = text.copy(alpha = 0.62f)
+
+    /**
+     * The tint behind highlighted passages: a translucent amber, light enough
+     * on white and sepia to keep the text crisp, and dimmer on dark and black
+     * grounds so the light text still reads over it.
+     */
+    val highlight: Color get() = if (isDark) Color(0x52E0A800) else Color(0x73FFC94D)
 }
 
 @Composable

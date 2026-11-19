@@ -1,5 +1,6 @@
 package studio.visns.novarr.ui.reader
 
+import android.widget.Toast
 import studio.visns.novarr.ui.theme.BrandFonts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -35,6 +36,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.contextmenu.builder.item
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuItem
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuKeys
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuSession
+import androidx.compose.foundation.text.contextmenu.modifier.appendTextContextMenuComponents
+import androidx.compose.foundation.text.contextmenu.modifier.filterTextContextMenuComponents
+import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.NativeClipboard
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -67,11 +83,16 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -82,9 +103,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -92,22 +116,42 @@ import kotlin.math.roundToInt
 import studio.visns.novarr.api.ApiError
 import studio.visns.novarr.api.ChapterContent
 import studio.visns.novarr.api.ChapterRef
+import studio.visns.novarr.api.Highlight
 import studio.visns.novarr.api.rethrowIfCancellation
 import studio.visns.novarr.app.AppModel
+import studio.visns.novarr.domain.Highlights
 import studio.visns.novarr.domain.LatestPosition
 import studio.visns.novarr.domain.Pagination
 import studio.visns.novarr.domain.TextOffsets
 import studio.visns.novarr.domain.TextReadingMode
+import studio.visns.novarr.store.OfflineStore
 import studio.visns.novarr.store.ReaderSettings
+import studio.visns.novarr.store.WriteKind
 import studio.visns.novarr.ui.ReaderRoute
 import studio.visns.novarr.ui.components.BrandMark
 import studio.visns.novarr.ui.components.CenteredNote
 import studio.visns.novarr.ui.components.CheckForChaptersControl
 import studio.visns.novarr.ui.components.LocalApp
 
-class TextReaderViewModel(app: AppModel, route: ReaderRoute) :
-    BaseReaderViewModel(app, route.novelId, route.chapterId, route.offerLatest) {
+class TextReaderViewModel(app: AppModel, route: ReaderRoute, saved: SavedStateHandle) :
+    BaseReaderViewModel(app, route.novelId, route.chapterId, route.offerLatest, saved, lookup = route.lookupExcerpt.isNotBlank()) {
     var content by mutableStateOf<ChapterContent?>(null)
+        private set
+
+    /** The highlight a look-up opened at: the reader starts at this passage. */
+    private val lookupExcerpt = route.lookupExcerpt
+
+    /** The series' highlights: the server's list, else its offline copy. */
+    private var seriesHighlights: List<Highlight> = emptyList()
+
+    /** Highlights saved here and still in the write queue. */
+    private var unsentHighlights: List<WriteKind.CreateHighlight> = emptyList()
+
+    /** The open chapter prepared for matching excerpts (built once per chapter). */
+    private var matchIndex: Pair<Int, Highlights.Index>? = null
+
+    /** Characters to tint in the open chapter, by paragraph (Highlights.Index.ranges). */
+    var highlightRanges by mutableStateOf<Map<Int, List<IntRange>>>(emptyMap())
         private set
 
     /** Character offsets of the open chapter's paragraphs. */
@@ -134,10 +178,12 @@ class TextReaderViewModel(app: AppModel, route: ReaderRoute) :
     init {
         load()
         checkLatestPosition()
+        loadHighlights()
     }
 
     override suspend fun loadChapter(id: Int) {
         content = null
+        highlightRanges = emptyMap()
         val session = app.active
         val cached = session?.store?.chapter(id, novelId)
         var loaded: ChapterContent? = null
@@ -147,8 +193,8 @@ class TextReaderViewModel(app: AppModel, route: ReaderRoute) :
                 var fresh = session.client.chapter(id)
                 app.noteSuccess()
                 if (fresh.novelId == 0) fresh = fresh.copy(novelId = novelId)
-                // Unsent local progress is newer than what the server knows.
-                if (app.pendingWrites.value > 0 && cached != null) {
+                // Unsent local progress for this chapter is newer than what the server knows.
+                if (cached != null && app.hasUnsentWrite(id)) {
                     fresh = fresh.copy(readProgress = cached.readProgress, read = fresh.read || cached.read)
                 }
                 session.store.saveChapter(fresh)
@@ -174,18 +220,95 @@ class TextReaderViewModel(app: AppModel, route: ReaderRoute) :
         }
         offsets = TextOffsets(chapter.paragraphs.map { it.length })
         content = chapter
+        updateHighlightRanges()
         val toEnd = forced == null && openAtEndId == id && chapter.paragraphs.isNotEmpty()
         openAtEndId = null
+        // A look-up starts at its passage (when it can be found) instead of the saved position.
+        val passage = if (lookingUp && forced == null) matcher(chapter).locate(lookupExcerpt)?.first() else null
+        val passageOffset = passage?.let { offsets.paragraphStart(it.paragraph) + it.start }
         val restore = when {
+            passage != null -> passage.paragraph
             forced != null -> LatestPosition.itemIndex(forced, chapter.paragraphs.size)
             toEnd -> chapter.paragraphs.size - 1
             chapter.readProgress != null && chapter.readProgress < 100 -> LatestPosition.itemIndex(chapter.readProgress, chapter.paragraphs.size)
             else -> null
         }
-        anchorOffset = restore?.let(offsets::paragraphStart) ?: 0
+        anchorOffset = passageOffset ?: restore?.let(offsets::paragraphStart) ?: 0
         if (chapter.downloaded) app.downloads.contentChanged()
         prefetch(chapter.next)
-        loaded(chapter.read, chapter.readProgress, restore, toEnd)
+        loaded(chapter.read, chapter.readProgress, restore, toEnd, restoreOffset = passageOffset)
+    }
+
+    // Highlights
+
+    private fun matcher(chapter: ChapterContent): Highlights.Index =
+        matchIndex?.takeIf { it.first == chapter.id }?.second
+            ?: Highlights.Index(chapter.paragraphs).also { matchIndex = chapter.id to it }
+
+    /** Re-matches the open chapter's highlights (after the chapter or the list changed). */
+    private fun updateHighlightRanges() {
+        val chapter = content?.takeIf { it.hasText } ?: return
+        val excerpts = seriesHighlights.filter { it.chapterId == chapter.id }.map { it.excerpt } +
+            unsentHighlights.filter { it.chapterId == chapter.id }.map { it.excerpt }
+        highlightRanges = if (excerpts.isEmpty()) emptyMap() else matcher(chapter).ranges(excerpts)
+    }
+
+    /**
+     * The series' highlights, once per reader: the offline copy first, then
+     * the server's list (saved as the new offline copy). There is no chapter
+     * filter on the server, so the whole series is fetched and each chapter
+     * picks its own. Failing (offline, an older server) keeps the copy.
+     */
+    private fun loadHighlights() = viewModelScope.launch {
+        val session = app.active ?: return@launch
+        val key = OfflineStore.Key.highlights(novelId)
+        session.store.load(key)?.let { seriesHighlights = it }
+        unsentHighlights = app.unsentHighlights(novelId)
+        updateHighlightRanges()
+        val fresh = try {
+            buildList<Highlight> {
+                var page = 1
+                do {
+                    val answer = session.client.highlights(novelId, page, HIGHLIGHTS_PER_PAGE)
+                    addAll(answer.highlights)
+                    page++
+                } while (answer.hasMore && page <= HIGHLIGHTS_MAX_PAGES)
+            }
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            return@launch
+        }
+        session.store.save(fresh, key)
+        seriesHighlights = fresh
+        // What was still queued a moment ago may have been sent and be in the list now.
+        unsentHighlights = app.unsentHighlights(novelId)
+        updateHighlightRanges()
+    }
+
+    /**
+     * Saves a highlight of the open chapter through the write queue (works
+     * offline, survives restarts) and tints it straight away. The excerpt and
+     * note are clipped to the server's limits. False when there is nothing to save.
+     */
+    fun saveHighlight(excerpt: String, note: String): Boolean {
+        val chapter = content?.takeIf { it.hasText } ?: return false
+        val text = Highlights.clip(excerpt)
+        if (text.isEmpty()) return false
+        val write = WriteKind.CreateHighlight(chapter.id, text, Highlights.clip(note).ifEmpty { null })
+        unsentHighlights = unsentHighlights + write
+        updateHighlightRanges()
+        val session = app.active ?: return true
+        app.scope.launch {
+            // Also into the offline copy, so it is still drawn offline after the queue has sent it.
+            val key = OfflineStore.Key.highlights(novelId)
+            val provisional = Highlight(
+                id = 0, novelId = novelId, novelName = chapter.novelName, chapterId = chapter.id,
+                chapterLabel = chapter.title, excerpt = write.excerpt, note = write.note,
+            )
+            session.store.save(session.store.load(key).orEmpty() + provisional, key)
+            app.record(write, novelId)
+        }
+        return true
     }
 
     /** Opens chapter [id] at its last page (paging back past the first page). */
@@ -197,10 +320,14 @@ class TextReaderViewModel(app: AppModel, route: ReaderRoute) :
     /** The page showing [anchorOffset]. */
     fun pageForAnchor(pages: List<Pagination.Page>): Int = Pagination.pageFor(pages, anchorOffset)
 
-    /** Applies a pending restore / "Go to latest" to the anchor; true when there was one. */
+    /** Applies a pending restore / "Go to latest" / look-up to the anchor; true when there was one. */
     fun takeRequest(pages: List<Pagination.Page>): Boolean {
         val request = takeScrollRequest() ?: return false
-        anchorOffset = if (request.toEnd) pages.lastOrNull()?.startOffset ?: 0 else offsets.paragraphStart(request.index)
+        anchorOffset = when {
+            request.offset != null -> request.offset
+            request.toEnd -> pages.lastOrNull()?.startOffset ?: 0
+            else -> offsets.paragraphStart(request.index)
+        }
         return true
     }
 
@@ -242,18 +369,26 @@ class TextReaderViewModel(app: AppModel, route: ReaderRoute) :
 
 private const val HEADER_ITEMS = 1
 
+/** The highlights list is read in pages of this size (the server's maximum), up to this many pages. */
+private const val HIGHLIGHTS_PER_PAGE = 200
+private const val HIGHLIGHTS_MAX_PAGES = 10
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TextReaderScreen(nav: NavController, route: ReaderRoute) {
     val app = LocalApp.current
-    val model = viewModel { TextReaderViewModel(app, route) }
+    val model = viewModel { TextReaderViewModel(app, route, createSavedStateHandle()) }
     val settings by app.prefs.readerSettings.collectAsStateWithLifecycle(ReaderSettings())
     val colors = settings.theme.colors()
     var chromeHidden by rememberSaveable { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    /** The passage the highlight sheet is open for. */
+    var highlightDraft by rememberSaveable { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
     val checkRevisions by app.checks.revisions.collectAsStateWithLifecycle()
 
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { model.leave() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { model.stopped() }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { model.started() }
     LaunchedEffect(checkRevisions[model.novelId]) { if (checkRevisions[model.novelId] != null) model.refreshNext() }
     ReaderSystemBars(hidden = chromeHidden, darkSurface = colors.isDark, keepScreenOn = settings.keepScreenOn)
 
@@ -262,7 +397,13 @@ fun TextReaderScreen(nav: NavController, route: ReaderRoute) {
             ReaderPhase.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = colors.secondary)
             is ReaderPhase.Failed -> Failure(phase.message, colors) { model.load() }
             ReaderPhase.Loaded -> model.content?.let { content ->
-                ChapterText(content, model, settings, colors, onTap = { chromeHidden = !chromeHidden }, onBackToSeries = { nav.popBackStack() }, onTurn = { chromeHidden = true })
+                ChapterText(
+                    content, model, settings, colors,
+                    onTap = { chromeHidden = !chromeHidden },
+                    onBackToSeries = { nav.popBackStack() },
+                    onTurn = { chromeHidden = true },
+                    onHighlight = { highlightDraft = it },
+                )
             }
         }
 
@@ -299,6 +440,16 @@ fun TextReaderScreen(nav: NavController, route: ReaderRoute) {
         }
     }
 
+    highlightDraft?.let { draft ->
+        HighlightSheet(draft, onDismiss = { highlightDraft = null }) { excerpt, note ->
+            highlightDraft = null
+            if (model.saveHighlight(excerpt, note)) {
+                val message = if (app.isReachable.value) "Highlight saved." else "Highlight saved. It syncs when you're back online."
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     if (showSettings) {
         ModalBottomSheet(onDismissRequest = { showSettings = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
@@ -318,6 +469,7 @@ private fun ChapterText(
     onTap: () -> Unit,
     onBackToSeries: () -> Unit,
     onTurn: () -> Unit,
+    onHighlight: (String) -> Unit,
 ) {
     val size = settings.fontSize.sp
     val body = TextStyle(
@@ -329,12 +481,18 @@ private fun ChapterText(
     )
     val title = body.copy(fontSize = size * 1.45f, lineHeight = 1.25.em, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Start)
     if (settings.mode == TextReadingMode.PAGES && content.hasText) {
-        PagedChapterText(content, model, settings, colors, body, title, onTap, onBackToSeries, onTurn)
+        PagedChapterText(content, model, settings, colors, body, title, onTap, onBackToSeries, onTurn, onHighlight)
     } else {
-        ScrollChapterText(content, model, settings, colors, body, title, onTap, onBackToSeries)
+        ScrollChapterText(content, model, settings, colors, body, title, onTap, onBackToSeries, onHighlight)
     }
 }
 
+/**
+ * Continuous scrolling. The text is selectable (long-press), and the
+ * selection toolbar offers "Highlight" after the usual Copy; each paragraph
+ * stays its own Text, so TalkBack still reads paragraph by paragraph, and a
+ * tap (no selection) still shows or hides the bars.
+ */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ScrollChapterText(
@@ -346,6 +504,7 @@ private fun ScrollChapterText(
     titleStyle: TextStyle,
     onTap: () -> Unit,
     onBackToSeries: () -> Unit,
+    onHighlight: (String) -> Unit,
 ) {
     val list = rememberLazyListState()
     // Follow the system font scale on top of the chosen size.
@@ -360,8 +519,18 @@ private fun ScrollChapterText(
     LaunchedEffect(content.id, model.scrollRequest) {
         val request = model.takeScrollRequest()
         if (request != null) {
-            list.scrollToItem(HEADER_ITEMS + request.index.coerceIn(0, (paragraphCount - 1).coerceAtLeast(0)))
-            model.anchorOffset = model.offsets.paragraphStart(request.index)
+            val paragraph = request.index.coerceIn(0, (paragraphCount - 1).coerceAtLeast(0))
+            list.scrollToItem(HEADER_ITEMS + paragraph)
+            model.anchorOffset = request.offset ?: model.offsets.paragraphStart(request.index)
+            // A passage inside a long paragraph: bring its line to the top.
+            val inParagraph = (request.offset ?: 0) - model.offsets.paragraphStart(paragraph)
+            if (request.offset != null && inParagraph > 0) {
+                withFrameNanos { }
+                layouts[paragraph]?.let { l ->
+                    val char = inParagraph.coerceIn(0, l.layoutInput.text.length)
+                    list.scrollToItem(HEADER_ITEMS + paragraph, l.getLineTop(l.getLineForOffset(char)).roundToInt())
+                }
+            }
         } else if (!anchorLive && model.anchorOffset > 0 && content.hasText) {
             // Back from Pages, or a re-created screen: the same line as before.
             val anchor = model.anchorOffset
@@ -413,36 +582,116 @@ private fun ScrollChapterText(
     val margin = settings.margins.paddingDp.dp
     // Room for the reader's bars; stable while the system bars hide and show.
     val bars = WindowInsets.systemBarsIgnoringVisibility.asPaddingValues()
-    LazyColumn(
-        state = list,
-        modifier = Modifier
-            .fillMaxSize()
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = "Show or hide controls", onClick = onTap),
-        contentPadding = PaddingValues(top = bars.calculateTopPadding() + 64.dp, bottom = bars.calculateBottomPadding() + 96.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        item(key = "header") {
-            ChapterHeader(content, colors, titleStyle, Modifier.widthIn(max = settings.width.maxWidthDp.dp).fillMaxWidth().padding(horizontal = margin))
-        }
-        if (content.hasText) {
-            itemsIndexed(content.paragraphs, key = { index, _ -> index }) { index, paragraph ->
-                // One node per paragraph, so TalkBack reads (and resumes) paragraph by paragraph.
-                Text(
-                    paragraph,
-                    style = body,
-                    onTextLayout = { layouts[index] = it },
-                    modifier = Modifier
-                        .widthIn(max = settings.width.maxWidthDp.dp)
-                        .fillMaxWidth()
-                        .padding(horizontal = margin)
-                        .padding(bottom = (settings.fontSize * 0.9f * fontScale).dp),
-                )
+    val highlightRanges = model.highlightRanges
+    val tint = colors.highlight
+    // The selection's text is only handed out by the toolbar's own Copy (this
+    // Compose version has no public selection state), so "Highlight" runs
+    // that Copy against a clipboard that hands the text over instead of keeping it.
+    val systemClipboard = LocalClipboard.current
+    val clipboardScope = rememberCoroutineScope()
+    val clipboard = remember(systemClipboard) { HighlightingClipboard(systemClipboard, clipboardScope) }
+    val highlightSelection by rememberUpdatedState(onHighlight)
+    CompositionLocalProvider(LocalClipboard provides clipboard) {
+        SelectionContainer(
+            Modifier
+                .filterTextContextMenuComponents { component ->
+                    // Keeps everything; only notes the current menu's Copy.
+                    if (component is TextContextMenuItem && component.key == TextContextMenuKeys.CopyKey) clipboard.copyItem = component
+                    true
+                }
+                .appendTextContextMenuComponents {
+                    item(HighlightMenuItem, "Highlight") {
+                        clipboard.highlight(this) { text -> text.trim().takeIf { it.isNotEmpty() }?.let(highlightSelection) }
+                        close()
+                    }
+                },
+        ) {
+            LazyColumn(
+                state = list,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = "Show or hide controls", onClick = onTap),
+                contentPadding = PaddingValues(top = bars.calculateTopPadding() + 64.dp, bottom = bars.calculateBottomPadding() + 96.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                item(key = "header") {
+                    DisableSelection {
+                        ChapterHeader(content, colors, titleStyle, Modifier.widthIn(max = settings.width.maxWidthDp.dp).fillMaxWidth().padding(horizontal = margin))
+                    }
+                }
+                if (content.hasText) {
+                    itemsIndexed(content.paragraphs, key = { index, _ -> index }) { index, paragraph ->
+                        val ranges = highlightRanges[index]
+                        val text = remember(paragraph, ranges, tint) { highlighted(paragraph, ranges, tint) }
+                        // One node per paragraph, so TalkBack reads (and resumes) paragraph by paragraph.
+                        Text(
+                            text,
+                            style = body,
+                            onTextLayout = { layouts[index] = it },
+                            modifier = Modifier
+                                .widthIn(max = settings.width.maxWidthDp.dp)
+                                .fillMaxWidth()
+                                .padding(horizontal = margin)
+                                .padding(bottom = (settings.fontSize * 0.9f * fontScale).dp),
+                        )
+                    }
+                } else {
+                    item(key = "missing") { DisableSelection { NotDownloaded(colors) } }
+                }
+                item(key = "footer") {
+                    DisableSelection {
+                        Footer(content, model, colors, onBackToSeries, Modifier.widthIn(max = settings.width.maxWidthDp.dp).padding(horizontal = margin))
+                    }
+                }
             }
-        } else {
-            item(key = "missing") { NotDownloaded(colors) }
         }
-        item(key = "footer") {
-            Footer(content, model, colors, onBackToSeries, Modifier.widthIn(max = settings.width.maxWidthDp.dp).padding(horizontal = margin))
+    }
+}
+
+/**
+ * The system clipboard, except while [highlight] runs the selection's Copy
+ * ([copyItem], noted as the menu is built): the text it puts here goes to
+ * that callback instead (once), so the clipboard is left alone.
+ */
+private class HighlightingClipboard(private val system: Clipboard, private val scope: CoroutineScope) : Clipboard {
+    var copyItem: TextContextMenuItem? = null
+    private var capture: ((String) -> Unit)? = null
+
+    fun highlight(session: TextContextMenuSession, onText: (String) -> Unit) {
+        val copy = copyItem ?: return
+        capture = onText
+        copy.onClick(session)
+        // Copy writes asynchronously; should it write nothing, a later real Copy must still reach the clipboard.
+        scope.launch {
+            delay(1_000)
+            if (capture === onText) capture = null
+        }
+    }
+
+    override suspend fun getClipEntry(): ClipEntry? = system.getClipEntry()
+
+    override suspend fun setClipEntry(clipEntry: ClipEntry?) {
+        val onText = capture ?: return system.setClipEntry(clipEntry)
+        capture = null
+        val clip = clipEntry?.clipData
+        val text = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).text?.toString() else null
+        if (text != null) onText(text)
+    }
+
+    override val nativeClipboard: NativeClipboard get() = system.nativeClipboard
+}
+
+/** Identifies the reader's "Highlight" entry in the text selection toolbar. */
+private object HighlightMenuItem
+
+/** [paragraph] with [ranges] (highlighted characters) tinted. */
+internal fun highlighted(paragraph: String, ranges: List<IntRange>?, tint: Color): AnnotatedString {
+    if (ranges.isNullOrEmpty()) return AnnotatedString(paragraph)
+    return buildAnnotatedString {
+        append(paragraph)
+        ranges.forEach { range ->
+            val end = (range.last + 1).coerceAtMost(paragraph.length)
+            if (range.first in 0 until end) addStyle(SpanStyle(background = tint), range.first, end)
         }
     }
 }

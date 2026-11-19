@@ -13,6 +13,17 @@ object LatestPosition {
     /** Same-chapter positions closer than this (percent points) aren't worth a prompt. */
     const val MINIMUM_PROGRESS_GAP = 5
 
+    /** Back in the foreground after at least this long, the reader asks again. */
+    const val RECHECK_AFTER_MS = 60_000L
+
+    /**
+     * Whether a reader that went to the background at [stoppedAt] (epoch ms,
+     * null when it never did) should check the latest position again on its
+     * return at [now]: another device may have read on meanwhile.
+     */
+    fun recheckOnReturn(stoppedAt: Long?, now: Long): Boolean =
+        stoppedAt != null && now - stoppedAt >= RECHECK_AFTER_MS
+
     /**
      * The contract's client rule. [localProgress] is this device's position in
      * the opened chapter (0–100, null meaning the top). [declinedAt] is the

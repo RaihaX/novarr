@@ -195,7 +195,7 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                             highlight,
                             showsNovel = false,
                             modifier = Modifier.readableWidth(),
-                            onClick = { nav.navigate(ReaderRoute(novelId, highlight.chapterId)) },
+                            onClick = { nav.navigate(ReaderRoute(novelId, highlight.chapterId, lookupExcerpt = highlight.excerpt)) },
                         )
                     }
                     if (model.hasMoreHighlights) {

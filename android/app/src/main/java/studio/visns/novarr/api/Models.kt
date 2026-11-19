@@ -33,10 +33,27 @@ data class ServerMeta(
     @SerialName("server_version") val serverVersion: String? = null,
     // A malformed `auth` is treated like a missing one rather than failing meta.
     @Serializable(with = ServerAuthOrNull::class) val auth: ServerAuth? = null,
+    /** The APK this server publishes; null when none (or the server predates the key). */
+    @Serializable(with = AndroidReleaseOrNull::class) val android: AndroidRelease? = null,
 ) {
     /** Only an explicit `auth.required: true` turns sign-in on. */
     val requiresSignIn: Boolean get() = auth?.required == true
 }
+
+/**
+ * `meta.android`: the sideloadable APK on the server. [build] is compared
+ * with this app's version code; [url] is the download page (/app/android).
+ * [size] (bytes) and [sha256] (hex) let the app check what it downloads;
+ * older servers send neither.
+ */
+@Serializable
+data class AndroidRelease(
+    val version: String? = null,
+    val build: Int? = null,
+    val url: String = "",
+    val size: Long? = null,
+    val sha256: String? = null,
+)
 
 @Serializable
 data class AuthUser(
@@ -379,6 +396,7 @@ open class OrNullSerializer<T : Any>(private val inner: KSerializer<T>) : KSeria
 }
 
 object ServerAuthOrNull : OrNullSerializer<ServerAuth>(ServerAuth.serializer())
+object AndroidReleaseOrNull : OrNullSerializer<AndroidRelease>(AndroidRelease.serializer())
 object ChapterRefOrNull : OrNullSerializer<ChapterRef>(ChapterRef.serializer())
 object HomeStatsOrNull : OrNullSerializer<HomeStats>(HomeStats.serializer())
 object SourceUnavailableOrNull : OrNullSerializer<SourceUnavailable>(SourceUnavailable.serializer())

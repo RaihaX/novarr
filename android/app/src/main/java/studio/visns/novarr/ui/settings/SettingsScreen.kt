@@ -53,6 +53,7 @@ import studio.visns.novarr.ui.ChangeServerRoute
 import studio.visns.novarr.ui.DownloadsRoute
 import studio.visns.novarr.ui.ReaderSettingsRoute
 import studio.visns.novarr.ui.components.LocalApp
+import studio.visns.novarr.ui.components.UpdateRow
 import studio.visns.novarr.ui.components.formatBytes
 import studio.visns.novarr.ui.components.readableWidth
 import studio.visns.novarr.ui.theme.success
@@ -85,7 +86,9 @@ fun SettingsScreen(nav: NavController) {
         // Everything this account keeps on the device: lists, chapters and images.
         totalBytes = (active?.store?.totalSize() ?: 0) + images
     }
-    LaunchedEffect(Unit) { if (meta == null) app.refreshMeta() }
+    val update by app.availableUpdate.collectAsStateWithLifecycle(null)
+    // Always on opening Settings: server version, sign-in switch and a newer app build.
+    LaunchedEffect(Unit) { app.refreshMeta() }
     LaunchedEffect(downloadRevision) { measure() }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Settings") }) }) { padding ->
@@ -141,6 +144,7 @@ fun SettingsScreen(nav: NavController) {
                 Section("About")
                 BrandLockup(28.dp, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
                 Value("App version", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                update?.let { UpdateRow(it) }
                 Value("Server version", meta?.let { it.serverVersion ?: "Unknown" } ?: if (reachable) "…" else "Unavailable offline")
                 meta?.let { Value("API version", "v${it.apiVersion}") }
                 Link("Fonts", trailing = "Geist, Geist Mono, Literata", chevron = true) { showFonts = true }

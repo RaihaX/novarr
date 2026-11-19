@@ -57,8 +57,19 @@ import studio.visns.novarr.ui.settings.SettingsScreen
  * A chapter to read. [offerLatest]: opened by choosing a chapter (continue,
  * resume, chapter list), so check whether another device read this series
  * more recently and offer to go there. Off for highlights.
+ * [lookupExcerpt]: opened at a highlight (its excerpt): the reader starts at
+ * that passage instead of the saved position, and treats the chapter as a
+ * look-up, sending no reading position for it (BaseReaderViewModel).
+ * [chapterId] stays the chapter the reader was opened on; the one being read
+ * is in the reader's saved state.
  */
-@Serializable data class ReaderRoute(val novelId: Int, val chapterId: Int, val manga: Boolean = false, val offerLatest: Boolean = false)
+@Serializable data class ReaderRoute(
+    val novelId: Int,
+    val chapterId: Int,
+    val manga: Boolean = false,
+    val offerLatest: Boolean = false,
+    val lookupExcerpt: String = "",
+)
 
 /** All highlights, or one series' when [novelId] > 0. */
 @Serializable data class HighlightsRoute(val novelId: Int = 0, val novelName: String = "")

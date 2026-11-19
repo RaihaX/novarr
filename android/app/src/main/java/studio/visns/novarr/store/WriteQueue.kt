@@ -16,13 +16,18 @@ import studio.visns.novarr.api.BulkReadRequest
 import studio.visns.novarr.api.NovarrJson
 import studio.visns.novarr.api.rethrowIfCancellation
 
-/** A read-state write, as sent to the server. */
+/** A write for the server (read state, or a new highlight), as sent. */
 @Serializable
 sealed class WriteKind {
-    /** POST chapters/{id}/progress: a scroll/page position, and/or "read" when the end was reached. */
+    /**
+     * POST chapters/{id}/progress: a scroll/page position, and/or "read" when
+     * the end was reached. [lookup]: the chapter was opened at a highlight
+     * (a look-up), so the server must not make this the series' latest
+     * position. Defaults to false, so queues persisted before it decode.
+     */
     @Serializable
     @SerialName("progress")
-    data class Progress(val chapterId: Int, val progress: Int?, val read: Boolean) : WriteKind()
+    data class Progress(val chapterId: Int, val progress: Int?, val read: Boolean, val lookup: Boolean = false) : WriteKind()
 
     /** POST chapters/{id}/read: an explicit mark read / unread. */
     @Serializable
@@ -35,14 +40,32 @@ sealed class WriteKind {
     data class BulkRead(val request: BulkReadRequest) : WriteKind()
 
     /**
+     * POST highlights: a passage of a chapter (already trimmed and within the
+     * server's limits, [Highlights.MAX_LENGTH]) with an optional note.
+     */
+    @Serializable
+    @SerialName("highlight")
+    data class CreateHighlight(val chapterId: Int, val excerpt: String, val note: String? = null) : WriteKind()
+
+    /**
      * Writes that move the series' latest position on the server (bulk
-     * marking and marking unread don't): the latest-position contract.
+     * marking, marking unread, look-ups and highlights don't): the
+     * latest-position contract.
      */
     val movesPosition: Boolean
         get() = when (this) {
-            is Progress -> progress != null || read
+            is Progress -> !lookup && (progress != null || read)
             is SetRead -> read
             is BulkRead -> false
+            is CreateHighlight -> false
+        }
+
+    /** Writes that change read state, so list screens should reload once they are queued. */
+    val changesReadState: Boolean
+        get() = when (this) {
+            is Progress -> read
+            is SetRead, is BulkRead -> true
+            is CreateHighlight -> false
         }
 }
 
@@ -64,7 +87,25 @@ data class PendingWrite(
 }
 
 /**
- * A persistent FIFO of read-state writes. Every write goes through here: it
+ * Whether [writes] hold an unsent progress or read/unread write for chapter
+ * [chapterId] (bulk marking doesn't count): then the local copy of that
+ * chapter's state is newer than what the server just returned.
+ */
+fun hasUnsentChapterWrite(writes: List<PendingWrite>, chapterId: Int): Boolean =
+    writes.any {
+        when (val kind = it.kind) {
+            is WriteKind.Progress -> kind.chapterId == chapterId
+            is WriteKind.SetRead -> kind.chapterId == chapterId
+            is WriteKind.BulkRead, is WriteKind.CreateHighlight -> false
+        }
+    }
+
+/** The highlights waiting in [writes] for series [novelId] (shown in the reader until the server has them). */
+fun unsentHighlights(writes: List<PendingWrite>, novelId: Int): List<WriteKind.CreateHighlight> =
+    writes.filter { it.novelId == novelId }.mapNotNull { it.kind as? WriteKind.CreateHighlight }
+
+/**
+ * A persistent FIFO of read-state writes (and new highlights). Every write goes through here: it
  * is persisted first, then sent; it leaves the queue only when the server
  * accepted it (or rejected it permanently), so nothing is lost offline and
  * nothing is lost on a 401 either.
