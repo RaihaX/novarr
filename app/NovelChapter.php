@@ -48,6 +48,15 @@ class NovelChapter extends Model
     protected ?string $pendingContent = null;
 
     /**
+     * One reader's read state of this chapter, attached by
+     * App\Services\ReadState::load() (null = never touched; false = not
+     * loaded). A plain property, not an attribute: it is never saved and never
+     * serialised into JSON, but it does travel with a cached model (protected,
+     * not private: Model::__sleep() only sees what its own scope can).
+     */
+    protected ChapterRead|null|false $readStateRow = false;
+
+    /**
      * The attributes that should be cast.
      *
      * @var array<string, string>
@@ -55,7 +64,6 @@ class NovelChapter extends Model
     protected $casts = [
         'download_date' => 'datetime',
         'last_attempt_at' => 'datetime',
-        'read_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
@@ -157,13 +165,55 @@ class NovelChapter extends Model
             $chapter->unsetRelation('text');
         });
 
-        // A hard-deleted chapter takes its page images with it, and the
-        // series' reading position when it points here. A soft-deleted one
-        // keeps the row; ReadingPositions::latest() reads it as null.
+        // A hard-deleted chapter takes its page images with it, every
+        // reader's read state of it, and the series' reading positions that
+        // point here. A soft-deleted one keeps the rows; ReadingPositions::
+        // latest() reads its position as null.
         static::forceDeleted(function (self $chapter) {
             ChapterPage::purgeChapter($chapter);
+            app(\App\Services\ReadState::class)->forgetChapter((int) $chapter->id);
             ReadingPosition::where('novel_chapter_id', $chapter->id)->delete();
         });
+    }
+
+    /** Attach one reader's state (see App\Services\ReadState::load()). */
+    public function setReadState(?ChapterRead $state): static
+    {
+        $this->readStateRow = $state;
+
+        return $this;
+    }
+
+    /**
+     * The attached reader's state of this chapter, or null when they never
+     * touched it. Throws when nothing was attached, so a missing load()
+     * can't pass for "unread".
+     */
+    public function readState(): ?ChapterRead
+    {
+        if ($this->readStateRow === false) {
+            throw new \LogicException('Read state not loaded for chapter ' . $this->id . ': use App\Services\ReadState::load().');
+        }
+
+        return $this->readStateRow;
+    }
+
+    /** Has the attached reader read this chapter? */
+    public function isRead(): bool
+    {
+        return $this->readState()?->read_at !== null;
+    }
+
+    /** When the attached reader read it (null = unread). */
+    public function readAt(): ?\Illuminate\Support\Carbon
+    {
+        return $this->readState()?->read_at;
+    }
+
+    /** How far through it the attached reader is, 0–100 (null = no position). */
+    public function readProgress(): ?int
+    {
+        return $this->readState()?->progress;
     }
 
     /** Is this chapter an author's note rather than a proper chapter? */

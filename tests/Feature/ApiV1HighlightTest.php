@@ -33,7 +33,7 @@ class ApiV1HighlightTest extends TestCase
 
     private function bookmark(NovelChapter $chapter, string $excerpt, ?string $note = null): Bookmark
     {
-        return Bookmark::create(['novel_id' => $chapter->novel_id, 'novel_chapter_id' => $chapter->id, 'excerpt' => $excerpt, 'note' => $note]);
+        return Bookmark::create(['user_id' => $this->owner()->id, 'novel_id' => $chapter->novel_id, 'novel_chapter_id' => $chapter->id, 'excerpt' => $excerpt, 'note' => $note]);
     }
 
     public function testPostCreatesAHighlight(): void

@@ -149,10 +149,10 @@ class SeparateLibrariesTest extends TestCase
         $this->chapter($m, 4, downloaded: false);
         $this->chapter($m, 5, downloaded: false);
         // One chapter read in each library.
-        NovelChapter::where('novel_id', $a->id)->where('chapter', 1)->update(['read_at' => now()]);
-        NovelChapter::where('novel_id', $m->id)->where('chapter', 1)->update(['read_at' => now()]);
+        $this->markRead(NovelChapter::where('novel_id', $a->id)->where('chapter', 1)->first());
+        $this->markRead(NovelChapter::where('novel_id', $m->id)->where('chapter', 1)->first());
         // A "new" chapter in the manga only (downloaded after the last read).
-        NovelChapter::where('novel_id', $m->id)->where('chapter', 1)->update(['read_at' => now()->subDays(3)]);
+        $this->markRead(NovelChapter::where('novel_id', $m->id)->where('chapter', 1)->first(), null, now()->subDays(3));
         NovelChapter::where('novel_id', $m->id)->where('chapter', 3)->update(['download_date' => now()]);
 
         $novels = $this->get(route('novels.index', ['medium' => 'novel']))->assertOk()->getContent();

@@ -111,8 +111,10 @@ class AdaptiveSweepTest extends TestCase
             $done = NovelChapter::create(['novel_id' => $novel->id, 'chapter' => 1000, 'label' => 'Chapter 1000', 'url' => "https://{$host}/{$novel->id}/done"]);
             $done->status = 1;
             $done->download_date = $lastDownload;
-            $done->read_at = $readAt;
             $done->save();
+            if ($readAt !== null) {
+                $this->markRead($done, null, $readAt);
+            }
         }
 
         for ($n = 1; $n <= $count; $n++) {

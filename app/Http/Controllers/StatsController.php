@@ -2,13 +2,16 @@
 
 namespace App\Http\Controllers;
 
-use App\NovelChapter;
+use App\Http\Helpers\CacheHelper;
+use App\Services\ReadState;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Reading statistics, derived entirely from read_at timestamps and the
- * stored chapter_texts.word_count (see ChapterText::countWords()).
+ * The current reader's reading statistics, derived entirely from their read
+ * dates (chapter_reads, see App\Services\ReadState) and the stored
+ * chapter_texts.word_count (see ChapterText::countWords()). Every query is a
+ * range on chapter_reads (user_id, read_at), chapters by primary key.
  */
 class StatsController extends Controller
 {
@@ -21,25 +24,28 @@ class StatsController extends Controller
     /** Words read, preferring the stored count. */
     private const WORDS_SQL = 'SUM(COALESCE(chapter_texts.word_count, LENGTH(chapter_texts.content) / ' . self::AVG_WORD_LEN . ')) as words';
 
-    public function index()
+    public function index(ReadState $readState)
     {
-        $stats = Cache::remember('reading_stats_v1', 900, fn() => $this->build());
+        $userId = $readState->userId();
+        $stats = Cache::remember(CacheHelper::readingStatsKey($userId), 900, fn() => $this->build($readState, $userId));
 
         return view('stats.index', $stats);
     }
 
-    private function build(): array
+    private function build(ReadState $readState, int $userId): array
     {
+        // The reader's read chapters (not soft-deleted), joined as cr.
+        $reads = fn() => $readState->readChapters($userId);
+
         $days = 30;
         $since = now()->subDays($days - 1)->startOfDay();
 
         // Chapters + words read per day, last 30 days. Word counts live in
         // chapter_texts, hence the join.
-        $rows = NovelChapter::query()
+        $rows = $reads()
             ->leftJoin('chapter_texts', 'chapter_texts.novel_chapter_id', '=', 'novel_chapters.id')
-            ->whereNotNull('read_at')
-            ->where('read_at', '>=', $since)
-            ->selectRaw('DATE(read_at) as d, COUNT(*) as chapters, ' . self::WORDS_SQL)
+            ->where('cr.read_at', '>=', $since)
+            ->selectRaw('DATE(cr.read_at) as d, COUNT(*) as chapters, ' . self::WORDS_SQL)
             ->groupBy('d')
             ->orderBy('d')
             ->get()
@@ -58,8 +64,8 @@ class StatsController extends Controller
         }
 
         // Streak: consecutive days (ending today or yesterday) with >= 1 read.
-        $readDates = NovelChapter::whereNotNull('read_at')
-            ->selectRaw('DISTINCT DATE(read_at) as d')
+        $readDates = $reads()
+            ->selectRaw('DISTINCT DATE(cr.read_at) as d')
             ->orderByDesc('d')
             ->limit(400)
             ->pluck('d')
@@ -77,22 +83,19 @@ class StatsController extends Controller
         }
 
         // Totals (cached with the rest).
-        $totals = NovelChapter::query()
+        $totals = $reads()
             ->leftJoin('chapter_texts', 'chapter_texts.novel_chapter_id', '=', 'novel_chapters.id')
-            ->whereNotNull('read_at')
             ->selectRaw('COUNT(*) as chapters, ' . self::WORDS_SQL)
             ->first();
 
-        $readToday = NovelChapter::whereNotNull('read_at')
-            ->where('read_at', '>=', now()->startOfDay())->count();
-        $readWeek = NovelChapter::whereNotNull('read_at')
-            ->where('read_at', '>=', now()->subDays(6)->startOfDay())->count();
+        $readToday = $reads()->where('cr.read_at', '>=', now()->startOfDay())->count();
+        $readWeek = $reads()->where('cr.read_at', '>=', now()->subDays(6)->startOfDay())->count();
 
         // Most-read novels in the window.
-        $topNovels = NovelChapter::whereNotNull('read_at')
-            ->where('read_at', '>=', $since)
-            ->select('novel_id', DB::raw('COUNT(*) as chapters'), DB::raw('MAX(read_at) as last_read'))
-            ->groupBy('novel_id')
+        $topNovels = $reads()
+            ->where('cr.read_at', '>=', $since)
+            ->select('novel_chapters.novel_id', DB::raw('COUNT(*) as chapters'), DB::raw('MAX(cr.read_at) as last_read'))
+            ->groupBy('novel_chapters.novel_id')
             ->orderByDesc('chapters')
             ->limit(10)
             ->with('novel:id,name')

@@ -22,7 +22,7 @@ package.cpath = ko .. "/common/?.so;" .. ko .. "/libs/?.so;" .. package.cpath
 
 -- The plugin requires its own modules as "novarr.<name>" (main.lua sets this
 -- up the same way through package.preload).
-for _, name in ipairs({ "json", "chapterdoc", "queue", "store", "model", "api", "sync", "readinginfo", "epubflow", "covers", "updater", "groups", "http_client", "address", "wifipolicy", "discover", "checkstate", "stats", "searchstate", "highlights", "wifitime", "position" }) do
+for _, name in ipairs({ "json", "chapterdoc", "queue", "store", "model", "api", "sync", "readinginfo", "epubflow", "covers", "updater", "groups", "http_client", "address", "wifipolicy", "discover", "checkstate", "stats", "searchstate", "highlights", "wifitime", "position", "auth" }) do
     package.preload["novarr." .. name] = function()
         return dofile(plugin_dir .. "/" .. name .. ".lua")
     end
@@ -30,7 +30,7 @@ end
 
 local T = require("testlib")
 
-local files = { "test_api", "test_chapterdoc", "test_queue", "test_store", "test_model", "test_sync", "test_readinginfo", "test_epubflow", "test_covers", "test_dialect", "test_updater", "test_groups", "test_http_client", "test_address", "test_wifipolicy", "test_discover", "test_checkstate", "test_stats", "test_searchstate", "test_highlights", "test_wifitime", "test_position" }
+local files = { "test_api", "test_chapterdoc", "test_queue", "test_store", "test_model", "test_sync", "test_readinginfo", "test_epubflow", "test_covers", "test_dialect", "test_updater", "test_groups", "test_http_client", "test_address", "test_wifipolicy", "test_discover", "test_checkstate", "test_stats", "test_searchstate", "test_highlights", "test_wifitime", "test_position", "test_auth" }
 for _, f in ipairs(files) do
     T.file(f)
     local fn = assert(loadfile(spec_dir .. "/" .. f .. ".lua"))

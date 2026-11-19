@@ -46,8 +46,9 @@ class SearchController extends Controller
                     ->orderBy('book')
                     ->orderBy('id')
                     ->limit(8)
-                    ->get(['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'read_at'])
-                    ->map(fn($c) => [
+                    ->get(['id', 'novel_id', 'chapter', 'book', 'label', 'status']);
+                app(\App\Services\ReadState::class)->load($chapters);
+                $chapters = $chapters->map(fn($c) => [
                         'id' => $c->id,
                         'novel_id' => $c->novel_id,
                         'novel' => $names[$c->novel_id] ?? '',
@@ -55,11 +56,14 @@ class SearchController extends Controller
                         'label' => $c->label,
                         'url' => route('chapters.show', $c->id),
                         'downloaded' => (int) $c->status === 1,
-                        'read' => $c->read_at !== null,
+                        'read' => $c->isRead(),
                     ])
                     ->values();
             }
         }
+
+        // The reader's read chapters per novel (non-blacklisted).
+        $reads = app(\App\Services\ReadState::class)->readCounts($novels->pluck('id')->all());
 
         return response()->json([
             'novels' => $novels->map(fn($n) => [
@@ -71,7 +75,7 @@ class SearchController extends Controller
                 'url' => route('novels.show', $n->id),
                 // Reading progress, 0–100 (read / non-blacklisted chapters).
                 'progress' => $n->total_chapters_count > 0
-                    ? (int) floor($n->read_chapters_count * 100 / $n->total_chapters_count)
+                    ? (int) floor(($reads[$n->id]['read'] ?? 0) * 100 / $n->total_chapters_count)
                     : 0,
             ])->values(),
             'chapters' => $chapters,
@@ -100,7 +104,6 @@ class SearchController extends Controller
         return $query
             ->withCount([
                 'chapters as total_chapters_count' => fn($c) => $c->where('blacklist', 0),
-                'chapters as read_chapters_count' => fn($c) => $c->where('blacklist', 0)->whereNotNull('read_at'),
             ])
             ->orderByRaw("CASE WHEN name LIKE ? ESCAPE '!' THEN 0 ELSE 1 END", [self::escapeLike($q) . '%'])
             ->orderBy('name')

@@ -135,7 +135,7 @@ class NovelControllerAuditTest extends TestCase
         $this->assertLessThan(32 * 1024 * 1024, memory_get_peak_usage() - $before);
 
         // Only integers are cached.
-        $cached = \Illuminate\Support\Facades\Cache::get(\App\Http\Helpers\CacheHelper::novelStatsKey($novel->id));
+        $cached = \Illuminate\Support\Facades\Cache::get(\App\Http\Helpers\CacheHelper::novelStatsKey($novel->id, $this->owner()->id))['value'];
         $this->assertSame(20231105 - 4, $cached['missing_count']);
         $this->assertArrayNotHasKey('missing_chapters', $cached);
     }

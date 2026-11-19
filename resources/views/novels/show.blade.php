@@ -96,8 +96,11 @@
                         <span class="tag-empty">No tags</span>
                     @endforelse
                 </span>
+                @can('admin')
                 <button type="button" id="editTags" class="nv-link-btn">Edit tags</button>
+                @endcan
             </div>
+            @can('admin')
             <div id="tagEditor" class="d-none">
                 <div class="label-caption mb-2">Tags</div>
                 <div class="d-flex gap-2 align-items-start flex-wrap">
@@ -106,6 +109,7 @@
                     <button type="button" id="cancelTags" class="btn btn-secondary btn-sm">Cancel</button>
                 </div>
             </div>
+            @endcan
         </div>
 
         {{-- Synopsis --}}
@@ -117,7 +121,9 @@
         @else
             <div class="detail-no-synopsis">
                 <em>No summary available.</em>
+                @can('admin')
                 <span>Fetch one with <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-proxy-click="#refreshMetadataBtn">Refresh metadata</button>.</span>
+                @endcan
             </div>
         @endif
     </div>
@@ -170,6 +176,20 @@
                 <x-icon name="more-horizontal" :size="16" />
             </button>
             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="novelMoreBtn">
+                @cannot('admin')
+                {{-- A reader: "check for new chapters" through the API (the
+                     admin has the commands in Maintenance). --}}
+                <li>
+                    <button type="button" class="dropdown-item reader-action-btn" data-reader-action="check" data-novel="{{ $data->id }}" title="Ask the source for new chapters and download them">
+                        <x-icon name="refresh-cw" :size="14" />
+                        <span class="cmd-label">Check for new chapters</span>
+                        <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Checking</span>
+                        <span class="cmd-done d-none">Done</span>
+                        <span class="cmd-fail d-none">Failed</span>
+                    </button>
+                </li>
+                @endcannot
+                @can('admin')
                 <li><a href="{{ route('novels.edit', $data->id) }}" class="dropdown-item"><x-icon name="pencil" :size="14" />Edit details</a></li>
                 <li>
                     <button type="button" id="pauseToggle" class="dropdown-item" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
@@ -187,6 +207,7 @@
                         <span class="cmd-fail d-none">Failed</span>
                     </button>
                 </li>
+                @endcan
                 {{-- Text-only actions: a manga has page images (no text search, ePub or Kindle). --}}
                 @unless($data->isManga())
                 <li><a href="{{ route('search.index', ['novel' => $data->id]) }}" class="dropdown-item"><x-icon name="search" :size="14" />Search the text of this novel</a></li>
@@ -194,7 +215,11 @@
                 <li><h6 class="dropdown-header label-caption">ePub</h6></li>
                 <li><a href="{{ route('novels.download_epub', $data->id) }}" class="dropdown-item" data-turbo="false" data-turbo-prefetch="false"><x-icon name="download" :size="14" />Download ePub</a></li>
                 <li>
+                    @can('admin')
                     <button type="button" class="dropdown-item cmd-btn" data-command="epub" data-novel="{{ $data->id }}" title="Build an ePub from the downloaded chapters">
+                    @else
+                    <button type="button" class="dropdown-item reader-action-btn" data-reader-action="epub" data-novel="{{ $data->id }}" title="Build an ePub from the downloaded chapters">
+                    @endcan
                         <x-icon name="refresh-cw" :size="14" />
                         <span class="cmd-label">Generate ePub</span>
                         <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
@@ -202,6 +227,7 @@
                         <span class="cmd-fail d-none">Failed</span>
                     </button>
                 </li>
+                @can('admin')
                 <li>
                     <button type="button" class="dropdown-item cmd-btn" data-command="send_to_kindle" data-novel="{{ $data->id }}" title="Email this novel's ePub to your Kindle">
                         <x-icon name="external-link" :size="14" />
@@ -211,9 +237,12 @@
                         <span class="cmd-fail d-none">Failed</span>
                     </button>
                 </li>
+                @endcan
                 @endunless
+                @can('admin')
                 <li><hr class="dropdown-divider"></li>
                 <li><button type="button" id="deleteNovel" class="dropdown-item item-danger" data-id="{{ $data->id }}" data-name="{{ $data->name }}"><x-icon name="trash-2" :size="14" />Delete novel</button></li>
+                @endcan
             </ul>
         </div>
     </div>
@@ -286,7 +315,9 @@
                         @if($dupes > 0)
                             <li>
                                 <span class="nv-issue-num tone-warning">{{ number_format($dupes) }}</span> duplicated {{ Str::plural('chapter', $dupes) }}
+                                @can('admin')
                                 <button type="button" id="removeDupes" class="nv-link-btn" data-id="{{ $data->id }}" title="{{ $dupes }} duplicate chapter group(s) detected">Remove {{ $dupes }} duplicate(s)</button>
+                                @endcan
                             </li>
                         @endif
                     </ul>
@@ -294,7 +325,7 @@
                     <p class="nv-progress-note">Nothing queued or failed · checked {{ !$data->status && $data->frequent_toc ? 'hourly' : 'daily' }}</p>
                 @endif
 
-                @if($queued + $failed_count > 0)
+                @if($queued + $failed_count > 0 && Gate::allows('admin'))
                     <button type="button" class="btn btn-secondary btn-sm cmd-btn nv-progress-action" data-command="chapter" data-novel="{{ $data->id }}" title="Fetch the queued and failed chapters now">
                         <span class="cmd-label">{{ $failed_count > 0 ? 'Retry downloads now' : 'Download queued now' }}</span>
                         <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
@@ -303,7 +334,7 @@
                     </button>
                 @endif
 
-                @if(!$data->status)
+                @if(!$data->status && Gate::allows('admin'))
                     {{-- Hourly checks: a switch, posting to the existing toggle endpoint --}}
                     <div class="form-check form-switch detail-switch mb-0">
                         <input class="form-check-input" type="checkbox" role="switch" id="frequentToggle" data-id="{{ $data->id }}" @checked($data->frequent_toc)>
@@ -405,7 +436,7 @@
                 @forelse($chapters as $chapter)
                     @php
                         $state = \App\Http\Controllers\NovelController::chapterState($chapter);
-                        $isRead = $chapter->read_at !== null;
+                        $isRead = $chapter->isRead();
                         $isCurrent = (int) $chapter->id === (int) $continue_chapter_id;
                         $review = $state !== 'downloaded' && (int) ($chapter->attempts ?? 0) >= \App\NovelChapter::REVIEW_ATTEMPTS;
                     @endphp
@@ -443,7 +474,7 @@
                                 <x-status state="queued" />
                             @endif
                             @if($isRead)
-                                <span class="ch-read" title="Read {{ $chapter->read_at->format('Y-m-d H:i') }}"><x-icon name="check" :size="13" :stroke="2.25" />Read</span>
+                                <span class="ch-read" title="Read {{ $chapter->readAt()->format('Y-m-d H:i') }}"><x-icon name="check" :size="13" :stroke="2.25" />Read</span>
                             @endif
                         </td>
                         <td class="ch-date">{{ $chapter->download_date ? $chapter->download_date->format('Y-m-d H:i') : '—' }}</td>
@@ -478,7 +509,9 @@
 {{-- ===================================================================== --}}
 {{-- Maintenance — one disclosure, collapsed by default. The command        --}}
 {{-- buttons inside are unchanged (data-dry-run-first wiring below).        --}}
+{{-- Admin only.                                                            --}}
 {{-- ===================================================================== --}}
+@can('admin')
 <details class="card maintenance-panel mt-4" id="maintenancePanel">
     <summary class="panel-head maintenance-summary">
         <h2 class="panel-title">Maintenance</h2>
@@ -586,6 +619,7 @@
         </div>
     </div>
 </details>
+@endcan
 @endsection
 @push('scripts')
 <script>
@@ -952,6 +986,53 @@
             show('.cmd-label');
             btn.classList.remove('cmd-state-done', 'cmd-state-fail');
         }, 4000);
+    }
+
+    // ---- Reader accounts: check for new chapters / build the ePub ----
+    // Through the API (the web session signs these calls in), polled until
+    // the background job settles. The admin uses the commands above.
+    const readerActions = {
+        check: { url: (id) => `/api/v1/novels/${id}/check`, key: 'check', busy: ['running'], ok: ['done'] },
+        epub: { url: (id) => `/api/v1/novels/${id}/epub`, key: 'epub', busy: ['building'], ok: ['ready'] },
+    };
+    document.querySelectorAll('button.reader-action-btn').forEach(btn => {
+        btn.addEventListener('click', () => runReaderAction(btn));
+    });
+
+    async function runReaderAction(btn) {
+        const action = readerActions[btn.dataset.readerAction];
+        if (!action || btn.disabled) return;
+        const url = action.url(btn.dataset.novel);
+        const headers = {
+            'Accept': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+        };
+        setButtonState(btn, 'running');
+        try {
+            let res = await fetch(url, { method: 'POST', headers });
+            let data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || `Could not start (${res.status}).`);
+            let state = data[action.key] || {};
+            const deadline = Date.now() + 30 * 60 * 1000;
+            while (action.busy.includes(state.status) && Date.now() < deadline) {
+                await new Promise(r => setTimeout(r, 3000));
+                res = await fetch(url, { headers });
+                data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.message || `Could not check (${res.status}).`);
+                state = data[action.key] || {};
+            }
+            const ok = action.ok.includes(state.status);
+            setButtonState(btn, ok ? 'done' : 'fail');
+            if (ok) {
+                Novarr.showToast(state.message || (action.key === 'epub' ? 'The ePub is ready to download.' : 'Checked for new chapters.'), 'success');
+                if (action.key === 'check') Novarr.softRefresh(1200);
+            } else {
+                Novarr.showToast(state.message || 'That did not work. Try again later.', 'danger');
+            }
+        } catch (err) {
+            setButtonState(btn, 'fail');
+            Novarr.showToast(err.message, 'danger');
+        }
     }
 })();
 </script>

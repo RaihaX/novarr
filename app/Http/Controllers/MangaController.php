@@ -79,6 +79,8 @@ class MangaController extends Controller
         $novel = $chapter->novel;
         [$prev, $next] = NovelChapterController::neighbours($chapter, ['id', 'chapter', 'book', 'label', 'status']);
 
+        app(\App\Services\ReadState::class)->get($chapter);
+
         $pages = $chapter->status
             ? ChapterPage::where('novel_chapter_id', $chapter->id)->orderBy('page')->get(['page', 'width', 'height'])
             : collect();
@@ -90,12 +92,13 @@ class MangaController extends Controller
                 'label' => Presenter::label($chapter),
                 'number' => Presenter::number($chapter->number ?? $chapter->chapter),
                 'page_count' => $chapter->page_count === null ? null : (int) $chapter->page_count,
-                'read' => $chapter->read_at !== null,
-                'progress' => $chapter->read_progress === null ? null : (int) $chapter->read_progress,
+                'read' => $chapter->isRead(),
+                'progress' => $chapter->readProgress(),
             ],
             'pages' => $pages->map(fn(ChapterPage $p) => [
                 'page' => (int) $p->page,
-                'url' => Presenter::url(route('chapters.page', ['id' => $chapter->id, 'page' => $p->page])),
+                // Signed for the reader when sign-in is on: loadable without headers.
+                'url' => Presenter::url(\App\Support\SignedUrls::route('chapters.page', ['id' => $chapter->id, 'page' => $p->page])),
                 'width' => $p->width === null ? null : (int) $p->width,
                 'height' => $p->height === null ? null : (int) $p->height,
             ])->values()->all(),

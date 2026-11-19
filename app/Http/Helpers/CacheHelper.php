@@ -4,20 +4,75 @@ namespace App\Http\Helpers;
 
 use Illuminate\Support\Facades\Cache;
 
+/**
+ * Cache keys and invalidation for the library's derived data.
+ *
+ * Two kinds of entries:
+ *  - global (chapter counts, downloads): one key, forgotten when a novel's
+ *    chapters change (clearNovelCache());
+ *  - per reader (anything built from read state): key suffix `_u{userId}`,
+ *    stored with the epoch it was computed under (rememberForReader()). A
+ *    download moves the epoch, so every reader's entry goes stale at once
+ *    without listing readers; a reader's own read only forgets their keys
+ *    (clearReaderCache()).
+ */
 class CacheHelper
 {
-    /** Per-novel chapter aggregates behind the Library's counts and sorts (NovelController::libraryAggregates). */
-    public const LIBRARY_AGGREGATES_KEY = 'library_aggregates_v1';
+    /**
+     * Per-novel chapter counts behind the Library's counts and sorts
+     * (NovelController::libraryAggregates()). Global; v2 dropped last_read,
+     * which is per reader now (libraryReadingKey()).
+     */
+    public const LIBRARY_AGGREGATES_KEY = 'library_aggregates_v2';
 
-    /** Each novel's resume chapter for the native app's API (Api\V1\Presenter::resumeChapterIds). */
-    public const API_RESUME_KEY = 'api_resume_v1';
+    /** Library-wide epoch: moves whenever any novel's chapters change. */
+    public const EPOCH_KEY = 'read_cache_epoch';
 
-    /** Cache key for NovelController::novelStats(). */
-    public static function novelStatsKey(int $novelId): string
+    /**
+     * The Library's reading index for one reader, with their last read per
+     * novel (NovelController::libraryReading() / libraryAggregates()).
+     */
+    public static function libraryReadingKey(int $userId): string
+    {
+        return "library_reading_v1_u{$userId}";
+    }
+
+    /** Home's Continue items for one reader (HomeController::continueShelf()). */
+    public static function dashboardContinueKey(int $userId): string
+    {
+        return "dashboard_continue_u{$userId}";
+    }
+
+    /** Home's New chapters for one reader (their `reading` flag and read-from). Expires only. */
+    public static function dashboardNewChaptersKey(int $userId): string
+    {
+        return "dashboard_new_chapters_u{$userId}";
+    }
+
+    /** Each novel's resume chapter for the native app's API (Api\V1\Presenter::resumeChapterIds()). */
+    public static function apiResumeKey(int $userId): string
+    {
+        return "api_resume_v1_u{$userId}";
+    }
+
+    /** /stats for one reader (StatsController). Expires only. */
+    public static function readingStatsKey(int $userId): string
+    {
+        return "reading_stats_v1_u{$userId}";
+    }
+
+    /** Cache key for NovelController::novelStats(), per reader. */
+    public static function novelStatsKey(int $novelId, int $userId): string
     {
         // v2: counts instead of chapter-number arrays.
         // v3: failed / needs-review counts and the continue chapter's position.
-        return "novel_stats_v3_{$novelId}";
+        return "novel_stats_v3_{$novelId}_u{$userId}";
+    }
+
+    /** Per-novel epoch: moves when that novel's chapters change. */
+    public static function novelEpochKey(int $novelId): string
+    {
+        return "novel_cache_epoch_{$novelId}";
     }
 
     /**
@@ -36,21 +91,66 @@ class CacheHelper
         return "api_epub_last_build_{$novelId}";
     }
 
+    public static function epoch(): string
+    {
+        return (string) Cache::rememberForever(static::EPOCH_KEY, fn() => static::newEpoch());
+    }
+
+    public static function novelEpoch(int $novelId): string
+    {
+        return (string) Cache::rememberForever(static::novelEpochKey($novelId), fn() => static::newEpoch());
+    }
+
     /**
-     * Clear novel-specific cache: the novel page's stats, plus library-wide
-     * aggregates that depend on this novel's read/download state.
+     * Cache::remember() for a per-reader entry: the value is reused only
+     * while it was computed under $epoch (see the class comment). An entry
+     * computed while the epoch moved is stored under the old epoch and so is
+     * never served.
+     */
+    public static function rememberForReader(string $key, string $epoch, $ttl, \Closure $callback): mixed
+    {
+        $hit = Cache::get($key);
+        if (is_array($hit) && ($hit['epoch'] ?? null) === $epoch && array_key_exists('value', $hit)) {
+            return $hit['value'];
+        }
+
+        $value = $callback();
+        Cache::put($key, ['epoch' => $epoch, 'value' => $value], $ttl);
+
+        return $value;
+    }
+
+    /**
+     * A novel's chapters changed for everyone (download, edit, delete, added
+     * novel): its stats and every library-wide aggregate, for every reader.
      *
      * @param int $novelId
      * @return void
      */
     public static function clearNovelCache(int $novelId)
     {
-        Cache::forget(static::novelStatsKey($novelId));
-        // Library-wide aggregates (grid sublines, chip counts) and the home
-        // Continue row depend on this novel's read/download state.
-        Cache::forget('library_reading_v1');
+        Cache::forever(static::novelEpochKey($novelId), static::newEpoch());
+        Cache::forever(static::EPOCH_KEY, static::newEpoch());
         Cache::forget(static::LIBRARY_AGGREGATES_KEY);
-        Cache::forget('dashboard_continue');
-        Cache::forget(static::API_RESUME_KEY);
+    }
+
+    /**
+     * One reader's read state changed in these novels: only their entries.
+     *
+     * @param int[] $novelIds
+     */
+    public static function clearReaderCache(int $userId, array $novelIds): void
+    {
+        foreach (array_unique(array_map('intval', $novelIds)) as $novelId) {
+            Cache::forget(static::novelStatsKey($novelId, $userId));
+        }
+        Cache::forget(static::libraryReadingKey($userId));
+        Cache::forget(static::dashboardContinueKey($userId));
+        Cache::forget(static::apiResumeKey($userId));
+    }
+
+    private static function newEpoch(): string
+    {
+        return bin2hex(random_bytes(6));
     }
 }

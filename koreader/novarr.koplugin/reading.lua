@@ -349,6 +349,7 @@ local live_task
 function Reading.liveSync()
     if require("novarr.wifi").enabled() then return end
     if not Session:serverUrl() or Session.queue:count() == 0 or not Session:isConnected() then return end
+    if Session:needsLink() then return end -- not linked: the writes wait (auth.lua)
     if Session.nowMs() < (Reading.live_retry_at or 0) then return end
     live_task = live_task or function()
         Session.guard(function()
@@ -1029,6 +1030,16 @@ local function Wifi() return require("novarr.wifi") end
 function Reading.background(plugin)
     local r = plugin.reading
     if not r or not Session:serverUrl() then return end
+    -- Not linked to the account (auth.lua): nothing is asked of the server
+    -- until it is; the online window has nothing to do (so Wi-Fi may go off).
+    if Session:needsLink() then
+        local window = Wifi().managing() and Wifi().window or nil
+        if window and not window.background_done then
+            window.background_done = true
+            Wifi().evaluate("not linked")
+        end
+        return
+    end
     -- Never prompt; Wi-Fi only comes on when Novarr had switched it off (wifi.lua).
     if not Session:isConnected() then
         if Wifi().managing() then Wifi().evaluate("chapter opened, offline") end

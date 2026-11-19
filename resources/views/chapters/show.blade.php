@@ -260,11 +260,15 @@
                 @else
                     <div class="reader-empty">
                         <p>No content available for this chapter yet.</p>
+                        @can('admin')
                         <button type="button" id="downloadChapterBtn" class="btn btn-primary" data-id="{{ $chapter->id }}">
                             <span class="dl-label">Download this chapter now</span>
                             <span class="dl-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Downloading&hellip;</span>
                         </button>
                         <div class="reader-empty-note">Fetches just this chapter from the source in the background.</div>
+                        @else
+                        <div class="reader-empty-note">It downloads on its own soon. “Check for new chapters” on the series page speeds it up.</div>
+                        @endcan
                     </div>
                 @endif
             </section>
@@ -275,8 +279,8 @@
         <div class="reader-foot">
             <div class="reader-foot-actions">
                 <button type="button" id="readThrough" class="reader-ghost" data-id="{{ $chapter->id }}" title="Mark this and all earlier chapters as read">Mark to here</button>
-                <button type="button" id="readToggle" class="reader-ghost {{ $chapter->read_at ? 'is-read' : '' }}" data-id="{{ $chapter->id }}" data-read="{{ $chapter->read_at ? '1' : '0' }}" aria-pressed="{{ $chapter->read_at ? 'true' : 'false' }}">
-                    {{ $chapter->read_at ? 'Read' : 'Mark read' }}
+                <button type="button" id="readToggle" class="reader-ghost {{ $chapter->isRead() ? 'is-read' : '' }}" data-id="{{ $chapter->id }}" data-read="{{ $chapter->isRead() ? '1' : '0' }}" aria-pressed="{{ $chapter->isRead() ? 'true' : 'false' }}">
+                    {{ $chapter->isRead() ? 'Read' : 'Mark read' }}
                 </button>
             </div>
 

@@ -8,10 +8,10 @@ use App\Http\Helpers\CacheHelper;
 use App\Novel;
 use App\NovelChapter;
 use App\Services\NovelHealth;
+use App\Services\ReadState;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -49,22 +49,23 @@ class Presenter
     }
 
     /**
-     * Library-wide figures every summary reads, from the caches the Library
-     * page uses (plus the resume map): a fixed number of statements when cold,
-     * none when warm.
+     * Library-wide figures every summary reads, for the current reader, from
+     * the caches the Library page uses (plus the resume map): a fixed number
+     * of statements when cold, none when warm.
      *
      * @return array{reading: array, totals: array, aggregates: array, attention: array<int, true>, resume: array<int, int>}
      */
     public static function context(): array
     {
-        $reading = NovelController::libraryReading();
+        $userId = app(ReadState::class)->userId();
+        $reading = NovelController::libraryReading($userId);
 
         return [
             'reading' => $reading['reading'],
             'totals' => $reading['totals'],
-            'aggregates' => NovelController::libraryAggregates(),
+            'aggregates' => NovelController::libraryAggregates($userId),
             'attention' => NovelHealth::attentionIds(),
-            'resume' => static::resumeChapterIds(),
+            'resume' => static::resumeChapterIds($userId),
         ];
     }
 
@@ -150,32 +151,40 @@ class Presenter
     }
 
     /**
-     * Each novel's chapter to open for Continue/Start, keyed by novel id:
-     * the first downloaded unread chapter after the most recently read one
-     * (latest read_at; ties go to the furthest in reading order), or the
-     * first downloaded chapter when nothing is read. When nothing unread is
-     * downloaded after it (caught up), the last downloaded chapter. Novels
-     * with nothing downloaded are absent.
+     * Each novel's chapter to open for Continue/Start for a reader (default:
+     * the current one), keyed by novel id: the first downloaded unread
+     * chapter after the one they read most recently (latest read date; ties
+     * go to the furthest in reading order), or the first downloaded chapter
+     * when nothing is read. When nothing unread is downloaded after it
+     * (caught up), the last downloaded chapter. Novels with nothing
+     * downloaded are absent.
      *
      * One statement for the whole library (window functions; reading order
      * is exactly NovelChapter::scopeOrdered(), NULL sort_keys first on both
-     * SQLite and MySQL/MariaDB), cached like the Library aggregates.
+     * SQLite and MySQL/MariaDB), each chapter joined to the reader's
+     * chapter_reads row by primary key; cached per reader like the Library
+     * index.
      *
      * @return array<int, int>
      */
-    public static function resumeChapterIds(): array
+    public static function resumeChapterIds(?int $userId = null): array
     {
-        return Cache::remember(CacheHelper::API_RESUME_KEY, 60, function () {
+        $userId = app(ReadState::class)->userId($userId);
+
+        return CacheHelper::rememberForReader(CacheHelper::apiResumeKey($userId), CacheHelper::epoch(), 60, function () use ($userId) {
             // Only rows that can be the anchor (read) or the target (downloaded).
-            $ranked = DB::table('novel_chapters')
-                ->where('blacklist', 0)
-                ->whereNull('deleted_at')
-                ->where(fn($q) => $q->where('status', 1)->orWhereNotNull('read_at'))
-                ->selectRaw('id, novel_id, status, read_at, read_progress,
-                    ROW_NUMBER() OVER (PARTITION BY novel_id ORDER BY book, sort_key, chapter, id) as pos');
+            $ranked = DB::table('novel_chapters as c')
+                ->leftJoin(ReadState::TABLE . ' as cr', function ($j) use ($userId) {
+                    $j->on('cr.novel_chapter_id', '=', 'c.id')->where('cr.user_id', '=', $userId);
+                })
+                ->where('c.blacklist', 0)
+                ->whereNull('c.deleted_at')
+                ->where(fn($q) => $q->where('c.status', 1)->orWhereNotNull('cr.read_at'))
+                ->selectRaw('c.id as id, c.novel_id as novel_id, c.status as status, cr.read_at as read_at, cr.progress as progress,
+                    ROW_NUMBER() OVER (PARTITION BY c.novel_id ORDER BY c.book, c.sort_key, c.chapter, c.id) as pos');
 
             $anchored = DB::query()->fromSub($ranked, 'r')
-                ->selectRaw('id, novel_id, status, read_at, read_progress, pos,
+                ->selectRaw('id, novel_id, status, read_at, progress, pos,
                     FIRST_VALUE(CASE WHEN read_at IS NOT NULL THEN pos END) OVER (
                         PARTITION BY novel_id
                         ORDER BY CASE WHEN read_at IS NULL THEN 1 ELSE 0 END, read_at DESC, pos DESC
@@ -185,7 +194,7 @@ class Presenter
             // it too: HomeController::continueReading()), most recently read
             // first; 1 = downloaded, unread and after the anchor; 2 = any
             // other downloaded row (the fallback takes the last of them).
-            $prio = 'CASE WHEN status = 1 AND read_at IS NOT NULL AND read_progress IS NOT NULL AND read_progress < 90 THEN 0
+            $prio = 'CASE WHEN status = 1 AND read_at IS NOT NULL AND progress IS NOT NULL AND progress < 90 THEN 0
                 WHEN status = 1 AND read_at IS NULL AND (anchor IS NULL OR pos > anchor) THEN 1
                 WHEN status = 1 THEN 2 ELSE 3 END';
 

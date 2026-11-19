@@ -7,6 +7,7 @@ use App\Mail\NewChapters;
 use App\Novel;
 use App\NovelChapter;
 use App\Services\DownloadLanes;
+use App\Services\ReadState;
 use App\Services\NovelHealth;
 use App\Setting;
 use Carbon\Carbon;
@@ -311,23 +312,26 @@ class EmailSummary extends Command
                 $enrich[$i] = true;
             }
         }
+        // Reading progress is the owner's (the summary is the owner's email;
+        // in a console run the current reader is the owner).
+        $readState = app(ReadState::class);
         $shown = array_values(array_map(fn($i) => $rows[$i]['id'], array_keys($enrich)));
         $counts = NovelChapter::whereIn('novel_id', $shown)
             ->where('blacklist', 0)
-            ->selectRaw('novel_id, COUNT(*) as total, SUM(CASE WHEN read_at IS NOT NULL THEN 1 ELSE 0 END) as read_count')
+            ->selectRaw('novel_id, COUNT(*) as total')
             ->groupBy('novel_id')
             ->get()
             ->keyBy('novel_id');
+        $reads = $readState->readCounts($shown);
 
         foreach ($rows as $i => &$row) {
             if (isset($enrich[$i])) {
                 $c = $counts->get($row['id']);
                 $total = max($row['_toc'], (int) ($c->total ?? 0));
-                $row['percent'] = $total > 0 ? (int) min(100, round((int) ($c->read_count ?? 0) / $total * 100)) : 0;
+                $row['percent'] = $total > 0 ? (int) min(100, round(($reads[$row['id']]['read'] ?? 0) / $total * 100)) : 0;
 
-                $readFrom = NovelChapter::where('novel_id', $row['id'])
-                    ->where('status', 1)->where('blacklist', 0)
-                    ->whereNull('read_at')
+                $readFrom = $readState->whereUnread(NovelChapter::where('novel_id', $row['id'])
+                    ->where('status', 1)->where('blacklist', 0))
                     ->ordered()
                     ->first(['id', 'chapter']);
                 if ($readFrom) {
@@ -409,7 +413,8 @@ class EmailSummary extends Command
             'chapter_label' => $chapter->label,
             'index' => $index,
             'total' => max((int) $novel->last_toc_count, $rows),
-            'chapter_percent' => $item['resume'] ? (int) max(0, min(100, (int) $chapter->read_progress)) : 0,
+            // A resumed item carries the reader's state (continueReading()).
+            'chapter_percent' => $item['resume'] ? (int) max(0, min(100, (int) $item['next']->readProgress())) : 0,
             'resume' => (bool) $item['resume'],
             'url' => route('chapters.show', $chapter->id),
         ];

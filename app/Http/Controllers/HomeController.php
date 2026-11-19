@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Novel;
 use App\NovelChapter;
 use App\Enums\NovelState;
+use App\Http\Helpers\CacheHelper;
 use App\Services\NovelHealth;
+use App\Services\ReadState;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
@@ -17,6 +19,12 @@ class HomeController extends Controller
 
     /** How far back "New chapters" looks. */
     public const NEW_CHAPTER_DAYS = 7;
+
+    // Stateless (the reader is resolved per call), so safe to hold here even
+    // though Octane keeps controller instances across requests.
+    public function __construct(private ReadState $readState)
+    {
+    }
 
     /**
      * GET / — the "Now reading" home: the current book as a hero beside a
@@ -30,12 +38,15 @@ class HomeController extends Controller
         // Stall detection runs a few queries per pending novel — the scheduler
         // re-warms this every 5 minutes (see routes/console.php), so a page
         // hit should never pay for it. TTL is longer than the warm interval.
-        $attention = Cache::remember('dashboard_attention', 900, fn() => $health->needingAttention());
+        // Library status (attention, downloads, scheduler) is the admin's:
+        // a reader's Home never computes or carries it.
+        $admin = \Illuminate\Support\Facades\Gate::allows('admin');
+        $attention = $admin ? Cache::remember('dashboard_attention', 900, fn() => $health->needingAttention()) : [];
         $attentionIds = array_fill_keys(array_column($attention, 'id'), true);
 
         // Novels snoozed out of Needs attention stay visible as one muted
         // line (uncached: a snooze must show immediately).
-        $snoozed = $health->snoozed();
+        $snoozed = $admin ? $health->snoozed() : collect();
 
         // First item is the hero; the next six fill the Continue row.
         $continue = $this->continueShelf();
@@ -71,16 +82,27 @@ class HomeController extends Controller
             'shelf' => $shelf,
             'new_reading' => $newReading,
             'new_fresh' => $newFresh,
-            'strip' => $this->statusStrip(count($attention)),
+            'strip' => $admin ? $this->statusStrip(count($attention)) : null,
             'attention' => $attention,
             'snoozed' => $snoozed,
         ]);
     }
 
-    /** The Continue items (hero first, then the shelf), cached briefly. */
+    /**
+     * The current reader's Continue items (hero first, then the shelf),
+     * cached briefly per reader: a download makes every reader's stale, a
+     * read only the reader's (CacheHelper).
+     */
     public function continueShelf(): array
     {
-        return Cache::remember('dashboard_continue', 60, fn() => $this->continueReading(8));
+        $userId = $this->readState->userId();
+
+        return CacheHelper::rememberForReader(
+            CacheHelper::dashboardContinueKey($userId),
+            CacheHelper::epoch(),
+            60,
+            fn() => $this->continueReading(8, $userId)
+        );
     }
 
     /**
@@ -97,8 +119,10 @@ class HomeController extends Controller
             $onShelf[$item['novel']->id] = $item;
         }
 
+        // Per reader (the `reading` flag and read-from are theirs); expires only.
+        $userId = $this->readState->userId();
         $out = [];
-        foreach (Cache::remember('dashboard_new_chapters', 60, fn() => $this->newChapters()) as $g) {
+        foreach (Cache::remember(CacheHelper::dashboardNewChaptersKey($userId), 60, fn() => $this->newChapters(10, $userId)) as $g) {
             // ?? false: an entry cached by the previous release has no flag.
             $g['reading'] = (bool) ($g['reading'] ?? false);
             if ($g['reading'] && ($item = $onShelf[$g['novel_id']] ?? null)) {
@@ -193,8 +217,10 @@ class HomeController extends Controller
     }
 
     /**
-     * Per-novel chapter counts for the hero and the Continue row, in one
-     * grouped query: total (non-blacklisted), read, and downloaded-but-unread.
+     * Per-novel chapter counts for the hero and the Continue row: total
+     * (non-blacklisted) and downloaded in one grouped query, the reader's
+     * read counts in another (ReadState::readCounts()); unread = downloaded
+     * minus downloaded-and-read.
      *
      * @param  int[]  $novelIds
      * @return array<int, array{total:int, read:int, unread:int}>
@@ -205,17 +231,18 @@ class HomeController extends Controller
             return [];
         }
 
+        $reads = $this->readState->readCounts($novelIds);
+
         return NovelChapter::whereIn('novel_id', $novelIds)
             ->where('blacklist', 0)
             ->selectRaw('novel_id, COUNT(*) as total,
-                SUM(CASE WHEN read_at IS NOT NULL THEN 1 ELSE 0 END) as read_count,
-                SUM(CASE WHEN status = 1 AND read_at IS NULL THEN 1 ELSE 0 END) as unread_count')
+                SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as downloaded')
             ->groupBy('novel_id')
             ->get()
             ->mapWithKeys(fn($row) => [(int) $row->novel_id => [
                 'total' => (int) $row->total,
-                'read' => (int) $row->read_count,
-                'unread' => (int) $row->unread_count,
+                'read' => $reads[(int) $row->novel_id]['read'] ?? 0,
+                'unread' => (int) $row->downloaded - ($reads[(int) $row->novel_id]['read_downloaded'] ?? 0),
             ]])
             ->all();
     }
@@ -223,7 +250,7 @@ class HomeController extends Controller
     /**
      * Everything the hero renders for the current book: position in the
      * novel (ranked like the reader's kicker), minutes left in the chapter
-     * (words / WPM, scaled by the synced read_progress — the reader's own
+     * (words / WPM, scaled by the reader's synced position — the reader's own
      * formula), and the novel's status word.
      */
     private function hero(array $item, array $counts, array $attentionIds): array
@@ -235,9 +262,13 @@ class HomeController extends Controller
             ->whereKey($item['next']->id)
             ->first([
                 'novel_chapters.id', 'novel_chapters.novel_id', 'novel_chapters.chapter', 'novel_chapters.book',
-                'novel_chapters.sort_key', 'novel_chapters.label', 'novel_chapters.read_progress', 'novel_chapters.page_count',
+                'novel_chapters.sort_key', 'novel_chapters.label', 'novel_chapters.page_count',
                 'chapter_texts.word_count', 'chapter_texts.novel_chapter_id as text_id',
             ]) ?? $item['next'];
+        if ($item['resume']) {
+            // A resumed item carries the reader's state (continueReading()).
+            $chapter->setReadState($item['next']->readState());
+        }
 
         $rows = $counts[$novel->id]['total'] ?? 0;
         $total = max((int) $novel->last_toc_count, $rows);
@@ -246,7 +277,7 @@ class HomeController extends Controller
             ->relativeTo($chapter, '<=')
             ->count();
 
-        $chapterPct = $item['resume'] ? (int) max(0, min(100, (int) $chapter->read_progress)) : 0;
+        $chapterPct = $item['resume'] ? (int) max(0, min(100, (int) $chapter->readProgress())) : 0;
 
         $words = (int) $chapter->word_count;
         if ($chapter->word_count === null && $chapter->text_id !== null) {
@@ -309,7 +340,7 @@ class HomeController extends Controller
         if ($n < 1) {
             return null;
         }
-        $page = $resume ? self::mangaPage($chapter->read_progress, $n) : null;
+        $page = $resume ? self::mangaPage($chapter->readProgress(), $n) : null;
 
         return $page !== null
             ? 'Page ' . number_format($page) . ' of ' . number_format($n)
@@ -330,11 +361,13 @@ class HomeController extends Controller
      * only runs for a not-started novel with no such chapter downloaded.
      *
      * Statements: the grouped window aggregate, the novels (with an EXISTS
-     * probe on idx_novel_read for "started"), the read-from UNION, and rarely
-     * the fallback: the same three as before the split.
+     * probe on chapter_reads (user_id, novel_id, read_at) for "started"),
+     * the read-from UNION, and rarely the fallback.
      */
-    private function newChapters(int $limit = 10): array
+    private function newChapters(int $limit = 10, ?int $userId = null): array
     {
+        $userId = $this->readState->userId($userId);
+
         $groups = NovelChapter::where('blacklist', 0)
             ->where('created_at', '>=', now()->subDays(self::NEW_CHAPTER_DAYS))
             ->selectRaw('novel_id, COUNT(*) as total,
@@ -351,27 +384,21 @@ class HomeController extends Controller
             return [];
         }
 
-        // "Started" = any chapter carries a read_at: a correlated EXISTS per
-        // novel (at most $limit), each an idx_novel_read probe that stops at
-        // its first row, folded into the novels query.
+        // "Started" = the reader has read any chapter: a correlated EXISTS
+        // per novel (at most $limit) that stops at its first row, folded into
+        // the novels query.
         $novels = Novel::whereIn('id', $groups->pluck('novel_id')->all())
             ->select(['id', 'name', 'translator_url'])
-            ->selectSub(
-                NovelChapter::query()
-                    ->selectRaw('1')
-                    ->whereColumn('novel_chapters.novel_id', 'novels.id')
-                    ->whereNotNull('read_at')
-                    ->limit(1),
-                'is_reading'
-            )
+            ->selectSub($this->readState->startedNovelSubquery($userId), 'is_reading')
             ->get()
             ->keyBy('id');
 
         $readingSet = $novels->filter(fn($n) => (bool) $n->is_reading)->map(fn() => true)->all();
         $columns = ['id', 'novel_id', 'chapter', 'kind'];
 
-        $readFrom = NovelHealth::firstPerNovel($novels->keys()->all(), function ($q, int $novelId) use ($readingSet, $columns) {
-            $q->where('status', 1)->where('blacklist', 0)->whereNull('read_at')->select($columns);
+        $readFrom = NovelHealth::firstPerNovel($novels->keys()->all(), function ($q, int $novelId) use ($readingSet, $columns, $userId) {
+            $q->where('status', 1)->where('blacklist', 0)->select($columns);
+            $this->readState->whereUnread($q, $userId);
             if (!isset($readingSet[$novelId])) {
                 self::realChapter($q);
             }
@@ -383,7 +410,7 @@ class HomeController extends Controller
         // or a note): fall back to the first unread downloaded chapter.
         $unresolved = array_values(array_diff($novels->keys()->all(), array_keys($readingSet), $readFrom->keys()->all()));
         if ($unresolved !== []) {
-            $readFrom = $readFrom->union($this->firstUnread($unresolved, $columns));
+            $readFrom = $readFrom->union($this->firstUnread($unresolved, $columns, $userId));
         }
 
         $out = [];
@@ -448,26 +475,38 @@ class HomeController extends Controller
     }
 
     /**
-     * Novels you're partway through: most-recently-read first, each with its
-     * next unread downloaded chapter. Skips novels you've fully caught up on.
+     * Novels the reader (default: the current one) is partway through:
+     * most-recently-read first, each with its next unread downloaded
+     * chapter. Skips novels they have fully caught up on. A resumed item's
+     * chapter carries the reader's state (NovelChapter::readState()).
      */
-    public function continueReading(int $limit = 8): array
+    public function continueReading(int $limit = 8, ?int $userId = null): array
     {
+        $userId = $this->readState->userId($userId);
+
         // Candidate novels, most-recently-read first (ordered novel_id => last_read).
         // Manga: a chapter is only marked read once its last page has been
         // shown, so a manga being read has a chapter with progress and no
-        // read_at yet; its last progress write counts as reading activity
-        // (same statement: text novels only ever match on read_at).
-        $recent = NovelChapter::where('status', 1)
-            ->where('blacklist', 0)
-            ->where(fn($q) => $q->whereNotNull('read_at')
-                ->orWhere(fn($m) => $m->whereIn('novel_id', Novel::mangaIdsQuery())
-                    ->whereBetween('read_progress', [1, 99])
-                    ->whereNotNull('read_progress_at')))
-            ->selectRaw('novel_id, MAX(COALESCE(read_at, read_progress_at)) as last_read')
-            ->groupBy('novel_id')
+        // read date yet; its last progress write counts as reading activity
+        // (same statement: text novels only ever match on read_at). The
+        // reader's chapter_reads rows (primary key prefix user_id), each
+        // chapter by primary key.
+        $recent = $this->readState->join(
+            NovelChapter::where('status', 1)->where('blacklist', 0),
+            [],
+            $userId,
+            'inner'
+        )
+            ->where(fn($q) => $q->whereNotNull('cr.read_at')
+                ->orWhere(fn($m) => $m->whereIn('cr.novel_id', Novel::mangaIdsQuery())
+                    ->whereBetween('cr.progress', [1, 99])
+                    ->whereNotNull('cr.progress_at')))
+            ->select('cr.novel_id as novel_id')
+            ->selectRaw('MAX(COALESCE(cr.read_at, cr.progress_at)) as last_read')
+            ->groupBy('cr.novel_id')
             ->orderByDesc('last_read')
             ->limit($limit * 2) // over-fetch; some may be fully read
+            ->toBase()
             ->pluck('last_read', 'novel_id');
 
         if ($recent->isEmpty()) {
@@ -484,29 +523,35 @@ class HomeController extends Controller
             ->keyBy('id');
 
         // Abandoned mid-chapter? Resume it exactly where the reader left off
-        // (read_progress syncs from the reader on every device): the most
-        // recently read such chapter per novel, all novels in one query. A
+        // (the position syncs from the reader on every device): the most
+        // recently read such chapter per novel, all novels in one query, each
+        // member a range on chapter_reads (user_id, novel_id, read_at). A
         // manga chapter in progress is not read yet (see above); page_count
         // lets the cards say "Page 12 of 34".
-        $inProgress = NovelHealth::firstPerNovel($novelIds, function ($q, int $novelId) use ($novels) {
-            $q->where('status', 1)->where('blacklist', 0)
-                ->select(['id', 'novel_id', 'chapter', 'book', 'label', 'read_progress', 'page_count']);
+        $inProgress = NovelHealth::firstPerNovel($novelIds, function ($q, int $novelId) use ($novels, $userId) {
+            $this->readState->join(
+                $q->where('status', 1)->where('blacklist', 0),
+                ['id', 'novel_id', 'chapter', 'book', 'label', 'page_count'],
+                $userId,
+                'inner'
+            )->where('cr.novel_id', $novelId);
             if ($novels->get($novelId)?->isManga()) {
-                $q->whereNull('read_at')
-                    ->whereBetween('read_progress', [1, 99])
-                    ->whereNotNull('read_progress_at')
-                    ->orderByDesc('read_progress_at');
+                $q->whereNull('cr.read_at')
+                    ->whereBetween('cr.progress', [1, 99])
+                    ->whereNotNull('cr.progress_at')
+                    ->orderByDesc('cr.progress_at');
             } else {
-                $q->whereNotNull('read_at')
-                    ->whereNotNull('read_progress')
-                    ->where('read_progress', '<', 90)
-                    ->orderByDesc('read_at');
+                $q->whereNotNull('cr.read_at')
+                    ->whereNotNull('cr.progress')
+                    ->where('cr.progress', '<', 90)
+                    ->orderByDesc('cr.read_at');
             }
-            $q->orderByDesc('id');
+            $q->orderByDesc('novel_chapters.id');
         });
+        $this->readState->attachJoined($inProgress);
 
         // Otherwise the first unread in reading order.
-        $next = $this->firstUnread($novelIds, ['id', 'novel_id', 'chapter', 'book', 'label', 'page_count']);
+        $next = $this->firstUnread($novelIds, ['id', 'novel_id', 'chapter', 'book', 'label', 'page_count'], $userId);
 
         $items = [];
         foreach ($recent as $novelId => $lastRead) {
@@ -532,18 +577,20 @@ class HomeController extends Controller
     }
 
     /**
-     * Each novel's first downloaded, unread chapter in reading order (one
-     * statement for all novels, see NovelHealth::firstPerNovel()).
+     * Each novel's first downloaded chapter the reader has not read, in
+     * reading order (one statement for all novels, see NovelHealth::
+     * firstPerNovel()): each member walks idx_reading_order and stops at the
+     * first chapter without a read row (NOT EXISTS on chapter_reads' primary
+     * key). No state is attached: a not-resumed item never reads it.
      *
      * @param  int[]  $novelIds
      * @return \Illuminate\Support\Collection<int, NovelChapter>  keyed by novel_id
      */
-    private function firstUnread(array $novelIds, array $columns)
+    private function firstUnread(array $novelIds, array $columns, ?int $userId = null)
     {
-        return NovelHealth::firstPerNovel($novelIds, fn($q) => $q
+        return NovelHealth::firstPerNovel($novelIds, fn($q) => $this->readState->whereUnread($q
             ->where('status', 1)->where('blacklist', 0)
-            ->whereNull('read_at')
-            ->select($columns)
+            ->select($columns), $userId)
             // Exactly NovelChapter::scopeOrdered().
             ->ordered());
     }

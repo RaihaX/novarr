@@ -17,7 +17,6 @@ use App\Services\LaneProcessStarter;
 use App\Services\NovelHealth;
 use App\Sources\SuwayomiSource;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\DB;
 
 class ChapterScraper extends Command
 {
@@ -579,7 +578,8 @@ class ChapterScraper extends Command
      *  (c) then the incoming order.
      * Two cheap queries over all candidates (never one per novel): a UNION
      * ALL of `LIMIT 1` probes on idx_novel_pending_due, and one grouped
-     * MAX(read_at) range read on idx_novel_read.
+     * latest-read range read on chapter_reads (novel_id, read_at) — read by
+     * any reader counts.
      *
      * @param  int[]  $ids
      * @return int[]
@@ -602,14 +602,8 @@ class ChapterScraper extends Command
             ->flip()
             ->all();
 
-        $lastRead = DB::table("novel_chapters")
-            ->whereIn("novel_id", $ids)
-            ->where("read_at", ">=", Carbon::now()->subDays(self::READING_RECENT_DAYS))
-            ->groupBy("novel_id")
-            ->selectRaw("novel_id, MAX(read_at) as last_read")
-            ->pluck("last_read", "novel_id")
-            ->mapWithKeys(fn($at, $id) => [(int) $id => Carbon::parse($at)->getTimestamp()])
-            ->all();
+        $lastRead = app(\App\Services\ReadState::class)
+            ->recentlyReadByAnyone($ids, Carbon::now()->subDays(self::READING_RECENT_DAYS));
 
         return self::orderSweep($ids, $fresh, $lastRead);
     }

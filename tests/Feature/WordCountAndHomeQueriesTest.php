@@ -53,7 +53,7 @@ class WordCountAndHomeQueriesTest extends TestCase
             $chapter->status = 1;
             $chapter->download_date = now();
         }
-        $chapter->forceFill($attrs)->save();
+        $chapter->forceFill($this->takeReadState($chapter, $attrs))->save();
 
         return $chapter;
     }
@@ -99,8 +99,8 @@ class WordCountAndHomeQueriesTest extends TestCase
         $c1 = $this->chapter($novel, 1, '<p>' . trim(str_repeat('word ', 300)) . '</p>');
         $c2 = $this->chapter($novel, 2, '<p>' . trim(str_repeat('word ', 200)) . '</p>');
         $this->chapter($novel, 3, '<p>unread words here</p>');
-        $c1->forceFill(['read_at' => now()])->save();
-        $c2->forceFill(['read_at' => now()])->save();
+        $this->markRead($c1, null, now());
+        $this->markRead($c2, null, now());
 
         $this->get(route('stats.index'))
             ->assertOk()
@@ -111,7 +111,7 @@ class WordCountAndHomeQueriesTest extends TestCase
     public function test_hero_minutes_use_the_stored_count_and_fall_back_without_one(): void
     {
         $novel = $this->novel('Hero');
-        $read = $this->chapter($novel, 1, '<p>done</p>', ['read_at' => now()->subHour(), 'read_progress' => 100]);
+        $read = $this->chapter($novel, 1, '<p>done</p>', ['read_at' => now()->subHour(), 'progress' => 100]);
         // 460 words → 2 minutes at 230 wpm.
         $next = $this->chapter($novel, 2, '<p>' . trim(str_repeat('word ', 460)) . '</p>');
 
@@ -132,7 +132,7 @@ class WordCountAndHomeQueriesTest extends TestCase
         for ($i = 1; $i <= 6; $i++) {
             $novel = $this->novel("Reading {$i}");
             $this->chapter($novel, 1, '<p>read one</p>', ['read_at' => now()->subMinutes(60 - $i)]);
-            $this->chapter($novel, 2, '<p>half read</p>', $i % 2 ? ['read_at' => now()->subMinutes(30 - $i), 'read_progress' => 40] : []);
+            $this->chapter($novel, 2, '<p>half read</p>', $i % 2 ? ['read_at' => now()->subMinutes(30 - $i), 'progress' => 40] : []);
             $this->chapter($novel, 3, '<p>next one</p>');
             $this->chapter($novel, 4); // queued
         }
@@ -152,7 +152,10 @@ class WordCountAndHomeQueriesTest extends TestCase
         // separate stat counts, select * plus a body fetch for the hero). Now
         // fixed: 6 attention/snooze, 5 continue, 1 counts, 2 hero, 3 new
         // chapters, 3 stats — independent of how many novels are in progress.
-        $this->assertLessThanOrEqual(20, $count, "Home ran {$count} queries on an empty cache");
+        // Per-reader read state added two, also fixed: the settings lookup
+        // that names the current reader (cached forever outside this cold
+        // test) and the reader's read counts (chapter_reads).
+        $this->assertLessThanOrEqual(22, $count, "Home ran {$count} queries on an empty cache");
     }
 
     public function test_home_query_count_holds_with_not_started_novels_in_new_chapters(): void
@@ -179,18 +182,18 @@ class WordCountAndHomeQueriesTest extends TestCase
         DB::disableQueryLog();
 
         $response->assertSee('6 novels not started yet')->assertSee('In novels you are reading');
-        $this->assertLessThanOrEqual(20, $count, "Home ran {$count} queries on an empty cache");
+        $this->assertLessThanOrEqual(22, $count, "Home ran {$count} queries on an empty cache");
     }
 
     public function test_continue_reading_picks_the_same_chapters_as_before(): void
     {
         $a = $this->novel('Resume Me');
-        $this->chapter($a, 1, '<p>x</p>', ['read_at' => now()->subHours(3), 'read_progress' => 30]);
-        $mid = $this->chapter($a, 2, '<p>x</p>', ['read_at' => now()->subHours(2), 'read_progress' => 50]);
+        $this->chapter($a, 1, '<p>x</p>', ['read_at' => now()->subHours(3), 'progress' => 30]);
+        $mid = $this->chapter($a, 2, '<p>x</p>', ['read_at' => now()->subHours(2), 'progress' => 50]);
         $this->chapter($a, 3, '<p>x</p>', ['read_at' => now()->subHours(4)]);
 
         $b = $this->novel('Next Up');
-        $this->chapter($b, 1, '<p>x</p>', ['read_at' => now()->subHour(), 'read_progress' => 100]);
+        $this->chapter($b, 1, '<p>x</p>', ['read_at' => now()->subHour(), 'progress' => 100]);
         // Reading order is book, sort_key (NULL first), chapter, id.
         $later = $this->chapter($b, 2, '<p>x</p>', ['sort_key' => 2]);
         $first = $this->chapter($b, 5, '<p>x</p>');
@@ -204,7 +207,9 @@ class WordCountAndHomeQueriesTest extends TestCase
         $this->assertSame(['Next Up', 'Resume Me'], array_map(fn($i) => $i['novel']->name, $items));
         $this->assertSame([$first->id, $mid->id], array_map(fn($i) => $i['next']->id, $items));
         $this->assertSame([false, true], array_map(fn($i) => $i['resume'], $items));
-        $this->assertSame(50, (int) $items[1]['next']->read_progress);
+        $this->assertSame(50, $items[1]['next']->readProgress());
+        // The reader's state rides on the model, never as a column.
+        $this->assertArrayNotHasKey('cr_progress', $items[1]['next']->getAttributes());
         // Slim models: nothing heavy goes into the dashboard_continue cache.
         $this->assertArrayNotHasKey('description', $items[0]['novel']->getAttributes());
         $this->assertTrue($items[0]['novel']->relationLoaded('file'));

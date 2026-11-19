@@ -280,6 +280,9 @@ local function busy(Session)
     if type(U) == "table" and U.installing then return true end
     local D = package.loaded["novarr.ui_discover"]
     if type(D) == "table" and D.following() then return true end
+    -- Linking this Kindle: the server is asked every few seconds until the code is entered.
+    local A = package.loaded["novarr.ui_auth"]
+    if type(A) == "table" and A.active() then return true end
     return #Session.menus > 0
 end
 
@@ -290,6 +293,12 @@ function Wifi.snapshot()
     local target = tonumber(Session:get("prefetch")) or 0
     local w = Wifi.window or {}
     local sync = Session:syncState()
+    local not_linked = Session:needsLink()
+    if not_linked then
+        -- Not linked (auth.lua): queued writes can't be sent, so they are no
+        -- reason to keep or switch Wi-Fi on (they wait for the link).
+        sync = { queue = 0, chapters = 0 }
+    end
     -- The latest-position check expired (or was dropped): no reason for Wi-Fi any more.
     if Wifi.position_due and not require("novarr.position").pendingDue(Session) then Wifi.position_due = nil end
     local s = {
@@ -322,8 +331,10 @@ function Wifi.snapshot()
         local info = require("novarr.reading").aheadInfo(r, target)
         s.has_list, s.ahead, s.missing = info.has_list, info.ahead, info.missing
         local free = Session:freeBytes()
-        s.fill_blocked = free ~= nil and free < Session.MIN_FREE_BYTES
+        -- Not linked: nothing can be fetched either.
+        s.fill_blocked = (free ~= nil and free < Session.MIN_FREE_BYTES) or not_linked
     end
+    s.not_linked = not_linked
     return s
 end
 
@@ -682,6 +693,7 @@ anything.
 function Wifi.sleepSync()
     local Session = S()
     if not Session:serverUrl() or not Session.queue or Session.queue:count() == 0 then return end
+    if Session:needsLink() then return end -- not linked (auth.lua): nothing can be sent
     if Wifi.sleep then return end
     if Session:isConnected() then
         local t0 = now()

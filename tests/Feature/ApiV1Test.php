@@ -60,7 +60,7 @@ class ApiV1Test extends TestCase
             'novel_id' => $novel->id, 'chapter' => $n, 'book' => 0,
             'label' => "Chapter {$n}", 'url' => "https://example.test/{$novel->id}/c-{$n}",
         ]);
-        $chapter->forceFill(array_merge(['status' => 1, 'download_date' => now()->subDay()], $attrs));
+        $chapter->forceFill(array_merge(['status' => 1, 'download_date' => now()->subDay()], $this->takeReadState($chapter, $attrs)));
         if ($content !== null) {
             $chapter->description = $content;
         }
@@ -90,7 +90,9 @@ class ApiV1Test extends TestCase
     {
         $json = $this->getJson('/api/v1/meta')->assertOk()->json();
 
-        $this->assertSame(['api_version', 'app', 'server_version'], $this->sorted(array_keys($json)));
+        // `auth`: added by sign-in (auth contract); off by default.
+        $this->assertSame(['api_version', 'app', 'auth', 'server_version'], $this->sorted(array_keys($json)));
+        $this->assertSame(['required' => false, 'methods' => ['password', 'pairing']], $json['auth']);
         $this->assertSame('novarr', $json['app']);
         $this->assertSame(1, $json['api_version']);
         $this->assertTrue($json['server_version'] === null || is_string($json['server_version']));
@@ -102,7 +104,7 @@ class ApiV1Test extends TestCase
         $read = $this->novel('Being Read', ['origin' => 'translated', 'origin_language' => 'zh', 'no_of_chapters' => 4]);
         $read->tags()->attach($tag->id);
         $read->file()->save(new File(['file_name' => 'c.jpg', 'file_path' => 'public/covers/c.jpg']));
-        $one = $this->chapter($read, 1, ['read_at' => now()->subHour()->startOfSecond(), 'read_progress' => 100]);
+        $one = $this->chapter($read, 1, ['read_at' => now()->subHour()->startOfSecond(), 'progress' => 100]);
         $two = $this->chapter($read, 2);
         $this->chapter($read, 3, ['status' => 0]);
 
@@ -134,7 +136,7 @@ class ApiV1Test extends TestCase
         $this->assertSame(50, $r['download_percent']);
         $this->assertFalse($r['finished']);
         $this->assertSame($two->id, $r['resume_chapter_id']);
-        $this->assertSame($one->read_at->copy()->utc()->format('Y-m-d\TH:i:s\Z'), $r['last_read_at']);
+        $this->assertSame($this->readAtOf($one)->copy()->utc()->format('Y-m-d\TH:i:s\Z'), $r['last_read_at']);
         $this->assertMatchesRegularExpression(self::TIMESTAMP, $r['updated_at']);
         // Absolute, on the request's origin.
         $this->assertSame('http://localhost/storage/covers/c.jpg', $r['cover_url']);
@@ -196,8 +198,8 @@ class ApiV1Test extends TestCase
     public function test_resume_reopens_a_chapter_abandoned_part_way_like_the_web_continue_list(): void
     {
         $novel = $this->novel('Half Read');
-        $this->chapter($novel, 1, ['read_at' => now()->subDays(2), 'read_progress' => 100]);
-        $half = $this->chapter($novel, 2, ['read_at' => now()->subHour(), 'read_progress' => 40]);
+        $this->chapter($novel, 1, ['read_at' => now()->subDays(2), 'progress' => 100]);
+        $half = $this->chapter($novel, 2, ['read_at' => now()->subHour(), 'progress' => 40]);
         $this->chapter($novel, 3);
 
         $novels = $this->getJson('/api/v1/novels')->assertOk()->json('novels');
@@ -227,6 +229,8 @@ class ApiV1Test extends TestCase
                 $this->chapter($novel, 3, ['status' => 0]);
             }
             Cache::flush();
+            // As a new request would: the current reader is resolved again.
+            $this->app->forgetScopedInstances();
 
             DB::flushQueryLog();
             DB::enableQueryLog();
@@ -364,7 +368,7 @@ class ApiV1Test extends TestCase
     {
         $novel = $this->novel('List Novel');
         $late = $this->chapter($novel, 1, ['book' => 1]);
-        $read = $this->chapter($novel, 2, ['read_at' => now(), 'read_progress' => 40], '<p>one two three</p>');
+        $read = $this->chapter($novel, 2, ['read_at' => now(), 'progress' => 40], '<p>one two three</p>');
         $read->text()->update(['word_count' => 3]);
         $failed = $this->chapter($novel, 3, ['status' => 0, 'download_date' => null, 'last_failure_reason' => 'cloudflare']);
         $note = $this->chapter($novel, 4, ['kind' => NovelChapter::KIND_NOTE, 'label' => '']);
@@ -422,13 +426,13 @@ class ApiV1Test extends TestCase
         $this->assertSame(['id' => $prev->id, 'label' => 'Chapter 1', 'chapter' => 1, 'book' => 0, 'downloaded' => true], $json['prev']);
         $this->assertSame(['id' => $next->id, 'label' => 'Chapter 3', 'chapter' => 3, 'book' => 0, 'downloaded' => false], $json['next']);
 
-        $this->assertNull($chapter->fresh()->read_at);
+        $this->assertNull($this->readAtOf($chapter));
 
         $edge = $this->getJson("/api/v1/chapters/{$prev->id}")->assertOk()->json('chapter');
         $this->assertNull($edge['prev']);
         $this->assertSame([], $edge['paragraphs']);
         $this->assertSame('', $edge['html']);
-        $this->assertNull($prev->fresh()->read_at);
+        $this->assertNull($this->readAtOf($prev));
     }
 
     public function test_progress_records_position_and_marks_read_without_a_csrf_token(): void
@@ -438,11 +442,11 @@ class ApiV1Test extends TestCase
 
         $this->post("/api/v1/chapters/{$chapter->id}/progress", ['progress' => 40])
             ->assertOk()->assertExactJson(['success' => true, 'read' => false]);
-        $this->assertSame(40, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(40, (int) $this->progressOf($chapter));
 
         $this->postJson("/api/v1/chapters/{$chapter->id}/progress", ['read' => true])
             ->assertOk()->assertExactJson(['success' => true, 'read' => true]);
-        $this->assertNotNull($chapter->fresh()->read_at);
+        $this->assertNotNull($this->readAtOf($chapter));
 
         // The Library summary sees the read straight away.
         $summary = $this->getJson('/api/v1/novels')->json('novels.0');
@@ -465,14 +469,13 @@ class ApiV1Test extends TestCase
             $this->postJson("/api/v1/chapters/{$chapter->id}/read", ['read' => $read])
                 ->assertOk()->assertExactJson(['success' => true, 'read' => true]);
         }
-        $fresh = $chapter->fresh();
-        $this->assertNotNull($fresh->read_at);
-        $this->assertSame(100, (int) $fresh->read_progress);
+        $this->assertNotNull($this->readAtOf($chapter));
+        $this->assertSame(100, $this->progressOf($chapter));
 
         $this->postJson("/api/v1/chapters/{$chapter->id}/read", ['read' => false])
             ->assertOk()->assertExactJson(['success' => true, 'read' => false]);
-        $this->assertNull($chapter->fresh()->read_at);
-        $this->assertNull($chapter->fresh()->read_progress);
+        $this->assertNull($this->readAtOf($chapter));
+        $this->assertNull($this->progressOf($chapter));
 
         $this->postJson("/api/v1/chapters/{$chapter->id}/read", [])->assertStatus(422)->assertJsonValidationErrors('read');
         $this->postJson("/api/v1/chapters/{$chapter->id}/read", ['read' => 'maybe'])->assertStatus(422);
@@ -491,9 +494,9 @@ class ApiV1Test extends TestCase
         $this->post('/api/v1/chapters/bulk-read', ['read' => true, 'scope' => 'all', 'novel_id' => $novel->id])
             ->assertOk()->assertExactJson(['success' => true, 'count' => 3]);
 
-        $this->assertSame(0, NovelChapter::where('novel_id', $novel->id)->where('blacklist', 0)->whereNull('read_at')->count());
-        $this->assertNull($skipped->fresh()->read_at);
-        $this->assertNull($untouched->fresh()->read_at);
+        $this->assertSame(3, $this->readCount($novel->id), 'every non-blacklisted chapter is read');
+        $this->assertNull($this->readAtOf($skipped));
+        $this->assertNull($this->readAtOf($untouched));
 
         $this->postJson('/api/v1/chapters/bulk-read', ['read' => true, 'scope' => 'all'])->assertStatus(422)->assertJsonValidationErrors('novel_id');
         $this->postJson('/api/v1/chapters/bulk-read', ['scope' => 'nope', 'read' => true])->assertStatus(422);

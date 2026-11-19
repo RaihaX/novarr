@@ -311,6 +311,27 @@ test('a cover older than a day is served from cache and refreshed once in the ba
     assert.equal(calls, 1, 'refreshed at most once a day');
 });
 
+test('a download that was redirected (signed out → /login) is not stored as the chapter', async () => {
+    const fc = fakeCaches();
+    const fetch = async (req) => {
+        const path = new URL(urlOf(req), ORIGIN).pathname;
+        const res = html('<title>Sign in</title>');
+        // A followed redirect: what fetch() returns after a 302 to /login.
+        Object.defineProperty(res, 'redirected', { value: path === '/chapters/2' });
+        return res;
+    };
+    const handlers = loadWorker({ caches: fc.api, fetch });
+    let done;
+    handlers.message({
+        data: { type: 'CACHE_URLS', urls: ['/chapters/1', '/chapters/2'] },
+        source: { postMessage: () => {} },
+        waitUntil: (p) => { done = p; },
+    });
+    await done;
+
+    assert.deepEqual(fc.paths('novarr-offline'), ['/chapters/1']);
+});
+
 test('a download also caches the /build files its pages load, once per asset', async () => {
     const fc = fakeCaches();
     await seed(fc, 'novarr-v6-static', [['/build/assets/app-X.css', asset()]]);

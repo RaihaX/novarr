@@ -10,6 +10,14 @@ Errors are tables { kind = ..., status = n|nil, message = text|nil }:
     server      5xx, or an answer that is not JSON (captive portal page) - retry later
     not_novarr  /meta did not say app = "novarr"
     bad_url     the server address is unusable
+    unauthenticated  401 from Novarr (token missing, invalid or revoked), or
+                not sent at all because this Kindle must be linked first
+                (status nil): queued writes stay queued (see auth.lua)
+    forbidden   403: signed in but not allowed; message = the server's words
+
+Since 1.9.0 every request except the exempt ones (Api.authExempt: meta,
+pairing, POST auth/token, plugin updates) carries Authorization: Bearer
+<token> when opts.auth.token() gives one.
 ]]
 
 local Json = require("novarr.json")
@@ -117,12 +125,30 @@ Api.defaultTransport = defaultTransport
 -- ---------------------------------------------------------------- client
 
 --[[--
+Whether a request goes out without credentials (contract: meta, POST
+auth/token, auth/pairings, the plugin update endpoints koreader/plugin*,
+health/ping). path: relative to /api/v1/, query allowed.
+]]
+function Api.authExempt(path, method)
+    path = tostring(path or ""):gsub("[?#].*$", ""):gsub("/+$", "")
+    method = (method or "GET"):upper()
+    if path == "meta" or path == "health" or path == "ping" then return true end
+    if path == "auth/pairings" or path:sub(1, 14) == "auth/pairings/" then return true end
+    if path == "auth/token" and method == "POST" then return true end
+    if path == "koreader/plugin" or path:sub(1, 16) == "koreader/plugin/" then return true end
+    return false
+end
+
+--[[--
 opts: base_url (normalised), transport (optional), log (optional),
 user_agent (optional), router (optional, see address.lua: router:base()
 gives the address to use, router:failed(base, err) the one to retry on),
 device (optional {id, name}: this device, sent with every write as
 X-Novarr-Device / X-Novarr-Device-Name so the server knows where the
-latest reading happened).
+latest reading happened), auth (optional, see auth.lua): {token() -> the
+bearer token or nil, blocked() -> true while this Kindle must be linked
+first (nothing but exempt requests is sent), on_unauthenticated(err, path)
+-> called on every 401 from Novarr}.
 ]]
 function Api.new(opts)
     return setmetatable({
@@ -132,6 +158,7 @@ function Api.new(opts)
         log = opts.log or function() end,
         user_agent = opts.user_agent or ("NovarrKOReader/" .. Api.VERSION),
         device = opts.device,
+        auth = opts.auth,
     }, Api)
 end
 
@@ -158,7 +185,19 @@ Api.err = err
 --- Whether a failure should leave queued writes in place for a later retry.
 function Api.isRetryable(e)
     if not e then return false end
+    -- unauthenticated: kept until this Kindle is linked again (never dropped).
     return e.kind == "offline" or e.kind == "server" or e.kind == "not_novarr" or e.kind == "bad_url"
+        or e.kind == "unauthenticated"
+end
+
+-- Calls an optional auth hook without letting it break the request.
+local function authCall(self, name, ...)
+    local a = self.auth
+    local fn = type(a) == "table" and a[name] or nil
+    if type(fn) ~= "function" then return nil end
+    local ok, res = pcall(fn, ...)
+    if not ok then self.log("Novarr API: auth hook " .. name .. " failed: " .. tostring(res)) return nil end
+    return res
 end
 
 local function header(headers, name)
@@ -199,7 +238,8 @@ end
 
 --[[--
 Performs a request. opts: method ("GET"), body (Lua table, sent as JSON),
-etag (sends If-None-Match), headers (extra request headers). Returns
+etag (sends If-None-Match), headers (extra request headers), quiet_auth
+(a 401 does not call auth.on_unauthenticated: Unlink). Returns
     data (decoded JSON or nil on 304), info {status, etag, body, not_modified}
 or nil, err.
 ]]
@@ -228,6 +268,15 @@ function Api:request(path, opts)
     end
     for k, v in pairs(opts.headers or {}) do headers[k] = v end
     local method = opts.method or (body and "POST" or "GET")
+    local exempt = Api.authExempt(path, method)
+    if not exempt then
+        -- Not linked (sign-in required, no token): nothing goes out until it is.
+        if authCall(self, "blocked") then
+            return nil, err("unauthenticated", nil, "not linked")
+        end
+        local bearer = require("novarr.auth").bearer(authCall(self, "token"))
+        if bearer then headers["Authorization"] = bearer end
+    end
     local res, terr = self:exchange("/api/v1/" .. path, { method = method, headers = headers, body = body,
         block_timeout = opts.block_timeout, total_timeout = opts.total_timeout })
     if not res then
@@ -245,6 +294,22 @@ function Api:request(path, opts)
     end
     if status == 404 then
         return nil, err("not_found", 404)
+    end
+    if not exempt and (status == 401 or status == 403) then
+        local d = Json.decode(text)
+        if type(d) ~= "table" then
+            -- Not Novarr's JSON: a login page or a proxy asking for its own
+            -- credentials. Kept as server trouble (writes stay queued).
+            self.log("Novarr API: " .. path .. " answered " .. status .. " with something that is not JSON")
+            return nil, err("server", status, "login page")
+        end
+        local message = type(d.message) == "string" and d.message ~= "" and d.message or nil
+        if status == 403 then
+            return nil, err("forbidden", 403, message)
+        end
+        local e = err("unauthenticated", 401, message)
+        if not opts.quiet_auth then authCall(self, "on_unauthenticated", e, path) end
+        return nil, e
     end
     if status >= 500 then
         -- Discover/add answer 502/503 with a plain {"message"}: kept apart from
@@ -503,6 +568,36 @@ function Api:highlights(novel_id, page, per_page)
     local q = Api.query({ { "novel_id", novel_id and tostring(novel_id) }, { "page", page and tostring(page) },
         { "per_page", per_page and tostring(per_page) } })
     return self:request("highlights?" .. q)
+end
+
+-- ---------------------------------------------------------------- account (1.9.0)
+
+--[[--
+Starts linking this Kindle (POST auth/pairings, public): {code, secret,
+expires_in, interval} or nil, err. Uses the device id and name given to
+Api.new (device).
+]]
+function Api:pairingStart()
+    local d = type(self.device) == "table" and self.device or {}
+    local body = { device_id = d.id, device_name = d.name or "Kindle" }
+    local data, e = self:request("auth/pairings", { method = "POST", body = body,
+        block_timeout = 10, total_timeout = 15 })
+    if not data then return nil, e end
+    return data
+end
+
+--[[--
+A pairing's state (GET auth/pairings/{secret}): {status = "pending"} |
+{status = "linked", token, user} or nil, err (not_found: expired, unknown
+or already collected).
+]]
+function Api:pairingStatus(secret)
+    return self:request("auth/pairings/" .. Api.urlEncode(secret), { block_timeout = 8, total_timeout = 10 })
+end
+
+--- Revokes the token in use (DELETE auth/token, 204). A 401 here does not count as "signed out by the server".
+function Api:revokeToken()
+    return self:request("auth/token", { method = "DELETE", quiet_auth = true, block_timeout = 5, total_timeout = 8 })
 end
 
 -- ---------------------------------------------------------------- plugin update

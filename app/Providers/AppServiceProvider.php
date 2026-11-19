@@ -2,7 +2,14 @@
 
 namespace App\Providers;
 
+use App\Support\AuthMode;
+use App\Support\CurrentReader;
+use App\User;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 
@@ -28,6 +35,65 @@ class AppServiceProvider extends ServiceProvider
         // the attribute is inert on the reader tag @vite emits in the body.
         Vite::useScriptTagAttributes(['data-turbo-track' => 'reload']);
         Vite::useStyleTagAttributes(['data-turbo-track' => 'reload']);
+
+        $this->bootAccess();
+    }
+
+    /**
+     * Roles and rate limits of reader accounts (App\Support\AuthMode,
+     * App\Support\RouteAccess, App\Http\Middleware\IdentifyReader).
+     */
+    private function bootAccess(): void
+    {
+        // The shell (layouts.app and the partials it includes) needs to know
+        // who is signed in: the account menu, the offline queue's owner tag.
+        // Computed per render, never shared at boot (Octane).
+        \Illuminate\Support\Facades\View::composer('layouts.app', function (\Illuminate\View\View $view) {
+            $reader = app(CurrentReader::class);
+            $authOn = AuthMode::required();
+            try {
+                // Whose read state the page shows (null: nobody signed in).
+                $readerId = $reader->isGuest() ? null : $reader->id();
+                $ownerId = CurrentReader::ownerId();
+            } catch (\Illuminate\Database\QueryException | \RuntimeException $e) {
+                // No database / no owner yet (a page rendered without one).
+                $readerId = $ownerId = null;
+            }
+            $view->with([
+                'authOn' => $authOn,
+                // The signed-in account (sign-in on), else null.
+                'navUser' => $authOn && !$reader->isGuest() ? $reader->user() : null,
+                'readerId' => $readerId,
+                'readerIsOwner' => $readerId !== null && $readerId === $ownerId,
+            ]);
+        });
+
+        // The one admin check (routes, controllers, Blade @can('admin')).
+        // Sign-in off: everyone is the owner, so everyone is the admin.
+        Gate::define('admin', function (?User $user = null) {
+            if (!AuthMode::required()) {
+                return true;
+            }
+
+            return $user !== null && $user->isAdmin() && !$user->isDisabled();
+        });
+
+        // Rate limits (the limiter's cache store: file in production).
+        // Device pairing: starting one is public, so per IP.
+        RateLimiter::for('novarr-pairing-create', fn(Request $request) => Limit::perHour(10)->by('pair-create|' . $request->ip())
+            ->response(fn() => response()->json(['message' => 'Too many link codes asked for. Try again later.', 'code' => 'throttled'], 429)));
+        // Polling by secret: generous (every 3 s), per IP.
+        RateLimiter::for('novarr-pairing-poll', fn(Request $request) => Limit::perMinute(60)->by('pair-poll|' . $request->ip()));
+        // Readers' "check for new chapters" / "build ePub": the admin is not limited.
+        RateLimiter::for('novarr-reader-actions', function (Request $request) {
+            $reader = app(CurrentReader::class);
+            if (Gate::allows('admin')) {
+                return Limit::none();
+            }
+
+            return Limit::perMinute(6)->by('reader-actions|' . ($reader->isGuest() ? $request->ip() : $reader->id()))
+                ->response(fn() => response()->json(['message' => 'Too many requests. Wait a minute and try again.', 'code' => 'throttled'], 429));
+        });
     }
 
     /**
@@ -41,5 +107,9 @@ class AppServiceProvider extends ServiceProvider
         // connections) are reused across chapter fetches. Tests swap it with
         // app()->instance().
         $this->app->singleton(\App\Scraping\Fetcher::class);
+
+        // Whose read state this request / job uses: rebuilt per request
+        // under Octane and per job in queue workers (scoped, never a singleton).
+        $this->app->scoped(\App\Support\CurrentReader::class);
     }
 }

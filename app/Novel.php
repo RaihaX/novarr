@@ -93,10 +93,12 @@ class Novel extends Model
 
     protected static function booted(): void
     {
-        // Only a hard delete removes downloaded manga pages (and the reading
-        // position); a soft-deleted novel keeps them so a restore brings them back.
+        // Only a hard delete removes downloaded manga pages (and every
+        // reader's read state and reading position); a soft-deleted novel
+        // keeps them so a restore brings them back.
         static::forceDeleted(function (self $novel) {
             ChapterPage::purgeNovel((int) $novel->id);
+            app(\App\Services\ReadState::class)->forgetNovel((int) $novel->id);
             ReadingPosition::where('novel_id', $novel->id)->delete();
         });
     }

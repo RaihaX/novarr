@@ -71,9 +71,9 @@ class EmailSummaryTest extends TestCase
 
         $alpha = $this->novel('Alpha Saga');
         $old = $this->chapter($alpha, 1, now()->subDays(3));
-        $old->forceFill(['read_at' => now()->subDays(2), 'read_progress' => 100])->save();
+        $this->markRead($old, null, now()->subDays(2), 100);
         $a2 = $this->chapter($alpha, 2, now()->subDays(3));
-        $a2->forceFill(['read_at' => now()->subHour(), 'read_progress' => 40])->save();
+        $this->markRead($a2, null, now()->subHour(), 40);
         $a3 = $this->chapter($alpha, 3, now()->subHours(2));
         $this->chapter($alpha, 4, now()->subHours(2), ['kind' => NovelChapter::KIND_NOTE]);
         $this->chapter($alpha, 5, now()->subHours(1));

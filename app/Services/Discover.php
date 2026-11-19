@@ -173,7 +173,8 @@ class Discover
             // this request's origin).
             foreach (['cover', 'cover_thumb'] as $key) {
                 if (!empty($item[$key]) && \App\Http\Controllers\DiscoverCoverController::proxied((string) $item[$key])) {
-                    $item[$key] = route('discover.cover', ['u' => (string) $item[$key]]);
+                    // Signed for the reader when sign-in is on (a session-less route).
+                    $item[$key] = \App\Support\SignedUrls::route('discover.cover', ['u' => (string) $item[$key]]);
                 }
             }
         }

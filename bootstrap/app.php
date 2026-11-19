@@ -22,8 +22,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // ValidateCsrfToken in the default web group (the custom
         // App\Http\Middleware\VerifyCsrfToken is no longer registered).
         // Read-state endpoints are replayed from the offline sync queue, where
-        // a session CSRF token may have rotated. Single-user app behind
-        // Tailscale with no auth, so the tokenless replay is acceptable.
+        // a session CSRF token may have rotated. They only change the
+        // signed-in reader's own read state (sign-in on) or the owner's
+        // (sign-in off), and cross-site posts carry no session cookie
+        // (SameSite=Lax); a same-site page (another port on this host)
+        // could still mark chapters read for a signed-in reader.
         $middleware->validateCsrfTokens(except: [
             'chapters/*/toggle-read',
             'chapters/*/read-through',
@@ -66,10 +69,23 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Routing\Middleware\ThrottleRequests::class.':60,1',
         ]);
 
-        // Route middleware aliases
-        // Single-user app with no auth — no auth/guest middleware aliases.
+        // Reader accounts: who is calling and may they call this route
+        // (App\Support\RouteAccess). Last in both groups, after the session
+        // has started. The API group may borrow the web session for the web
+        // UI's own calls (ApiSession) — only with sign-in on.
+        $middleware->web(append: [
+            \App\Http\Middleware\IdentifyReader::class,
+        ]);
+        $middleware->api(append: [
+            \App\Http\Middleware\ApiSession::class,
+            \App\Http\Middleware\IdentifyReader::class,
+        ]);
+
+        // Route middleware aliases. Auth is App\Http\Middleware\IdentifyReader
+        // on the whole web and api groups, not per-route aliases.
+        // cache.headers: the framework's, with the reader in the ETag.
         $middleware->alias([
-            'cache.headers' => \Illuminate\Http\Middleware\SetCacheHeaders::class,
+            'cache.headers' => \App\Http\Middleware\SetCacheHeaders::class,
             'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         ]);
     })
@@ -79,5 +95,20 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn(\Illuminate\Http\Request $request) => $request->is('api/v1/*') || $request->expectsJson()
         );
+
+        // Not signed in / not allowed, thrown from inside a request (a guest
+        // reaching read state, Gate::authorize('admin')): the same answers as
+        // App\Http\Middleware\IdentifyReader gives.
+        $exceptions->render(fn(\Illuminate\Auth\AuthenticationException $e, \Illuminate\Http\Request $request)
+            => \App\Http\Middleware\IdentifyReader::unauthenticated($request));
+        // A Gate denial reaches the callbacks as AccessDeniedHttpException
+        // wrapping the AuthorizationException; other 403s render as before.
+        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException $e, \Illuminate\Http\Request $request) {
+            if (!$e->getPrevious() instanceof \Illuminate\Auth\Access\AuthorizationException) {
+                return null;
+            }
+
+            return \App\Http\Middleware\IdentifyReader::forbidden($request);
+        });
     })
     ->create();

@@ -175,7 +175,7 @@ class ReadingPositionTest extends TestCase
         $this->postJson(route('chapters.progress', $chapter->id), ['progress' => 10], ['X-Novarr-Device' => 'bad'])
             ->assertOk()->assertExactJson(['success' => true, 'read' => false]);
 
-        $this->assertSame(10, (int) $chapter->fresh()->read_progress);
+        $this->assertSame(10, (int) $this->progressOf($chapter));
         $this->assertNull($this->position()->device_id);
         $this->assertNull($this->position()->device_name);
     }
@@ -194,7 +194,7 @@ class ReadingPositionTest extends TestCase
         Carbon::setTestNow('2026-11-18 12:05:00');
         $this->postJson(route('api.v1.chapters.progress', $one->id), ['progress' => 90, 'age' => 60 * self::MIN], self::KINDLE)->assertOk();
 
-        $this->assertSame(90, (int) $one->fresh()->read_progress);
+        $this->assertSame(90, (int) $this->progressOf($one));
         $this->assertSame($two->id, $this->position()->novel_chapter_id);
         $this->assertSame('iphone_0001', $this->position()->device_id);
 
@@ -272,7 +272,7 @@ class ReadingPositionTest extends TestCase
         $this->assertNull($this->position());
 
         // Opened for real, already read and part-way through: still "reading it here".
-        $chapter->forceFill(['read_at' => now(), 'read_progress' => 35])->saveQuietly();
+        $this->markRead($chapter, null, now(), 35);
         $this->flushHeaders();
         $this->withUnencryptedCookie('novarr_device', 'web_mac_01')
             ->withUnencryptedCookie('novarr_device_name', 'Web · Mac')

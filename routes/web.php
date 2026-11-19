@@ -15,12 +15,31 @@ use App\Http\Controllers\LogController;
 |--------------------------------------------------------------------------
 | Web Routes
 |--------------------------------------------------------------------------
+|
+| Who may open each route is App\Support\RouteAccess (public / reader /
+| admin, default admin), enforced by App\Http\Middleware\IdentifyReader on
+| the whole web group when "Require sign-in" is on. A new route must be
+| listed there (tests/Feature/RouteAccessTest fails otherwise).
+|
 */
 
 // Read-only JSON/XML endpoints the PWA and ereaders poll: an ETag of the body
 // lets a repeat fetch come back 304. Never on chapters.show — a GET there
 // marks the chapter read, so it must always reach the controller.
 $conditionalGet = 'cache.headers:private;max_age=0;etag';
+
+// Sign in / out (App\Http\Controllers\Auth\LoginController)
+Route::get('/login', [\App\Http\Controllers\Auth\LoginController::class, 'show'])->name('login');
+Route::post('/login', [\App\Http\Controllers\Auth\LoginController::class, 'store'])->name('login.store');
+Route::post('/logout', [\App\Http\Controllers\Auth\LoginController::class, 'destroy'])->name('logout');
+
+// Your account: name, password, signed-in devices, linking a device by code
+Route::get('/account', [\App\Http\Controllers\AccountController::class, 'show'])->name('account');
+Route::post('/account/profile', [\App\Http\Controllers\AccountController::class, 'updateProfile'])->name('account.profile');
+Route::post('/account/password', [\App\Http\Controllers\AccountController::class, 'updatePassword'])->name('account.password');
+Route::delete('/account/tokens/{id}', [\App\Http\Controllers\AccountController::class, 'revokeToken'])->whereNumber('id')->name('account.tokens.revoke');
+Route::post('/account/link', [\App\Http\Controllers\AccountController::class, 'linkLookup'])->name('account.link');
+Route::post('/account/link/confirm', [\App\Http\Controllers\AccountController::class, 'linkConfirm'])->name('account.link.confirm');
 
 // Dashboard
 Route::get('/', [HomeController::class, 'index'])->name('home');
@@ -117,6 +136,16 @@ Route::post('/settings', [SettingsController::class, 'update'])->name('settings.
 Route::post('/settings/test-email', [SettingsController::class, 'testEmail'])->name('settings.test_email');
 Route::post('/settings/test-flaresolverr', [SettingsController::class, 'testFlareSolverr'])->name('settings.test_flaresolverr');
 Route::post('/settings/test-notification', [SettingsController::class, 'testNotification'])->name('settings.test_notification');
+
+// Settings → Users: accounts and the "Require sign-in" switch (admin; also
+// while sign-in is off, so accounts can be prepared).
+Route::get('/settings/users', [\App\Http\Controllers\UserController::class, 'index'])->name('settings.users');
+Route::post('/settings/users', [\App\Http\Controllers\UserController::class, 'store'])->name('settings.users.store');
+Route::put('/settings/users/{id}', [\App\Http\Controllers\UserController::class, 'update'])->whereNumber('id')->name('settings.users.update');
+Route::post('/settings/users/{id}/password', [\App\Http\Controllers\UserController::class, 'password'])->whereNumber('id')->name('settings.users.password');
+Route::post('/settings/users/{id}/disable', [\App\Http\Controllers\UserController::class, 'toggleDisabled'])->whereNumber('id')->name('settings.users.disable');
+Route::delete('/settings/users/{id}', [\App\Http\Controllers\UserController::class, 'destroy'])->whereNumber('id')->name('settings.users.destroy');
+Route::post('/settings/sign-in', [\App\Http\Controllers\UserController::class, 'auth'])->name('settings.users.auth');
 
 // Tailscale panel (status + Serve/Funnel toggles)
 Route::get('/settings/tailscale', [TailscaleController::class, 'status'])->name('settings.tailscale_status');

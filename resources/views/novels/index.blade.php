@@ -20,6 +20,9 @@
         'offline' => ['Offline', null, null],
         'finished' => ['Finished', null, null],
     ];
+    if (!\Illuminate\Support\Facades\Gate::allows('admin')) {
+        unset($chips['attention']);
+    }
     // Translated / Original only exist in the Novels library.
     foreach (['translated' => 'Translated', 'original' => 'Original'] as $originKey => $originLabel) {
         if (in_array($originKey, $originChips, true)) {
@@ -48,7 +51,9 @@
         </p>
     </div>
     <div class="page-head-actions">
+        @can('admin')
         <a href="{{ route('novels.discover', ['medium' => $medium]) }}" class="btn btn-primary">+ Add {{ $mediumNoun }}</a>
+        @endcan
         @if($view === 'grid')
             <button type="button" class="btn btn-secondary" id="libSelect" aria-pressed="false">Select</button>
         @endif
@@ -117,8 +122,10 @@
 <div id="bulkBar" class="novels-bulk-bar">
     <span id="bulkCount" class="bulk-count"></span>
     <button type="button" id="bulkRead" class="btn btn-secondary">Mark all read</button>
+    @can('admin')
     <button type="button" id="bulkComplete" class="btn btn-secondary">Mark complete</button>
     <button type="button" id="bulkDelete" class="btn btn-outline-danger">Delete</button>
+    @endcan
     <button type="button" id="bulkClear" class="btn btn-ghost ms-auto">Clear selection</button>
 </div>
 
@@ -336,6 +343,7 @@
                         </td>
                         <td class="col-chapters" title="Downloaded of chapters on source">{{ number_format($downloaded) }} / {{ number_format($total) }}</td>
                         <td class="col-actions">
+                            @can('admin')
                             <span class="row-actions">
                                 <button type="button" class="btn btn-outline-success novel-complete-btn" data-id="{{ $novel->id }}" data-completed="{{ $novel->status ? 1 : 0 }}" data-paused="{{ $novel->paused_at ? 1 : 0 }}" title="{{ $novel->status ? 'Mark active' : 'Mark complete' }}" aria-label="Toggle complete">
                                     <x-icon name="check" :size="14" />
@@ -344,6 +352,7 @@
                                     <x-icon name="trash-2" :size="14" />
                                 </button>
                             </span>
+                            @endcan
                         </td>
                     </tr>
                 @empty

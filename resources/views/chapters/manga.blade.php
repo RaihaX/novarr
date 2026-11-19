@@ -26,7 +26,7 @@
      data-novel-id="{{ $chapter->novel_id }}"
      data-pages-url="{{ route('chapters.pages', $chapter->id) }}"
      data-progress-url="{{ route('chapters.progress', $chapter->id) }}"
-     data-mode-url="{{ route('novels.reading_mode', $chapter->novel_id) }}"
+     @can('admin') data-mode-url="{{ route('novels.reading_mode', $chapter->novel_id) }}" @endcan
      data-novel-url="{{ route('novels.show', $chapter->novel_id) }}"
      data-novel-name="{{ $chapter->novel->name ?? '' }}"
      aria-label="{{ $chapterTitle }} — manga reader">
@@ -68,11 +68,14 @@
             <span class="mr-counter" id="mrCounter" aria-hidden="true">– / –</span>
         </div>
         <div class="mr-controls">
+            {{-- The series' reading mode is a shared setting: the admin's. --}}
+            @can('admin')
             <div class="reader-seg mr-modes" role="group" aria-label="Reading mode">
                 <button type="button" data-mode="rtl" aria-pressed="false" title="Right to left (manga)">RTL</button>
                 <button type="button" data-mode="ltr" aria-pressed="false" title="Left to right">LTR</button>
                 <button type="button" data-mode="vertical" aria-pressed="false" title="Vertical (webtoon)">Vertical</button>
             </div>
+            @endcan
             <div class="mr-controls-end">
                 <button type="button" class="reader-ctl" id="mrFit" aria-label="Page fit: fit height">Fit height</button>
                 <button type="button" class="reader-ctl reader-ctl-icon" id="mrFullscreen" aria-label="Fullscreen" aria-pressed="false" hidden>
@@ -116,7 +119,7 @@
     <style>.mr { display: none !important; }</style>
     <h1 class="h5">{{ $chapter->novel->name ?? '' }} — {{ $chapterTitle }}</h1>
 @forelse ($pages as $page)
-    <img src="{{ route('chapters.page', ['id' => $chapter->id, 'page' => $page->page]) }}" alt="Page {{ $page->page }}" loading="lazy"@if($page->width && $page->height) width="{{ $page->width }}" height="{{ $page->height }}"@endif style="display:block;max-width:100%;height:auto;margin:0 auto">
+    <img src="{{ \App\Support\SignedUrls::route('chapters.page', ['id' => $chapter->id, 'page' => $page->page]) }}" alt="Page {{ $page->page }}" loading="lazy"@if($page->width && $page->height) width="{{ $page->width }}" height="{{ $page->height }}"@endif style="display:block;max-width:100%;height:auto;margin:0 auto">
 @empty
     <p>This chapter's pages have not been downloaded yet.</p>
 @endforelse

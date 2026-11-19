@@ -246,8 +246,7 @@ class UiP2Test extends TestCase
 
         $novel = $this->novel();
         $c = $this->chapter($novel, 1);
-        $c->read_at = now();
-        $c->save();
+        $this->markRead($c);
         \Illuminate\Support\Facades\Cache::flush();
 
         $html = $this->get(route('stats.index'))->assertOk()->getContent();
@@ -336,8 +335,7 @@ class UiP2Test extends TestCase
         $novel = $this->novel();
         $c1 = $this->chapter($novel, 1);
         $c2 = $this->chapter($novel, 2);
-        $c1->read_at = now();
-        $c1->save();
+        $this->markRead($c1);
 
         $this->get('/continue')->assertRedirect(route('chapters.show', $c2->id));
     }
