@@ -9,83 +9,142 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.em
+import studio.visns.novarr.R
 
-// The brand accent is the iOS AccentColor (indigo; lighter in dark mode).
-// Dynamic colour is off on purpose: the app keeps its own identity.
-val Indigo = Color(0xFF4F46E5)
-val IndigoDark = Color(0xFF818CF8)
+// Brand colours (resources/css/_variables.scss). Dynamic colour is off on
+// purpose: the app keeps the brand's identity.
+/** Brand indigo: the logo, rules and marks. Fills that carry white text use [IndigoFill]. */
+val Indigo = Color(0xFF6470FF)
+
+/** Primary fill on light grounds ($accent-fill-light): 5.4:1 with white. */
+val IndigoFill = Color(0xFF4A58E8)
+
+/** Accent text on dark grounds ($link / $accent-ink). */
+val IndigoInk = Color(0xFF8EA2FF)
+
+/** Bookmark and reading-progress amber; used sparingly, as on the web. */
 val Amber = Color(0xFFF0B429)
 
-private val Light = lightColorScheme(
-    primary = Indigo,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFE2E1FD),
-    onPrimaryContainer = Color(0xFF1E1A6E),
-    secondary = Color(0xFF5B5D72),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE2E1F2),
-    onSecondaryContainer = Color(0xFF181A2C),
-    tertiary = Color(0xFF8A5A00),
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFDEA6),
-    onTertiaryContainer = Color(0xFF2B1A00),
-    background = Color(0xFFFBFBFE),
-    onBackground = Color(0xFF1A1B21),
-    surface = Color(0xFFFBFBFE),
-    onSurface = Color(0xFF1A1B21),
-    surfaceVariant = Color(0xFFE3E2EC),
-    onSurfaceVariant = Color(0xFF555761),
-    surfaceContainerLowest = Color.White,
-    surfaceContainerLow = Color(0xFFF5F5FA),
-    surfaceContainer = Color(0xFFEFEFF5),
-    surfaceContainerHigh = Color(0xFFE9E9F0),
-    surfaceContainerHighest = Color(0xFFE3E3EA),
-    outline = Color(0xFF777985),
-    outlineVariant = Color(0xFFC7C6D2),
-    error = Color(0xFFBA1A1A),
-)
+/** Amber for small text on light grounds ($amber-ink-light). */
+val AmberInk = Color(0xFF8A5A00)
 
+/** Brand fonts (SIL OFL, licences in assets/licenses). */
+object BrandFonts {
+    /**
+     * Geist for UI text. Only Regular and SemiBold are bundled; Medium (500)
+     * requests use SemiBold until Geist-Medium is added.
+     */
+    val Geist = FontFamily(
+        Font(R.font.geist_regular, FontWeight.Normal),
+        Font(R.font.geist_semibold, FontWeight.Medium),
+        Font(R.font.geist_semibold, FontWeight.SemiBold),
+        Font(R.font.geist_semibold, FontWeight.Bold),
+    )
+
+    /** Geist Mono where the web uses monospace (addresses, names, counters). */
+    val GeistMono = FontFamily(Font(R.font.geist_mono_regular, FontWeight.Normal))
+
+    /** Literata SemiBold for display titles (screen and series titles), as the web's serif. */
+    val LiterataDisplay = FontFamily(Font(R.font.literata_semibold, FontWeight.SemiBold))
+}
+
+// Dark is canonical on the web; these are its tokens.
 private val Dark = darkColorScheme(
-    primary = IndigoDark,
-    onPrimary = Color(0xFF14105A),
-    primaryContainer = Color(0xFF3730A3),
-    onPrimaryContainer = Color(0xFFE2E1FD),
-    secondary = Color(0xFFC4C4DD),
-    onSecondary = Color(0xFF2D2F42),
-    secondaryContainer = Color(0xFF434559),
-    onSecondaryContainer = Color(0xFFE2E1F2),
+    // Accent text and controls use the web's accent ink (6.8:1 on the background);
+    // a white label on #6470FF would miss 4.5:1, so filled buttons carry dark text.
+    primary = IndigoInk,
+    onPrimary = Color(0xFF0F1216),
+    primaryContainer = Color(0xFF2A3170),
+    onPrimaryContainer = Color(0xFFDDE2FF),
+    inversePrimary = IndigoFill,
+    secondary = Color(0xFFAEB7C6),
+    onSecondary = Color(0xFF0F1216),
+    secondaryContainer = Color(0xFF262D38),
+    onSecondaryContainer = Color(0xFFE8EBF0),
     tertiary = Amber,
-    onTertiary = Color(0xFF452B00),
-    tertiaryContainer = Color(0xFF633F00),
-    onTertiaryContainer = Color(0xFFFFDEA6),
-    background = Color(0xFF121318),
-    onBackground = Color(0xFFE4E3EA),
-    surface = Color(0xFF121318),
-    onSurface = Color(0xFFE4E3EA),
-    surfaceVariant = Color(0xFF45464F),
-    onSurfaceVariant = Color(0xFFC6C5D0),
-    surfaceContainerLowest = Color(0xFF0D0E12),
-    surfaceContainerLow = Color(0xFF1A1B21),
-    surfaceContainer = Color(0xFF1E1F25),
-    surfaceContainerHigh = Color(0xFF292A30),
-    surfaceContainerHighest = Color(0xFF34343B),
-    outline = Color(0xFF90909A),
-    outlineVariant = Color(0xFF45464F),
-    error = Color(0xFFFFB4AB),
+    onTertiary = Color(0xFF0F1216),
+    tertiaryContainer = Color(0xFF4A3608),
+    onTertiaryContainer = Color(0xFFFFE2A3),
+    background = Color(0xFF0F1216),
+    onBackground = Color(0xFFE8EBF0),
+    surface = Color(0xFF0F1216),
+    onSurface = Color(0xFFE8EBF0),
+    surfaceVariant = Color(0xFF1C222A),
+    onSurfaceVariant = Color(0xFF8B95A5),
+    surfaceTint = Indigo,
+    surfaceContainerLowest = Color(0xFF0B0E11),
+    surfaceContainerLow = Color(0xFF13171C),
+    surfaceContainer = Color(0xFF161A20),
+    surfaceContainerHigh = Color(0xFF1C222A),
+    surfaceContainerHighest = Color(0xFF232A33),
+    outline = Color(0xFF707A8A),
+    outlineVariant = Color(0xFF262D38),
+    error = Color(0xFFF05845),
+    onError = Color(0xFF0F1216),
+    errorContainer = Color(0xFF4A1A14),
+    onErrorContainer = Color(0xFFFFDAD4),
 )
 
-/** Titles in a serif, like the iOS app's New York headings; body text stays sans. */
+// The web's light companion theme.
+private val Light = lightColorScheme(
+    primary = IndigoFill,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFE3E6FF),
+    onPrimaryContainer = Color(0xFF1D2380),
+    inversePrimary = IndigoInk,
+    secondary = Color(0xFF5C6675),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE3E6EE),
+    onSecondaryContainer = Color(0xFF1A1F27),
+    tertiary = AmberInk,
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFFFE7B0),
+    onTertiaryContainer = Color(0xFF2B1D00),
+    background = Color(0xFFF7F8FA),
+    onBackground = Color(0xFF1A1F27),
+    surface = Color(0xFFF7F8FA),
+    onSurface = Color(0xFF1A1F27),
+    surfaceVariant = Color(0xFFEEF0F5),
+    onSurfaceVariant = Color(0xFF5C6675),
+    surfaceTint = IndigoFill,
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = Color.White,
+    surfaceContainer = Color(0xFFF2F3F7),
+    surfaceContainerHigh = Color(0xFFEEF0F5),
+    surfaceContainerHighest = Color(0xFFE6E9EF),
+    outline = Color(0xFF7A8494),
+    outlineVariant = Color(0xFFDDE1E8),
+    error = Color(0xFFC0392B),
+    onError = Color.White,
+    errorContainer = Color(0xFFFCE4E1),
+    onErrorContainer = Color(0xFF5C1209),
+)
+
+/** Geist throughout; Literata SemiBold for display titles, with the web's tighter tracking. */
 private fun typography(): Typography {
     val base = Typography()
-    fun TextStyle.serif() = copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold)
-    return base.copy(
-        displaySmall = base.displaySmall.serif(),
-        headlineLarge = base.headlineLarge.serif(),
-        headlineMedium = base.headlineMedium.serif(),
-        headlineSmall = base.headlineSmall.serif(),
-        titleLarge = base.titleLarge.serif(),
+    fun TextStyle.ui() = copy(fontFamily = BrandFonts.Geist)
+    fun TextStyle.display(tracking: Double) = copy(fontFamily = BrandFonts.LiterataDisplay, fontWeight = FontWeight.SemiBold, letterSpacing = tracking.em)
+    return Typography(
+        displayLarge = base.displayLarge.display(-0.02),
+        displayMedium = base.displayMedium.display(-0.02),
+        displaySmall = base.displaySmall.display(-0.02),
+        headlineLarge = base.headlineLarge.display(-0.015),
+        headlineMedium = base.headlineMedium.display(-0.015),
+        headlineSmall = base.headlineSmall.display(-0.01),
+        titleLarge = base.titleLarge.display(-0.01),
+        titleMedium = base.titleMedium.ui(),
+        titleSmall = base.titleSmall.ui(),
+        bodyLarge = base.bodyLarge.ui(),
+        bodyMedium = base.bodyMedium.ui(),
+        bodySmall = base.bodySmall.ui(),
+        labelLarge = base.labelLarge.ui(),
+        labelMedium = base.labelMedium.ui(),
+        labelSmall = base.labelSmall.ui(),
     )
 }
 
@@ -96,10 +155,16 @@ fun NovarrTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -
     MaterialTheme(colorScheme = if (dark) Dark else Light, typography = NovarrTypography, content = content)
 }
 
-/** Success green that reads on both themes. */
-val ColorScheme.success: Color get() = if (background.luminanceIsDark()) Color(0xFF7BD88F) else Color(0xFF1E7B34)
+/** Whether this scheme is the dark one. */
+val ColorScheme.isDark: Boolean get() = background.luminanceIsDark()
 
-/** Warning orange that reads on both themes. */
-val ColorScheme.warning: Color get() = if (background.luminanceIsDark()) Color(0xFFFFB86B) else Color(0xFFB45309)
+/** Success green that reads on both themes ($success / $success-ink-light). */
+val ColorScheme.success: Color get() = if (isDark) Color(0xFF3FB950) else Color(0xFF156C2C)
+
+/** Warning amber that reads on both themes ($warning / $warning-ink-light). */
+val ColorScheme.warning: Color get() = if (isDark) Amber else AmberInk
+
+/** The amber for marks and fills (the wordmark dot, progress fills): darker on light grounds (--nv-amber). */
+val ColorScheme.brandAmber: Color get() = if (isDark) Amber else Color(0xFF916300)
 
 private fun Color.luminanceIsDark(): Boolean = (0.299 * red + 0.587 * green + 0.114 * blue) < 0.5

@@ -1,5 +1,6 @@
 package studio.visns.novarr.ui.reader
 
+import studio.visns.novarr.ui.theme.BrandFonts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -284,7 +285,7 @@ fun TextReaderScreen(nav: NavController, route: ReaderRoute) {
                                 Text(
                                     "$page / $total",
                                     color = colors.secondary,
-                                    style = MaterialTheme.typography.labelLarge,
+                                    style = MaterialTheme.typography.labelLarge.copy(fontFamily = BrandFonts.GeistMono),
                                     modifier = Modifier.padding(end = 4.dp).semantics { contentDescription = "Page $page of $total" },
                                 )
                             }

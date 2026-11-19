@@ -1,5 +1,6 @@
 package studio.visns.novarr.ui.reader
 
+import studio.visns.novarr.ui.theme.BrandFonts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -245,7 +246,7 @@ fun MangaReaderScreen(nav: NavController, route: ReaderRoute) {
                         Text(
                             "${model.currentPage + 1} / $total",
                             color = colors.text,
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelLarge.copy(fontFamily = BrandFonts.GeistMono),
                             modifier = Modifier.semantics { contentDescription = "Page ${model.currentPage + 1} of $total" },
                         )
                     }

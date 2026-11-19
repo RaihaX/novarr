@@ -1,5 +1,6 @@
 package studio.visns.novarr.ui.reader
 
+import studio.visns.novarr.ui.theme.BrandFonts
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.animation.AnimatedContent
@@ -206,9 +207,13 @@ internal fun PagedChapterText(
 
         LaunchedEffect(spec) {
             val started = SystemClock.elapsedRealtime()
-            val result = withContext(Dispatchers.Default) { measureChapter(content, spec, resolver, direction) }
+            var measuredMs = 0L
+            val result = withContext(Dispatchers.Default) {
+                val t = SystemClock.elapsedRealtime()
+                measureChapter(content, spec, resolver, direction).also { measuredMs = SystemClock.elapsedRealtime() - t }
+            }
             if (BuildConfig.DEBUG) {
-                Log.d("NovarrPaging", "chapter ${content.id}: ${content.paragraphs.size} paragraphs, ${content.paragraphs.sumOf { it.length }} chars -> ${result.pages.size} pages in ${SystemClock.elapsedRealtime() - started} ms")
+                Log.d("NovarrPaging", "chapter ${content.id}: ${content.paragraphs.size} paragraphs, ${content.paragraphs.sumOf { it.length }} chars -> ${result.pages.size} pages in ${SystemClock.elapsedRealtime() - started} ms (measuring $measuredMs ms)")
             }
             measured = result
             // Same text position as before (never the same page number).
@@ -335,7 +340,7 @@ internal fun PagedChapterText(
         Text(
             "${page.coerceAtMost(textPages - 1) + 1} / $textPages",
             color = colors.secondary.copy(alpha = 0.5f),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall.copy(fontFamily = BrandFonts.GeistMono),
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bars.calculateBottomPadding() + 14.dp).clearAndSetSemantics { },
         )
     }
