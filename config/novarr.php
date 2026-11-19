@@ -55,7 +55,26 @@ return [
         'suwayomi' => \App\Sources\SuwayomiSource::class,
         'empirenovel' => \App\Sources\EmpireNovelSource::class,
         'novelfull' => \App\Sources\NovelFullSource::class,
+        'novelfire' => \App\Sources\NovelFireSource::class,
+        'royalroad' => \App\Sources\RoyalRoadSource::class,
         'novelarrow' => \App\Sources\NovelArrowSource::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | NovelFire (novelfire.net)
+    |--------------------------------------------------------------------------
+    |
+    | The site answers 429 after a burst of about ten requests. A chapter
+    | list is 100 rows a page, so a long book is a walk of 30+ pages:
+    | request_delay_ms is the pause between two pages, rate_limit_wait_ms
+    | the wait before a rate-limited page is asked for again (up to
+    | NovelFireSource::RATE_LIMIT_WAITS times).
+    |
+    */
+    'novelfire' => [
+        'request_delay_ms' => (int) env('NOVARR_NOVELFIRE_REQUEST_DELAY_MS', 1500),
+        'rate_limit_wait_ms' => (int) env('NOVARR_NOVELFIRE_RATE_LIMIT_WAIT_MS', 20000),
     ],
 
     /*

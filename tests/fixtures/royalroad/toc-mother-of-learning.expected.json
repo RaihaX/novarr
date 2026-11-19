@@ -1,0 +1,45 @@
+{
+    "count": 109,
+    "first": [
+        {
+            "label": "1. Good Morning Brother",
+            "url": "https://www.royalroad.com/fiction/21220/mother-of-learning/chapter/301778/1-good-morning-brother",
+            "chapter": "1",
+            "book": 0
+        },
+        {
+            "label": "2. Life’s Little Problems",
+            "url": "https://www.royalroad.com/fiction/21220/mother-of-learning/chapter/301781/2-lifes-little-problems",
+            "chapter": "2",
+            "book": 0
+        },
+        {
+            "label": "3. The Bitter Truth",
+            "url": "https://www.royalroad.com/fiction/21220/mother-of-learning/chapter/301784/3-the-bitter-truth",
+            "chapter": "3",
+            "book": 0
+        }
+    ],
+    "last": [
+        {
+            "label": "Epilogue",
+            "url": "https://www.royalroad.com/fiction/21220/mother-of-learning/chapter/455876/epilogue",
+            "chapter": "107",
+            "book": 0
+        },
+        {
+            "label": "Afterword",
+            "url": "https://www.royalroad.com/fiction/21220/mother-of-learning/chapter/455877/afterword",
+            "chapter": "108",
+            "book": 0
+        },
+        {
+            "label": "New story is out - Zenith of Sorcery",
+            "url": "https://www.royalroad.com/fiction/21220/mother-of-learning/chapter/1269041/new-story-is-out-zenith-of-sorcery",
+            "chapter": "109",
+            "book": 0
+        }
+    ],
+    "invalid_urls": 0,
+    "duplicate_urls": 0
+}

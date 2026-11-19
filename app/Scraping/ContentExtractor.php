@@ -3,6 +3,7 @@
 namespace App\Scraping;
 
 use App\Sources\AbstractSource;
+use App\Sources\PageNoiseSelectors;
 use App\Sources\Source;
 use Symfony\Component\CssSelector\CssSelectorConverter;
 use Symfony\Component\DomCrawler\Crawler;
@@ -13,7 +14,8 @@ use Symfony\Component\DomCrawler\Crawler;
  * through the injected Fetcher.
  *
  * 1. Noise removal: the source's removeSelectors() (ads, nav, "report
- *    chapter" notices…) plus the stripChapterNoise() widget signatures,
+ *    chapter" notices…), its per-page selectors when it implements
+ *    PageNoiseSelectors, plus the stripChapterNoise() widget signatures,
  *    applied to the DOM so a removed widget can't unbalance the tree.
  * 2. Known containers: the source's contentSelectors() then the generic
  *    list, in order. The first whose paragraphs look like a whole chapter
@@ -79,7 +81,7 @@ class ContentExtractor
             }
         }
 
-        $this->removeNoise($xpath, $source, $protected);
+        $this->removeNoise($xpath, $source, $protected, $html);
 
         // (2) known containers, in order.
         $best = [];
@@ -262,9 +264,14 @@ class ContentExtractor
     }
 
     /** @param \DOMNode[] $protected */
-    private function removeNoise(\DOMXPath $xpath, ?Source $source, array $protected): void
+    private function removeNoise(\DOMXPath $xpath, ?Source $source, array $protected, string $html = ''): void
     {
         $selectors = $source ? $source->removeSelectors() : AbstractSource::GENERIC_REMOVE_SELECTORS;
+        // Per-page noise the page itself names (e.g. Royal Road's hidden
+        // anti-piracy lines, whose class is random per page load).
+        if ($source instanceof PageNoiseSelectors) {
+            array_push($selectors, ...$source->pageRemoveSelectors($html));
+        }
 
         $doomed = [];
         foreach ($selectors as $selector) {

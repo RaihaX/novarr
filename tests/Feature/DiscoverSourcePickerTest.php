@@ -108,7 +108,7 @@ class DiscoverSourcePickerTest extends GoldenTestCase
 
         $html = $this->get(route('novels.discover', ['medium' => 'manga']))->assertOk()->getContent();
         $this->assertSame(['mangadex', self::FLAMESCANS, self::MANGAPILL], self::dropdown($html));
-        $this->assertSame(['novelarrow', 'empirenovel', 'novelfull'], self::dropdown($this->get(route('novels.discover', ['medium' => 'novel']))->getContent()));
+        $this->assertSame(['novelarrow', 'empirenovel', 'novelfull', 'novelfire', 'royalroad'], self::dropdown($this->get(route('novels.discover', ['medium' => 'novel']))->getContent()));
         $this->assertSame(['mangadex', self::FLAMESCANS, self::MANGAPILL], array_column($this->getJson('/api/v1/discover?medium=manga')->json('sources'), 'id'));
     }
 
@@ -119,16 +119,16 @@ class DiscoverSourcePickerTest extends GoldenTestCase
         $discover = app(Discover::class);
 
         $this->assertSame(['mangadex', self::FLAMESCANS], array_keys($discover->sourceOptions('manga')));
-        $this->assertSame(['novelarrow', 'empirenovel'], array_keys($discover->sourceOptions('novel')));
+        $this->assertSame(['novelarrow', 'empirenovel', 'novelfire', 'royalroad'], array_keys($discover->sourceOptions('novel')));
         $this->assertArrayHasKey(self::MANGAPILL, $discover->allSources(), 'the settings list still has it');
 
         $this->assertSame(['mangadex', self::FLAMESCANS], self::dropdown($this->get(route('novels.discover', ['medium' => 'manga']))->getContent()));
-        $this->assertSame(['novelarrow', 'empirenovel'], self::dropdown($this->get(route('novels.discover', ['medium' => 'novel']))->getContent()));
+        $this->assertSame(['novelarrow', 'empirenovel', 'novelfire', 'royalroad'], self::dropdown($this->get(route('novels.discover', ['medium' => 'novel']))->getContent()));
 
         $this->assertSame(['mangadex', self::FLAMESCANS], array_column($this->getJson('/api/v1/discover?medium=manga')->json('sources'), 'id'));
-        $this->assertSame(['novelarrow', 'empirenovel'], array_column($this->getJson('/api/v1/discover')->json('sources'), 'id'));
+        $this->assertSame(['novelarrow', 'empirenovel', 'novelfire', 'royalroad'], array_column($this->getJson('/api/v1/discover')->json('sources'), 'id'));
         $all = $this->getJson('/api/v1/discover?medium=all')->assertOk()->json('sources');
-        $this->assertSame(['novelarrow', 'empirenovel', 'mangadex', self::FLAMESCANS], array_column($all, 'id'));
+        $this->assertSame(['novelarrow', 'empirenovel', 'novelfire', 'royalroad', 'mangadex', self::FLAMESCANS], array_column($all, 'id'));
         // Response shape unchanged.
         $this->assertSame(['id', 'name', 'host', 'default', 'lists'], array_keys($all[0]));
         $this->assertTrue($all[0]['default']);
@@ -151,7 +151,7 @@ class DiscoverSourcePickerTest extends GoldenTestCase
 
         $this->hide(['suwayomi:999', 'gone-source', 42, null, '', ['nested'], 'novelfull']);
         $this->assertSame(['suwayomi:999', 'gone-source', 'novelfull'], $discover->hiddenKeys());
-        $this->assertSame(['novelarrow', 'empirenovel', 'mangadex', self::FLAMESCANS, self::MANGAPILL], array_keys($discover->sources()));
+        $this->assertSame(['novelarrow', 'empirenovel', 'novelfire', 'royalroad', 'mangadex', self::FLAMESCANS, self::MANGAPILL], array_keys($discover->sources()));
     }
 
     public function testAnInvalidSettingValueBehavesAsEmpty(): void
@@ -242,7 +242,7 @@ class DiscoverSourcePickerTest extends GoldenTestCase
     public function testEveryNovelSourceHiddenSaysSo(): void
     {
         $this->suwayomi();
-        $this->hide(['novelarrow', 'empirenovel', 'novelfull']);
+        $this->hide(['novelarrow', 'empirenovel', 'novelfull', 'novelfire', 'royalroad']);
 
         $this->get(route('novels.discover', ['medium' => 'novel']))->assertOk()
             ->assertSee('All novel sources are hidden.')
@@ -282,6 +282,8 @@ class DiscoverSourcePickerTest extends GoldenTestCase
             'novelarrow' => true,
             'empirenovel' => true,
             'novelfull' => false,
+            'novelfire' => true,
+            'royalroad' => true,
             'mangadex' => true,
             self::FLAMESCANS => true,
             self::MANGAPILL => false,
@@ -289,7 +291,7 @@ class DiscoverSourcePickerTest extends GoldenTestCase
 
         // Every offered key is posted alongside.
         preg_match_all('#name="discover_offered\[\]" value="([^"]+)"#', $html, $m);
-        $this->assertSame(['novelarrow', 'empirenovel', 'novelfull', 'mangadex', self::FLAMESCANS, self::MANGAPILL], $m[1]);
+        $this->assertSame(['novelarrow', 'empirenovel', 'novelfull', 'novelfire', 'royalroad', 'mangadex', self::FLAMESCANS, self::MANGAPILL], $m[1]);
 
         // Label, then the host in muted text when it differs.
         $this->assertStringContainsString('Suwayomi · MangaPill <span class="text-muted small">192.168.1.37:4567</span></label>', $html);
@@ -304,7 +306,7 @@ class DiscoverSourcePickerTest extends GoldenTestCase
         $this->suwayomi(self::manySources(9));
 
         $html = $this->get(route('settings.index'))->assertOk()->getContent();
-        $this->assertCount(13, self::boxes($html), '3 novel + MangaDex + 9 Suwayomi');
+        $this->assertCount(15, self::boxes($html), '5 novel + MangaDex + 9 Suwayomi');
         $this->assertSame(1, substr_count($html, 'data-ds-all="1">Show all</button>'));
         $this->assertSame(1, substr_count($html, 'data-ds-all="0">Hide all</button>'));
         $this->assertSame(1, substr_count($html, 'data-ds-filter placeholder'));
@@ -318,7 +320,7 @@ class DiscoverSourcePickerTest extends GoldenTestCase
         $fetcher = $this->suwayomi(FakeFetcher::fail('exception', null));
 
         $html = $this->get(route('settings.index'))->assertOk()->getContent();
-        $this->assertSame(['novelarrow' => true, 'empirenovel' => true, 'novelfull' => true, 'mangadex' => true], self::boxes($html));
+        $this->assertSame(['novelarrow' => true, 'empirenovel' => true, 'novelfull' => true, 'novelfire' => true, 'royalroad' => true, 'mangadex' => true], self::boxes($html));
         $this->assertStringContainsString('<div class="form-text" id="discoverSuwayomiMissing">The Suwayomi sources could not be loaded right now.</div>', $html);
         $this->assertCount(1, $fetcher->calls, 'one source listing per page load, nothing more');
         $this->assertSame(15, $fetcher->calls[0]['timeout']);
@@ -328,8 +330,8 @@ class DiscoverSourcePickerTest extends GoldenTestCase
     {
         $this->suwayomi();
 
-        $offered = ['novelarrow', 'empirenovel', 'novelfull', 'mangadex', self::FLAMESCANS, self::MANGAPILL];
-        $this->save($offered, ['novelarrow', 'empirenovel', 'mangadex', self::FLAMESCANS])
+        $offered = ['novelarrow', 'empirenovel', 'novelfull', 'novelfire', 'royalroad', 'mangadex', self::FLAMESCANS, self::MANGAPILL];
+        $this->save($offered, ['novelarrow', 'empirenovel', 'novelfire', 'royalroad', 'mangadex', self::FLAMESCANS])
             ->assertRedirect(route('settings.index'))->assertSessionHasNoErrors();
         $this->assertSame(['novelfull', self::MANGAPILL], $this->storedHidden());
 

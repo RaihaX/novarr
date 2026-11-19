@@ -416,7 +416,7 @@ class SuwayomiSourceTest extends GoldenTestCase
         $fetcher = $this->graphql([SuwayomiSource::QUERY_SOURCES => FakeFetcher::fail('exception', null)]);
         $discover = app(Discover::class);
 
-        $this->assertSame(['novelarrow', 'empirenovel', 'novelfull', 'mangadex'], array_keys($discover->sources()));
+        $this->assertSame(['novelarrow', 'empirenovel', 'novelfull', 'novelfire', 'royalroad', 'mangadex'], array_keys($discover->sources()));
         $discover->sourceOptions();
         $this->assertCount(1, self::gqlCalls($fetcher), 'a dead server is asked once per page load');
         $this->assertNull(\Illuminate\Support\Facades\Cache::get('suwayomi_sources_v1_' . md5(self::BASE)), 'a failure is not cached');

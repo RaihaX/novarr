@@ -18,6 +18,9 @@
         </include>
     </source>
     <php>
+        <!-- The whole suite peaks just under PHP's default 128M; headroom so
+             a few more tests don't end the run in a fatal error. -->
+        <ini name="memory_limit" value="512M"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_TIMEZONE" value="UTC"/>
         <env name="CACHE_DRIVER" value="array"/>
@@ -28,6 +31,8 @@
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="NOVARR_MANGA_PAGE_DELAY_MS" value="0"/>
         <env name="NOVARR_MANGADEX_REQUEST_DELAY_MS" value="0"/>
+        <env name="NOVARR_NOVELFIRE_REQUEST_DELAY_MS" value="0"/>
+        <env name="NOVARR_NOVELFIRE_RATE_LIMIT_WAIT_MS" value="0"/>
         <env name="NOVARR_SUWAYOMI_URL" value=""/>
     </php>
 </phpunit>

@@ -191,6 +191,8 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 |---|---|---|
 | `EmpireNovelSource` | `empirenovel.com` | Paginated TOC via FlareSolverr + cookie reuse |
 | `NovelFullSource` | `novelfull.com` | AJAX chapter-list endpoint |
+| `NovelFireSource` | `novelfire.net` | Plain HTTP (FlareSolverr only if refused). TOC from `/book/{slug}/chapters?page=N&sort_by=desc`, 100 rows a page, with the incremental early stop; chapters fetched plain, retried when the site diverts a request to its partner site. Metadata from the book page, NovelUpdates fills gaps. Discover: search only |
+| `RoyalRoadSource` | `www.royalroad.com` | Whole TOC from the fiction page's `window.chapters` JSON (table as fallback), one request; `chapter` = position in the site's list (titles are free text). Identity is the fiction id. Metadata from the fiction page only (no NovelUpdates). Hidden anti-piracy lines stripped via `PageNoiseSelectors`. Discover: search only |
 | `NovelArrowSource` | NovelPing — `novelping.com` (formerly `novelarrow.com`, which now redirects there; both hosts are recognised) — and the **default** fallback | JSON api-web chapter list or page parse; browse/search results also carry a synopsis. Every outgoing URL (API, chapter pages, `images.{host}` covers) is built on `NOVARR_NOVELARROW_HOST` (config `novarr.novelarrow_host`, default `novelping.com`); migration `2026_10_04_000001` rewrote stored novelarrow URLs |
 | `SuwayomiSource` | Manga through your own [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server) (off until `NOVARR_SUWAYOMI_URL` is set) | Local GraphQL API, no account; see [Suwayomi (manga)](#suwayomi-manga) |
 

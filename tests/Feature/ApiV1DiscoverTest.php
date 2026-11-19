@@ -58,7 +58,7 @@ class ApiV1DiscoverTest extends TestCase
     {
         $sources = $this->getJson('/api/v1/discover')->assertOk()->json('sources');
 
-        $this->assertSame(['novelarrow', 'empirenovel', 'novelfull'], array_column($sources, 'id'));
+        $this->assertSame(['novelarrow', 'empirenovel', 'novelfull', 'novelfire', 'royalroad'], array_column($sources, 'id'));
         $this->assertSame([
             'id' => 'novelarrow',
             'name' => 'NovelPing (novelarrow)',
