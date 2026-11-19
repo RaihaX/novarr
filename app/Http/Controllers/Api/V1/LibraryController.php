@@ -41,6 +41,8 @@ class LibraryController extends Controller
                 'required' => \App\Support\AuthMode::required() || \App\Support\PublicAddress::current(),
                 'methods' => ['password', 'pairing'],
             ],
+            // Reader requests (search, request, notifications feed) are offered.
+            'requests' => (bool) config('novarr.requests.enabled', true),
         ]);
     }
 

@@ -87,6 +87,21 @@ Route::prefix('v1')
         Route::post('/highlights', [ApiV1\HighlightController::class, 'store'])->name('highlights.store');
         Route::delete('/highlights/{id}', [ApiV1\HighlightController::class, 'destroy'])->whereNumber('id')->name('highlights.destroy');
 
+        // Reader requests: search every source of a medium, request a series,
+        // the owner approves / declines (App\Services\Requests). Searching,
+        // requesting and the notification feed are reader routes; deciding is
+        // the admin's (home network only).
+        Route::post('/requests/searches', [ApiV1\RequestSearchController::class, 'store'])->name('requests.searches.store');
+        Route::get('/requests/searches/{id}', [ApiV1\RequestSearchController::class, 'show'])->name('requests.searches.show');
+        Route::get('/requests', [ApiV1\RequestController::class, 'index'])->name('requests');
+        Route::post('/requests', [ApiV1\RequestController::class, 'store'])->middleware('throttle:novarr-reader-actions')->name('requests.store');
+        Route::get('/requests/{id}', [ApiV1\RequestController::class, 'show'])->whereNumber('id')->name('requests.show');
+        Route::delete('/requests/{id}', [ApiV1\RequestController::class, 'destroy'])->whereNumber('id')->name('requests.destroy');
+        Route::post('/requests/{id}/approve', [ApiV1\RequestController::class, 'approve'])->whereNumber('id')->name('requests.approve');
+        Route::post('/requests/{id}/decline', [ApiV1\RequestController::class, 'decline'])->whereNumber('id')->name('requests.decline');
+        Route::post('/requests/{id}/rerank', [ApiV1\RequestController::class, 'rerank'])->whereNumber('id')->name('requests.rerank');
+        Route::get('/notifications', [ApiV1\NotificationController::class, 'index'])->name('notifications');
+
         // The KOReader plugin's "update over Wi-Fi".
         Route::get('/koreader/plugin', [ApiV1\KoreaderPluginController::class, 'manifest'])->name('koreader.plugin');
         Route::get('/koreader/plugin/files/{path}', [ApiV1\KoreaderPluginController::class, 'file'])->where('path', '.*')->name('koreader.plugin.file');

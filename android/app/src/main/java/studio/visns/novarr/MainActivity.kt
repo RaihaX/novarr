@@ -1,11 +1,15 @@
 package studio.visns.novarr
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
+import studio.visns.novarr.app.Notifications
+import studio.visns.novarr.domain.RequestFeed
+import studio.visns.novarr.domain.Requests
 import studio.visns.novarr.ui.Root
 import studio.visns.novarr.ui.reader.VolumeKeys
 import studio.visns.novarr.ui.components.LocalApp
@@ -17,10 +21,37 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val app = (application as NovarrApplication).model
+        // Not after a configuration change: the same intent would open Home again.
+        if (savedInstanceState == null) handle(intent)
         setContent {
             NovarrTheme {
                 CompositionLocalProvider(LocalApp provides app) { Root() }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handle(intent)
+    }
+
+    /**
+     * A tapped notification opens Home (an update) or the Requests screen
+     * (a request: its part, or the series), also when the app was on another screen.
+     */
+    private fun handle(intent: Intent?) {
+        val action = intent?.action ?: return
+        // Reopened from Recents, the old intent comes back: not a new tap.
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        val model = (application as NovarrApplication).model
+        when (action) {
+            Notifications.ACTION_OPEN_HOME -> model.requestHome()
+            Notifications.ACTION_OPEN_REQUESTS -> model.openRequests(
+                RequestFeed.Target(
+                    Requests.Section.from(intent.getStringExtra(Notifications.EXTRA_SECTION)),
+                    intent.getIntExtra(Notifications.EXTRA_NOVEL_ID, 0).takeIf { it > 0 },
+                ),
+            )
         }
     }
 

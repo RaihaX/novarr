@@ -48,7 +48,15 @@ class DiscoverCoverController extends Controller
 
     public function show(Request $request)
     {
-        $url = (string) $request->query('u', '');
+        return $this->respond($request, (string) $request->query('u', ''));
+    }
+
+    /**
+     * The cover at $url (one proxied() allows), fetched or from the cache;
+     * 404 otherwise. Shared with RequestCoverController.
+     */
+    protected function respond(Request $request, string $url)
+    {
         abort_unless($url !== '' && strlen($url) <= 2048 && self::proxied($url), 404);
 
         $key = 'discover_cover_v1_' . md5($url);

@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Log;
  * The series URL is https://mangadex.org/title/{uuid}[/slug] and a chapter's
  * https://mangadex.org/chapter/{uuid}.
  */
-class MangaDexSource extends AbstractSource implements ReportsPageFetches, PagedDiscover
+class MangaDexSource extends AbstractSource implements ProvidesChapterStats, ReportsPageFetches, PagedDiscover
 {
     public const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
@@ -215,21 +215,43 @@ class MangaDexSource extends AbstractSource implements ReportsPageFetches, Paged
             return [];
         }
 
+        $chapters = $this->feed($id, self::languages(), $partial);
+        if ($chapters === null) {
+            return [];
+        }
+        if ($partial) {
+            // The rows read so far are kept, but the run is partial (TOC
+            // health, no parking of unlisted rows).
+            markTocRunPartial();
+        }
+
+        return self::tocRows($chapters);
+    }
+
+    /**
+     * Every feed chapter of a series in $languages, page by page (with the
+     * pause between pages). Null when the first page failed; $partial is
+     * set when a later page failed or the feed is longer than MangaDex
+     * serves. $requests counts the API requests made.
+     */
+    private function feed(string $id, array $languages, ?bool &$partial = null, ?int &$requests = null): ?array
+    {
+        $partial = false;
+        $requests = 0;
         $chapters = [];
         $offset = 0;
         while (true) {
             $status = null;
-            $json = $this->api("manga/{$id}/feed", self::feedParams($offset), $status);
+            $requests++;
+            $json = $this->api("manga/{$id}/feed", self::feedParams($offset, $languages), $status);
             if (!is_array($json) || !is_array($json['data'] ?? null)) {
                 Log::warning("MangaDexSource: feed of {$id} failed at offset {$offset} (HTTP " . ($status ?? '?') . ")");
                 if ($offset > 0) {
-                    // The rows read so far are kept, but the run is partial
-                    // (TOC health, no parking of unlisted rows).
-                    markTocRunPartial();
+                    $partial = true;
                     break;
                 }
 
-                return [];
+                return null;
             }
 
             array_push($chapters, ...$json['data']);
@@ -240,22 +262,67 @@ class MangaDexSource extends AbstractSource implements ReportsPageFetches, Paged
             }
             if ($offset + self::FEED_LIMIT > self::MAX_WINDOW) {
                 Log::warning("MangaDexSource: feed of {$id} has {$total} entries; MangaDex serves only the first " . self::MAX_WINDOW);
-                markTocRunPartial();
+                $partial = true;
                 break;
             }
             $this->pauseBetweenRequests();
         }
 
-        return self::tocRows($chapters);
+        return $chapters;
+    }
+
+    /**
+     * A reader request's candidate (App\Sources\ProvidesChapterStats): the
+     * feed in the preferred languages MangaDex is set up for (else in its
+     * configured ones, flagged as not preferred), as the TOC would list it,
+     * and the newest chapter's publish date. One request per 500 chapters,
+     * paced like the TOC.
+     */
+    public function chapterStats(string $url, array $languages): ?array
+    {
+        $id = self::seriesId($url);
+        if ($id === null) {
+            return null;
+        }
+
+        $wanted = array_values(array_intersect(self::languages(), array_map('strtolower', $languages)));
+        $preferred = $wanted !== [];
+        $asked = $preferred ? $wanted : self::languages();
+
+        $chapters = $this->feed($id, $asked, $partial, $requests);
+        if ($chapters === null) {
+            return null;
+        }
+
+        $newest = null;
+        foreach ($chapters as $chapter) {
+            $attributes = $chapter['attributes'] ?? [];
+            // Only chapters Novarr can download say the series is alive here.
+            if (!empty($attributes['externalUrl']) || (int) ($attributes['pages'] ?? 0) <= 0 || !empty($attributes['isUnavailable'])) {
+                continue;
+            }
+            $at = (string) ($attributes['readableAt'] ?? $attributes['publishAt'] ?? '');
+            if ($at !== '' && ($newest === null || strcmp($at, $newest) > 0)) {
+                $newest = $at;
+            }
+        }
+
+        return [
+            'numbers' => array_column(self::tocRows($chapters), 'chapter'),
+            'languages' => $asked,
+            'in_preferred_language' => $preferred,
+            'updated_at' => $newest !== null ? \Carbon\Carbon::parse($newest)->utc()->toIso8601String() : null,
+            'requests' => $requests,
+        ];
     }
 
     /** Query of one feed page. */
-    public static function feedParams(int $offset): array
+    public static function feedParams(int $offset, ?array $languages = null): array
     {
         return [
             'limit' => self::FEED_LIMIT,
             'offset' => $offset,
-            'translatedLanguage' => self::languages(),
+            'translatedLanguage' => $languages ?? self::languages(),
             'contentRating' => self::CONTENT_RATINGS,
             // Server-side filters for what the rows below skip anyway.
             'includeExternalUrl' => 0,

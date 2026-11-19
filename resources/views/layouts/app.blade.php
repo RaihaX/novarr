@@ -132,6 +132,13 @@
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('bookmarks.*') ? 'active' : '' }}" @if(request()->routeIs('bookmarks.*')) aria-current="page" @endif href="{{ route('bookmarks.index') }}">Highlights</a>
                     </li>
+                    {{-- Reader requests, for everyone while the feature is on; the
+                         admin at home sees how many wait for a decision. --}}
+                    @if($requestsOn ?? false)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('requests.index') ? 'active' : '' }}" @if(request()->routeIs('requests.index')) aria-current="page" @endif href="{{ route('requests.index') }}" id="navRequests"><span>Requests</span>@if(!empty($requestsPending))<span class="nav-count chip-mono chip-mono-pending" data-requests-badge><span class="visually-hidden">, </span>{{ $requestsPending }}<span class="visually-hidden"> pending</span></span>@endif</a>
+                    </li>
+                    @endif
                     @can('admin')
                     @php $systemActive = request()->routeIs('commands.*') || request()->routeIs('logs.*') || request()->routeIs('health.*') || request()->routeIs('activity.*'); @endphp
                     <li class="nav-item dropdown">

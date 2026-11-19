@@ -25,6 +25,20 @@ object AppUpdate {
     fun available(release: AndroidRelease?, installed: Int, dismissedBuild: Int? = null): Boolean =
         release != null && release.url.isNotBlank() && available(release.build, installed, dismissedBuild)
 
+    /**
+     * Whether the background check posts "Novarr 1.4 is available" for build
+     * [build]: only with the notification switch [enabled], for a build newer
+     * than the installed [installed], and once per build: [lastNotified] is
+     * the build last notified (or already shown in the app; null: none), so
+     * that build or an older one stays quiet while a newer one notifies again.
+     */
+    fun shouldNotify(build: Int?, installed: Int, lastNotified: Int?, enabled: Boolean): Boolean =
+        enabled && available(build, installed, lastNotified)
+
+    /** [shouldNotify] for a release from meta; a release without a download address never notifies. */
+    fun shouldNotify(release: AndroidRelease?, installed: Int, lastNotified: Int?, enabled: Boolean): Boolean =
+        enabled && available(release, installed, lastNotified)
+
     /** "1.3", or "build 4" when the server doesn't name the version. */
     fun label(release: AndroidRelease): String =
         release.version?.takeIf { it.isNotBlank() } ?: "build ${release.build}"

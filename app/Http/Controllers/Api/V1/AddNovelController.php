@@ -3,16 +3,11 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Helpers\CacheHelper;
-use App\Jobs\RunNovelCommand;
-use App\Novel;
+use App\Services\AddSeries;
 use App\Services\DuplicateSeries;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Bus;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
 
 /**
  * POST /api/v1/novels — add a Discover result to the library.
@@ -33,94 +28,48 @@ use Illuminate\Support\Facades\Log;
  */
 class AddNovelController extends Controller
 {
-    public function store(Request $request, DuplicateSeries $duplicates): JsonResponse
+    public const LOCK_BUSY = 'Another novel is being added right now. Try again in a moment.';
+
+    public function store(Request $request, AddSeries $series): JsonResponse
     {
-        $data = $request->validate([
-            'title' => 'required|string|max:255',
-            'url' => 'required|url|max:2048',
-            'force' => 'nullable|boolean',
-        ]);
+        $data = $request->validate(static::rules());
         $title = trim($data['title']);
         $url = trim($data['url']);
         $force = $request->boolean('force');
 
-        // The decision and the insert are made under one lock, so two taps
-        // on "Add" cannot both create the novel.
+        // The decision and the insert are made under one lock (AddSeries),
+        // so two taps on "Add" cannot both create the novel.
         try {
-            $result = Cache::lock('api_add_novel_lock', 10)->block(5, fn() => $this->findOrCreate($duplicates, $title, $url, $force));
+            $outcome = $series->add($title, $url, $force);
         } catch (LockTimeoutException) {
-            return response()->json(['message' => 'Another novel is being added right now. Try again in a moment.'], 503);
+            return response()->json(['message' => self::LOCK_BUSY], 503);
         }
 
-        if (isset($result['duplicate'])) {
-            Log::info('Refused to add a duplicate series from the API', ['title' => $title, 'url' => $url, 'existing' => $result['duplicate']->id]);
-
+        if ($outcome['result'] === AddSeries::DUPLICATE) {
             return response()->json([
-                'message' => DuplicateSeries::message($result['duplicate']),
-                'duplicate' => DuplicateSeries::describe($result['duplicate']),
+                'message' => DuplicateSeries::message($outcome['novel']),
+                'duplicate' => DuplicateSeries::describe($outcome['novel']),
             ], 409);
         }
 
-        if ($result['created']) {
-            CacheHelper::clearNovelCache($result['id']);
-            $this->queueMetadata($result['id']);
-        }
-
-        $novel = Presenter::loadNovels([$result['id']])->get($result['id']);
+        $id = (int) $outcome['novel']->id;
+        $novel = Presenter::loadNovels([$id])->get($id);
         $body = ['novel' => Presenter::summary($novel, Presenter::context())];
 
-        if (!$result['created']) {
+        if ($outcome['result'] === AddSeries::EXISTING) {
             return response()->json($body + ['already_in_library' => true]);
         }
 
         return response()->json($body + ['already_in_library' => false], 201);
     }
 
-    /**
-     * The library novel this URL already is (the same source page), else the
-     * series of the same title it would duplicate (unless forced), else a
-     * new one saved as novel:create saves it.
-     *
-     * @return array{id?: int, created?: bool, duplicate?: Novel}
-     */
-    private function findOrCreate(DuplicateSeries $duplicates, string $title, string $url, bool $force): array
+    /** Validation of a title + source URL to add (also an admin approving a request with a URL). */
+    public static function rules(): array
     {
-        // Novel or manga: decided once, by the source that claims the URL.
-        $medium = DuplicateSeries::mediumFor($url);
-
-        $existing = $duplicates->find($title, $medium, [], $url);
-        if ($existing !== null && $existing['by'] === DuplicateSeries::BY_SOURCE) {
-            return ['id' => (int) $existing['novel']->id, 'created' => false];
-        }
-        if ($existing !== null && !$force) {
-            return ['duplicate' => $existing['novel']];
-        }
-
-        $novel = new Novel();
-        $novel->name = $title;
-        $novel->translator_url = $url;
-        $novel->group_id = 1;
-        $novel->medium = $medium;
-        $novel->save();
-        if (!$novel->isManga()) {
-            $novel->inferOrigin();
-        }
-
-        return ['id' => (int) $novel->id, 'created' => true];
-    }
-
-    private function queueMetadata(int $novelId): void
-    {
-        $jobId = uniqid('cmd_', true);
-        Log::info('Queuing metadata for a novel added from the API', ['job_id' => $jobId, 'novel' => $novelId]);
-
-        try {
-            Bus::dispatch((new RunNovelCommand('novel:metadata', ['novel' => $novelId], $jobId))->onQueue('commands'));
-        } catch (\Throwable $e) {
-            // On the sync queue the job runs here and rethrows after
-            // recording its result; the novel exists either way, and its
-            // metadata can be fetched again from the novel page.
-            Log::warning("Metadata for novel {$novelId} (added from the API) failed: " . $e->getMessage());
-        }
+        return [
+            'title' => 'required|string|max:255',
+            'url' => 'required|url|max:2048',
+            'force' => 'nullable|boolean',
+        ];
     }
 }

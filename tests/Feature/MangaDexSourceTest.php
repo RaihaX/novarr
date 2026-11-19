@@ -121,6 +121,38 @@ class MangaDexSourceTest extends GoldenTestCase
         $this->assertSame([0], array_values(array_unique(array_column($toc, 'book'))), 'volumes never order a manga');
     }
 
+    public function testChapterStatsForARequestCandidate(): void
+    {
+        $fetcher = $this->fake([
+            self::feedUrl(self::SERIES, 0) => 'mangadex/feed-page-1.json',
+            self::feedUrl(self::SERIES, 500) => 'mangadex/feed-page-2.json',
+        ]);
+        $source = new MangaDexSource();
+
+        $stats = $source->chapterStats('https://mangadex.org/title/' . self::SERIES . '/chainsaw-man', ['en']);
+
+        // The TOC's chapters, the newest downloadable one's date, two feed pages.
+        $this->assertSame(['0', '1', '2', '2.5', '3', '5', '10'], array_map('strval', $stats['numbers']));
+        $this->assertSame(['en'], $stats['languages']);
+        $this->assertTrue($stats['in_preferred_language']);
+        $this->assertSame('2020-07-05T00:00:00+00:00', $stats['updated_at']);
+        $this->assertSame(2, $stats['requests']);
+        $this->assertCount(2, $fetcher->urls('json'));
+        // Nothing is written to the library, and a TOC run is not marked partial.
+        $this->assertSame(0, \App\Novel::count());
+
+        // A preferred language MangaDex is not set up for: its own languages, flagged.
+        $this->assertFalse($source->chapterStats('https://mangadex.org/title/' . self::SERIES, ['fr'])['in_preferred_language']);
+        $this->assertNull($source->chapterStats('https://example.com/not-mangadex', ['en']));
+    }
+
+    public function testChapterStatsFailIsNull(): void
+    {
+        $this->fake([self::feedUrl(self::SERIES, 0) => FakeFetcher::fail('rate_limited', 429)]);
+
+        $this->assertNull((new MangaDexSource())->chapterStats('https://mangadex.org/title/' . self::SERIES, ['en']));
+    }
+
     public function testTocRowsGoThroughTheRealSyncInChapterOrder(): void
     {
         $this->fake([

@@ -6,10 +6,12 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.CacheControl
 import okhttp3.Call
@@ -135,6 +137,90 @@ class ApiClient(
         }
     }
 
+    // Reader requests (search every source, request, the owner decides).
+    // Writes here are never queued: they need an answer now, so offline they
+    // simply fail and the screen says so.
+
+    /** Starts a search: 202 {search}. 429 (busy, running, rate limited) carries Retry-After. */
+    suspend fun startRequestSearch(query: String, medium: String): RequestSearch {
+        val body = buildJsonObject { put("q", query); put("medium", medium) }
+        return decode(SearchEnvelope.serializer(), execute(prepare("POST", "requests/searches", body = body))).search
+    }
+
+    /** One poll of a running search; 404 `search_expired` once it is gone. Never from the HTTP cache. */
+    suspend fun requestSearch(id: String): RequestSearch =
+        get("requests/searches/$id", SearchEnvelope.serializer(), fresh = true).search
+
+    /** `scope` mine | all (the admin view); `status` pending | approved | declined | available. */
+    suspend fun requests(scope: String = "mine", status: String? = null, page: Int = 1): RequestsPage {
+        val query = buildMap {
+            put("scope", scope)
+            if (status != null) put("status", status)
+            put("page", page.toString())
+        }
+        return get("requests", RequestsPage.serializer(), query = query, fresh = true)
+    }
+
+    /** Requests a search result: 201 {request}. */
+    suspend fun createRequest(searchId: String, key: String, note: String?): ReaderRequest {
+        val body = buildJsonObject {
+            put("search_id", searchId)
+            put("key", key)
+            note?.let { put("note", it) }
+        }
+        return decode(RequestEnvelope.serializer(), execute(prepare("POST", "requests", body = body))).request
+    }
+
+    /** A request typed in by hand ("Request it anyway"): 201 {request}. */
+    suspend fun createFreeTextRequest(title: String, medium: String, link: String?, note: String?): ReaderRequest {
+        val body = buildJsonObject {
+            put("title", title)
+            put("medium", medium)
+            link?.let { put("link", it) }
+            note?.let { put("note", it) }
+        }
+        return decode(RequestEnvelope.serializer(), execute(prepare("POST", "requests", body = body))).request
+    }
+
+    /** Cancels a pending request (204). */
+    suspend fun cancelRequest(id: Int) {
+        execute(prepare("DELETE", "requests/$id"))
+    }
+
+    /**
+     * Approves with a shortlist [candidate] (its `index`), or a series page
+     * [url] for a request without one. [force] adds it even though the library
+     * seems to have it (after 409 `duplicate`).
+     */
+    suspend fun approveRequest(id: Int, candidate: Int? = null, url: String? = null, title: String? = null, force: Boolean = false): ApproveResult {
+        val body = buildJsonObject {
+            candidate?.let { put("candidate", it) }
+            url?.let { put("url", it) }
+            title?.let { put("title", it) }
+            if (force) put("force", true)
+        }
+        return decode(ApproveResult.serializer(), execute(prepare("POST", "requests/$id/approve", body = body, timeout = 60)))
+    }
+
+    suspend fun declineRequest(id: Int, reason: String?): ReaderRequest {
+        val body = buildJsonObject { reason?.let { put("reason", it) } }
+        return decode(RequestEnvelope.serializer(), execute(prepare("POST", "requests/$id/decline", body = body))).request
+    }
+
+    /** Rebuilds a manga request's shortlist in the background (202). */
+    suspend fun rerankRequest(id: Int): ReaderRequest =
+        decode(RequestEnvelope.serializer(), execute(prepare("POST", "requests/$id/rerank", body = JsonObject(emptyMap())))).request
+
+    /**
+     * The notification feed after [since] (an opaque cursor; null: the last
+     * 24 hours). [reportUnauthorized] false keeps a background poll's 401
+     * from ending the session: it is simply tried again next time.
+     */
+    suspend fun notifications(since: String?, reportUnauthorized: Boolean = true): NotificationFeed {
+        val prepared = prepare("GET", "notifications", query = since?.let { mapOf("since" to it) }.orEmpty(), fresh = true)
+        return decode(NotificationFeed.serializer(), execute(prepared, reportUnauthorized = reportUnauthorized))
+    }
+
     // Accounts
 
     /** Password sign-in; `username` may also be the email. 422/429 throw Http with the server's message. */
@@ -218,14 +304,21 @@ class ApiClient(
 
     /** Runs the request; returns the body of a 2xx, throws ApiError otherwise. */
     suspend fun execute(prepared: Prepared, reportUnauthorized: Boolean = true): String {
-        val (status, body) = try {
+        val (status, body, retryAfter) = try {
             http.newCall(prepared.request).apply { timeout().timeout(prepared.timeoutSeconds, TimeUnit.SECONDS) }.await()
         } catch (e: IOException) {
             throw ApiError.from(e)
         }
         if (status !in 200..299) {
             if (status == 401 && reportUnauthorized) onUnauthorized?.invoke(token)
-            throw ApiError.Http(status, errorMessage(body))
+            val json = errorBody(body)
+            throw ApiError.Http(
+                status,
+                json?.get("message").stringOrNull(),
+                code = json?.get("code").stringOrNull(),
+                retryAfter = retryAfter,
+                body = json,
+            )
         }
         return body
     }
@@ -257,14 +350,18 @@ class ApiClient(
         }
 
         /** `{"message": "..."}` from an error body, if any. */
-        fun errorMessage(body: String): String? = runCatching {
-            NovarrJson.parseToJsonElement(body).jsonObject["message"]?.jsonPrimitive?.content
-        }.getOrNull()?.takeIf { it.isNotBlank() }
+        fun errorMessage(body: String): String? = errorBody(body)?.get("message").stringOrNull()
+
+        /** An error body as a JSON object; null for HTML, empty or malformed bodies. */
+        fun errorBody(body: String): JsonObject? = runCatching { NovarrJson.parseToJsonElement(body) as? JsonObject }.getOrNull()
+
+        private fun JsonElement?.stringOrNull(): String? =
+            (this as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content?.takeIf { it.isNotBlank() }
     }
 }
 
-/** Status and body text; the body is read on OkHttp's thread. */
-private suspend fun Call.await(): Pair<Int, String> = suspendCancellableCoroutine { cont ->
+/** Status, body text and the Retry-After header; the body is read on OkHttp's thread. */
+private suspend fun Call.await(): Triple<Int, String, String?> = suspendCancellableCoroutine { cont ->
     cont.invokeOnCancellation { cancel() }
     enqueue(object : Callback {
         override fun onFailure(call: Call, e: IOException) {
@@ -273,7 +370,7 @@ private suspend fun Call.await(): Pair<Int, String> = suspendCancellableCoroutin
 
         override fun onResponse(call: Call, response: Response) {
             val result = try {
-                response.use { it.code to (it.body.string()) }
+                response.use { Triple(it.code, it.body.string(), it.header("Retry-After")) }
             } catch (e: IOException) {
                 cont.resumeWithException(e)
                 return

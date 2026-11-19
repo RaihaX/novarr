@@ -1,0 +1,225 @@
+package studio.visns.novarr.api
+
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.nullable
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
+// Reader requests (app/Http/Controllers/Api/V1/RequestPresenter.php,
+// RequestController, RequestSearchController, NotificationController).
+// As elsewhere, only ids are required and one bad row never empties a list.
+
+/** `search.results[].sources[]`: one source that has the series. */
+@Serializable
+data class ResultSource(
+    val source: String = "",
+    @SerialName("source_name") val sourceName: String = "",
+    val chapters: Int? = null,
+    val status: String? = null,
+)
+
+/** `search.results[].requested`: someone (maybe this account) has an open request for it. */
+@Serializable
+data class ResultRequested(
+    val status: String = "pending",
+    @SerialName("by_me") val byMe: Boolean = false,
+)
+
+/** One series a search found, grouped across sources. [key] is what a request from it sends. */
+@Serializable
+data class SearchResult(
+    val key: String,
+    val title: String = "",
+    val author: String? = null,
+    @SerialName("cover_url") val coverUrl: String? = null,
+    val description: String? = null,
+    val medium: String = "novel",
+    @Serializable(with = ResultSourceList::class) val sources: List<ResultSource> = emptyList(),
+    @SerialName("in_library") val inLibrary: Boolean = false,
+    @SerialName("novel_id") val novelId: Int? = null,
+    @Serializable(with = ResultRequestedOrNull::class) val requested: ResultRequested? = null,
+)
+
+/** A source the search couldn't ask ("Couldn't reach: X, Y."). */
+@Serializable
+data class SkippedSource(
+    val source: String = "",
+    @SerialName("source_name") val sourceName: String = "",
+    val reason: String? = null,
+)
+
+/** GET /requests/searches/{id}: running → done (results) or failed (message). */
+@Serializable
+data class RequestSearch(
+    val id: String,
+    val status: String = "running",
+    val message: String? = null,
+    val query: String = "",
+    val medium: String = "novel",
+    /** Null on the wire until done; empty here. */
+    @Serializable(with = SearchResultList::class) val results: List<SearchResult> = emptyList(),
+    @SerialName("skipped_sources") @Serializable(with = SkippedSourceList::class) val skippedSources: List<SkippedSource> = emptyList(),
+) {
+    val isRunning: Boolean get() = status == "running"
+    val isDone: Boolean get() = status == "done"
+    val isFailed: Boolean get() = status == "failed"
+}
+
+@Serializable
+data class SearchEnvelope(val search: RequestSearch)
+
+@Serializable
+data class Requester(val id: Int = 0, val name: String? = null)
+
+/**
+ * One entry of a request's `candidates`. The reader view sends only source
+ * names (strings): those decode with just [sourceName] and a null [index].
+ * The admin view sends the ranked shortlist, best first, with [index] (what
+ * approve's `candidate` takes) and the ranking details.
+ */
+@Serializable
+data class RequestCandidate(
+    val index: Int? = null,
+    val source: String = "",
+    @SerialName("source_name") val sourceName: String = "",
+    val url: String = "",
+    val title: String = "",
+    val chapters: Int? = null,
+    val status: String? = null,
+    @Serializable(with = StringList::class) val languages: List<String> = emptyList(),
+    @SerialName("chapters_available") val chaptersAvailable: Int? = null,
+    @SerialName("highest_chapter") @Serializable(with = LooseString::class) val highestChapter: String? = null,
+    val gaps: Int? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+    @Serializable(with = LooseString::class) val error: String? = null,
+    @Serializable(with = LooseString::class) val reason: String? = null,
+) {
+    /** From the admin view's shortlist (approvable), not a bare source name. */
+    val isDetailed: Boolean get() = index != null
+}
+
+@Serializable
+data class ReaderRequest(
+    val id: Int,
+    val title: String = "",
+    val author: String? = null,
+    @SerialName("cover_url") val coverUrl: String? = null,
+    val description: String? = null,
+    val medium: String = "novel",
+    val note: String? = null,
+    val link: String? = null,
+    /** pending | approved | declined | available */
+    val status: String = "pending",
+    @SerialName("decline_reason") val declineReason: String? = null,
+    @SerialName("requested_by") @Serializable(with = RequesterOrNull::class) val requestedBy: Requester? = null,
+    @SerialName("novel_id") val novelId: Int? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("decided_at") val decidedAt: String? = null,
+    @SerialName("available_at") val availableAt: String? = null,
+    @Serializable(with = CandidateList::class) val candidates: List<RequestCandidate> = emptyList(),
+    @SerialName("candidates_ranked_at") val candidatesRankedAt: String? = null,
+    @SerialName("can_decide") val canDecide: Boolean = false,
+    @SerialName("can_cancel") val canCancel: Boolean = false,
+) {
+    val isManga: Boolean get() = medium == "manga"
+}
+
+@Serializable
+data class RequestEnvelope(val request: ReaderRequest)
+
+/** GET /requests. [pendingLimit] is null in the admin view (no limit). */
+@Serializable
+data class RequestsPage(
+    @Serializable(with = ReaderRequestList::class) val requests: List<ReaderRequest> = emptyList(),
+    val page: Int = 1,
+    @SerialName("has_more") val hasMore: Boolean = false,
+    @SerialName("can_decide") val canDecide: Boolean = false,
+    @SerialName("pending_limit") val pendingLimit: Int? = null,
+)
+
+@Serializable
+data class ApproveResult(
+    @Serializable(with = ReaderRequestOrNull::class) val request: ReaderRequest? = null,
+    @SerialName("novel_id") val novelId: Int? = null,
+    val created: Boolean = false,
+)
+
+/** One item of the notification feed. kind: request_new | request_approved | request_declined | request_available. */
+@Serializable
+data class FeedItem(
+    val id: Long,
+    val kind: String = "",
+    val title: String = "",
+    val body: String = "",
+    @SerialName("request_id") val requestId: Int? = null,
+    @SerialName("novel_id") val novelId: Int? = null,
+    val at: String? = null,
+)
+
+/** GET /notifications?since=: always store [cursor] for the next call. */
+@Serializable
+data class NotificationFeed(
+    val cursor: String? = null,
+    @SerialName("has_more") val hasMore: Boolean = false,
+    @Serializable(with = FeedItemList::class) val items: List<FeedItem> = emptyList(),
+)
+
+object ResultSourceList : LossyListSerializer<ResultSource>(ResultSource.serializer())
+object SearchResultList : LossyListSerializer<SearchResult>(SearchResult.serializer())
+object SkippedSourceList : LossyListSerializer<SkippedSource>(SkippedSource.serializer())
+object ReaderRequestList : LossyListSerializer<ReaderRequest>(ReaderRequest.serializer())
+object FeedItemList : LossyListSerializer<FeedItem>(FeedItem.serializer())
+object ResultRequestedOrNull : OrNullSerializer<ResultRequested>(ResultRequested.serializer())
+object RequesterOrNull : OrNullSerializer<Requester>(Requester.serializer())
+object ReaderRequestOrNull : OrNullSerializer<ReaderRequest>(ReaderRequest.serializer())
+
+/**
+ * `candidates` in either shape: strings (reader view: source names) or
+ * objects (admin view: the ranked shortlist). Anything else is skipped.
+ */
+object CandidateList : KSerializer<List<RequestCandidate>> {
+    private val strict = ListSerializer(RequestCandidate.serializer())
+    override val descriptor: SerialDescriptor = strict.descriptor
+
+    override fun deserialize(decoder: Decoder): List<RequestCandidate> {
+        val json = decoder as? JsonDecoder ?: return strict.deserialize(decoder)
+        val array = json.decodeJsonElement() as? JsonArray ?: return emptyList()
+        return array.mapNotNull { item ->
+            when (item) {
+                is JsonObject -> runCatching { json.json.decodeFromJsonElement(RequestCandidate.serializer(), item) }.getOrNull()
+                is JsonPrimitive -> item.takeIf { it !is JsonNull && it.content.isNotBlank() }?.let { RequestCandidate(sourceName = it.content) }
+                else -> null
+            }
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: List<RequestCandidate>) = strict.serialize(encoder, value)
+}
+
+/** A string, number or boolean as text; null for null, objects and arrays. */
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+object LooseString : KSerializer<String?> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("LooseString", PrimitiveKind.STRING).nullable
+
+    override fun deserialize(decoder: Decoder): String? {
+        val json = decoder as? JsonDecoder ?: return decoder.decodeString()
+        val element = json.decodeJsonElement()
+        return (element as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content
+    }
+
+    override fun serialize(encoder: Encoder, value: String?) {
+        if (value == null) encoder.encodeNull() else String.serializer().serialize(encoder, value)
+    }
+}

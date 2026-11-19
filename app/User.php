@@ -73,6 +73,11 @@ class User extends Authenticatable
             ApiToken::where('user_id', $user->id)->delete();
             DevicePairing::where('user_id', $user->id)->delete();
             UserInvite::where('user_id', $user->id)->delete();
+            // Their requests (and the feed items about them) go too.
+            $requestIds = NovelRequest::where('user_id', $user->id)->pluck('id');
+            RequestNotification::whereIn('novel_request_id', $requestIds)->delete();
+            RequestNotification::where('user_id', $user->id)->delete();
+            NovelRequest::whereIn('id', $requestIds)->delete();
         });
     }
 

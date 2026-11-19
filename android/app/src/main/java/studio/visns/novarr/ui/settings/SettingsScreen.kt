@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -26,6 +27,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -43,10 +45,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import studio.visns.novarr.BuildConfig
+import studio.visns.novarr.app.Notifications
 import studio.visns.novarr.app.Session
 import studio.visns.novarr.store.OfflineStore
 import studio.visns.novarr.ui.ChangeServerRoute
@@ -55,6 +59,8 @@ import studio.visns.novarr.ui.ReaderSettingsRoute
 import studio.visns.novarr.ui.components.LocalApp
 import studio.visns.novarr.ui.components.UpdateRow
 import studio.visns.novarr.ui.components.formatBytes
+import studio.visns.novarr.ui.components.openNotificationSettings
+import studio.visns.novarr.ui.components.rememberNotificationPermissionRequest
 import studio.visns.novarr.ui.components.readableWidth
 import studio.visns.novarr.ui.theme.success
 import studio.visns.novarr.ui.theme.warning
@@ -87,6 +93,24 @@ fun SettingsScreen(nav: NavController) {
         totalBytes = (active?.store?.totalSize() ?: 0) + images
     }
     val update by app.availableUpdate.collectAsStateWithLifecycle(null)
+    LaunchedEffect(update) { update?.let(app::updateShown) }
+    val context = LocalContext.current
+    val notifyUpdates by app.prefs.updateNotifications.collectAsStateWithLifecycle(true)
+    val notifyRequests by app.prefs.requestNotifications.collectAsStateWithLifecycle(true)
+    val requestsOffered by app.requestsOffered.collectAsStateWithLifecycle()
+    // Re-read on every return: the user may have changed them in Android's settings (each channel can be muted).
+    var notificationsAllowed by remember { mutableStateOf(Notifications.canPost(context, Notifications.NotifyChannel.APP_UPDATES)) }
+    var requestNotificationsAllowed by remember { mutableStateOf(Notifications.canPost(context, Notifications.NotifyChannel.REQUESTS)) }
+    fun recheckNotifications() {
+        notificationsAllowed = Notifications.canPost(context, Notifications.NotifyChannel.APP_UPDATES)
+        requestNotificationsAllowed = Notifications.canPost(context, Notifications.NotifyChannel.REQUESTS)
+    }
+    LifecycleResumeEffect(Unit) {
+        recheckNotifications()
+        onPauseOrDispose {}
+    }
+    // One permission prompt for both switches.
+    val askNotifications = rememberNotificationPermissionRequest { recheckNotifications() }
     // Always on opening Settings: server version, sign-in switch and a newer app build.
     LaunchedEffect(Unit) { app.refreshMeta() }
     LaunchedEffect(downloadRevision) { measure() }
@@ -121,6 +145,32 @@ fun SettingsScreen(nav: NavController) {
 
                 Section("Reading")
                 Link("Reader defaults", chevron = true) { nav.navigate(ReaderSettingsRoute) }
+
+                Section("Notifications")
+                // Shows off while Android blocks them, whatever the saved choice.
+                SwitchRow("Notify me about app updates", notifyUpdates && notificationsAllowed) { on ->
+                    app.setUpdateNotifications(on)
+                    if (on && !notificationsAllowed) askNotifications()
+                }
+                if (notifyUpdates && !notificationsAllowed) {
+                    Note("Notifications from Novarr are blocked in Android's settings, so new versions only show here and on Home.")
+                    Link("Open notification settings") { openNotificationSettings(context) }
+                } else {
+                    Note("Checks your server for a newer Novarr about twice a day, even while the app is closed.")
+                }
+                // Only on servers that take requests.
+                if (requestsOffered) {
+                    SwitchRow("Notify me about requests", notifyRequests && requestNotificationsAllowed) { on ->
+                        app.setRequestNotifications(on)
+                        if (on && !requestNotificationsAllowed) askNotifications()
+                    }
+                    if (notifyRequests && !requestNotificationsAllowed) {
+                        Note("Request notifications are blocked in Android's settings, so news about requests only shows as a dot on Requests.")
+                        if (!(notifyUpdates && !notificationsAllowed)) Link("Open notification settings") { openNotificationSettings(context) }
+                    } else {
+                        Note("New requests to review, and the owner's decisions on yours. Checked about once an hour while the app is closed.")
+                    }
+                }
 
                 Section("Offline")
                 Link("Downloads", trailing = offlineBytes?.let(::formatBytes) ?: "…", chevron = true) { nav.navigate(DownloadsRoute) }
@@ -227,6 +277,21 @@ private fun Link(title: String, trailing: String? = null, chevron: Boolean = fal
         Text(title, style = MaterialTheme.typography.bodyLarge, color = if (chevron) MaterialTheme.colorScheme.onSurface else color, modifier = Modifier.weight(1f))
         trailing?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (chevron) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 

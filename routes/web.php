@@ -111,6 +111,14 @@ Route::get('/discover/cover', [\App\Http\Controllers\DiscoverCoverController::cl
     ->withoutMiddleware($sessionless)
     ->name('discover.cover');
 
+// Reader requests: the page (its data comes from /api/v1/requests…).
+Route::get('/requests', [\App\Http\Controllers\RequestsPageController::class, 'index'])->name('requests.index');
+
+// Covers in reader-request results: signed URLs only (RequestCoverController).
+Route::get('/requests/cover', [\App\Http\Controllers\RequestCoverController::class, 'cover'])
+    ->withoutMiddleware($sessionless)
+    ->name('requests.cover');
+
 // Commands (status route BEFORE wildcard {command})
 Route::get('/commands', [CommandController::class, 'index'])->name('commands.index');
 Route::post('/commands/execute', [CommandController::class, 'execute'])->name('commands.execute');

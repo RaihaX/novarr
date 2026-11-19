@@ -12,7 +12,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +34,8 @@ import studio.visns.novarr.api.ServerMeta
 import studio.visns.novarr.api.ServerUrl
 import studio.visns.novarr.api.rethrowIfCancellation
 import studio.visns.novarr.domain.AppUpdate
+import studio.visns.novarr.domain.RequestFeed
+import studio.visns.novarr.domain.Requests
 import studio.visns.novarr.store.AppPrefs
 import studio.visns.novarr.store.Credential
 import studio.visns.novarr.store.CredentialStore
@@ -127,8 +133,32 @@ class AppModel(private val context: Context) {
 
     val active: Session.Active? get() = _session.value as? Session.Active
 
+    /** A tapped notification asked for Home; MainNavigation goes there and clears it. */
+    private val _openHome = MutableStateFlow(false)
+    val openHomeRequest: StateFlow<Boolean> = _openHome.asStateFlow()
+
+    /** The request notification feed (background, foreground and the Requests screen). */
+    val requestFeed = RequestFeedSync(context, prefs)
+
+    /** Whether the current server offers reader requests (its last meta; saved, so known offline). */
+    private val _requestsOffered = MutableStateFlow(false)
+    val requestsOffered: StateFlow<Boolean> = _requestsOffered.asStateFlow()
+
+    /** A tapped request notification asked for the Requests screen; MainNavigation goes there and clears it. */
+    private val _openRequests = MutableStateFlow<RequestFeed.Target?>(null)
+    val openRequestsRequest: StateFlow<RequestFeed.Target?> = _openRequests.asStateFlow()
+
+    /** The Requests screen's search, per session (Session.Active.id), so it survives leaving the screen. */
+    var requestSearchMemory: Pair<String, Requests.SearchMemory>? = null
+
     init {
         updater.cleanUp()
+        Notifications.ensureChannels(context)
+        scope.launch {
+            clearInstalledUpdateNotice()
+            // KEEP: a schedule that already exists keeps its timing.
+            BackgroundChecks.sync(context, prefs)
+        }
         scope.launch {
             val (identity, isNew) = DeviceIdentity.resolve(prefs.deviceId(), deviceName())
             if (isNew) prefs.setDeviceId(identity.id)
@@ -138,6 +168,7 @@ class AppModel(private val context: Context) {
                 metaRefreshing = false
                 _session.value = Session.NoServer
             } else {
+                _requestsOffered.value = prefs.requestsOffered(server) == true
                 configure(server, notice = null)
                 // Learn whether the server now wants a sign-in (it may have turned auth on
                 // since last time) and whether it publishes a newer app.
@@ -156,6 +187,8 @@ class AppModel(private val context: Context) {
         _meta.value = meta
         metaFetchedAt = System.currentTimeMillis()
         _reachable.value = true
+        _requestsOffered.value = meta.requests
+        noteRequestsOffered(server, meta.requests)
         configure(server, notice = null)
     }
 
@@ -186,6 +219,8 @@ class AppModel(private val context: Context) {
         // goes away with the session change, and a flush cancelled between a
         // write's send and its removal would send it twice.
         scope.launch { flushWrites() }
+        // Just signed in: request news for this account, as the dot on Requests.
+        pollRequestFeed()
     }
 
     /** Ends the session without touching anything on disk: the queue file stays for the next sign-in. */
@@ -228,6 +263,8 @@ class AppModel(private val context: Context) {
             metaRefreshing = false
         }
         refreshAccount()
+        // Launch (or Settings): anything new since last time, as the dot on Requests.
+        pollRequestFeed()
     }
 
     /**
@@ -256,10 +293,121 @@ class AppModel(private val context: Context) {
         scope.launch { prefs.setDismissedUpdateBuild(build) }
     }
 
+    /**
+     * The banner or Settings row is showing [release]: a notification about it
+     * goes, and the background check won't post one for this build later.
+     */
+    fun updateShown(release: AndroidRelease) {
+        Notifications.cancel(context, Notifications.APP_UPDATE_ID)
+        val build = release.build ?: return
+        scope.launch { prefs.noteUpdateNotified(build) }
+    }
+
+    /** After an update installed: the "newer version" notification for that build (or an older one) goes. */
+    suspend fun clearInstalledUpdateNotice() {
+        val notified = prefs.notifiedUpdateBuild() ?: return
+        if (notified <= BuildConfig.VERSION_CODE) Notifications.cancel(context, Notifications.APP_UPDATE_ID)
+    }
+
+    /** Settings' "Notify me about app updates": schedules or cancels the background check. */
+    fun setUpdateNotifications(on: Boolean) = scope.launch {
+        prefs.setUpdateNotifications(on)
+        if (!on) Notifications.cancel(context, Notifications.APP_UPDATE_ID)
+        BackgroundChecks.sync(context, prefs)
+    }
+
+    /**
+     * Whether Home should ask for the notification permission now: Android
+     * 13+, not granted, the switch on, and never asked before (asking counts
+     * as asked, whatever the answer).
+     */
+    suspend fun takeNotificationPermissionPrompt(): Boolean {
+        if (!Notifications.needsPermission(context)) return false
+        val wanted = prefs.updateNotifications.first() || (_requestsOffered.value && prefs.requestNotifications.first())
+        if (!wanted || prefs.notificationPermissionAsked()) return false
+        prefs.setNotificationPermissionAsked()
+        return true
+    }
+
+    // Reader requests
+
+    /**
+     * The server's offer of requests, from a meta answer: saved per server
+     * (so the hourly worker and an offline launch know it), and the
+     * background work rescheduled when it changed.
+     */
+    suspend fun noteRequestsOffered(server: String, offered: Boolean) {
+        if (server == currentServer) _requestsOffered.value = offered
+        if (prefs.requestsOffered(server) == offered) return
+        prefs.setRequestsOffered(server, offered)
+        BackgroundChecks.sync(context, prefs)
+    }
+
+    /** Settings' "Notify me about requests": the worker runs hourly while it is on. */
+    fun setRequestNotifications(on: Boolean) = scope.launch {
+        prefs.setRequestNotifications(on)
+        BackgroundChecks.sync(context, prefs)
+    }
+
+    /** The signed-in account is the owner (always, with sign-in off). */
+    val isAdmin: Boolean
+        get() = active?.let { it.account == null || it.account.user.role.equals("admin", ignoreCase = true) } == true
+
+    /** Unseen feed items for this session: the dot on the Requests entry. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val requestsUnseen: Flow<Int> = _session.flatMapLatest { session ->
+        if (session is Session.Active) prefs.requestsUnseen(RequestFeedSync.scope(session)) else flowOf(0)
+    }
+
+    /**
+     * In the foreground (back in the app, launch, the Requests screen):
+     * reads the feed into the dot. Silent on failure; the next one tries again.
+     */
+    fun pollRequestFeed() {
+        val session = active ?: return
+        if (!_requestsOffered.value) return
+        scope.launch {
+            // Started in the background (by the worker), the worker reads the feed itself, quietly on a 401.
+            if (!inForeground()) return@launch
+            try {
+                requestFeed.poll(session, session.client, reportUnauthorized = true)
+            } catch (e: Exception) {
+                e.rethrowIfCancellation()
+            }
+        }
+    }
+
+    /** The Requests screen is showing ([visible]) or went away: it clears the dot and the notifications while open. */
+    fun requestsScreenVisible(visible: Boolean) {
+        requestFeed.screenVisible = visible
+        if (!visible) return
+        Notifications.cancelRequests(context)
+        val session = active ?: return
+        scope.launch { prefs.clearRequestsUnseen(RequestFeedSync.scope(session)) }
+        pollRequestFeed()
+    }
+
+    fun openRequests(target: RequestFeed.Target) {
+        _openRequests.value = target
+    }
+
+    fun requestsOpened() {
+        _openRequests.value = null
+    }
+
+    fun requestHome() {
+        _openHome.value = true
+    }
+
+    fun homeOpened() {
+        _openHome.value = false
+    }
+
     /** Follows the server's sign-in switch: on → sign in (or keep the session); off → no accounts at all. */
     private suspend fun apply(meta: ServerMeta, server: String) {
         _meta.value = meta
         prefs.setAuthRequired(server, meta.requiresSignIn)
+        noteRequestsOffered(server, meta.requests)
         val session = _session.value
         if (meta.requiresSignIn) {
             if (session is Session.Active && session.account == null) {

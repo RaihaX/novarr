@@ -120,6 +120,17 @@ final class RouteAccess
         'api.v1.highlights',
         'api.v1.highlights.store',
         'api.v1.highlights.destroy',
+        // Reader requests: the page, search, request, cancel own, the notification feed
+        'requests.index',
+        'api.v1.requests.searches.store',
+        'api.v1.requests.searches.show',
+        'api.v1.requests',
+        'api.v1.requests.show',
+        'api.v1.requests.store',
+        'api.v1.requests.destroy', // own pending only, per RequestController::destroy()
+        'api.v1.notifications',
+        // Covers in request results: only through a URL the server signed
+        'requests.cover',
     ];
 
     /**
@@ -143,6 +154,7 @@ final class RouteAccess
         'settings.users.invites.store', 'settings.users.invites.resend', 'settings.users.invites.destroy',
         'api.v1.discover', 'api.v1.discover.browse', 'api.v1.discover.searches.store', 'api.v1.discover.searches.show',
         'api.v1.novels.store',
+        'api.v1.requests.approve', 'api.v1.requests.decline', 'api.v1.requests.rerank',
     ];
 
     /**
@@ -150,7 +162,7 @@ final class RouteAccess
      * authorised by a signed URL that names the reader (App\Support\SignedUrls),
      * so <img> tags and the iOS app load them without headers.
      */
-    public const SIGNED_ROUTES = ['chapters.page', 'discover.cover'];
+    public const SIGNED_ROUTES = ['chapters.page', 'discover.cover', 'requests.cover'];
 
     /** Routes that also accept HTTP Basic (username + password): ereader OPDS clients. */
     public const BASIC_ROUTES = ['opds.index', 'novels.download_epub'];

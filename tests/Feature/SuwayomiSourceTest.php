@@ -178,6 +178,32 @@ class SuwayomiSourceTest extends GoldenTestCase
         $this->assertSame([0], array_values(array_unique(array_column($toc, 'book'))));
     }
 
+    public function testChapterStatsForARequestCandidate(): void
+    {
+        $fetcher = $this->graphql([SuwayomiSource::MUTATION_FETCH_CHAPTERS => 'suwayomi/fetch-chapters.json']);
+        $source = new SuwayomiSource(self::MANGAPILL, 'MangaPill', 'en');
+
+        $stats = $source->chapterStats(self::SERIES, ['en']);
+
+        $this->assertSame([[SuwayomiSource::MUTATION_FETCH_CHAPTERS, ['input' => ['mangaId' => 2132]], 90]], self::gqlCalls($fetcher));
+        $this->assertSame(['0', '1', '2', '2.5', '3', '4'], array_map('strval', $stats['numbers']));
+        $this->assertSame(['en'], $stats['languages']);
+        $this->assertTrue($stats['in_preferred_language']);
+        $this->assertSame('2026-11-17T08:45:06+00:00', $stats['updated_at']);
+        $this->assertSame(1, $stats['requests']);
+
+        // A source in another language counts as not preferred.
+        $this->assertFalse((new SuwayomiSource(self::MANGAPILL, 'MangaPill', 'fr'))->chapterStats(self::SERIES, ['en'])['in_preferred_language']);
+        $this->assertNull($source->chapterStats('https://elsewhere.example/manga/1', ['en']));
+    }
+
+    public function testChapterStatsFailureIsNull(): void
+    {
+        $this->graphql([SuwayomiSource::MUTATION_FETCH_CHAPTERS => 'suwayomi/error.json']);
+
+        $this->assertNull((new SuwayomiSource())->chapterStats(self::SERIES, ['en']));
+    }
+
     public function testChapterTitle(): void
     {
         $this->assertSame('', SuwayomiSource::chapterTitle('Chapter 12', '12'));

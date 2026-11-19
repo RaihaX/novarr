@@ -59,7 +59,21 @@ class AppServiceProvider extends ServiceProvider
                 // No database / no owner yet (a page rendered without one).
                 $readerId = $ownerId = null;
             }
+            // Reader requests: a nav entry for everyone while the feature is
+            // on; the admin (at home) also gets the pending count, one cached
+            // query (App\Services\Requests\Requests::pendingCount()).
+            $requestsOn = (bool) config('novarr.requests.enabled', true) && !($authOn && $reader->isGuest());
+            $requestsPending = null;
+            if ($requestsOn && Gate::allows('admin')) {
+                try {
+                    $requestsPending = \App\Services\Requests\Requests::pendingCount();
+                } catch (\Illuminate\Database\QueryException $e) {
+                    $requestsPending = null; // not migrated yet: no badge
+                }
+            }
             $view->with([
+                'requestsOn' => $requestsOn,
+                'requestsPending' => $requestsPending,
                 'authOn' => $authOn,
                 // The signed-in account (sign-in on), else null.
                 'navUser' => $authOn && !$reader->isGuest() ? $reader->user() : null,

@@ -5,6 +5,7 @@ import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.JsonObject
 
 /** Everything a call to the server can fail with, with the message the UI shows. */
 sealed class ApiError(message: String) : Exception(message) {
@@ -13,7 +14,19 @@ sealed class ApiError(message: String) : Exception(message) {
     /** The request never got an HTTP response (no route, DNS, refused, offline...). */
     data class Unreachable(val reason: String) : ApiError(reason)
     data object TimedOut : ApiError("timed out")
-    data class Http(val status: Int, val serverMessage: String?) : ApiError("HTTP $status")
+    /**
+     * A non-2xx answer. [code] is the body's machine-readable `code` (the
+     * requests API's `search_busy`, `duplicate`, ...), [retryAfter] the raw
+     * Retry-After header, and [body] the parsed JSON body for any extra
+     * fields (`novel_id`, `duplicate`); all null when the server sent none.
+     */
+    data class Http(
+        val status: Int,
+        val serverMessage: String?,
+        val code: String? = null,
+        val retryAfter: String? = null,
+        val body: JsonObject? = null,
+    ) : ApiError("HTTP $status")
     data class Decoding(val reason: String) : ApiError(reason)
     data object NotNovarr : ApiError("not novarr")
     data class ApiTooOld(val serverVersion: Int, val required: Int) : ApiError("api too old")

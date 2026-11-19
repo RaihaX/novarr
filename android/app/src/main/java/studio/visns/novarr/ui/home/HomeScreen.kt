@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -58,6 +59,8 @@ import studio.visns.novarr.app.AppModel
 import studio.visns.novarr.store.OfflineStore
 import studio.visns.novarr.ui.NovelRoute
 import studio.visns.novarr.ui.ReaderRoute
+import studio.visns.novarr.ui.RequestsRoute
+import studio.visns.novarr.ui.components.RequestsIcon
 import studio.visns.novarr.ui.components.isWide
 import studio.visns.novarr.ui.components.CenteredProgress
 import studio.visns.novarr.ui.components.Cover
@@ -67,6 +70,7 @@ import studio.visns.novarr.ui.components.OfflinePill
 import studio.visns.novarr.ui.components.ProgressLine
 import studio.visns.novarr.ui.components.readableWidth
 import studio.visns.novarr.ui.components.UpdateBanner
+import studio.visns.novarr.ui.components.rememberNotificationPermissionRequest
 
 class HomeViewModel(private val app: AppModel) : ViewModel() {
     var feed by mutableStateOf<HomeFeed?>(null)
@@ -113,12 +117,31 @@ fun HomeScreen(nav: NavController) {
     LaunchedEffect(revision) { model.refreshIfStale() }
     LaunchedEffect(Unit) { app.refreshMetaIfDue() }
     val update by app.updateBanner.collectAsStateWithLifecycle(null)
+    // On screen now: the notification about it goes, and won't come back for this build.
+    LaunchedEffect(update) { update?.let(app::updateShown) }
+    // Android 13+: asks once for notifications, here (connected, signed in) rather than at a cold start.
+    // Denied, Settings explains how to turn them on.
+    val askNotifications = rememberNotificationPermissionRequest()
+    LaunchedEffect(Unit) { if (app.takeNotificationPermissionPrompt()) askNotifications() }
     val wide = isWide()
     val scroll = TopAppBarDefaults.pinnedScrollBehavior()
+    val requestsOffered by app.requestsOffered.collectAsStateWithLifecycle()
+    val unseenRequests by app.requestsUnseen.collectAsStateWithLifecycle(0)
 
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        topBar = { TopAppBar(title = { Text("Home") }, scrollBehavior = scroll) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Home") },
+                actions = {
+                    // Phones: Requests lives here; tablets have it in the rail.
+                    if (requestsOffered && !wide) {
+                        IconButton(onClick = { nav.navigate(RequestsRoute()) }) { RequestsIcon(unseenRequests) }
+                    }
+                },
+                scrollBehavior = scroll,
+            )
+        },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = model.refreshing,

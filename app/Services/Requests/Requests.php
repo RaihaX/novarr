@@ -1,0 +1,419 @@
+<?php
+
+namespace App\Services\Requests;
+
+use App\Jobs\RankRequestCandidates;
+use App\Novel;
+use App\NovelRequest;
+use App\RequestNotification;
+use App\Services\AddSeries;
+use App\Services\Discover;
+use App\Services\DuplicateSeries;
+use App\Services\NovelCheck;
+use App\User;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+
+/**
+ * Making and deciding reader requests (App\NovelRequest). The API
+ * (Api\V1\RequestController) validates input; every rule lives here and a
+ * refusal is a RequestRefused (status, message, code).
+ *
+ * A request made from a search names the server's own search record and a
+ * result key: its candidates are copied from that record, never from the
+ * client. A free-text request keeps a title, an optional link and note as
+ * plain text; the link is never fetched.
+ *
+ * Approving adds the series through AddSeries (as POST /api/v1/novels
+ * does), then starts the chapter check (NovelCheck) so chapters download.
+ */
+class Requests
+{
+    public const CREATE_LOCK = 'novel_requests_create_lock';
+
+    public const SEARCH_EXPIRED = 'This search has expired. Search again.';
+
+    /** The admin's "N pending" nav badge (pendingCount()); forgotten on every change. */
+    public const PENDING_COUNT_CACHE = 'requests_pending_count';
+
+    public function __construct(
+        private RequestSearch $searches,
+        private Discover $discover,
+        private RequestNotifier $notifier,
+    ) {
+    }
+
+    public static function maxPending(): int
+    {
+        return max(1, (int) config('novarr.requests.max_pending_per_reader', 5));
+    }
+
+    /**
+     * Pending requests from everyone: the admin's nav badge. One cached
+     * count query, forgotten whenever a request is made, decided or removed
+     * (and expiring on its own, should a change bypass this class).
+     */
+    public static function pendingCount(): int
+    {
+        return (int) Cache::remember(self::PENDING_COUNT_CACHE, 600, fn() => (int) NovelRequest::query()->toBase()
+            ->where('status', NovelRequest::STATUS_PENDING)
+            ->selectRaw('count(*) as pending_count')
+            ->value('pending_count'));
+    }
+
+    public static function forgetPendingCount(): void
+    {
+        Cache::forget(self::PENDING_COUNT_CACHE);
+    }
+
+    public static function maxCandidates(): int
+    {
+        return max(1, (int) config('novarr.requests.max_candidates', 8));
+    }
+
+    /**
+     * A request for one result of the caller's search.
+     *
+     * @throws RequestRefused
+     */
+    public function createFromSearch(User $user, string $searchId, string $key, ?string $note): NovelRequest
+    {
+        $search = $this->searches->find($searchId);
+        if ($search === null) {
+            throw new RequestRefused(410, self::SEARCH_EXPIRED, 'search_expired');
+        }
+        if ((int) $search['user_id'] !== (int) $user->id && !$user->isAdmin()) {
+            throw new RequestRefused(410, self::SEARCH_EXPIRED, 'search_expired');
+        }
+        if ($search['status'] === 'running') {
+            throw new RequestRefused(409, "The search hasn't finished yet.", 'search_running');
+        }
+        if ($search['status'] !== 'done') {
+            throw new RequestRefused(410, 'This search failed. Search again.', 'search_expired');
+        }
+
+        $group = null;
+        foreach ((array) ($search['groups'] ?? []) as $candidate) {
+            if (($candidate['key'] ?? null) === $key) {
+                $group = $candidate;
+                break;
+            }
+        }
+        if ($group === null) {
+            throw new RequestRefused(422, 'That result is not part of this search.', 'unknown_result');
+        }
+
+        // The server's own hits, one per source, in search order.
+        $candidates = [];
+        foreach (array_slice((array) $group['hits'], 0, static::maxCandidates()) as $hit) {
+            $candidates[] = [
+                'source' => (string) $hit['source'],
+                'source_name' => (string) $hit['source_name'],
+                'url' => (string) $hit['url'],
+                'title' => (string) $hit['title'],
+                'cover_url' => $hit['cover_url'] ?? null,
+                'chapters' => $hit['chapters'] ?? null,
+                'status' => $hit['status'] ?? null,
+            ];
+        }
+
+        return $this->create($user, [
+            'medium' => (string) $search['medium'],
+            'title' => (string) $group['title'],
+            'author' => $group['author'] ?? null,
+            'cover_url' => $group['cover_url'] ?? null,
+            'description' => $group['description'] ?? null,
+            'note' => $note,
+            'link' => null,
+            'candidates' => $candidates,
+        ]);
+    }
+
+    /**
+     * A request for something no search found: plain text for the owner.
+     *
+     * @throws RequestRefused
+     */
+    public function createFreeText(User $user, string $title, string $medium, ?string $link, ?string $note): NovelRequest
+    {
+        return $this->create($user, [
+            'medium' => $medium,
+            'title' => $title,
+            'author' => null,
+            'cover_url' => null,
+            'description' => null,
+            'note' => $note,
+            'link' => $link,
+            'candidates' => [],
+        ]);
+    }
+
+    /** @throws RequestRefused */
+    private function create(User $user, array $fields): NovelRequest
+    {
+        $fields['title'] = trim((string) $fields['title']);
+        $fields['note'] = static::clean($fields['note'] ?? null);
+        $fields['link'] = static::clean($fields['link'] ?? null);
+        $normalized = Discover::normalizeName($fields['title']);
+        if ($normalized === '') {
+            throw new RequestRefused(422, 'Give the title of the series.', 'invalid_title');
+        }
+
+        try {
+            $request = Cache::lock(self::CREATE_LOCK, 10)->block(5, function () use ($user, $fields, $normalized) {
+                $this->refuseIfInLibrary($fields);
+                $this->refuseIfRequested($user, $normalized, $fields['medium']);
+
+                if (!$user->isAdmin()
+                    && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)->count() >= static::maxPending()) {
+                    throw new RequestRefused(429, 'You have ' . static::maxPending() . ' requests waiting already. Wait for the owner to decide on one, or cancel one.', 'pending_limit', ['limit' => static::maxPending()]);
+                }
+
+                return NovelRequest::create([
+                    'user_id' => (int) $user->id,
+                    'medium' => $fields['medium'],
+                    'title' => mb_substr($fields['title'], 0, 255),
+                    'normalized_title' => mb_substr($normalized, 0, 255),
+                    'author' => $fields['author'] !== null ? mb_substr(trim((string) $fields['author']), 0, 255) ?: null : null,
+                    'cover_url' => $fields['cover_url'],
+                    'description' => $fields['description'],
+                    'note' => $fields['note'],
+                    'link' => $fields['link'],
+                    'status' => NovelRequest::STATUS_PENDING,
+                    'candidates' => $fields['candidates'],
+                ]);
+            });
+        } catch (LockTimeoutException) {
+            throw new RequestRefused(503, 'Another request is being made right now. Try again in a moment.', 'busy');
+        }
+
+        static::forgetPendingCount();
+        $this->notify(fn() => $this->notifier->created($request), $request);
+
+        if ($request->medium === Novel::MEDIUM_MANGA && $request->candidateList() !== []) {
+            $this->queueRanking($request);
+        }
+
+        return $request;
+    }
+
+    /** @throws RequestRefused 409 in_library */
+    private function refuseIfInLibrary(array $fields): void
+    {
+        $library = $this->discover->libraryIndex();
+        $match = null;
+        foreach ($fields['candidates'] as $candidate) {
+            $match = $this->discover->libraryMatch(['name' => $candidate['title'], 'url' => $candidate['url']], $library, $fields['medium']);
+            if ($match !== null) {
+                break;
+            }
+        }
+        $match ??= app(DuplicateSeries::class)->match($library, $fields['medium'], [$fields['title']]);
+
+        if ($match !== null) {
+            $novel = Novel::find($match['id']);
+            throw new RequestRefused(409, $novel !== null ? DuplicateSeries::message($novel) : 'This series is already in the library.', 'in_library', ['novel_id' => (int) $match['id']]);
+        }
+    }
+
+    /** @throws RequestRefused 409 already_requested */
+    private function refuseIfRequested(User $user, string $normalized, string $medium): void
+    {
+        $open = NovelRequest::where('normalized_title', $normalized)
+            ->where('medium', $medium)
+            ->whereIn('status', NovelRequest::OPEN_STATUSES)
+            ->orderByRaw('CASE WHEN user_id = ? THEN 0 ELSE 1 END', [(int) $user->id])
+            ->first();
+        if ($open === null) {
+            return;
+        }
+
+        $mine = (int) $open->user_id === (int) $user->id;
+        $state = $open->status === NovelRequest::STATUS_PENDING ? 'waiting for a decision' : 'already approved';
+        $message = $mine ? "You have already requested this ({$state})." : "Someone has already requested this ({$state}).";
+
+        throw new RequestRefused(409, $message, 'already_requested', [
+            'by_me' => $mine,
+            'status' => $open->displayStatus(),
+            'request_id' => $mine ? (int) $open->id : null,
+        ]);
+    }
+
+    /**
+     * Approve a pending request: add the series and start downloading.
+     * $data: candidate (index into the shortlist), force, url + title (an
+     * admin-supplied source), novel_id (a series the admin added).
+     *
+     * @return array{request: NovelRequest, novel: Novel, created: bool}
+     *
+     * @throws RequestRefused
+     */
+    public function approve(NovelRequest $request, User $admin, array $data): array
+    {
+        if (!$request->isPending()) {
+            throw new RequestRefused(409, 'Only a pending request can be approved.', 'not_pending', ['status' => $request->displayStatus()]);
+        }
+
+        if (isset($data['novel_id'])) {
+            $novel = Novel::find((int) $data['novel_id']);
+            if ($novel === null) {
+                throw new RequestRefused(422, 'That series is not in the library.', 'unknown_novel');
+            }
+
+            return ['request' => $this->markApproved($request, $admin, $novel), 'novel' => $novel, 'created' => false];
+        }
+
+        if (isset($data['url'])) {
+            $title = trim((string) ($data['title'] ?? '')) ?: (string) $request->title;
+            $url = (string) $data['url'];
+        } else {
+            $candidates = $request->candidateList();
+            if ($candidates === []) {
+                throw new RequestRefused(422, 'This request has no source to add it from. Send the url of the series (and a title), or the novel_id of a series you added yourself.', 'needs_source');
+            }
+            $index = (int) ($data['candidate'] ?? 0);
+            if (!isset($candidates[$index])) {
+                throw new RequestRefused(422, 'There is no candidate ' . $index . ' on this request.', 'unknown_candidate');
+            }
+            $title = trim((string) ($candidates[$index]['title'] ?? '')) ?: (string) $request->title;
+            $url = (string) $candidates[$index]['url'];
+        }
+
+        try {
+            $outcome = app(AddSeries::class)->add($title, $url, (bool) ($data['force'] ?? false));
+        } catch (LockTimeoutException) {
+            throw new RequestRefused(503, \App\Http\Controllers\Api\V1\AddNovelController::LOCK_BUSY, 'busy');
+        }
+
+        if ($outcome['result'] === AddSeries::DUPLICATE) {
+            throw new RequestRefused(409, DuplicateSeries::message($outcome['novel']), 'duplicate', [
+                'duplicate' => DuplicateSeries::describe($outcome['novel']),
+            ]);
+        }
+
+        $novel = $outcome['novel'];
+        $created = $outcome['result'] === AddSeries::CREATED;
+        $request = $this->markApproved($request, $admin, $novel);
+
+        if ($created) {
+            // The chapter list, then a first download (as "check for new chapters").
+            try {
+                app(NovelCheck::class)->start($novel);
+            } catch (\Throwable $e) {
+                Log::warning("Request {$request->id}: the chapter check for novel {$novel->id} did not start: " . $e->getMessage());
+            }
+        }
+
+        return ['request' => $request, 'novel' => $novel, 'created' => $created];
+    }
+
+    private function markApproved(NovelRequest $request, User $admin, Novel $novel): NovelRequest
+    {
+        $request->forceFill([
+            'status' => NovelRequest::STATUS_APPROVED,
+            'novel_id' => (int) $novel->id,
+            'decided_by' => (int) $admin->id,
+            'decided_at' => now(),
+            'decline_reason' => null,
+        ])->save();
+        static::forgetPendingCount();
+
+        $this->notify(fn() => $this->notifier->approved($request), $request);
+
+        return $request;
+    }
+
+    /** @throws RequestRefused */
+    public function decline(NovelRequest $request, User $admin, ?string $reason): NovelRequest
+    {
+        if (!$request->isPending()) {
+            throw new RequestRefused(409, 'Only a pending request can be declined.', 'not_pending', ['status' => $request->displayStatus()]);
+        }
+
+        $request->forceFill([
+            'status' => NovelRequest::STATUS_DECLINED,
+            'decided_by' => (int) $admin->id,
+            'decided_at' => now(),
+            'decline_reason' => static::clean($reason),
+        ])->save();
+        static::forgetPendingCount();
+
+        $this->notify(fn() => $this->notifier->declined($request), $request);
+
+        return $request;
+    }
+
+    /** Remove a request and its feed items. */
+    public function delete(NovelRequest $request): void
+    {
+        RequestNotification::where('novel_request_id', $request->id)->delete();
+        $request->delete();
+        static::forgetPendingCount();
+    }
+
+    /**
+     * Re-evaluate a manga shortlist in the background, on the `commands`
+     * queue (as AddSeries queues novel:metadata): ranking makes one slow
+     * source call per candidate and can take minutes, which must not hold a
+     * web worker after the response. The job records its own failures; on
+     * the sync queue it runs here, and nothing it throws fails the request.
+     */
+    public function queueRanking(NovelRequest $request): void
+    {
+        try {
+            Bus::dispatch((new RankRequestCandidates((int) $request->id))->onQueue('commands'));
+        } catch (\Throwable $e) {
+            Log::warning("Request {$request->id}: ranking not queued: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Approved requests whose series has a downloaded chapter become
+     * available (once): available_at is set and the requester told.
+     * Returns how many became available.
+     */
+    public function markAvailable(): int
+    {
+        $count = 0;
+        $candidates = NovelRequest::where('status', NovelRequest::STATUS_APPROVED)
+            ->whereNull('available_at')
+            ->whereNotNull('novel_id')
+            ->whereExists(fn($q) => $q->selectRaw('1')->from('novel_chapters')
+                ->whereColumn('novel_chapters.novel_id', 'novel_requests.novel_id')
+                ->where('novel_chapters.status', 1)
+                ->where('novel_chapters.blacklist', 0)
+                ->whereNull('novel_chapters.deleted_at'))
+            ->get();
+
+        foreach ($candidates as $request) {
+            // Only the run that sets it tells anyone.
+            $updated = NovelRequest::whereKey($request->id)->whereNull('available_at')->update(['available_at' => now()]);
+            if ($updated !== 1) {
+                continue;
+            }
+            $count++;
+            $this->notify(fn() => $this->notifier->available($request->fresh()), $request);
+        }
+
+        return $count;
+    }
+
+    /** A notification never fails the request (each channel also guards itself). */
+    private function notify(\Closure $send, NovelRequest $request): void
+    {
+        try {
+            $send();
+        } catch (\Throwable $e) {
+            Log::warning("Request {$request->id}: a notification failed: " . $e->getMessage());
+        }
+    }
+
+    private static function clean(?string $text): ?string
+    {
+        $text = trim((string) $text);
+
+        return $text === '' ? null : $text;
+    }
+}

@@ -333,6 +333,54 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Reader requests (App\Services\Requests\*)
+    |--------------------------------------------------------------------------
+    |
+    | Readers search every source of a medium and ask the owner to add a
+    | series; the owner approves (the series is added as Discover adds it)
+    | or declines.
+    |
+    | enabled                  — the feature (also reported by /api/v1/meta).
+    | max_concurrent_searches  — request searches running at once, across
+    |                            ALL accounts; one more is refused (429).
+    | searches_per_window /    — per-account rate limit on starting a
+    | search_window_minutes      search (default 12 per 10 minutes).
+    | search_budget_seconds    — overall time a search may take; sources not
+    |                            asked by then are skipped.
+    | max_sources_per_search   — sources asked per search (source_order
+    |                            first, then Discover order).
+    | max_pending_per_reader   — a reader's pending requests (the admin is
+    |                            not limited).
+    | max_candidates           — sources kept on a request (one per source).
+    | rank_budget_seconds      — overall time evaluating a manga shortlist.
+    | source_order             — preferred sources, best first: a source key
+    |                            ("mangadex"), a Discover entry ("suwayomi:123")
+    |                            or a base key covering all its entries
+    |                            ("suwayomi"). Unlisted sources follow in
+    |                            Discover order.
+    | page_url                 — the web Requests page linked from the
+    |                            owner's email (default APP_URL/requests).
+    |
+    */
+    'requests' => [
+        'enabled' => (bool) env('NOVARR_REQUESTS', true),
+        'max_concurrent_searches' => (int) env('NOVARR_REQUESTS_MAX_CONCURRENT_SEARCHES', 3),
+        'searches_per_window' => (int) env('NOVARR_REQUESTS_SEARCHES_PER_WINDOW', 12),
+        'search_window_minutes' => (int) env('NOVARR_REQUESTS_SEARCH_WINDOW_MINUTES', 10),
+        'search_budget_seconds' => (int) env('NOVARR_REQUESTS_SEARCH_BUDGET_SECONDS', 90),
+        'max_sources_per_search' => (int) env('NOVARR_REQUESTS_MAX_SOURCES_PER_SEARCH', 12),
+        'max_pending_per_reader' => (int) env('NOVARR_REQUESTS_MAX_PENDING_PER_READER', 5),
+        'max_candidates' => (int) env('NOVARR_REQUESTS_MAX_CANDIDATES', 8),
+        'rank_budget_seconds' => (int) env('NOVARR_REQUESTS_RANK_BUDGET_SECONDS', 300),
+        'source_order' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('NOVARR_REQUESTS_SOURCE_ORDER', 'mangadex'))
+        ), fn($k) => $k !== '')),
+        'page_url' => env('NOVARR_REQUESTS_URL'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Settings-page defaults
     |--------------------------------------------------------------------------
     |

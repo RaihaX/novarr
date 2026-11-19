@@ -101,6 +101,11 @@ class Novel extends Model
             app(\App\Services\ReadState::class)->forgetNovel((int) $novel->id);
             ReadingPosition::where('novel_id', $novel->id)->delete();
         });
+        // A request approved into this series no longer points at it once
+        // the series is deleted (soft or hard): the request stays as history.
+        static::deleted(function (self $novel) {
+            NovelRequest::where('novel_id', $novel->id)->update(['novel_id' => null]);
+        });
     }
 
     // ---------------------------------------------------------------------

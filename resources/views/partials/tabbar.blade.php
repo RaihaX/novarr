@@ -17,6 +17,11 @@
         ['route' => 'bookmarks.index', 'match' => 'bookmarks.*', 'label' => 'Highlights', 'icon' => 'highlighter'],
         ['route' => 'stats.index', 'match' => 'stats.*', 'label' => 'Stats', 'icon' => 'chart-column'],
     ];
+    // Reader requests (feature on): for everyone; the admin at home sees the pending count.
+    if ($requestsOn ?? false) {
+        $moreLinks[] = ['route' => 'requests.index', 'match' => 'requests.index', 'label' => 'Requests', 'icon' => 'inbox',
+            'meta' => !empty($requestsPending) ? $requestsPending . ' pending' : null, 'badge' => !empty($requestsPending)];
+    }
     // The Android app, for everyone, once an APK is published (with sign-in
     // off there is no Account page to find it on). A file, not a page.
     if (\App\Support\AndroidApp::available()) {
@@ -75,7 +80,7 @@
                     <a href="{{ $l['href'] ?? route($l['route']) }}" class="nv-sheet-item {{ $on ? 'is-active' : '' }}" data-sheet-close @if($on) aria-current="page" @endif @if(!empty($l['download'])) data-turbo="false" download title="{{ \App\Support\AndroidApp::linkText() }}" @endif>
                         <x-icon :name="$l['icon']" :size="20" />
                         <span>{{ $l['label'] }}</span>
-                        @isset($l['meta'])<span class="nv-sheet-item-meta">{{ $l['meta'] }}</span>@endisset
+                        @isset($l['meta'])<span class="nv-sheet-item-meta" @if(!empty($l['badge'])) data-requests-badge @endif>{{ $l['meta'] }}</span>@endisset
                     </a>
                 </li>
             @endforeach

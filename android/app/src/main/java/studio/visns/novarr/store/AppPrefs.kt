@@ -83,6 +83,50 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
     val dismissedUpdateBuild: Flow<Int?> = store.data.map { it[UPDATE_DISMISSED] }
     suspend fun setDismissedUpdateBuild(build: Int) = store.edit { it[UPDATE_DISMISSED] = build }
 
+    /** Settings' "Notify me about app updates" (default on): the background check posts a notification. */
+    val updateNotifications: Flow<Boolean> = store.data.map { it[UPDATE_NOTIFY] ?: true }
+    suspend fun setUpdateNotifications(on: Boolean) = store.edit { it[UPDATE_NOTIFY] = on }
+
+    /** The newest app build the user has been told about (notified, or shown in the app); a newer build notifies again. */
+    suspend fun notifiedUpdateBuild(): Int? = snapshot()[UPDATE_NOTIFIED]
+
+    /** Records [build] as told about; never moves back to an older build. */
+    suspend fun noteUpdateNotified(build: Int) = store.edit { prefs ->
+        prefs[UPDATE_NOTIFIED] = maxOf(build, prefs[UPDATE_NOTIFIED] ?: build)
+    }
+
+    /** Whether Home has already asked for the notification permission (Android 13+): it asks once. */
+    suspend fun notificationPermissionAsked(): Boolean = snapshot()[NOTIFY_ASKED] ?: false
+    suspend fun setNotificationPermissionAsked() = store.edit { it[NOTIFY_ASKED] = true }
+
+    /** Settings' "Notify me about requests" (default on): the background check posts the request feed. */
+    val requestNotifications: Flow<Boolean> = store.data.map { it[REQUESTS_NOTIFY] ?: true }
+    suspend fun setRequestNotifications(on: Boolean) = store.edit { it[REQUESTS_NOTIFY] = on }
+
+    /** Whether [server]'s meta last said it offers reader requests (null: not known yet). */
+    suspend fun requestsOffered(server: String): Boolean? = snapshot()[requestsOfferedKey(server)]
+    suspend fun setRequestsOffered(server: String, offered: Boolean) = store.edit { it[requestsOfferedKey(server)] = offered }
+
+    /**
+     * Where the notification feed was read up to, per server and account
+     * ([scope]): the server's opaque cursor and the newest item id handled.
+     */
+    suspend fun feedPosition(scope: String): Pair<String?, Long?> = snapshot().let { it[feedCursorKey(scope)] to it[feedLastKey(scope)] }
+
+    suspend fun setFeedPosition(scope: String, cursor: String?, lastId: Long?) = store.edit {
+        if (cursor != null) it[feedCursorKey(scope)] = cursor
+        if (lastId != null) it[feedLastKey(scope)] = lastId
+    }
+
+    /** Feed items not seen yet in the app (the dot on the Requests entry), per server and account. */
+    fun requestsUnseen(scope: String): Flow<Int> = store.data.map { it[unseenKey(scope)] ?: 0 }
+    suspend fun addRequestsUnseen(scope: String, count: Int) = store.edit { it[unseenKey(scope)] = (it[unseenKey(scope)] ?: 0) + count }
+    suspend fun clearRequestsUnseen(scope: String) = store.edit { it.remove(unseenKey(scope)) }
+
+    /** When a background check last ran successfully (epoch ms), by its key. */
+    suspend fun checkLastRun(key: String): Long? = snapshot()[checkRunKey(key)]
+    suspend fun setCheckLastRun(key: String, at: Long) = store.edit { it[checkRunKey(key)] = at }
+
     suspend fun string(name: String): String? = snapshot()[stringPreferencesKey(name)]
     suspend fun setString(name: String, value: String) = store.edit { it[stringPreferencesKey(name)] = value }
 
@@ -124,6 +168,11 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         if (mode == MangaModeOverride.FOLLOW) it.remove(mangaModeKey(server, novelId)) else it[mangaModeKey(server, novelId)] = mode.name
     }
 
+    private fun requestsOfferedKey(server: String) = booleanPreferencesKey("requestsOffered:${ServerUrl.storageKey(server)}")
+    private fun feedCursorKey(scope: String) = stringPreferencesKey("requests.feedCursor:$scope")
+    private fun feedLastKey(scope: String) = longPreferencesKey("requests.feedLastId:$scope")
+    private fun unseenKey(scope: String) = intPreferencesKey("requests.unseen:$scope")
+    private fun checkRunKey(key: String) = longPreferencesKey("checks.lastRun:$key")
     private fun authKey(server: String) = booleanPreferencesKey("authRequired:${ServerUrl.storageKey(server)}")
     private fun userKey(server: String) = stringPreferencesKey("lastUsername:${ServerUrl.storageKey(server)}")
     private fun mangaModeKey(server: String, novelId: Int) = stringPreferencesKey("mangaMode:${ServerUrl.storageKey(server)}#$novelId")
@@ -143,6 +192,10 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         val R_SCREEN_ON = booleanPreferencesKey("reader.keepScreenOn")
         val R_MODE = stringPreferencesKey("reader.mode")
         val UPDATE_DISMISSED = intPreferencesKey("update.dismissedBuild")
+        val UPDATE_NOTIFY = booleanPreferencesKey("update.notify")
+        val UPDATE_NOTIFIED = intPreferencesKey("update.notifiedBuild")
+        val NOTIFY_ASKED = booleanPreferencesKey("notifications.permissionAsked")
+        val REQUESTS_NOTIFY = booleanPreferencesKey("requests.notify")
 
         inline fun <reified E : Enum<E>> enumOr(raw: String?, default: E): E =
             raw?.let { name -> enumValues<E>().firstOrNull { it.name == name } } ?: default

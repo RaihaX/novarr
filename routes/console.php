@@ -165,6 +165,14 @@ $oneServer(Schedule::command('queue:prune-failed --hours=336')
     ->name('prune_failed_jobs')
     ->withoutOverlapping(30));
 
+// Reader requests: an approved request becomes "available" once its series
+// has a downloaded chapter, and the requester is told (once). Also prunes
+// old notification-feed items.
+$oneServer(Schedule::command('requests:availability')
+    ->everyTenMinutes()
+    ->name('request_availability')
+    ->withoutOverlapping(10));
+
 // Self-heal cover thumbnails (covers/sm, covers/md): generates any that are
 // missing, e.g. after a restore or a cover written by an older release.
 Schedule::command('covers:thumbs')

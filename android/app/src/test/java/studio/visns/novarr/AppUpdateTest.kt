@@ -36,6 +36,36 @@ class AppUpdateTest {
     }
 
     @Test
+    fun notifiesOncePerNewerBuild() {
+        // A newer build nobody has been told about.
+        assertTrue(AppUpdate.shouldNotify(build = 5, installed = 4, lastNotified = null, enabled = true))
+        // Already notified (or shown in the app): quiet, however often the check runs.
+        assertFalse(AppUpdate.shouldNotify(build = 5, installed = 4, lastNotified = 5, enabled = true))
+        // A build newer than the one notified about notifies again.
+        assertTrue(AppUpdate.shouldNotify(build = 6, installed = 4, lastNotified = 5, enabled = true))
+        // The server went back to an older build than the one notified: still quiet.
+        assertFalse(AppUpdate.shouldNotify(build = 5, installed = 4, lastNotified = 6, enabled = true))
+    }
+
+    @Test
+    fun notifiesOnlyForANewerBuildWithTheSwitchOn() {
+        assertFalse(AppUpdate.shouldNotify(build = 5, installed = 4, lastNotified = null, enabled = false))
+        assertFalse(AppUpdate.shouldNotify(build = 4, installed = 4, lastNotified = null, enabled = true))
+        assertFalse(AppUpdate.shouldNotify(build = 3, installed = 4, lastNotified = null, enabled = true))
+        assertFalse(AppUpdate.shouldNotify(build = null, installed = 4, lastNotified = null, enabled = true))
+        // An old record from before this install was updated doesn't hide a newer build.
+        assertTrue(AppUpdate.shouldNotify(build = 6, installed = 5, lastNotified = 4, enabled = true))
+    }
+
+    @Test
+    fun aReleaseWithoutADownloadAddressNeverNotifies() {
+        assertTrue(AppUpdate.shouldNotify(AndroidRelease("1.4", 5, "https://host/app/android"), installed = 4, lastNotified = null, enabled = true))
+        assertFalse(AppUpdate.shouldNotify(AndroidRelease("1.4", 5, ""), installed = 4, lastNotified = null, enabled = true))
+        assertFalse(AppUpdate.shouldNotify(null as AndroidRelease?, installed = 4, lastNotified = null, enabled = true))
+        assertFalse(AppUpdate.shouldNotify(AndroidRelease("1.4", 5, "https://host/app/android"), installed = 4, lastNotified = null, enabled = false))
+    }
+
+    @Test
     fun labelPrefersTheVersionName() {
         assertEquals("1.3", AppUpdate.label(AndroidRelease("1.3", 4, "u")))
         assertEquals("build 4", AppUpdate.label(AndroidRelease(null, 4, "u")))

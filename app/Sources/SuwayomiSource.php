@@ -33,7 +33,7 @@ use Illuminate\Support\Facades\Log;
  * instance resolves URLs and lists nothing (no network on the resolution
  * path, which runs for every novel).
  */
-class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDiscover
+class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDiscover, ProvidesChapterStats
 {
     public const SERIES_PATH = '#^/manga/(\d{1,18})/?$#';
     public const CHAPTER_PATH = '#^/manga/(\d{1,18})/chapter/(\d{1,9})/?$#';
@@ -352,6 +352,47 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDis
         }
 
         return self::tocRows($chapters, $id);
+    }
+
+    /**
+     * A reader request's candidate (ProvidesChapterStats): the chapter list
+     * Suwayomi fetches from the site now (one GraphQL request, which can
+     * take up to the configured timeout), as the TOC would list it, and the
+     * newest upload date. A Suwayomi source serves one language: this
+     * instance's (a Discover entry), else the configured ones.
+     */
+    public function chapterStats(string $url, array $languages): ?array
+    {
+        $id = self::mangaId($url);
+        if ($id === null) {
+            return null;
+        }
+
+        $data = $this->graphql(self::MUTATION_FETCH_CHAPTERS, ['input' => ['mangaId' => $id]]);
+        $chapters = $data['fetchChapters']['chapters'] ?? null;
+        if (!is_array($chapters)) {
+            return null;
+        }
+
+        $newest = 0;
+        foreach ($chapters as $chapter) {
+            $uploaded = $chapter['uploadDate'] ?? null;
+            if (is_numeric($uploaded) && (int) $uploaded > $newest) {
+                $newest = (int) $uploaded;
+            }
+        }
+
+        $own = $this->sourceLang ? [strtolower($this->sourceLang)] : self::languages();
+        $wanted = array_map('strtolower', $languages);
+
+        return [
+            'numbers' => array_column(self::tocRows($chapters, $id), 'chapter'),
+            'languages' => $own,
+            'in_preferred_language' => array_intersect($own, $wanted) !== [],
+            // uploadDate is milliseconds since the epoch (0 = unknown).
+            'updated_at' => $newest > 0 ? \Carbon\Carbon::createFromTimestampMs($newest)->utc()->toIso8601String() : null,
+            'requests' => 1,
+        ];
     }
 
     /**
