@@ -60,6 +60,20 @@ test('a command verb + novel turns novels into runnable commands', () => {
     assert.equal(item.novelId, 2);
 });
 
+test('a reader account gets no commands, completions or remembered commands', () => {
+    const recents = [
+        { id: 'cmd:toc:2', kind: 'command', command: 'toc', novelId: 2, title: 'Scrape table of contents — Ascending' },
+        { id: 'nav:/stats', kind: 'url', url: '/stats', title: 'Stats' },
+    ];
+    const empty = buildGroups('', null, { nav, recents, commands: false });
+    assert.deepEqual(empty.find((g) => g.id === 'recent').items.map((i) => i.kind), ['url']);
+
+    const typed = buildGroups('scrape toc asc', { novels: [novel], chapters: [] }, { nav, commands: false });
+    assert.equal(typed.find((g) => g.id === 'commands'), undefined);
+    assert.ok(typed.find((g) => g.id === 'novels'), 'the words are a plain novel search');
+    assert.equal(buildGroups('scrape', null, { nav, commands: false }).find((g) => g.id === 'commands'), undefined);
+});
+
 test('a partial verb is offered as a completion; nav and theme match fuzzily', () => {
     const groups = buildGroups('scrape', null, { nav });
     assert.equal(groups.find((g) => g.id === 'commands').items[0].kind, 'complete');
