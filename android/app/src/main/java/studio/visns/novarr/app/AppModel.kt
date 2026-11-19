@@ -161,7 +161,10 @@ class AppModel(private val context: Context) {
         _session.value = Session.Active(server, client, store, queue, credential)
         _pending.value = queue.count()
         _revision.update { it + 1 }
-        flushWrites()
+        // Never in the caller's scope: the screen that started this (sign-in)
+        // goes away with the session change, and a flush cancelled between a
+        // write's send and its removal would send it twice.
+        scope.launch { flushWrites() }
     }
 
     /** Ends the session without touching anything on disk: the queue file stays for the next sign-in. */
@@ -309,13 +312,16 @@ class AppModel(private val context: Context) {
 
     // Writes
 
-    /** Queues a read-state write (persisted immediately) and tries to send it. */
+    /**
+     * Queues a read-state write (persisted immediately) and tries to send it.
+     * The send runs in the app's scope so leaving a screen can't cut it short.
+     */
     suspend fun record(kind: WriteKind, novelId: Int?) {
         val session = active ?: return
         session.queue.enqueue(kind, novelId)
         _pending.value = session.queue.count()
         if (!(kind is WriteKind.Progress && !kind.read)) _revision.update { it + 1 }
-        flushWrites()
+        scope.launch { flushWrites() }
     }
 
     suspend fun flushWrites() {

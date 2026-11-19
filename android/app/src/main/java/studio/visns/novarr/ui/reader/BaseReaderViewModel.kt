@@ -10,6 +10,8 @@ import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import studio.visns.novarr.api.ReadingPosition
 import studio.visns.novarr.app.AppModel
@@ -89,6 +91,7 @@ abstract class BaseReaderViewModel(
     fun load() = viewModelScope.launch {
         phase = ReaderPhase.Loading
         tracking = false
+        atEnd = false
         scrollRequest = null
         loadChapter(chapterId)
     }
@@ -115,9 +118,16 @@ abstract class BaseReaderViewModel(
 
     // Progress
 
+    /**
+     * Whether the end of the chapter is on screen. While it is, positions are
+     * not reported: a fling past the end keeps moving the top line, and those
+     * moves must not follow the read mark with a lower percentage.
+     */
+    private var atEnd = false
+
     /** The top visible item changed (paragraph or page index). */
     fun moved(index: Int) {
-        if (!tracking || itemCount == 0 || !hasContent) return
+        if (!tracking || itemCount == 0 || !hasContent || atEnd) return
         when (val decision = tracker.moved(ProgressTracker.progressFor(index, itemCount))) {
             ProgressTracker.Decision.SendNow -> {
                 sendJob?.cancel()
@@ -134,17 +144,19 @@ abstract class BaseReaderViewModel(
         }
     }
 
+    /** The end of the chapter came into view or left it. */
+    fun endVisible(visible: Boolean) {
+        atEnd = visible && tracking && hasContent
+        if (visible) reachedEnd()
+    }
+
     /** The end of the chapter is on screen: mark it read, once. */
     fun reachedEnd() {
         if (!tracking || !hasContent) return
         sendJob?.cancel()
         if (!tracker.reachedEnd()) return
         onMarkedRead()
-        val id = chapterId
-        app.scope.launch {
-            app.active?.store?.updateChapterState(id, novelId, 100, true)
-            app.record(WriteKind.Progress(id, 100, true), novelId)
-        }
+        write(WriteKind.Progress(chapterId, 100, true))
     }
 
     /** Sends any unsent position; call when leaving the chapter or the app. */
@@ -155,16 +167,30 @@ abstract class BaseReaderViewModel(
 
     private fun sendPending() {
         val progress = tracker.takePending() ?: return
-        val id = chapterId
-        // The app's scope: a write must survive the reader closing.
+        write(WriteKind.Progress(chapterId, progress, false))
+    }
+
+    /**
+     * Updates the offline copy and queues the write, in the order the reader
+     * produced them (a position followed by the read mark must reach the
+     * queue in that order). The app's scope: a write must survive the reader closing.
+     */
+    private fun write(kind: WriteKind.Progress) {
         app.scope.launch {
-            app.active?.store?.updateChapterState(id, novelId, progress, null)
-            app.record(WriteKind.Progress(id, progress, false), novelId)
+            WRITES.withLock {
+                app.active?.store?.updateChapterState(kind.chapterId, novelId, kind.progress, if (kind.read) true else null)
+                app.record(kind, novelId)
+            }
         }
     }
 
     override fun onCleared() {
         leave()
+    }
+
+    private companion object {
+        /** FIFO across every reader, so writes are queued in the order they were made. */
+        val WRITES = Mutex()
     }
 
     // Latest position

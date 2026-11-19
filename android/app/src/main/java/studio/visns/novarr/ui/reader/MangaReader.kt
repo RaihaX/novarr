@@ -10,13 +10,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -63,7 +65,6 @@ import studio.visns.novarr.ui.ReaderRoute
 import studio.visns.novarr.ui.components.CenteredNote
 import studio.visns.novarr.ui.components.CheckForChaptersControl
 import studio.visns.novarr.ui.components.LocalApp
-import studio.visns.novarr.ui.components.OfflinePill
 
 class MangaReaderViewModel(app: AppModel, route: ReaderRoute) :
     BaseReaderViewModel(app, route.novelId, route.chapterId, route.offerLatest) {
@@ -137,10 +138,12 @@ class MangaReaderViewModel(app: AppModel, route: ReaderRoute) :
     /** The image to load: the downloaded copy, else the pre-signed URL exactly as the API gave it. */
     fun model(page: MangaPage): Any = localFiles[page.page] ?: page.url
 
+    /** The last page counts as the end of the chapter (the read mark), not as a position. */
     fun pageShown(index: Int) {
         currentPage = index
-        moved(index)
-        if (index >= itemCount - 1) reachedEnd()
+        val last = index >= itemCount - 1
+        endVisible(last)
+        if (!last) moved(index)
     }
 }
 
@@ -193,9 +196,6 @@ fun MangaReaderScreen(nav: NavController, route: ReaderRoute) {
                 }
             }
         }
-        if (model.showingCache && !chromeHidden) {
-            Box(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp)) { OfflinePill(text = "Offline · saved copy") }
-        }
     }
 }
 
@@ -240,6 +240,7 @@ private fun PagedChapter(pages: MangaPages, model: MangaReaderViewModel, colors:
 }
 
 /** Vertical (webtoon) reading: pages stacked full width; pinch zooms the strip. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun VerticalChapter(pages: MangaPages, model: MangaReaderViewModel, colors: ReaderColors, onTap: () -> Unit, onOpen: (ChapterRef) -> Unit) {
     val count = pages.pages.size
@@ -264,7 +265,10 @@ private fun VerticalChapter(pages: MangaPages, model: MangaReaderViewModel, colo
         state = list,
         modifier = Modifier.fillMaxSize().zoomable(zoom, panY = false, onTap = onTap),
         horizontalAlignment = Alignment.CenterHorizontally,
-        contentPadding = PaddingValues(bottom = 24.dp),
+        // Page 1 starts below the reader's top bar; stable while system bars hide and show.
+        contentPadding = WindowInsets.systemBarsIgnoringVisibility.asPaddingValues().let {
+            PaddingValues(top = it.calculateTopPadding() + 64.dp, bottom = it.calculateBottomPadding() + 72.dp)
+        },
     ) {
         itemsIndexed(pages.pages, key = { _, page -> page.page }) { index, page ->
             val ratio = page.aspect?.let { 1f / it }

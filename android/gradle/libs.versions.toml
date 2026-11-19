@@ -1,5 +1,6 @@
 # Versions: the newest stable releases that still build against compileSdk 35
-# (activity >= 1.11, core >= 1.17, OkHttp >= 5.4 and Coil >= 3.5 need compileSdk 36+, so they are held back).
+# (activity >= 1.11, core >= 1.17, navigation 2.10, lifecycle 2.11, OkHttp >= 5.4, Coil >= 3.5 and
+# Compose BOM >= 2026.08 need compileSdk 36+ or AGP 9, so they are held back).
 [versions]
 agp = "8.13.2"
 kotlin = "2.4.21"

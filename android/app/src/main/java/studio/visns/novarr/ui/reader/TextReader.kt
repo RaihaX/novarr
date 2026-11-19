@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,7 +27,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -95,7 +96,6 @@ import studio.visns.novarr.ui.components.BrandMark
 import studio.visns.novarr.ui.components.CenteredNote
 import studio.visns.novarr.ui.components.CheckForChaptersControl
 import studio.visns.novarr.ui.components.LocalApp
-import studio.visns.novarr.ui.components.OfflinePill
 
 class TextReaderViewModel(app: AppModel, route: ReaderRoute) :
     BaseReaderViewModel(app, route.novelId, route.chapterId, route.offerLatest) {
@@ -246,6 +246,7 @@ fun TextReaderScreen(nav: NavController, route: ReaderRoute) {
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ChapterText(
     content: ChapterContent,
@@ -280,7 +281,7 @@ private fun ChapterText(
             model.tracking = true
         }
         // Short chapters show the end straight away.
-        if (list.layoutInfo.visibleItemsInfo.any { it.index == footerIndex }) model.reachedEnd()
+        if (list.layoutInfo.visibleItemsInfo.any { it.index == footerIndex }) model.endVisible(true)
     }
     LaunchedEffect(content.id) {
         snapshotFlow { list.firstVisibleItemIndex }
@@ -290,16 +291,18 @@ private fun ChapterText(
     LaunchedEffect(content.id) {
         snapshotFlow { list.layoutInfo.visibleItemsInfo.any { it.index == footerIndex } }
             .distinctUntilChanged()
-            .collect { visible -> if (visible) model.reachedEnd() }
+            .collect { visible -> model.endVisible(visible) }
     }
 
     val margin = settings.margins.paddingDp.dp
+    // Room for the reader's bars; stable while the system bars hide and show.
+    val bars = WindowInsets.systemBarsIgnoringVisibility.asPaddingValues()
     LazyColumn(
         state = list,
         modifier = Modifier
             .fillMaxSize()
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = "Show or hide controls", onClick = onTap),
-        contentPadding = PaddingValues(top = 72.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(top = bars.calculateTopPadding() + 64.dp, bottom = bars.calculateBottomPadding() + 96.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         item(key = "header") {
@@ -333,11 +336,6 @@ private fun ChapterText(
         }
         item(key = "footer") {
             Footer(content, model, colors, onBackToSeries, Modifier.widthIn(max = settings.width.maxWidthDp.dp).padding(horizontal = margin))
-        }
-    }
-    if (model.showingCache) {
-        Box(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 64.dp), contentAlignment = Alignment.TopCenter) {
-            OfflinePill(text = "Offline · saved copy")
         }
     }
 }
@@ -402,7 +400,7 @@ fun ChapterButtons(prev: ChapterRef?, next: ChapterRef?, colors: ReaderColors, o
 
 @Composable
 fun ReaderTopBar(title: String, subtitle: String, colors: ReaderColors, showingCache: Boolean = false, onBack: () -> Unit) {
-    Surface(color = colors.background.copy(alpha = 0.97f), shadowElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
+    Surface(color = colors.background, contentColor = colors.text, shadowElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
         Row(
             Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                 .heightIn(min = 56.dp)
@@ -421,7 +419,7 @@ fun ReaderTopBar(title: String, subtitle: String, colors: ReaderColors, showingC
 
 @Composable
 fun ReaderBottomBar(colors: ReaderColors, prev: ChapterRef?, next: ChapterRef?, onOpen: (ChapterRef) -> Unit, middle: @Composable () -> Unit) {
-    Surface(color = colors.background.copy(alpha = 0.97f), shadowElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
+    Surface(color = colors.background, contentColor = colors.text, shadowElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
         Row(
             Modifier.navigationBarsPadding().heightIn(min = 56.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,

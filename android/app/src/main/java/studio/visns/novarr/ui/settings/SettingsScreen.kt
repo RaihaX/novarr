@@ -74,8 +74,10 @@ fun SettingsScreen(nav: NavController) {
 
     suspend fun measure() {
         offlineBytes = active?.store?.offlineChaptersSize() ?: 0
-        totalBytes = active?.store?.totalSize() ?: 0
-        imageBytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { OfflineStore.sizeOf(app.coverCacheDir()) }
+        val images = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { OfflineStore.sizeOf(app.coverCacheDir()) }
+        imageBytes = images
+        // Everything this account keeps on the device: lists, chapters and images.
+        totalBytes = (active?.store?.totalSize() ?: 0) + images
     }
     LaunchedEffect(Unit) { if (meta == null) app.refreshMeta() }
     LaunchedEffect(downloadRevision) { measure() }
@@ -121,7 +123,7 @@ fun SettingsScreen(nav: NavController) {
                         if (syncing) {
                             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         } else {
-                            TextButton(onClick = { scope.launch { syncing = true; app.flushWrites(); syncing = false } }) { Text("Sync now") }
+                            TextButton(onClick = { app.scope.launch { syncing = true; app.flushWrites(); syncing = false } }) { Text("Sync now") }
                         }
                     }
                 }

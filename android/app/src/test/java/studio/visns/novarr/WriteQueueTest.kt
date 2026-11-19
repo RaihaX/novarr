@@ -2,6 +2,9 @@ package studio.visns.novarr
 
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -107,6 +110,34 @@ class WriteQueueTest {
         assertEquals(3, items[0].novelId)
         assertEquals(60_000L, items[0].age(clock))
         assertTrue(items[1].kind is WriteKind.BulkRead)
+    }
+
+    @Test
+    fun sentWritesAreGoneFromDisk() = runTest {
+        val f = file()
+        val q = queue(f)
+        q.enqueue(WriteKind.SetRead(7, true), novelId = 2)
+        q.flush { _, _ -> }
+        assertEquals(0, queue(f).count())
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun cancellingMidSendNeverLeavesASentWriteQueued() = runTest {
+        // The screen that started a flush can go away while a write is on the wire.
+        val q = queue()
+        q.enqueue(WriteKind.SetRead(1, true))
+        q.enqueue(WriteKind.SetRead(2, true))
+        val onTheWire = CompletableDeferred<Unit>()
+        val sent = mutableListOf<WriteKind>()
+        val job = launch { q.flush { kind, _ -> sent += kind; onTheWire.await() } }
+        runCurrent()
+        job.cancel()
+        onTheWire.complete(Unit)
+        job.join()
+        // The write in flight finished and left the queue; the next one was never started.
+        assertEquals(listOf<WriteKind>(WriteKind.SetRead(1, true)), sent)
+        assertEquals(listOf<WriteKind>(WriteKind.SetRead(2, true)), q.items().map { it.kind })
     }
 
     @Test

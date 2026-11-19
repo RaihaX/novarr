@@ -183,6 +183,7 @@ fun LibraryScreen(nav: NavController) {
                     Tab(
                         selected = model.shelf == shelf,
                         onClick = { model.select(shelf) },
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         text = { Text(if (model.novels.isEmpty()) shelf.title else "${shelf.title} (${model.count(shelf)})") },
                     )
                 }

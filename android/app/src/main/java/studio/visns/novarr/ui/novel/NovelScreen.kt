@@ -114,7 +114,7 @@ fun NovelScreen(nav: NavController, novelId: Int) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(model.summary?.name.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(model.summary?.name.orEmpty(), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = { nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },

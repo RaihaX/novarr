@@ -18,7 +18,11 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -88,7 +92,12 @@ fun MainNavigation() {
         }
     }
 
-    fun isSelected(tab: Tab) = destination?.hierarchy?.any { it.hasRoute(tab.route::class) } == true
+    // Pushed screens (a series, highlights) keep the tab they were opened from lit.
+    var lastTab by rememberSaveable { mutableIntStateOf(0) }
+    val current = tabs.indexOfFirst { tab -> destination?.hierarchy?.any { it.hasRoute(tab.route::class) } == true }
+    val selected = if (current >= 0) current else lastTab
+    SideEffect { lastTab = selected }
+    fun isSelected(tab: Tab) = tabs.indexOf(tab) == selected
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),

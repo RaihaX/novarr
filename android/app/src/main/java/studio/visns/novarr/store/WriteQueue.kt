@@ -2,7 +2,11 @@ package studio.visns.novarr.store
 
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -109,11 +113,16 @@ class WriteQueue(private val file: File, private val now: () -> Long = System::c
             var sent = 0
             var dropped = 0
             while (true) {
+                currentCoroutineContext().ensureActive()
                 val next = lock.withLock { items.firstOrNull() } ?: break
                 try {
-                    send(next.kind, next.age(now()))
+                    // One write is sent and removed as a unit: a cancellation
+                    // landing between the two would send it again later.
+                    withContext(NonCancellable) {
+                        send(next.kind, next.age(now()))
+                        remove(next.id)
+                    }
                     sent++
-                    remove(next.id)
                 } catch (e: Exception) {
                     e.rethrowIfCancellation()
                     val error = ApiError.from(e)
