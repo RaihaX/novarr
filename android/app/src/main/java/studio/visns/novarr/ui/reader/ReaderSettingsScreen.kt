@@ -32,6 +32,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import studio.visns.novarr.domain.TextReadingMode
 import studio.visns.novarr.store.ReaderMargins
 import studio.visns.novarr.store.ReaderSettings
 import studio.visns.novarr.store.ReaderSpacing
@@ -57,6 +59,15 @@ fun ReaderSettingsForm(modifier: Modifier = Modifier) {
     fun update(transform: (ReaderSettings) -> ReaderSettings) = scope.launch { app.prefs.updateReader(transform) }
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Label("Reading mode")
+        Segments(TextReadingMode.entries, settings.mode, { it.title }, groupLabel = "Reading mode") { value -> update { it.copy(mode = value) } }
+        Text(
+            if (settings.mode == TextReadingMode.PAGES) "Tap the right or left side, swipe, or use the volume keys to turn pages."
+            else "Scroll through each chapter continuously.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
         Label("Theme")
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             ReaderTheme.entries.forEach { theme ->
@@ -103,13 +114,14 @@ private fun Label(text: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun <T> Segments(options: List<T>, selected: T, title: (T) -> String, onSelect: (T) -> Unit) {
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+private fun <T> Segments(options: List<T>, selected: T, title: (T) -> String, groupLabel: String? = null, onSelect: (T) -> Unit) {
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().then(if (groupLabel != null) Modifier.semantics { contentDescription = groupLabel } else Modifier)) {
         options.forEachIndexed { index, option ->
             SegmentedButton(
                 selected = option == selected,
                 onClick = { onSelect(option) },
                 shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                modifier = Modifier.heightIn(min = 48.dp),
                 label = { Text(title(option), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             )
         }
@@ -137,7 +149,7 @@ fun ReaderSettingsScreen(nav: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Reader") },
+                title = { Text("Reader defaults") },
                 navigationIcon = {
                     IconButton(onClick = { nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },

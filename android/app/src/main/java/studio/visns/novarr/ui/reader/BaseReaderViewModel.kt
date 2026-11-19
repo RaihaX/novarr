@@ -22,8 +22,11 @@ import studio.visns.novarr.store.WriteKind
 /** The prompt to jump to where another device read more recently. */
 data class LatestOffer(val position: ReadingPosition, val message: String)
 
-/** Asks the screen to scroll to an item (paragraph or page). The token makes repeats distinct. */
-data class ScrollRequest(val index: Int, val token: String = UUID.randomUUID().toString())
+/**
+ * Asks the screen to scroll to an item (paragraph or page). The token makes repeats distinct.
+ * [toEnd]: show the end of the chapter (going back a page from the next chapter's start).
+ */
+data class ScrollRequest(val index: Int, val toEnd: Boolean = false, val token: String = UUID.randomUUID().toString())
 
 sealed interface ReaderPhase {
     data object Loading : ReaderPhase
@@ -54,6 +57,13 @@ abstract class BaseReaderViewModel(
     /** Where to put the reader once content is laid out (restore, or "Go to latest" in this chapter). */
     var scrollRequest by mutableStateOf<ScrollRequest?>(null)
         protected set
+
+    /** The token of the last [scrollRequest] the screen acted on, so a re-created screen doesn't jump again. */
+    private var handledRequest: String? = null
+
+    /** The scroll request not yet acted on, if any (marks it handled). */
+    fun takeScrollRequest(): ScrollRequest? =
+        scrollRequest?.takeIf { it.token != handledRequest }?.also { handledRequest = it.token }
 
     /**
      * Position events are ignored until the screen has restored the saved
@@ -97,9 +107,9 @@ abstract class BaseReaderViewModel(
     }
 
     /** Implementations call this once content is in place, with what the server (or cache) knows. */
-    protected suspend fun loaded(read: Boolean, progress: Int?, restoreIndex: Int?) {
+    protected suspend fun loaded(read: Boolean, progress: Int?, restoreIndex: Int?, toEnd: Boolean = false) {
         tracker.reset(read, progress)
-        scrollRequest = restoreIndex?.let { ScrollRequest(it) }
+        scrollRequest = restoreIndex?.let { ScrollRequest(it, toEnd) }
         phase = ReaderPhase.Loaded
         evaluateLatestOffer()
     }

@@ -111,7 +111,7 @@ fun SettingsScreen(nav: NavController) {
                 }
 
                 Section("Reading")
-                Link("Reader appearance", chevron = true) { nav.navigate(ReaderSettingsRoute) }
+                Link("Reader defaults", chevron = true) { nav.navigate(ReaderSettingsRoute) }
 
                 Section("Offline")
                 Link("Downloads", trailing = offlineBytes?.let(::formatBytes) ?: "…", chevron = true) { nav.navigate(DownloadsRoute) }

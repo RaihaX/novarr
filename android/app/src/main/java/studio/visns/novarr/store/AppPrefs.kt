@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import studio.visns.novarr.api.ServerUrl
+import studio.visns.novarr.domain.MangaModeOverride
+import studio.visns.novarr.domain.TextReadingMode
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "novarr")
 
@@ -26,6 +28,8 @@ data class ReaderSettings(
     val theme: ReaderTheme = ReaderTheme.SYSTEM,
     val justify: Boolean = false,
     val keepScreenOn: Boolean = false,
+    /** Continuous scroll or screen-sized pages; a reader default for every novel on this device. */
+    val mode: TextReadingMode = TextReadingMode.SCROLL,
 ) {
     companion object {
         const val MIN_SIZE = 13f
@@ -51,8 +55,8 @@ enum class ReaderWidth(val title: String, val maxWidthDp: Int) { NARROW("Narrow"
  * device id, reader settings and small UI choices. Never holds a token
  * (that is the CredentialStore's job).
  */
-class AppPrefs(private val context: Context) {
-    private val store get() = context.dataStore
+class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
+    constructor(context: Context) : this(context.dataStore)
 
     suspend fun snapshot(): Preferences = store.data.first()
 
@@ -87,6 +91,7 @@ class AppPrefs(private val context: Context) {
             theme = enumOr(p[R_THEME], ReaderTheme.SYSTEM),
             justify = p[R_JUSTIFY] ?: false,
             keepScreenOn = p[R_SCREEN_ON] ?: false,
+            mode = TextReadingMode.from(p[R_MODE]),
         )
     }
 
@@ -101,11 +106,22 @@ class AppPrefs(private val context: Context) {
             it[R_THEME] = next.theme.name
             it[R_JUSTIFY] = next.justify
             it[R_SCREEN_ON] = next.keepScreenOn
+            it[R_MODE] = next.mode.name
         }
+    }
+
+    /** This device's reading-mode choice for a manga series on [server] (never sent to the server). */
+    fun mangaMode(server: String, novelId: Int): Flow<MangaModeOverride> =
+        store.data.map { MangaModeOverride.from(it[mangaModeKey(server, novelId)]) }
+
+    suspend fun setMangaMode(server: String, novelId: Int, mode: MangaModeOverride) = store.edit {
+        // "Follow series" is the default: drop the key rather than store it.
+        if (mode == MangaModeOverride.FOLLOW) it.remove(mangaModeKey(server, novelId)) else it[mangaModeKey(server, novelId)] = mode.name
     }
 
     private fun authKey(server: String) = booleanPreferencesKey("authRequired:${ServerUrl.storageKey(server)}")
     private fun userKey(server: String) = stringPreferencesKey("lastUsername:${ServerUrl.storageKey(server)}")
+    private fun mangaModeKey(server: String, novelId: Int) = stringPreferencesKey("mangaMode:${ServerUrl.storageKey(server)}#$novelId")
     private fun declineKey(scope: String, novelId: Int) = longPreferencesKey("latestDeclined:$scope#$novelId")
 
     private companion object {
@@ -119,6 +135,7 @@ class AppPrefs(private val context: Context) {
         val R_THEME = stringPreferencesKey("reader.theme")
         val R_JUSTIFY = booleanPreferencesKey("reader.justify")
         val R_SCREEN_ON = booleanPreferencesKey("reader.keepScreenOn")
+        val R_MODE = stringPreferencesKey("reader.mode")
 
         inline fun <reified E : Enum<E>> enumOr(raw: String?, default: E): E =
             raw?.let { name -> enumValues<E>().firstOrNull { it.name == name } } ?: default
