@@ -110,13 +110,22 @@ class UserInvite extends Model
     }
 
     /**
-     * The link to send: the origin the admin is using right now (scheme +
-     * host of $request), because Novarr is reached by different hostnames
-     * (LAN, Tailscale, a public name) and APP_URL may not be the one readers use.
+     * The link to send: on the public address when one is configured
+     * (App\Support\PublicAddress::url(), whatever host the admin is on: the
+     * admin works from the home network, readers come from the internet);
+     * otherwise the origin the admin is using right now (scheme + host of
+     * $request), because Novarr is reached by different hostnames (LAN,
+     * Tailscale) and APP_URL may not be the one readers use.
      */
     public static function link(Request $request, string $token): string
     {
-        return rtrim($request->getSchemeAndHttpHost(), '/') . route('invite.show', ['token' => $token], false);
+        return static::origin($request) . route('invite.show', ['token' => $token], false);
+    }
+
+    /** The origin links for readers are built on (see link()). */
+    public static function origin(Request $request): string
+    {
+        return \App\Support\PublicAddress::url() ?? rtrim($request->getSchemeAndHttpHost(), '/');
     }
 
     public static function normaliseEmail(?string $email): string

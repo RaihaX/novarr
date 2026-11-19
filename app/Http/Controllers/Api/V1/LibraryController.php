@@ -30,7 +30,8 @@ class LibraryController extends Controller
             'server_version' => static::serverVersion(),
             // Auth contract: clients show sign-in only when required.
             'auth' => [
-                'required' => \App\Support\AuthMode::required(),
+                // The public address only serves signed-in accounts.
+                'required' => \App\Support\AuthMode::required() || \App\Support\PublicAddress::current(),
                 'methods' => ['password', 'pairing'],
             ],
         ]);

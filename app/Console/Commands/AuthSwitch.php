@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Support\AuthMode;
 use App\Support\CurrentReader;
+use App\Support\PublicAddress;
 use App\User;
 use Illuminate\Console\Command;
 
@@ -63,7 +64,12 @@ class AuthSwitch extends Command
             ['Owner password', $owner?->password_set_at ? 'set ' . $owner->password_set_at->toDateTimeString() : 'not set'],
             ['Accounts', (string) User::count()],
             ['Pending invites', (string) \App\UserInvite::pending()->count()],
+            ['Public address', PublicAddress::url() ?? 'not set'],
         ]);
+
+        if (PublicAddress::configured() && !AuthMode::required()) {
+            $this->warn('A public address is set (NOVARR_PUBLIC_HOSTS) but sign-in is off: the public address refuses every page until sign-in is on.');
+        }
 
         if ($forced !== null && $forced !== AuthMode::setting()) {
             $this->warn('NOVARR_AUTH overrides the setting: change it in the server environment.');

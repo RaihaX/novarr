@@ -15,7 +15,8 @@ use Illuminate\Support\Facades\Mail;
  * invites (App\UserInvite). The person accepts at /invite/{token}
  * (App\Http\Controllers\Auth\InviteController).
  *
- * The link is built on the origin the admin is browsing (UserInvite::link)
+ * The link is built on the public address when one is configured, else on
+ * the origin the admin is browsing (UserInvite::link),
  * and shown once, right after it is made or resent (only its hash is
  * stored), with a Copy button — so it can be sent another way when the
  * email cannot be sent. A failed email never loses the invite.

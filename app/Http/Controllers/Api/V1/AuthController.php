@@ -35,7 +35,7 @@ class AuthController extends Controller
             'device_name' => 'nullable|string|max:255',
         ]);
 
-        $result = $credentials->attempt($data['username'], $data['password'], $request->ip());
+        $result = $credentials->attempt($data['username'], $data['password'], $request->ip(), \App\Support\PublicAddress::isPublicRequest($request));
         if (!$result instanceof User) {
             $headers = isset($result['retry_after']) ? ['Retry-After' => (string) $result['retry_after']] : [];
 
