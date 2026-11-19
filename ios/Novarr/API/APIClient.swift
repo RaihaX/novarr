@@ -97,33 +97,6 @@ struct APIClient: Sendable {
         }
     }
 
-    // MARK: Discover and adding novels
-
-    /// Searches through FlareSolverr-backed sources can take minutes on the server.
-    static let browseTimeout: TimeInterval = 150
-
-    func discoverSources() async throws -> [DiscoverSource] {
-        try await get("discover", as: DiscoverSourcesEnvelope.self).sources
-    }
-
-    /// One page of a source's list, or of a search when `type` is `search`.
-    /// Blocking on the server; cancel the calling task to abandon it.
-    func discoverBrowse(type: String, source: String?, query: String?,
-                        page: Int, perPage: Int = 20) async throws -> DiscoverPage {
-        var items = [URLQueryItem(name: "type", value: type)]
-        if let source { items.append(URLQueryItem(name: "source", value: source)) }
-        if let query { items.append(URLQueryItem(name: "q", value: query)) }
-        items.append(URLQueryItem(name: "page", value: String(page)))
-        items.append(URLQueryItem(name: "per_page", value: String(perPage)))
-        return try await get("discover/browse", query: items, as: DiscoverPage.self, timeout: Self.browseTimeout)
-    }
-
-    /// 201 (added) and 200 (already in the library) both succeed; 422/503 throw `.http`.
-    func addNovel(title: String, url: URL) async throws -> AddNovelResponse {
-        let data = try await send("POST", "novels", body: AddNovelBody(title: title, url: url.absoluteString))
-        return try decode(AddNovelResponse.self, from: data)
-    }
-
     // MARK: Checks
 
     func check(novelId: Int) async throws -> NovelCheck {
@@ -270,11 +243,6 @@ struct APIClient: Sendable {
         var password: String
         var deviceId: String
         var deviceName: String
-    }
-
-    private struct AddNovelBody: Encodable {
-        var title: String
-        var url: String
     }
 
     private struct ProgressBody: Encodable {

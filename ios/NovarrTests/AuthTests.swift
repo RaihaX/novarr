@@ -319,7 +319,7 @@ struct UnauthorizedTests {
         app.apply(off, for: base)
         #expect(app.needsSignIn == false)
         #expect(app.client?.token == nil)
-        #expect(app.permissions == .owner)
+        #expect(app.account == nil)
     }
 }
 
@@ -451,57 +451,27 @@ struct StoreDirectoryTests {
 
 // MARK: - Roles
 
-@Suite("Role gating")
+@Suite("Roles")
 @MainActor
-struct RoleGatingTests {
-    @Test func permissionsByRole() {
-        #expect(Permissions.owner.canManageLibrary)
-        #expect(Permissions(role: .admin).canManageLibrary)
-        #expect(!Permissions(role: .reader).canManageLibrary)
-        #expect(!Permissions(role: .other("guest")).canManageLibrary)
-        // Readers keep everything about reading.
-        let readerPermissions = Permissions(role: .reader)
-        #expect(readerPermissions.canRead)
-        #expect(readerPermissions.canCheckForNewChapters)
-    }
-
+struct RoleTests {
     @Test func roleDecoding() throws {
         #expect(UserRole(raw: "ADMIN") == .admin)
         #expect(UserRole(raw: "reader") == .reader)
         #expect(UserRole(raw: "") == .other(""))
     }
 
-    @Test func appPermissionsFollowTheSession() async {
+    @Test func signedInUserFollowsTheSession() async {
         let (base, session) = StubURLProtocol.register { _, _ in (204, Data()) }
         let open = AppModel(defaults: testDefaults(server: base, authRequired: false),
                             credentials: CredentialStore(secure: InMemorySecureStore()),
                             session: session, storageBase: temporaryDirectory(), refreshMetaOnLaunch: false)
-        #expect(open.permissions.canManageLibrary) // auth off: the owner's UI
+        #expect(open.account == nil) // auth off: no signed-in user
 
         let credentials = CredentialStore(secure: InMemorySecureStore())
         credentials.save(Credential(token: "t", user: reader), for: base)
         let signedIn = AppModel(defaults: testDefaults(server: base, authRequired: true), credentials: credentials,
                                 session: session, storageBase: temporaryDirectory(), refreshMetaOnLaunch: false)
         #expect(signedIn.account?.user == reader)
-        #expect(!signedIn.permissions.canManageLibrary)
-    }
-
-    @Test func discoverAddRefusedForReaders() async throws {
-        let log = RequestLog()
-        let (base, session) = StubURLProtocol.register { request, body in
-            log.append(request, body)
-            return (500, Data())
-        }
-        let credentials = CredentialStore(secure: InMemorySecureStore())
-        credentials.save(Credential(token: "t", user: reader), for: base)
-        let app = AppModel(defaults: testDefaults(server: base, authRequired: true), credentials: credentials,
-                           session: session, storageBase: temporaryDirectory(), refreshMetaOnLaunch: false)
-        let item = try Fixture.decode(DiscoverItem.self, json: """
-            {"title":"T","url":"https://example.com/n/1","in_library":false}
-            """)
-        let model = DiscoverModel()
-        await model.add(item, app: app)
-        #expect(!log.requests.contains { $0.request.httpMethod == "POST" && $0.request.url?.path == "/api/v1/novels" })
-        #expect(model.addStates[item.id] == nil)
+        #expect(signedIn.account?.user.role == .reader)
     }
 }

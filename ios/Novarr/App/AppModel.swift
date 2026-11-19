@@ -87,13 +87,6 @@ final class AppModel {
         monitor.start(queue: DispatchQueue(label: "studio.visns.novarr.path"))
     }
 
-    // MARK: Roles
-
-    /// What the UI may offer. With auth off everything is the owner's.
-    var permissions: Permissions {
-        account.map { Permissions(role: $0.user.role) } ?? .owner
-    }
-
     /// Changes whenever the server or the signed-in user does, so screens
     /// (and their models) are rebuilt and never show another account's data.
     var sessionID: String {

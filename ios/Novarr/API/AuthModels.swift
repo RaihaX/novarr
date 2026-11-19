@@ -105,19 +105,3 @@ struct AuthTokenResponse: Decodable, Sendable, Equatable {
 struct AuthUserEnvelope: Decodable, Sendable {
     var user: AuthUser
 }
-
-/// What the UI may offer, from the signed-in role. With auth off there is no
-/// user and everything is the owner's, so `role` is `.admin`.
-struct Permissions: Equatable, Sendable {
-    var role: UserRole
-
-    static let owner = Permissions(role: .admin)
-
-    /// Adding (Discover), editing or deleting series and changing server settings.
-    var canManageLibrary: Bool { role == .admin }
-
-    /// Reading, read/unread, progress sync, highlights, stats, "check for new
-    /// chapters" and downloads are open to every signed-in user.
-    var canRead: Bool { true }
-    var canCheckForNewChapters: Bool { true }
-}

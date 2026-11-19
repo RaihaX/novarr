@@ -103,7 +103,7 @@ struct LibraryView: View {
             ContentUnavailableView.search(text: model.search)
         } else if model.novels.isEmpty {
             ContentUnavailableView("No novels yet", systemImage: "books.vertical",
-                                   description: Text("Add novels on your Novarr server and they'll show up here."))
+                                   description: Text("Nothing here yet. Series are added on the Novarr website."))
         } else {
             ContentUnavailableView("Nothing here", systemImage: "line.3.horizontal.decrease.circle",
                                    description: Text("No novels match “\(model.filter.title)”."))
