@@ -135,7 +135,7 @@ class PublicAddressTest extends TestCase
         $this->assertTrue(PublicAddress::isPublicRequest($viaConnector));
 
         // The same hostname from another LAN machine is a home request.
-        $fromLan = Request::create('http://other.example.com/', 'GET', [], [], [], ['REMOTE_ADDR' => '192.168.1.50']);
+        $fromLan = Request::create('http://other.example.com/', 'GET', [], [], [], ['REMOTE_ADDR' => '192.168.1.77']);
         $this->assertFalse(PublicAddress::isPublicRequest($fromLan));
 
         // End to end: admin pages are refused through the connector.
