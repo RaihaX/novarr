@@ -125,6 +125,24 @@ class PublicAddressTest extends TestCase
         }
     }
 
+    public function test_anything_straight_from_the_tunnel_connector_is_public_whatever_its_hostname(): void
+    {
+        $this->configurePublic();
+        config(['novarr.public_proxies' => [self::CONNECTOR]]);
+
+        // A hostname added to the tunnel but missing from NOVARR_PUBLIC_HOSTS.
+        $viaConnector = Request::create('http://other.example.com/', 'GET', [], [], [], ['REMOTE_ADDR' => self::CONNECTOR]);
+        $this->assertTrue(PublicAddress::isPublicRequest($viaConnector));
+
+        // The same hostname from another LAN machine is a home request.
+        $fromLan = Request::create('http://other.example.com/', 'GET', [], [], [], ['REMOTE_ADDR' => '192.168.1.50']);
+        $this->assertFalse(PublicAddress::isPublicRequest($fromLan));
+
+        // End to end: admin pages are refused through the connector.
+        $this->withServerVariables(['REMOTE_ADDR' => self::CONNECTOR])
+            ->get('http://other.example.com/settings')->assertStatus(403);
+    }
+
     public function test_the_env_list_is_normalised(): void
     {
         $config = (static function () {

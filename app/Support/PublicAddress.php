@@ -85,6 +85,15 @@ final class PublicAddress
             return null;
         }
 
+        // Fail-safe: whatever arrives straight from the tunnel connector
+        // (NOVARR_PUBLIC_PROXIES) is public, even on a hostname that was
+        // added to the tunnel but not to NOVARR_PUBLIC_HOSTS. The peer is the
+        // real socket address, which forwarded headers cannot change.
+        $peer = (string) $request->server->get('REMOTE_ADDR', '');
+        if ($peer !== '' && in_array($peer, (array) config('novarr.public_proxies', []), true)) {
+            return $hosts[0];
+        }
+
         $candidates = [
             static::normaliseHost($request->getHost()),
             static::normaliseHost((string) $request->headers->get('host', '')),

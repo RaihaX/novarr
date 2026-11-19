@@ -131,6 +131,9 @@ return [
         },
         explode(',', (string) env('NOVARR_PUBLIC_HOSTS', ''))
     ), fn(string $host) => $host !== ''))),
+    // LAN addresses of the tunnel connector(s): requests coming straight
+    // from them count as public whatever hostname they carry.
+    'public_proxies' => array_values(array_filter(array_map('trim', explode(',', (string) env('NOVARR_PUBLIC_PROXIES', ''))))),
     'public_url' => (static function () use ($publicHosts) {
         $url = trim((string) env('NOVARR_PUBLIC_URL', ''));
         if ($url !== '') {
