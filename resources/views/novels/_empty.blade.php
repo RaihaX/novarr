@@ -33,6 +33,10 @@
         <div class="novels-empty-actions">
             <a href="{{ route('novels.index', ['medium' => $medium]) }}" class="btn btn-secondary">Clear filters</a>
         </div>
+    @elsecannot('admin')
+        {{-- A reader cannot add series: a friendly "nothing yet" instead. --}}
+        <span class="novels-empty-title">Nothing here yet</span>
+        <p class="novels-empty-body">No {{ $mediumPlural }} have been added to this library yet. Check back later.</p>
     @else
         <span class="novels-empty-title">Your library is empty</span>
         <p class="novels-empty-body">Add a {{ $medium === \App\Novel::MEDIUM_MANGA ? 'manga' : 'web novel' }} and Novarr will fetch its metadata and cover, then keep scraping new chapters for you.</p>

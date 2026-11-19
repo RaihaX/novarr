@@ -19,10 +19,13 @@
         $attentionHost = parse_url($firstAttention['url'], PHP_URL_HOST);
         $attentionHost = $attentionHost ? preg_replace('/^www\./', '', $attentionHost) : null;
     }
-    $schedulerWord = $strip['scheduler_ok'] ? 'OK' : ($strip['scheduler_last_run'] ? 'late' : 'not running');
-    $schedulerAgo = $strip['scheduler_last_run']?->diffForHumans(null, \Carbon\CarbonInterface::DIFF_ABSOLUTE, true);
-    $jobsNote = $strip['jobs'] === null ? 'job queue unreachable'
-        : ($strip['jobs'] > 0 ? $strip['jobs'] . ' background ' . Str::plural('job', $strip['jobs']) . ' running' : null);
+    // $strip is null for a reader (sign-in on): library status is the admin's.
+    if ($strip !== null) {
+        $schedulerWord = $strip['scheduler_ok'] ? 'OK' : ($strip['scheduler_last_run'] ? 'late' : 'not running');
+        $schedulerAgo = $strip['scheduler_last_run']?->diffForHumans(null, \Carbon\CarbonInterface::DIFF_ABSOLUTE, true);
+        $jobsNote = $strip['jobs'] === null ? 'job queue unreachable'
+            : ($strip['jobs'] > 0 ? $strip['jobs'] . ' background ' . Str::plural('job', $strip['jobs']) . ' running' : null);
+    }
 @endphp
 
 @push('preload')
@@ -31,6 +34,7 @@
 @endpush
 
 {{-- Phones: the status card's numbers ride in the navbar, as one mono line. --}}
+@can('admin')
 @section('nav-status')
     <a href="{{ route('activity.index') }}" class="home-navstat {{ $strip['scheduler_ok'] ? 'is-success' : 'is-danger' }}"
        aria-label="Scheduler {{ $schedulerWord }}, {{ number_format($strip['today']) }} downloaded today, {{ number_format($strip['queue']) }} queued">
@@ -38,6 +42,7 @@
         <span aria-hidden="true">{{ number_format($strip['today']) }} today · {{ number_format($strip['queue']) }} queued</span>
     </a>
 @endsection
+@endcan
 
 @section('content')
 
@@ -139,14 +144,17 @@
                     <p class="home-empty-text">Open a novel from your library and start a chapter — it will wait for you here, at the exact line you stopped.</p>
                     <div class="home-hero-actions">
                         <a href="{{ route('novels.index') }}" class="btn btn-primary">Open library</a>
+                        @can('admin')
                         <a href="{{ route('novels.discover', ['medium' => 'novel']) }}" class="btn btn-ghost">Discover novels</a>
+                        @endcan
                     </div>
                 </div>
             </section>
         @endif
 
         {{-- Status card (desktop and tablet; phones get the row above and the
-             navbar line). Same cached attention list as Health. --}}
+             navbar line). Same cached attention list as Health. Admin only. --}}
+        @can('admin')
         <aside class="home-status" aria-labelledby="statusTitle" id="statusCard">
             <h2 class="visually-hidden" id="statusTitle">Library status</h2>
             @if($firstAttention)
@@ -202,6 +210,7 @@
                 </div>
             </dl>
         </aside>
+        @endcan
     </div>
 
     {{-- Continue: the next six in-progress novels --}}
@@ -250,7 +259,7 @@
         </div>
 
         @if(count($new_reading) === 0 && count($new_fresh) === 0)
-            <p class="home-quiet">No new chapters in the last {{ \App\Http\Controllers\HomeController::NEW_CHAPTER_DAYS }} days. <a href="{{ route('activity.index') }}">Activity</a> shows what is still queued.</p>
+            <p class="home-quiet">No new chapters in the last {{ \App\Http\Controllers\HomeController::NEW_CHAPTER_DAYS }} days.@can('admin') <a href="{{ route('activity.index') }}">Activity</a> shows what is still queued.@endcan</p>
         @endif
 
         @if(count($new_reading) > 0)

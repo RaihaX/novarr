@@ -39,6 +39,8 @@ return [
         'web' => [
             'driver' => 'session',
             'provider' => 'users',
+            // Web sign-in is always remembered, for a year (minutes).
+            'remember' => 525600,
         ],
     ],
 

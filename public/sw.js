@@ -25,6 +25,10 @@
  *    not delete what the reader chose to download.
  *  - Only GET requests are cached; POSTs (read marks, commands) always hit
  *    the network. Offline read-marks are queued client-side (see offline.js).
+ *  - Accounts (sign-in on): a redirected response (to /login) is never
+ *    stored for a page, the shell or a download. Cached pages carry the
+ *    signed-in reader's read flags, so the page script empties the page and
+ *    download caches on sign-in and sign-out (offline.js clearAccountCaches).
  *
  * CACHE_VERSION is bumped by hand on any change here. It can't be derived from
  * the Vite manifest hash: this file is served as-is from public/ (no build
@@ -517,7 +521,9 @@ async function cacheUrls(urls, client) {
                 credentials: 'same-origin',
                 headers: { 'X-Novarr-Fetch': 'offline' },
             });
-            if (res.ok) {
+            // Redirected: signed out meanwhile (sign-in on) — that is the
+            // login page, never a stand-in for the chapter.
+            if (res.ok && !res.redirected) {
                 await cache.put(url, res.clone());
                 await cacheBuildAssets(await referencedBuildAssets(res), seenAssets);
             }

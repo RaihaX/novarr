@@ -293,3 +293,134 @@ test('online writes and queued replays carry this browser\'s device headers', as
         assert.equal(h['X-Novarr-Device-Name'], 'Web');
     }
 });
+
+// ---- Reader accounts: the queue is per reader -----------------------------
+
+/** Pretend to be a page of reader `id` (owner?), or of nobody ('guest'). */
+function asPage(reader) {
+    globalThis.document = {
+        querySelector: (sel) => {
+            if (sel !== 'meta[name="novarr-reader"]' || reader === 'guest') return null;
+            return { getAttribute: (a) => (a === 'content' ? String(reader.id) : (reader.owner ? '1' : '0')) };
+        },
+    };
+}
+const leavePage = () => { delete globalThis.document; };
+
+test('queued writes are tagged with the page\'s reader', async () => {
+    await seed([]);
+    asPage({ id: 7, owner: false });
+    try {
+        navigator.onLine = false;
+        await offline.queuedFetch('/chapters/5/toggle-read');
+        assert.equal(queue()[0].reader, '7');
+    } finally {
+        leavePage();
+    }
+});
+
+test('only the signed-in reader\'s writes replay; untagged ones are the owner\'s', async () => {
+    await seed([
+        { url: '/mine', reader: '7' },
+        { url: '/theirs', reader: '9' },
+        { url: '/old-untagged' },
+    ]);
+    asPage({ id: 7, owner: false });
+    try {
+        assert.equal(await offline.offlineQueueSize(), 1);
+        assert.equal(await offline.flushQueue(), 1);
+        assert.deepEqual(fetched, ['/mine']);
+        assert.deepEqual(queue().map((i) => i.url), ['/theirs', '/old-untagged']);
+
+        // The owner signs in on this browser: the untagged writes are theirs.
+        fetched.length = 0;
+        asPage({ id: 1, owner: true });
+        assert.equal(await offline.flushQueue(), 1);
+        assert.deepEqual(fetched, ['/old-untagged']);
+        assert.deepEqual(queue().map((i) => i.url), ['/theirs']);
+    } finally {
+        leavePage();
+    }
+});
+
+test('a page nobody is signed in to replays nothing', async () => {
+    await seed([{ url: '/a', reader: '7' }, { url: '/b' }]);
+    asPage('guest');
+    try {
+        assert.equal(await offline.flushQueue(), 0);
+        assert.deepEqual(fetched, []);
+        assert.equal(queue().length, 2);
+        assert.equal(await offline.offlineQueueSize(), 0);
+    } finally {
+        leavePage();
+    }
+});
+
+test('401 (signed out) stops the replay and keeps every entry', async () => {
+    await seed([{ url: '/a', reader: '7' }, { url: '/b', reader: '7' }]);
+    asPage({ id: 7, owner: false });
+    responder = () => ({ ok: false, status: 401 });
+    try {
+        assert.equal(await offline.flushQueue(), 0);
+        assert.deepEqual(fetched, ['/a']);
+        assert.deepEqual(queue().map((i) => i.url), ['/a', '/b']);
+    } finally {
+        leavePage();
+    }
+});
+
+test('an online write answered 401 is queued, not lost', async () => {
+    await seed([]);
+    asPage({ id: 7, owner: false });
+    responder = () => ({ ok: false, status: 401 });
+    try {
+        const res = await offline.queuedFetch('/chapters/5/progress', { body: { read: true } });
+        assert.deepEqual(res, { success: true, queued: true });
+        assert.deepEqual(queue().map((i) => [i.url, i.reader]), [['/chapters/5/progress', '7']]);
+    } finally {
+        leavePage();
+    }
+});
+
+test('a reader\'s queued position does not replace another reader\'s', async () => {
+    await seed([{ url: '/chapters/5/progress', body: { progress: 10 }, reader: '9' }]);
+    asPage({ id: 7, owner: false });
+    try {
+        navigator.onLine = false;
+        await offline.queuedFetch('/chapters/5/progress', { body: { progress: 40 } });
+        assert.deepEqual(queue().map((i) => [i.reader, i.body.progress]), [['9', 10], ['7', 40]]);
+    } finally {
+        leavePage();
+    }
+});
+
+test('signing in or out empties the page caches and downloads, not the queue', async () => {
+    await seed([{ url: '/a', reader: '7' }]);
+    stores.get('novels').set(3, { id: 3, name: 'Downloaded' });
+    const names = new Set(['novarr-v6-pages', 'novarr-v6-static', 'novarr-offline', 'novarr-covers', 'novarr-v3-offline']);
+    globalThis.caches = {
+        keys: async () => [...names],
+        delete: async (n) => names.delete(n),
+    };
+    // The fake store has no clear(); give it one for this test.
+    const realTransaction = db.transaction;
+    db.transaction = (name) => ({
+        objectStore: () => ({ ...objectStore(name), clear: () => request(() => stores.get(name).clear()) }),
+    });
+    try {
+        await offline.clearAccountCaches();
+        assert.deepEqual([...names].sort(), ['novarr-covers', 'novarr-v6-static']);
+        assert.equal(stores.get('novels').size, 0);
+        assert.equal(queue().length, 1);
+    } finally {
+        db.transaction = realTransaction;
+        delete globalThis.caches;
+    }
+});
+
+test('belongsTo: no page context keeps the old, unfiltered behaviour', () => {
+    assert.equal(offline.belongsTo({ reader: '9' }, null), true);
+    assert.equal(offline.belongsTo({}, { id: '1', owner: true }), true);
+    assert.equal(offline.belongsTo({}, { id: '2', owner: false }), false);
+    assert.equal(offline.belongsTo({ reader: '2' }, 'guest'), false);
+});

@@ -38,12 +38,15 @@ class HomeController extends Controller
         // Stall detection runs a few queries per pending novel — the scheduler
         // re-warms this every 5 minutes (see routes/console.php), so a page
         // hit should never pay for it. TTL is longer than the warm interval.
-        $attention = Cache::remember('dashboard_attention', 900, fn() => $health->needingAttention());
+        // Library status (attention, downloads, scheduler) is the admin's:
+        // a reader's Home never computes or carries it.
+        $admin = \Illuminate\Support\Facades\Gate::allows('admin');
+        $attention = $admin ? Cache::remember('dashboard_attention', 900, fn() => $health->needingAttention()) : [];
         $attentionIds = array_fill_keys(array_column($attention, 'id'), true);
 
         // Novels snoozed out of Needs attention stay visible as one muted
         // line (uncached: a snooze must show immediately).
-        $snoozed = $health->snoozed();
+        $snoozed = $admin ? $health->snoozed() : collect();
 
         // First item is the hero; the next six fill the Continue row.
         $continue = $this->continueShelf();
@@ -79,7 +82,7 @@ class HomeController extends Controller
             'shelf' => $shelf,
             'new_reading' => $newReading,
             'new_fresh' => $newFresh,
-            'strip' => $this->statusStrip(count($attention)),
+            'strip' => $admin ? $this->statusStrip(count($attention)) : null,
             'attention' => $attention,
             'snoozed' => $snoozed,
         ]);

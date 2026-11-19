@@ -49,6 +49,9 @@ async function refresh() {
 }
 
 export function initFunnelBanner() {
+    // No banner on the page: a reader account or nobody signed in — the
+    // state comes from an admin-only endpoint, so it is not asked for.
+    if (!document.getElementById('funnelBanner')) return;
     const state = read();
     render(!!state?.on);
     if (!state || Date.now() - (state.checked || 0) > CHECK_TTL) {

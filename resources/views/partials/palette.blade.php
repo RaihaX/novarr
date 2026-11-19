@@ -22,8 +22,19 @@
         ['title' => 'Settings', 'url' => route('settings.index'), 'icon' => 'settings', 'keywords' => 'preferences config kindle tailscale'],
         ['title' => 'Search page', 'url' => route('search.index'), 'icon' => 'search', 'keywords' => 'full text search chapters'],
     ];
+    // Readers (sign-in on): no admin pages and no commands — filtered here,
+    // on the server, so the page never carries them.
+    $paletteAdmin = Gate::allows('admin');
+    if (!$paletteAdmin) {
+        $paletteAdminUrls = [route('novels.discover'), route('novels.create', ['medium' => 'novel']), route('novels.create', ['medium' => 'manga']),
+            route('activity.index'), route('commands.index'), route('logs.index'), route('health.index'), route('settings.index')];
+        $paletteNav = array_values(array_filter($paletteNav, fn($n) => !in_array($n['url'], $paletteAdminUrls, true)));
+    }
+    if (!empty($navUser)) {
+        $paletteNav[] = ['title' => 'Account', 'url' => route('account'), 'icon' => 'user', 'keywords' => 'account password devices link kindle sign out profile'];
+    }
     $paletteIcons = ['book-open', 'file-text', 'arrow-right', 'search', 'refresh-cw', 'download', 'sun', 'moon', 'sun-moon',
-        'house', 'library', 'compass', 'plus', 'highlighter', 'chart-column', 'activity', 'terminal', 'scroll-text', 'heart-pulse', 'settings', 'wifi-off'];
+        'house', 'library', 'compass', 'plus', 'highlighter', 'chart-column', 'activity', 'terminal', 'scroll-text', 'heart-pulse', 'settings', 'wifi-off', 'user'];
 @endphp
 <div class="nv-sheet palette" id="palette" role="dialog" aria-modal="true" aria-label="Command palette" hidden>
     <div class="nv-sheet-backdrop" data-sheet-close></div>
@@ -46,7 +57,7 @@
             <a class="palette-foot-all" href="{{ route('search.index') }}" data-sheet-close>Full search</a>
         </div>
     </div>
-    <script type="application/json" id="paletteNav">@json(['nav' => $paletteNav, 'searchUrl' => route('search.index')])</script>
+    <script type="application/json" id="paletteNav">@json(['nav' => $paletteNav, 'searchUrl' => route('search.index'), 'commands' => $paletteAdmin])</script>
     <template id="paletteIcons">
         @foreach($paletteIcons as $ico)
             <span data-icon="{{ $ico }}"><x-icon :name="$ico" :size="16" /></span>

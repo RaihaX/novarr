@@ -9,6 +9,17 @@
 
 <div class="row justify-content-center">
     <div class="col-lg-8">
+        {{-- Accounts live on their own page (Settings → Users). --}}
+        <a href="{{ route('settings.users') }}" class="card settings-link-card mb-4" id="usersLink">
+            <div class="card-body d-flex align-items-center gap-3">
+                <x-icon name="users" :size="18" />
+                <span class="flex-grow-1">
+                    <strong>Users and sign-in</strong>
+                    <span class="d-block form-text mt-0">Reader accounts, passwords, and whether Novarr asks people to sign in{{ \App\Support\AuthMode::required() ? ' (on)' : ' (off)' }}.</span>
+                </span>
+                <x-icon name="chevron-right" :size="16" />
+            </div>
+        </a>
         <div class="card form-panel">
             <div class="card-body">
                 @if($errors->any())

@@ -97,7 +97,8 @@ class MangaController extends Controller
             ],
             'pages' => $pages->map(fn(ChapterPage $p) => [
                 'page' => (int) $p->page,
-                'url' => Presenter::url(route('chapters.page', ['id' => $chapter->id, 'page' => $p->page])),
+                // Signed for the reader when sign-in is on: loadable without headers.
+                'url' => Presenter::url(\App\Support\SignedUrls::route('chapters.page', ['id' => $chapter->id, 'page' => $p->page])),
                 'width' => $p->width === null ? null : (int) $p->width,
                 'height' => $p->height === null ? null : (int) $p->height,
             ])->values()->all(),

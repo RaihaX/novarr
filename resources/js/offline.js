@@ -220,6 +220,64 @@ export const getLibrary = () => idbGetAll('novels');
 export const getNovel = (id) => idbGet('novels', id);
 export const isDownloaded = (id) => idbGet('novels', id).then((r) => !!r);
 
+// ---- Accounts: whose queue, and clearing on sign-in / sign-out ----
+
+/**
+ * The reader this page belongs to, from <meta name="novarr-reader">
+ * (layouts/app.blade.php): { id: '5', owner: bool }. 'guest' on a page
+ * nobody is signed in to (the login page), null outside a browser page
+ * (no document: tests, workers) — then the queue is not filtered.
+ */
+export function currentReader() {
+    if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return null;
+    const meta = document.querySelector('meta[name="novarr-reader"]');
+    if (!meta) return 'guest';
+    const id = meta.getAttribute('content');
+    if (!id) return 'guest';
+    return { id: String(id), owner: meta.getAttribute('data-owner') === '1' };
+}
+
+/**
+ * Does a queued write belong to `reader`? Entries are tagged with the
+ * reader that made them; untagged ones were queued before accounts existed,
+ * when every write was the owner's. Nobody signed in: nothing is anyone's.
+ */
+export function belongsTo(item, reader) {
+    if (reader === null) return true;
+    if (reader === 'guest') return false;
+    if (item.reader === undefined || item.reader === null) return reader.owner;
+    return String(item.reader) === reader.id;
+}
+
+const readerTag = () => {
+    const reader = currentReader();
+    return reader && reader !== 'guest' ? reader.id : null;
+};
+
+/**
+ * Signed in or out on this browser: the service worker's page caches and
+ * the offline downloads hold HTML with the previous account's read flags,
+ * so they go (and the Downloads list with them). Queued writes stay: each
+ * is tagged with its reader and replays only for them. Device cookies stay.
+ */
+export async function clearAccountCaches() {
+    try {
+        if (typeof caches !== 'undefined') {
+            const names = await caches.keys();
+            await Promise.all(names
+                .filter((n) => /^novarr-v\d+-pages$/.test(n) || /^novarr-(v\d+-)?offline$/.test(n))
+                .map((n) => caches.delete(n)));
+        }
+    } catch (e) {
+        // Cache Storage unavailable: nothing cached to clear.
+    }
+    try {
+        await idbReq('novels', 'readwrite', (os) => os.clear());
+    } catch (e) {
+        // No IndexedDB: no download records.
+    }
+}
+
 // ---- Public: read-state sync queue ----
 
 /** Queued writes older than this are dropped instead of replayed. */
@@ -230,10 +288,12 @@ export const QUEUE_EVENT = 'novarr:offline-queue';
 
 const idbCount = (store) => idbReq(store, 'readonly', (os) => os.count());
 
-/** Number of read-state writes waiting to be replayed. */
+/** Number of this reader's read-state writes waiting to be replayed. */
 export async function offlineQueueSize() {
     try {
-        return await idbCount('queue');
+        const reader = currentReader();
+        if (reader === null) return await idbCount('queue');
+        return (await idbGetAll('queue')).filter((item) => belongsTo(item, reader)).length;
     } catch (e) {
         return 0;
     }
@@ -294,8 +354,12 @@ let enqueueChain = Promise.resolve();
  * can't both miss each other.
  */
 function enqueue(url, method, body) {
+    const reader = currentReader();
+    const tag = readerTag();
     const run = enqueueChain.then(async () => {
-        const items = await idbGetAll('queue');
+        // Only this reader's entries are merged with (another account's
+        // queued writes on this browser are theirs to replay).
+        const items = (await idbGetAll('queue')).filter((item) => belongsTo(item, reader));
         if (isProgressWrite(url, body)) {
             for (const item of items) {
                 if (item.method === method && pathOf(item.url) === pathOf(url) && isProgressWrite(item.url, item.body)) {
@@ -312,7 +376,9 @@ function enqueue(url, method, body) {
                 if (!changedSince) return;
             }
         }
-        await idbAdd('queue', { url, method, body, ts: Date.now() });
+        const entry = { url, method, body, ts: Date.now() };
+        if (tag !== null) entry.reader = tag;
+        await idbAdd('queue', entry);
     });
     enqueueChain = run.catch(() => {});
     return run.then(() => {
@@ -360,6 +426,9 @@ export async function queuedFetch(url, { method = 'POST', body = null } = {}) {
         // fetch() only rejects on a network failure (incl. "online" lie-fi).
         return enqueue(url, method, body);
     }
+    // Signed out meanwhile (sign-in on): keep the write for when this
+    // reader signs in again rather than lose it.
+    if (res.status === 401) return enqueue(url, method, body);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
 }
@@ -375,7 +444,10 @@ export function isRetryableStatus(status) {
 
 async function replayQueue() {
     if (!navigator.onLine) return 0;
-    const items = await idbGetAll('queue');
+    // Only the signed-in reader's writes: another account's stay queued
+    // for when they sign in on this browser again.
+    const reader = currentReader();
+    const items = (await idbGetAll('queue')).filter((item) => belongsTo(item, reader));
     const now = Date.now();
     let flushed = 0;
     for (const item of items) {
@@ -400,6 +472,8 @@ async function replayQueue() {
         if (res.ok) {
             await idbDelete('queue', item.id);
             flushed += 1;
+        } else if (res.status === 401) {
+            break; // signed out: keep this and the rest until they sign in again
         } else if (isRetryableStatus(res.status)) {
             break; // server trouble — retry this (and keep order) later
         } else {
@@ -413,9 +487,9 @@ async function replayQueue() {
 let inFlight = null;
 
 /**
- * Replay queued writes in order. Network failures and 5xx stop the replay
- * (kept for later); other 4xx responses and entries older than 30 days are
- * dropped. Concurrent calls share one in-flight replay, and when the Web
+ * Replay this reader's queued writes in order. Network failures, 5xx and 401
+ * (signed out) stop the replay (kept for later); other 4xx responses and
+ * entries older than 30 days are dropped. Concurrent calls share one in-flight replay, and when the Web
  * Locks API exists only one tab replays at a time, so nothing is sent twice.
  */
 export function flushQueue() {
@@ -449,6 +523,14 @@ export function initOffline() {
     window.Novarr = window.Novarr || {};
     window.Novarr.offlineQueueSize = offlineQueueSize;
     window.Novarr.storageStatus = storageStatus;
-    flushQueue();
+    // Just signed in or out (layouts/app.blade.php): drop the cached pages
+    // of the previous account before anything replays or caches anew.
+    const signed = typeof document !== 'undefined' && document.querySelector?.('meta[name="novarr-signed"]');
+    const ready = signed ? clearAccountCaches() : Promise.resolve();
+    ready.finally(() => flushQueue());
     window.addEventListener('online', () => flushQueue());
+    // The login page reached by a Turbo visit (no full load): same clear.
+    document.addEventListener?.('turbo:load', () => {
+        if (document.querySelector('meta[name="novarr-signed"]')) clearAccountCaches();
+    });
 }

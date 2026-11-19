@@ -28,6 +28,11 @@ class LibraryController extends Controller
             'app' => 'novarr',
             'api_version' => 1,
             'server_version' => static::serverVersion(),
+            // Auth contract: clients show sign-in only when required.
+            'auth' => [
+                'required' => \App\Support\AuthMode::required(),
+                'methods' => ['password', 'pairing'],
+            ],
         ]);
     }
 

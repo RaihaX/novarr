@@ -236,7 +236,8 @@ class NovelController extends Controller
         $aggregates = static::libraryAggregates();
         $totals = static::libraryTotals(array_intersect_key($aggregates, $memberIds));
 
-        $attentionIds = \App\Services\NovelHealth::attentionIds();
+        // Download health is the admin's business: readers get no attention chip or badges.
+        $attentionIds = \Illuminate\Support\Facades\Gate::allows('admin') ? \App\Services\NovelHealth::attentionIds() : [];
 
         $sets = [
             'reading' => array_keys(array_filter($reading, fn($r) => $r['read'] > 0 && !$r['finished'])),
@@ -680,6 +681,12 @@ class NovelController extends Controller
      */
     public function bulk(Request $request)
     {
+        // One route, three actions: "mark read" is the reader's own state;
+        // delete / complete change the library (admin; App\Support\RouteAccess).
+        if ($request->input('action') !== 'read') {
+            \Illuminate\Support\Facades\Gate::authorize('admin');
+        }
+
         $data = $request->validate([
             'action' => 'required|in:delete,complete,read',
             'ids' => 'required|array|min:1',

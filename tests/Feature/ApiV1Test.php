@@ -90,7 +90,9 @@ class ApiV1Test extends TestCase
     {
         $json = $this->getJson('/api/v1/meta')->assertOk()->json();
 
-        $this->assertSame(['api_version', 'app', 'server_version'], $this->sorted(array_keys($json)));
+        // `auth`: added by sign-in (auth contract); off by default.
+        $this->assertSame(['api_version', 'app', 'auth', 'server_version'], $this->sorted(array_keys($json)));
+        $this->assertSame(['required' => false, 'methods' => ['password', 'pairing']], $json['auth']);
         $this->assertSame('novarr', $json['app']);
         $this->assertSame(1, $json['api_version']);
         $this->assertTrue($json['server_version'] === null || is_string($json['server_version']));
