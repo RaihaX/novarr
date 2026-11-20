@@ -43,6 +43,10 @@ class SourceHealthTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // On a server database (CI's MariaDB) the request-search runner tests'
+        // child processes record searches outside the test transaction, and
+        // those rows stay: start every test from an empty table.
+        DB::table('source_stats')->delete();
         Carbon::setTestNow('2026-11-20 12:30:00');
         config([
             'novarr.source_health.min_attempts' => 20,

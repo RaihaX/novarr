@@ -212,7 +212,11 @@ class StorageUsageTest extends TestCase
         $this->assertSame(900, $this->bucket($result, 'other')['bytes']);
         $this->assertSame(1, $this->bucket($result, 'other')['files']);
         $this->assertSame(1750, $this->bucket($result, StorageUsage::NOVEL_TEXT)['bytes']);
-        $this->assertSame('in-memory', $this->bucket($result, 'database')['meta']['source']);
+        // sqlite in memory locally; CI also runs the suite on MariaDB.
+        $this->assertSame(
+            in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true) ? 'information_schema' : 'in-memory',
+            $this->bucket($result, 'database')['meta']['source']
+        );
 
         $disks = array_values(array_filter($result['rows'], fn($r) => $r['scope'] === StorageUsage::SCOPE_DISK));
         $this->assertNotEmpty($disks);
