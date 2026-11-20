@@ -29,16 +29,32 @@ object LibraryFilter {
 
     /**
      * The grid: [novels] in [list] (when one is chosen: Library's list
-     * filter, combined with the status [filter]), matching [search], sorted.
+     * filter), matching the status [filter] and the [origin] filter and
+     * [search], sorted.
      */
-    fun apply(novels: List<NovelSummary>, filter: Filter, sort: Sort, search: String, list: ReadingList? = null): List<NovelSummary> {
+    fun apply(
+        novels: List<NovelSummary>,
+        filter: Filter,
+        sort: Sort,
+        search: String,
+        list: ReadingList? = null,
+        origin: Origin.Filter = Origin.Filter.ALL,
+    ): List<NovelSummary> {
         val query = search.trim()
         val filtered = ReadingLists.filter(novels, list).filter { novel ->
-            filter.matches(novel) &&
+            filter.matches(novel) && origin.matches(novel) &&
                 (query.isEmpty() || matches(novel.name, query) || novel.authorOrNull?.let { matches(it, query) } == true)
         }
         return sorted(filtered, sort)
     }
+
+    /**
+     * A chip's or Origin option's count: the series in [list] matching both
+     * the status [filter] and the [origin] filter (search is not counted).
+     * Status chips pass the chosen origin; Origin options pass the chosen status.
+     */
+    fun count(novels: List<NovelSummary>, list: ReadingList?, filter: Filter, origin: Origin.Filter = Origin.Filter.ALL): Int =
+        ReadingLists.filter(novels, list).count { filter.matches(it) && origin.matches(it) }
 
     fun sorted(novels: List<NovelSummary>, sort: Sort): List<NovelSummary> = when (sort) {
         Sort.NAME -> novels.sortedWith(nameOrder)

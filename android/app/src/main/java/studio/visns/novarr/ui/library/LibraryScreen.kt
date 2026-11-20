@@ -26,7 +26,21 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.FilterList
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.semantics.heading
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -83,6 +97,9 @@ import studio.visns.novarr.ui.components.EmptyState
 import studio.visns.novarr.ui.components.LoadFailed
 import studio.visns.novarr.ui.components.LocalApp
 import studio.visns.novarr.ui.components.OfflinePill
+import studio.visns.novarr.ui.components.OriginBadge
+import studio.visns.novarr.ui.components.readableWidth
+import studio.visns.novarr.domain.Origin
 import studio.visns.novarr.ui.components.ProgressLine
 
 class LibraryViewModel(private val app: AppModel) : ViewModel() {
@@ -107,6 +124,10 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
     /** The chosen reading list (Library's list filter); null: all series. Remembered like the other filters. */
     var listId by mutableStateOf<Int?>(null)
         private set
+
+    /** The chosen Origin option, remembered like the other filters; ignored while the filter is hidden. */
+    var originChoice by mutableStateOf(Origin.Filter.ALL)
+        private set
     private var loadedRevision = -1
     private var loadedAt = 0L
 
@@ -116,18 +137,25 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
             app.prefs.string("library.filter")?.let { v -> Filter.entries.firstOrNull { it.name == v } }?.let { filter = it }
             app.prefs.string("library.sort")?.let { v -> Sort.entries.firstOrNull { it.name == v } }?.let { sort = it }
             app.prefs.string("library.list")?.toIntOrNull()?.let { listId = it }
+            app.prefs.string("library.origin")?.let { v -> Origin.Filter.entries.firstOrNull { it.name == v } }?.let { originChoice = it }
         }
     }
 
     fun select(value: Shelf) { shelf = value; save("library.shelf", value.name) }
     fun select(value: Filter) { filter = value; save("library.filter", value.name) }
     fun select(value: Sort) { sort = value; save("library.sort", value.name) }
+    fun select(value: Origin.Filter) { originChoice = value; save("library.origin", value.name) }
     fun select(value: ReadingList?) { listId = value?.id; save("library.list", value?.id?.toString().orEmpty()) }
     private fun save(key: String, value: String) = viewModelScope.launch { app.prefs.setString(key, value) }
 
     val onShelf: List<NovelSummary> get() = LibraryFilter.shelf(novels, shelf)
-    fun visible(list: ReadingList?): List<NovelSummary> = LibraryFilter.apply(onShelf, filter, sort, search, list)
-    fun count(filter: Filter, list: ReadingList?) = ReadingLists.filter(onShelf, list).count(filter::matches)
+
+    /** Offered only when some series in the loaded library has an origin (an older server sends none). */
+    val originOffered: Boolean get() = Origin.offered(novels)
+    val origin: Origin.Filter get() = Origin.effective(originChoice, novels)
+    fun visible(list: ReadingList?): List<NovelSummary> = LibraryFilter.apply(onShelf, filter, sort, search, list, origin)
+    fun count(filter: Filter, list: ReadingList?) = LibraryFilter.count(onShelf, list, filter, origin)
+    fun count(origin: Origin.Filter, list: ReadingList?) = LibraryFilter.count(onShelf, list, filter, origin)
     fun count(shelf: Shelf, list: ReadingList?) = ReadingLists.filter(LibraryFilter.shelf(novels, shelf), list).size
 
     fun refreshIfStale() {
@@ -165,6 +193,7 @@ fun LibraryScreen(nav: NavController) {
     val wide = isWide()
     var sortMenu by remember { mutableStateOf(false) }
     var listSheet by remember { mutableStateOf(false) }
+    var originSheet by remember { mutableStateOf(false) }
     val listsOffered by app.listsOffered.collectAsStateWithLifecycle()
     val listsState by app.lists.state.collectAsStateWithLifecycle()
     val listsLoaded by app.lists.loaded.collectAsStateWithLifecycle()
@@ -244,6 +273,21 @@ fun LibraryScreen(nav: NavController) {
                         )
                     }
                 }
+                if (model.originOffered) {
+                    item(key = "origin") {
+                        val origin = model.origin
+                        FilterChip(
+                            selected = origin != Origin.Filter.ALL,
+                            onClick = { originSheet = true },
+                            label = { Text(if (origin == Origin.Filter.ALL) "Origin" else origin.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            leadingIcon = { Icon(Icons.Outlined.Public, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                            trailingIcon = { Icon(Icons.Outlined.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                            modifier = Modifier.semantics {
+                                contentDescription = if (origin == Origin.Filter.ALL) "Filter by origin" else "Origin: ${origin.title}. Change origin"
+                            },
+                        )
+                    }
+                }
                 items(Filter.entries) { filter ->
                     FilterChip(
                         selected = model.filter == filter,
@@ -284,6 +328,15 @@ fun LibraryScreen(nav: NavController) {
         }
     }
 
+    if (originSheet && model.originOffered) {
+        OriginSheet(
+            selected = model.origin,
+            count = { model.count(it, list) },
+            onSelect = { model.select(it); originSheet = false },
+            onDismiss = { originSheet = false },
+        )
+    }
+
     if (listSheet && listsOffered) {
         LibraryListsSheet(
             selected = list?.id,
@@ -297,7 +350,16 @@ fun LibraryScreen(nav: NavController) {
 private fun LibraryEmpty(model: LibraryViewModel, list: ReadingList?) {
     val listReason = list?.let { ReadingLists.emptyReason(it, model.novels, model.onShelf) }
     when {
-        model.search.isNotBlank() -> EmptyState("No results", "Nothing on this shelf matches “${model.search}”.", Icons.Outlined.Search)
+        model.search.isNotBlank() -> EmptyState(
+            "No results",
+            if (model.filter == Filter.ALL && model.origin == Origin.Filter.ALL) {
+                "Nothing on this shelf matches “${model.search}”."
+            } else {
+                // A series may match the search but not the filters: say which ones are on.
+                "Nothing on this shelf matches “${model.search}” with “${filters(model)}”."
+            },
+            Icons.Outlined.Search,
+        )
         list != null && listReason == ReadingLists.Empty.NoSeries -> EmptyState(
             "“${list.name}” is empty",
             "Open a series and tap Lists at the top to add it here.",
@@ -313,8 +375,47 @@ private fun LibraryEmpty(model: LibraryViewModel, list: ReadingList?) {
             "Add series on your Novarr server and they'll show up here.",
             Icons.Outlined.CollectionsBookmark,
         )
-        list != null -> EmptyState("Nothing here", "Nothing in “${list.name}” matches “${model.filter.title}”.", Icons.Outlined.FilterList)
-        else -> EmptyState("Nothing here", "Nothing matches “${model.filter.title}”.", Icons.Outlined.FilterList)
+        list != null -> EmptyState("Nothing here", "Nothing in “${list.name}” matches “${filters(model)}”.", Icons.Outlined.FilterList)
+        else -> EmptyState("Nothing here", "Nothing matches “${filters(model)}”.", Icons.Outlined.FilterList)
+    }
+}
+
+/** "Reading", "Korean", or "Reading · Korean": the filters in effect, for the empty state. */
+private fun filters(model: LibraryViewModel): String = listOfNotNull(
+    model.filter.title.takeIf { model.filter != Filter.ALL || model.origin == Origin.Filter.ALL },
+    model.origin.takeIf { it != Origin.Filter.ALL }?.let { if (it == Origin.Filter.UNKNOWN) "Unknown origin" else it.title },
+).joinToString(" · ")
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OriginSheet(selected: Origin.Filter, count: (Origin.Filter) -> Int, onSelect: (Origin.Filter) -> Unit, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(
+            Modifier
+                .readableWidth(640.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 16.dp)
+                .navigationBarsPadding()
+                .selectableGroup(),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("Origin", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp).semantics { heading() })
+            Origin.Filter.entries.forEach { option ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .selectable(selected = option == selected, role = Role.RadioButton, onClick = { onSelect(option) })
+                        .heightIn(min = 52.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = option == selected, onClick = null)
+                    Spacer(Modifier.width(12.dp))
+                    Text(option.title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    Text(seriesCount(count(option)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
     }
 }
 
@@ -326,20 +427,26 @@ fun LibraryCell(novel: NovelSummary, onClick: () -> Unit) {
             .semantics(mergeDescendants = true) {},
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Cover(novel.coverUrl, novel.name) {
-            if (novel.chaptersRead > 0 && !novel.finished) {
-                Box(Modifier.align(Alignment.BottomCenter).padding(6.dp)) {
-                    ProgressLine(novel.readFraction, color = Color.White, track = Color.Black.copy(alpha = 0.35f))
+        Box {
+            Cover(novel.coverUrl, novel.name) {
+                if (novel.chaptersRead > 0 && !novel.finished) {
+                    Box(Modifier.align(Alignment.BottomCenter).padding(6.dp)) {
+                        ProgressLine(novel.readFraction, color = Color.White, track = Color.Black.copy(alpha = 0.35f))
+                    }
+                }
+                if (novel.chaptersNew > 0) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary,
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color.White),
+                        modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(12.dp),
+                    ) {}
                 }
             }
-            if (novel.chaptersNew > 0) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary,
-                    border = androidx.compose.foundation.BorderStroke(1.5.dp, Color.White),
-                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(12.dp),
-                ) {}
-            }
+            // On the cover, so it never adds a line under it: bottom-right, clear of the progress line,
+            // the new-chapters dot (top-right) and a placeholder's title (top-left) and mark (bottom-left).
+            // Outside Cover, whose semantics are cleared, so the tile still reads "Korean" etc.
+            OriginBadge(novel, Modifier.align(Alignment.BottomEnd).padding(end = 6.dp, bottom = 16.dp), onCover = true)
         }
         Text(novel.name, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(

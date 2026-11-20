@@ -105,6 +105,13 @@ data class NovelSummary(
     val completed: Boolean = false,
     val paused: Boolean = false,
     val origin: String? = null,
+    /**
+     * "JP" | "KR" | "CN" | "EN" | null; absent on older servers. Kept raw (a
+     * malformed value decodes as null, never failing the series):
+     * domain/Origin validates it.
+     */
+    @Serializable(with = StringOrNull::class)
+    @SerialName("origin_country") val originCountry: String? = null,
     @Serializable(with = TagList::class) val tags: List<NovelTag> = emptyList(),
     @SerialName("chapters_total") val chaptersTotal: Int = 0,
     @SerialName("chapters_downloaded") val chaptersDownloaded: Int = 0,
@@ -407,6 +414,7 @@ object ChapterRefOrNull : OrNullSerializer<ChapterRef>(ChapterRef.serializer())
 object HomeStatsOrNull : OrNullSerializer<HomeStats>(HomeStats.serializer())
 object SourceUnavailableOrNull : OrNullSerializer<SourceUnavailable>(SourceUnavailable.serializer())
 object ReadingPositionOrNull : OrNullSerializer<ReadingPosition>(ReadingPosition.serializer())
+object StringOrNull : OrNullSerializer<String>(String.serializer())
 
 /** Reads and writes NovelDetail as one flat object, exactly as the server sends it. */
 object NovelDetailSerializer : KSerializer<NovelDetail> {
