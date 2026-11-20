@@ -75,6 +75,7 @@
             @else
                 <x-status state="active" as="text" id="novelStatusBadge" />
             @endif
+            <x-origin :novel="$data" class="nv-origin" />
             @foreach($metaItems as $item)
                 <span class="nv-sep" aria-hidden="true">·</span>
                 @isset($item['href'])
@@ -604,6 +605,13 @@
                 · <a href="{{ route('health.storage') }}">Storage</a>
             </p>
         </div>
+        {{-- Chapters whose pages came from another source (manga:fill-missing). --}}
+        @if($data->isManga() && ($filledSummary = \App\Scraping\MangaFallback::filledSummary((int) $data->id)))
+            <div class="qa-section" id="seriesFilledFrom">
+                <div class="qa-label">Other sources</div>
+                <p class="text-muted mb-0">{{ $filledSummary }}</p>
+            </div>
+        @endif
         <div class="qa-section">
             <div class="qa-label">Acquire</div>
             <div class="qa-buttons">

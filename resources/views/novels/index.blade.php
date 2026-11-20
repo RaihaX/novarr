@@ -6,7 +6,9 @@
     $originChips ??= [];
     $readingLists ??= [];
     $activeList ??= null;
-    $hasFilters = request('search') || request()->filled('status') || request()->filled('tag') || $filter !== 'all' || $activeList;
+    $activeOrigin ??= null;
+    $originCounts ??= [];
+    $hasFilters = request('search') || request()->filled('status') || request()->filled('tag') || $filter !== 'all' || $activeList || $activeOrigin;
     $libraryTitle = LibraryMedium::title($medium);
     $mediumNoun = LibraryMedium::noun($medium);
     // Chip / toggle links keep every other query parameter and the library
@@ -115,6 +117,17 @@
                 @foreach($tags as $tag)
                     <option value="{{ $tag->id }}" @selected((string) $activeTag === (string) $tag->id)>{{ $tag->name }}</option>
                 @endforeach
+            </select>
+        @endif
+        {{-- Origin country (?origin=, in the URL like the tag); counts are
+             this library's series (Novel::originCountry()). --}}
+        @if(!empty($originCounts))
+            <select name="origin" aria-label="Filter by origin" class="form-select lib-origin" onchange="this.form.requestSubmit()">
+                <option value="">All origins</option>
+                @foreach(['jp' => 'JP', 'kr' => 'KR', 'cn' => 'CN', 'en' => 'EN'] as $oKey => $oCode)
+                    <option value="{{ $oKey }}" @selected($activeOrigin === $oKey)>{{ \App\Novel::originCountryName($oCode) }} ({{ number_format($originCounts[$oKey] ?? 0) }})</option>
+                @endforeach
+                <option value="unknown" @selected($activeOrigin === 'unknown')>Unknown ({{ number_format($originCounts['unknown'] ?? 0) }})</option>
             </select>
         @endif
         <label class="lib-sort">
@@ -256,8 +269,8 @@
                                     <x-cover :novel="$novel" :progress="$r['percent']" :flag="$flag" :chapters="$prog['total']" :eager="$eager" :chip="$novel->isManga() ? 'MANGA' : null" decorative />
                                     <span class="lib-tile-title">{{ $novel->name }}</span>
                                     <span class="lib-tile-sub {{ $subTone }}" data-reading="{{ $r['read'] }}/{{ $r['total'] }}">{{ $sub }}</span>
-                                    @if($origin)
-                                        <span class="lib-tile-origin">{{ $origin }}</span>
+                                    @if($origin || $novel->originCountry())
+                                        <span class="lib-tile-origin"><x-origin :novel="$novel" />@if($origin)<span class="lib-tile-origin-text">{{ $origin }}</span>@endif</span>
                                     @endif
                                 </a>
                                 <input type="checkbox" class="form-check-input novel-check lib-tile-check" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}" tabindex="-1">
@@ -306,7 +319,7 @@
                         <div class="cover-placeholder" aria-hidden="true"><x-brand-mark variant="mono" :size="16" /></div>
                     @endif
                     <div class="novel-row-body">
-                        <div class="novel-row-title">{{ $novel->name }}</div>
+                        <div class="novel-row-title">{{ $novel->name }} <x-origin :novel="$novel" class="align-text-bottom" /></div>
                         <div class="novel-row-meta">{{ $novel->author ?? 'Unknown author' }}</div>
                         <div class="novel-row-counts">Read {{ number_format($r['read']) }} of {{ number_format($r['total']) }} · {{ $r['percent'] }}%</div>
                         <div class="novel-row-progress" aria-hidden="true"><span class="bar-reading" style="width: {{ $r['percent'] }}%"></span></div>
@@ -368,6 +381,7 @@
                         </td>
                         <td>
                             <a href="{{ route('novels.show', $novel->id) }}" class="novel-name">{{ $novel->name }}</a>
+                            <x-origin :novel="$novel" class="ms-1 align-text-bottom" />
                         </td>
                         <td class="col-author">{{ $novel->author ?? '—' }}</td>
                         <td class="col-status">

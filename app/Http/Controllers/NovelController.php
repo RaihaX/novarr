@@ -261,8 +261,22 @@ class NovelController extends Controller
         // every reader, a read only the reader's own (see CacheHelper).
         // Both caches are library-wide; one statement (this medium's ids, with
         // the origin the chips need) scopes them to the library shown.
-        $members = Novel::where('medium', $medium)->get(['id', 'origin']);
+        $members = Novel::where('medium', $medium)->get(['id', 'origin', 'origin_language', 'origin_source', 'origin_confidence', 'medium']);
         $memberIds = array_flip($members->pluck('id')->map(fn($id) => (int) $id)->all());
+
+        // Origin filter (?origin=jp|kr|cn|en|unknown, in the URL like ?tag=):
+        // Novel::scopeOriginCountry(), the SQL twin of originCountry(), which
+        // gives the dropdown's counts for this medium from the same rows.
+        $originCounts = array_fill_keys([...array_map('strtolower', Novel::ORIGIN_COUNTRIES), 'unknown'], 0);
+        foreach ($members as $member) {
+            $originCounts[strtolower($member->originCountry() ?? 'unknown')]++;
+        }
+        $activeOrigin = strtolower((string) $request->query('origin', ''));
+        if (array_key_exists($activeOrigin, $originCounts)) {
+            $query->originCountry($activeOrigin === 'unknown' ? null : strtoupper($activeOrigin));
+        } else {
+            $activeOrigin = null;
+        }
         $reading = array_intersect_key(static::libraryReading()['reading'], $memberIds);
         $aggregates = static::libraryAggregates();
         $totals = static::libraryTotals(array_intersect_key($aggregates, $memberIds));
@@ -339,7 +353,7 @@ class NovelController extends Controller
         // are unchanged); any explicit sort or filter shows one flat list.
         $shelved = $view === 'grid' && $sort === 'read' && $filter === 'all'
             && !$request->filled('search') && !$request->filled('tag') && !$request->filled('status')
-            && $activeList === null;
+            && $activeList === null && $activeOrigin === null;
 
         return view('novels.index', [
             'shelved' => $shelved,
@@ -356,6 +370,8 @@ class NovelController extends Controller
             'attentionIds' => $attentionIds,
             'tags' => \App\Tag::orderBy('name')->get(['id', 'name']),
             'activeTag' => $request->query('tag'),
+            'originCounts' => $originCounts,
+            'activeOrigin' => $activeOrigin,
             // The reader's lists ({id, name, count in this library, other}) and the chosen one.
             'readingLists' => $readingLists,
             'activeList' => $activeList,
@@ -571,7 +587,7 @@ class NovelController extends Controller
         $pageIds = array_slice($orderedIds, ($page - 1) * $perPage, $perPage);
 
         $novels = $pageIds === [] ? collect() : Novel::with('file')
-            ->select(['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures', 'origin', 'origin_language', 'medium'])
+            ->select(['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures', 'origin', 'origin_language', 'origin_source', 'origin_confidence', 'medium'])
             ->whereIn('id', $pageIds)
             ->get()
             ->keyBy('id');
@@ -1090,8 +1106,8 @@ class NovelController extends Controller
             'language_id' => 'nullable|integer|exists:languages,id',
             'unique_id' => 'nullable|string|max:255',
             'image' => 'nullable|image|max:10240',
-            'origin' => 'nullable|in:unknown,original,translated',
-            'origin_language' => 'nullable|in:en,zh,ko,ja,vi,th,id,other',
+            'origin' => 'nullable|in:auto,ja,ko,zh,en,unknown,original,translated',
+            'origin_language' => 'nullable|in:en,zh,ko,ja,vi,th,id,tl,es,other',
         ]);
 
         $object = $this->novels->findOrFail($id);
@@ -1167,25 +1183,29 @@ class NovelController extends Controller
             $object->alternative_url = $request->alternative_url;
         }
 
-        // Origin override: a change made here is the user's call and sticks
-        // (origin_source = manual — NovelUpdates/inference never overwrite
-        // it). Choosing "Unknown" hands the novel back to automatic detection.
+        // Origin override: a value chosen here is the user's call and sticks
+        // (origin_source = manual, confidence high — no detection overwrites
+        // it); "Unknown" is a choice too. "Auto" drops a manual origin and
+        // runs detection again (after the save below, with the new tags).
+        $redetectOrigin = false;
         if ( $request->has('origin') ) {
-            $origin = $request->input('origin') ?: 'unknown';
-            $language = $request->input('origin_language');
-            $language = ($language === 'other' || $language === '') ? null : $language;
-            if ($origin === 'original') {
-                $language ??= 'en';
-            }
-            $currentOrigin = $object->isTranslated() === null ? 'unknown' : $object->origin;
-            $currentLanguage = $currentOrigin === 'unknown' ? null : $object->origin_language;
-
-            if ($origin === 'unknown') {
-                if ($currentOrigin !== 'unknown' || $object->origin_source === 'manual') {
-                    $object->forceFill(['origin' => null, 'origin_language' => null, 'origin_source' => null]);
-                }
-            } elseif ($origin !== $currentOrigin || $language !== $currentLanguage) {
-                $object->forceFill(['origin' => $origin, 'origin_language' => $language, 'origin_source' => 'manual']);
+            $raw = (string) ($request->input('origin') ?: 'auto');
+            $choice = static::originChoice($raw, $request->input('origin_language'));
+            $same = $choice !== null
+                && $choice['origin'] === ($object->origin ?? 'unknown')
+                && $choice['origin_language'] === ($choice['origin'] === 'unknown' ? null : $object->origin_language);
+            // The older pair (translated / original + language) only takes
+            // over when it differs from what is stored, as before.
+            $legacy = in_array($raw, ['translated', 'original'], true);
+            if ($choice === null) {
+                $redetectOrigin = $object->origin_source === 'manual';
+            } elseif (!$same || ($object->origin_source !== 'manual' && !$legacy)) {
+                $object->forceFill([
+                    'origin' => $choice['origin'],
+                    'origin_language' => $choice['origin_language'],
+                    'origin_source' => 'manual',
+                    'origin_confidence' => \App\Scraping\OriginInference::HIGH,
+                ]);
             }
         }
 
@@ -1203,7 +1223,34 @@ class NovelController extends Controller
             $object->tags()->sync($request->input('tags', []));
         }
 
+        if ($redetectOrigin) {
+            $object->unsetRelation('tags');
+            $object->clearManualOrigin();
+            CacheHelper::clearNovelCache($id);
+        }
+
         return redirect()->route('novels.show', $id)->with('status', 'Novel updated.');
+    }
+
+    /**
+     * The edit form's origin choice → origin attributes, or null for "auto".
+     * auto | ja | ko | zh | en | unknown, plus the older values the form
+     * also sends: original (English) and translated (with origin_language,
+     * 'other' = not known).
+     *
+     * @return array{origin: string, origin_language: ?string}|null
+     */
+    public static function originChoice(string $choice, $language = null): ?array
+    {
+        $language = is_string($language) && preg_match('/^[a-z]{2}$/', $language) ? $language : null;
+
+        return match ($choice) {
+            'ja', 'ko', 'zh' => ['origin' => 'translated', 'origin_language' => $choice],
+            'en', 'original' => ['origin' => 'original', 'origin_language' => $choice === 'original' ? ($language ?? 'en') : 'en'],
+            'translated' => ['origin' => 'translated', 'origin_language' => $language === 'en' ? null : $language],
+            'unknown' => ['origin' => 'unknown', 'origin_language' => null],
+            default => null,
+        };
     }
 
     /**

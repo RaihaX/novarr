@@ -19,7 +19,7 @@ class ApiV1Test extends TestCase
     use RefreshDatabase;
 
     private const SUMMARY_KEYS = [
-        'id', 'name', 'author', 'cover_url', 'cover_large_url', 'state', 'completed', 'paused', 'origin', 'tags',
+        'id', 'name', 'author', 'cover_url', 'cover_large_url', 'state', 'completed', 'paused', 'origin', 'origin_country', 'tags',
         'chapters_total', 'chapters_downloaded', 'chapters_read', 'chapters_new', 'read_percent', 'download_percent',
         'finished', 'last_read_at', 'updated_at', 'resume_chapter_id',
         // Manga phase 1: 'novel' | 'manga'.

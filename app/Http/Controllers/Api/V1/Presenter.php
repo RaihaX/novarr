@@ -23,6 +23,7 @@ class Presenter
     public const SUMMARY_COLUMNS = [
         'id', 'name', 'author', 'status', 'paused_at', 'no_of_chapters',
         'scrape_failures', 'toc_failures', 'origin', 'origin_language', 'medium',
+        'origin_source', 'origin_confidence',
     ];
 
     /**
@@ -88,6 +89,8 @@ class Presenter
             'completed' => (bool) $novel->status,
             'paused' => $novel->paused_at !== null,
             'origin' => static::origin($novel),
+            // 'JP' | 'KR' | 'CN' | 'EN' | null — Novel::originCountry().
+            'origin_country' => $novel->originCountry(),
             'tags' => $novel->tags->map(fn($t) => ['id' => (int) $t->id, 'name' => $t->name])->values()->all(),
             'chapters_total' => (int) $r['total'],
             'chapters_downloaded' => (int) $a['downloaded'],

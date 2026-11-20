@@ -260,7 +260,9 @@ class DownloadLanesTest extends TestCase
 
     public function testNovelCreateStoresTheSuwayomiSource(): void
     {
-        $this->gql([SuwayomiSource::MUTATION_FETCH_MANGA => 'suwayomi/fetch-manga.json']);
+        $fake = $this->gql([SuwayomiSource::MUTATION_FETCH_MANGA => 'suwayomi/fetch-manga.json']);
+        // No deciding genre: the origin's one MangaDex title lookup (nothing found).
+        $fake->route('https://api.mangadex.org/manga?' . \App\Sources\MangaDexSource::query(['title' => 'Hajime no Ippo', 'limit' => 10, 'contentRating' => \App\Sources\MangaDexSource::CONTENT_RATINGS]), '{"result":"ok","data":[]}');
 
         $this->assertSame(0, Artisan::call('novel:create', ['name' => 'Hajime no Ippo', 'url' => SuwayomiSource::seriesUrl(2132)]), Artisan::output());
 

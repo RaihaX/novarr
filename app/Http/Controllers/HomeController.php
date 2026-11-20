@@ -533,7 +533,7 @@ class HomeController extends Controller
         $novelIds = $recent->keys()->all();
         $novels = Novel::with('file')
             ->whereIn('id', $novelIds)
-            ->get(['id', 'name', 'author', 'status', 'paused_at', 'last_toc_count', 'translator_url', 'medium'])
+            ->get(['id', 'name', 'author', 'status', 'paused_at', 'last_toc_count', 'translator_url', 'medium', 'origin', 'origin_language', 'origin_source', 'origin_confidence'])
             ->keyBy('id');
 
         // page_count lets the cards say "Page 12 of 34" for a manga.

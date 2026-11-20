@@ -33,7 +33,7 @@ use Illuminate\Support\Facades\Log;
  * instance resolves URLs and lists nothing (no network on the resolution
  * path, which runs for every novel).
  */
-class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDiscover, ProvidesChapterStats
+class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDiscover, ProvidesChapterStats, ProvidesSeriesTitles
 {
     public const SERIES_PATH = '#^/manga/(\d{1,18})/?$#';
     public const CHAPTER_PATH = '#^/manga/(\d{1,18})/chapter/(\d{1,9})/?$#';
@@ -74,6 +74,8 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDis
 
     /** The Suwayomi source of a manga already on the server (cheap: no fetch from the site). */
     public const QUERY_MANGA_SOURCE = 'query ($id: Int!) { manga(id: $id) { sourceId source { name } } }';
+    /** A series' title from Suwayomi's own database (no request to the site): ProvidesSeriesTitles. */
+    public const QUERY_MANGA_TITLE = 'query ($id: Int!) { manga(id: $id) { title } }';
 
     /** Download lanes of Suwayomi novels: "suwayomi:{sourceId}" (App\Services\DownloadLanes). */
     public const LANE_PREFIX = 'suwayomi:';
@@ -626,6 +628,24 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDis
         }
 
         return ['id' => $sourceId, 'name' => trim((string) ($data['manga']['source']['name'] ?? ''))];
+    }
+
+    /**
+     * ProvidesSeriesTitles: the title Suwayomi stores for the series (one
+     * cheap query answered from its own database, short timeout). Null when
+     * the server could not say.
+     */
+    public function seriesTitles(Novel $novel): ?array
+    {
+        $id = self::mangaId($novel->translator_url);
+        if ($id === null) {
+            return null;
+        }
+
+        $data = $this->graphql(self::QUERY_MANGA_TITLE, ['id' => $id], min(self::SOURCE_REF_TIMEOUT, self::timeout()));
+        $title = trim((string) ($data['manga']['title'] ?? ''));
+
+        return $title !== '' ? [$title] : null;
     }
 
     /**

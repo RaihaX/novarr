@@ -2039,8 +2039,10 @@ class ChapterScraper extends Command
     /**
      * A manga chapter whose pages are all on disk: downloaded, its page
      * count, retry state cleared. No body text (no chapter_texts row).
+     * Public static: App\Scraping\MangaFallback marks a chapter it filled
+     * from another source exactly the same way.
      */
-    private function updateMangaChapter(\App\NovelChapter $chapter, int $pages): void
+    public static function updateMangaChapter(\App\NovelChapter $chapter, int $pages): void
     {
         $chapter->last_attempt_at = Carbon::now();
         $chapter->kind = null;

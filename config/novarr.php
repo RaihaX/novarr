@@ -338,10 +338,26 @@ return [
     |                  the chapter's download.
     | page_delay_ms  — pause between two page image requests. Tests set 0.
     |
+    | Fallback sources (App\Scraping\MangaFallback, `manga:fill-missing`,
+    | hourly): a manga chapter its own source keeps failing on is downloaded
+    | from the same series on another installed source (exact title match).
+    | fallback_enabled            — the hourly job (the command still runs by hand).
+    | fallback_after_attempts     — failed attempts before a chapter qualifies.
+    | fallback_search_days        — re-search the other sources this often per series.
+    | fallback_max_sources        — sources searched per series per run.
+    | fallback_chapters_per_run   — chapters filled per series per run.
+    | fallback_max_minutes        — total run time of one run.
+    |
     */
     'manga' => [
         'max_page_bytes' => (int) env('NOVARR_MANGA_MAX_PAGE_BYTES', 30 * 1024 * 1024),
         'page_delay_ms' => (int) env('NOVARR_MANGA_PAGE_DELAY_MS', 200),
+        'fallback_enabled' => (bool) env('NOVARR_MANGA_FALLBACK_ENABLED', true),
+        'fallback_after_attempts' => (int) env('NOVARR_MANGA_FALLBACK_AFTER_ATTEMPTS', 3),
+        'fallback_search_days' => (int) env('NOVARR_MANGA_FALLBACK_SEARCH_DAYS', 7),
+        'fallback_max_sources' => (int) env('NOVARR_MANGA_FALLBACK_MAX_SOURCES', 8),
+        'fallback_chapters_per_run' => (int) env('NOVARR_MANGA_FALLBACK_CHAPTERS_PER_RUN', 30),
+        'fallback_max_minutes' => (int) env('NOVARR_MANGA_FALLBACK_MAX_MINUTES', 20),
     ],
 
     /*

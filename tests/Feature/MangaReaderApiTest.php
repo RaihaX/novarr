@@ -297,7 +297,8 @@ class MangaReaderApiTest extends TestCase
         $this->assertSame('manga', $novel->medium);
         $this->assertSame('rtl', $novel->reading_mode);
         $this->assertSame('Yorima Riyo', $novel->author);
-        $this->assertNull($novel->origin, 'no origin inference for a manga');
+        // No text inference for a manga: its origin is MangaDex's originalLanguage.
+        $this->assertSame(['translated', 'ja', 'source', 'high'], [$novel->origin, $novel->origin_language, $novel->origin_source, $novel->origin_confidence]);
         $this->assertNotContains('https://www.novelupdates.com', array_map(fn($u) => substr($u, 0, 27), $fake->urls()));
         // The cover came from uploads.mangadex.org with the honest User-Agent.
         $this->assertNotEmpty($fake->coverRequests);

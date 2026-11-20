@@ -33,6 +33,7 @@ class Novel extends Model
         "origin_language",
         "origin_source",
         "origin_type",
+        "origin_confidence",
         // Manga support: set at creation from the source (SourceResolver),
         // reading_mode by the reader / metadata (never over a user's choice).
         "medium",
@@ -53,8 +54,15 @@ class Novel extends Model
     /** Reader page modes of a manga (novels.reading_mode). */
     public const READING_MODES = ['rtl', 'ltr', 'vertical'];
 
-    /** Who set a novel's origin, weakest first (see applyOrigin). */
-    public const ORIGIN_SOURCES = ['inferred' => 1, 'novelupdates' => 2, 'manual' => 3];
+    /**
+     * Who set a novel's origin, weakest first (see applyOrigin): a guess from
+     * the text, the series' own source (MangaDex originalLanguage, a
+     * Suwayomi Manga/Manhwa/Manhua genre), NovelUpdates, the edit form.
+     */
+    public const ORIGIN_SOURCES = ['inferred' => 1, 'source' => 2, 'novelupdates' => 3, 'manual' => 4];
+
+    /** origin_language => the two-letter country badge (originCountry()). */
+    public const ORIGIN_COUNTRIES = ['ja' => 'JP', 'ko' => 'KR', 'zh' => 'CN', 'en' => 'EN'];
 
     /**
      * The attributes that should be cast.
@@ -83,6 +91,7 @@ class Novel extends Model
         'origin_language' => 'string',
         'origin_source' => 'string',
         'origin_type' => 'string',
+        'origin_confidence' => 'string',
         'source_ref' => 'string',
     ];
 
@@ -293,7 +302,8 @@ class Novel extends Model
     public function originLabel(): ?string
     {
         $translated = $this->isTranslated();
-        if ($translated === null) {
+        // A manga shows its origin as the country badge only (originCountry()).
+        if ($translated === null || $this->isManga()) {
             return null;
         }
 
@@ -309,7 +319,7 @@ class Novel extends Model
     public function originChip(): ?string
     {
         $translated = $this->isTranslated();
-        if ($translated === null) {
+        if ($translated === null || $this->isManga()) {
             return null;
         }
 
@@ -338,11 +348,16 @@ class Novel extends Model
 
     /**
      * Set origin attributes from $source unless a stronger source already
-     * set them (manual > novelupdates > inferred). Saves quietly (no
-     * observers / timestamps churn) when the model exists. Returns whether
-     * anything was written.
+     * set them (manual > novelupdates > source > inferred); the same source
+     * replaces its own earlier answer. Saves quietly (no observers /
+     * timestamps churn) when the model exists. Returns whether anything was
+     * written.
      *
-     * @param array{origin: string, origin_language?: ?string, origin_type?: ?string} $attributes
+     * origin_confidence: an inferred result's own `confidence` (low when it
+     * has none); any other source is high unless `confidence` says otherwise
+     * (a Suwayomi genre is medium).
+     *
+     * @param array{origin: string, origin_language?: ?string, origin_type?: ?string, confidence?: ?string} $attributes
      */
     public function applyOrigin(array $attributes, string $source): bool
     {
@@ -352,10 +367,16 @@ class Novel extends Model
             return false;
         }
 
+        $confidence = $attributes['confidence'] ?? null;
+        if (!in_array($confidence, [OriginInference::HIGH, OriginInference::MEDIUM, OriginInference::LOW], true)) {
+            $confidence = $source === 'inferred' ? OriginInference::LOW : OriginInference::HIGH;
+        }
+
         $values = [
             'origin' => $attributes['origin'],
             'origin_language' => $attributes['origin_language'] ?? null,
             'origin_source' => $source,
+            'origin_confidence' => $confidence,
         ];
         // Inference knows nothing of NovelUpdates' type — keep what's there.
         if (array_key_exists('origin_type', $attributes)) {
@@ -375,12 +396,14 @@ class Novel extends Model
 
     /**
      * Infer origin from what is already stored (no network): the author, the
-     * source host, the first three downloaded chapters and the TOC labels.
-     * Never overrides a NovelUpdates or manual origin.
+     * source host, the first OriginInference::SAMPLE_CHAPTERS downloaded
+     * chapters, the TOC labels and the series' genres (its tags). Never
+     * overrides a source, NovelUpdates or manual origin; replaces an earlier
+     * inferred one. $apply false only computes (the command's --dry-run).
      *
-     * @return array{origin: string, origin_language: ?string, reason: string}|null null when skipped
+     * @return array{origin: string, origin_language: ?string, reason: string, confidence: string}|null null when skipped
      */
-    public function inferOrigin(): ?array
+    public function inferOrigin(bool $apply = true): ?array
     {
         if ((self::ORIGIN_SOURCES[$this->origin_source ?? ''] ?? 0) > self::ORIGIN_SOURCES['inferred']) {
             return null;
@@ -388,12 +411,16 @@ class Novel extends Model
 
         $texts = [];
         $labels = [];
+        $genres = [];
         if ($this->exists) {
+            $genres = $this->relationLoaded('tags')
+                ? $this->tags->pluck('name')->all()
+                : $this->tags()->pluck('name')->all();
             $texts = $this->chapters()
                 ->where('status', 1)
                 ->where('blacklist', 0)
                 ->ordered()
-                ->limit(3)
+                ->limit(OriginInference::SAMPLE_CHAPTERS)
                 ->with('text')
                 ->get(['id', 'novel_id'])
                 ->map(fn($c) => (string) $c->rawText())
@@ -414,10 +441,112 @@ class Novel extends Model
             $labels,
             $this->hasConfidentNovelUpdatesMatch(),
             $this->novelupdates_match_score === null ? null : (float) $this->novelupdates_match_score,
+            $genres,
         );
 
-        $this->applyOrigin($result, 'inferred');
+        if ($apply) {
+            $this->applyOrigin($result, 'inferred');
+        }
 
         return $result;
+    }
+
+    /**
+     * Drop a manual origin (the edit form's "Auto"): source, language,
+     * type and confidence reset, then detection runs again — inference for
+     * a novel, App\Services\MangaOrigin (stored genres, the cached MangaDex
+     * title lookup) for a manga.
+     */
+    public function clearManualOrigin(): void
+    {
+        if ($this->origin_source === 'manual') {
+            $this->forceFill([
+                'origin' => null,
+                'origin_language' => null,
+                'origin_source' => null,
+                'origin_type' => null,
+                'origin_confidence' => null,
+            ]);
+            if ($this->exists) {
+                $this->saveQuietly();
+            }
+        }
+
+        if ($this->isManga()) {
+            app(\App\Services\MangaOrigin::class)->detect($this);
+        } else {
+            $this->inferOrigin();
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Origin country: the JP / KR / CN / EN badge, filter and API field
+    // ---------------------------------------------------------------------
+
+    /**
+     * 'JP' | 'KR' | 'CN' | 'EN' from origin_language, or null: another
+     * language, an unknown origin, or an inferred origin rated below
+     * medium (an unrated old inferred row included). scopeOriginCountry()
+     * is the same rule in SQL — keep the two together.
+     */
+    public function originCountry(): ?string
+    {
+        $code = self::ORIGIN_COUNTRIES[$this->origin_language ?? ''] ?? null;
+        if ($code === null || ($this->origin ?? OriginInference::UNKNOWN) === OriginInference::UNKNOWN) {
+            return null;
+        }
+        if (($this->origin_source ?? '') === 'inferred'
+            && !in_array($this->origin_confidence, [OriginInference::HIGH, OriginInference::MEDIUM], true)) {
+            return null;
+        }
+
+        return $code;
+    }
+
+    /** Badge tooltip / aria-label: "Korean manhwa", "Japanese", "English original", or null. */
+    public function originCountryLabel(): ?string
+    {
+        return self::originCountryName($this->originCountry(), $this->isManga());
+    }
+
+    /** The label of a country code (also the Library filter's option names). */
+    public static function originCountryName(?string $code, bool $manga = false): ?string
+    {
+        return match ($code) {
+            'JP' => $manga ? 'Japanese manga' : 'Japanese',
+            'KR' => $manga ? 'Korean manhwa' : 'Korean',
+            'CN' => $manga ? 'Chinese manhua' : 'Chinese',
+            'EN' => 'English original',
+            default => null,
+        };
+    }
+
+    /**
+     * Novels whose originCountry() is $code ('JP' | 'KR' | 'CN' | 'EN'),
+     * or is null when $code is null ("Unknown"). Every operand is wrapped
+     * in COALESCE so a NULL column never turns the test into NULL (which
+     * NOT would not flip): each row is in exactly one bucket.
+     */
+    public function scopeOriginCountry($query, ?string $code)
+    {
+        $grammar = $query->getQuery()->getGrammar();
+        $col = fn(string $name) => $grammar->wrap($query->qualifyColumn($name));
+
+        $shown = "COALESCE({$col('origin')}, 'unknown') <> 'unknown'"
+            . " AND (COALESCE({$col('origin_source')}, '') <> 'inferred'"
+            . " OR COALESCE({$col('origin_confidence')}, '') IN ('high', 'medium'))";
+
+        if ($code === null) {
+            $languages = implode(', ', array_map(fn($l) => "'{$l}'", array_keys(self::ORIGIN_COUNTRIES)));
+
+            return $query->whereRaw("NOT (COALESCE({$col('origin_language')}, '') IN ({$languages}) AND {$shown})");
+        }
+
+        $language = array_search($code, self::ORIGIN_COUNTRIES, true);
+        if ($language === false) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereRaw("COALESCE({$col('origin_language')}, '') = ? AND {$shown}", [$language]);
     }
 }

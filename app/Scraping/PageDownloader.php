@@ -43,11 +43,22 @@ class PageDownloader
         'image/avif' => 'avif',
     ];
 
-    public function download(NovelChapter $chapter): PageDownloadResult
+    /**
+     * Download the chapter's pages into the chapter (files + chapter_pages
+     * rows for $chapter->id).
+     *
+     * By default the pages come from the chapter's own URL on its novel's
+     * source. $source and $url override both — the pages of the same
+     * chapter on another source (App\Scraping\MangaFallback); the model is
+     * never changed, so its url stays its own. $minPages > 0 refuses a page
+     * list shorter than that before any image is fetched ('too_few_pages':
+     * likely a wrong or partial chapter).
+     */
+    public function download(NovelChapter $chapter, ?Source $source = null, ?string $url = null, int $minPages = 0): PageDownloadResult
     {
         $novel = $chapter->novel;
-        $url = (string) chapterSourceUrl($chapter);
-        $source = $novel ? SourceResolver::for($novel) : SourceResolver::forUrl($url);
+        $url ??= (string) chapterSourceUrl($chapter);
+        $source ??= $novel ? SourceResolver::for($novel) : SourceResolver::forUrl($url);
         $chapterHost = self::host($url);
 
         $failure = null;
@@ -57,6 +68,9 @@ class PageDownloader
         }
         if ($pages === []) {
             return PageDownloadResult::failure($failure ?: 'no_content', 'the source gave no page list' . ($failure ? " ({$failure})" : ''));
+        }
+        if ($minPages > 0 && count($pages) < $minPages) {
+            return PageDownloadResult::failure('too_few_pages', 'the source lists ' . count($pages) . " page(s), fewer than the {$minPages} expected");
         }
 
         $disk = ChapterPage::disk();

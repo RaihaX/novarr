@@ -203,3 +203,15 @@ $oneServer(Schedule::command('storage:measure')
     ->name('storage_measure')
     ->withoutOverlapping(180)
     ->runInBackground());
+
+// Manga fallback (App\Scraping\MangaFallback): hourly at :35 (clear of the
+// :00 TOC check and the :20 / :25 checks), download chapters a series' own
+// source keeps failing on from the same series on another installed source.
+// The command takes its own lock and stops starting work after
+// novarr.manga.fallback_max_minutes (default 20), so it ends before :00.
+$oneServer(Schedule::command('manga:fill-missing')
+    ->hourlyAt(35)
+    ->when(fn() => (bool) config('novarr.manga.fallback_enabled', true))
+    ->name('manga_fill_missing')
+    ->withoutOverlapping(40)
+    ->runInBackground());
