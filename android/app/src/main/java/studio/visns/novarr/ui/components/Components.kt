@@ -39,6 +39,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -73,6 +74,7 @@ import kotlin.math.roundToInt
 import studio.visns.novarr.ui.theme.Amber
 import studio.visns.novarr.ui.theme.BrandFonts
 import studio.visns.novarr.ui.theme.Indigo
+import studio.visns.novarr.ui.theme.LocalEink
 import studio.visns.novarr.ui.theme.brandAmber
 import studio.visns.novarr.ui.theme.success
 import studio.visns.novarr.ui.theme.warning
@@ -88,10 +90,13 @@ val LocalApp = staticCompositionLocalOf<AppModel> { error("No AppModel") }
  */
 @Composable
 fun BrandMark(modifier: Modifier = Modifier, color: Color? = null) {
+    // E-ink: black bars, the 4th an opaque grey instead of a translucent one.
+    val eink = LocalEink.current
     Canvas(modifier.aspectRatio(22f / 23.5f)) {
         val unit = minOf(size.width / 22f, size.height / 23.5f)
         listOf(22f, 22f, 15f, 8f).forEachIndexed { index, length ->
             val fill = when {
+                eink -> if (index == 3) Color(0xFF8C8C8C) else Color.Black
                 color == null -> if (index == 3) Amber else Indigo
                 index == 3 -> color.copy(alpha = color.alpha * 0.55f)
                 else -> color
@@ -154,11 +159,15 @@ fun BrandLockup(height: Dp, modifier: Modifier = Modifier, wordColor: Color = Ma
 @Composable
 fun Cover(url: String?, title: String, modifier: Modifier = Modifier, corner: Dp = 6.dp, overlay: @Composable BoxScope.() -> Unit = {}) {
     val shape = RoundedCornerShape(corner)
+    val eink = LocalEink.current
     Box(
         modifier
             .aspectRatio(2f / 3f)
             .clip(shape)
-            .border(0.5.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), shape)
+            .then(
+                if (eink) Modifier.border(1.dp, MaterialTheme.colorScheme.outline, shape)
+                else Modifier.border(0.5.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), shape),
+            )
             .clearAndSetSemantics { },
     ) {
         if (url == null) {
@@ -184,10 +193,14 @@ private fun CoverPlaceholder(title: String) {
     // The title wraps between words and shrinks to fit its longest word
     // (CoverTitle); small covers (Home's 50 dp rows) get a smaller inset.
     val scheme = MaterialTheme.colorScheme
+    val eink = LocalEink.current
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(scheme.surfaceContainerHigh, scheme.background))),
+            .then(
+                if (eink) Modifier.background(scheme.surface)
+                else Modifier.background(Brush.verticalGradient(listOf(scheme.surfaceContainerHigh, scheme.background))),
+            ),
     ) {
         val inset = (maxWidth * 0.09f).coerceIn(4.dp, 10.dp)
         val markWidth = (maxWidth * 0.2f).coerceIn(10.dp, 18.dp)
@@ -215,12 +228,16 @@ private fun CoverPlaceholder(title: String) {
         Column(Modifier.padding(inset).fillMaxSize()) {
             Text(title, color = scheme.onSurfaceVariant, style = style, maxLines = lines, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.weight(1f))
-            BrandMark(Modifier.width(markWidth), color = scheme.onSurfaceVariant.copy(alpha = 0.6f))
+            BrandMark(Modifier.width(markWidth), color = if (eink) scheme.onSurfaceVariant else scheme.onSurfaceVariant.copy(alpha = 0.6f))
         }
     }
 }
 
-/** Thin rounded progress bar, announced as a percentage. */
+/**
+ * Thin rounded progress bar, announced as a percentage. On e-ink: a black
+ * fill in a white, black-outlined track whatever the colours asked for, so it
+ * reads on covers and in pure black and white.
+ */
 @Composable
 fun ProgressLine(
     fraction: Float,
@@ -230,16 +247,20 @@ fun ProgressLine(
     height: Dp = 4.dp,
 ) {
     val value = fraction.coerceIn(0f, 1f)
+    val eink = LocalEink.current
+    val fill = if (eink) Color.Black else color
+    val barHeight = if (eink) maxOf(height, 6.dp) else height
     Box(
         modifier
             .fillMaxWidth()
-            .height(height)
+            .height(barHeight)
             .clip(CircleShape)
-            .background(track)
+            .background(if (eink) Color.White else track)
+            .then(if (eink) Modifier.border(1.dp, Color.Black, CircleShape) else Modifier)
             .semantics { progressBarRangeInfo = ProgressBarRangeInfo(value, 0f..1f) },
     ) {
         if (value > 0f) {
-            Box(Modifier.fillMaxWidth(value).height(height).clip(CircleShape).background(color))
+            Box(Modifier.fillMaxWidth(value).height(barHeight).clip(CircleShape).background(fill))
         }
     }
 }
@@ -254,13 +275,17 @@ fun StateBadge(state: String, label: String) {
         "failed" -> scheme.error
         else -> scheme.onSurfaceVariant
     }
+    val eink = LocalEink.current
     Text(
         label.uppercase(),
         style = MaterialTheme.typography.labelSmall,
         color = color,
         modifier = Modifier
             .clip(CircleShape)
-            .background(color.copy(alpha = 0.14f))
+            .then(
+                if (eink) Modifier.background(scheme.surface).border(1.dp, color, CircleShape)
+                else Modifier.background(color.copy(alpha = 0.14f)),
+            )
             .padding(horizontal = 8.dp, vertical = 3.dp),
     )
 }
@@ -278,6 +303,24 @@ fun OriginBadge(novel: NovelSummary, modifier: Modifier = Modifier, onCover: Boo
     val label = country.label(novel.isManga)
     val scheme = MaterialTheme.colorScheme
     val color = scheme.onSurfaceVariant
+    val eink = LocalEink.current
+    if (eink) {
+        // Opaque white with a black outline: reads on any artwork and on the page.
+        Text(
+            country.code,
+            style = MaterialTheme.typography.labelSmall,
+            color = scheme.onSurface,
+            maxLines = 1,
+            softWrap = false,
+            modifier = modifier
+                .clearAndSetSemantics { contentDescription = label }
+                .clip(CircleShape)
+                .background(scheme.surface)
+                .border(1.dp, scheme.outline, CircleShape)
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+        return
+    }
     Text(
         country.code,
         style = MaterialTheme.typography.labelSmall,
@@ -342,7 +385,22 @@ fun EmptyState(title: String, message: String, icon: androidx.compose.ui.graphic
 @Composable
 fun CenteredProgress(modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().padding(vertical = 80.dp), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
+        LoadingIndicator()
+    }
+}
+
+/** A spinner; on e-ink a still "Loading…" instead (an animation there only smears and flashes). */
+@Composable
+fun LoadingIndicator(modifier: Modifier = Modifier, color: Color = Color.Unspecified) {
+    if (LocalEink.current) {
+        Text(
+            "Loading…",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (color.isSpecified) color else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = modifier,
+        )
+    } else {
+        CircularProgressIndicator(modifier, color = if (color.isSpecified) color else MaterialTheme.colorScheme.primary)
     }
 }
 

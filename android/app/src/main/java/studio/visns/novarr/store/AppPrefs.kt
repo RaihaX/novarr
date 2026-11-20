@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import studio.visns.novarr.api.ServerUrl
+import studio.visns.novarr.domain.EinkMode
 import studio.visns.novarr.domain.MangaModeOverride
 import studio.visns.novarr.domain.TextReadingMode
 
@@ -32,6 +33,8 @@ data class ReaderSettings(
     val keepScreenOn: Boolean = true,
     /** Continuous scroll or screen-sized pages; a reader default for every novel on this device. */
     val mode: TextReadingMode = TextReadingMode.SCROLL,
+    /** "Bolder text"; null until the reader chooses, so it follows e-ink mode (domain.Eink.bolderText). */
+    val bolder: Boolean? = null,
 ) {
     companion object {
         const val MIN_SIZE = 13f
@@ -160,6 +163,32 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
     suspend fun checkLastRun(key: String): Long? = snapshot()[checkRunKey(key)]
     suspend fun setCheckLastRun(key: String, at: Long) = store.edit { it[checkRunKey(key)] = at }
 
+    /** Settings' "E-ink mode" (default Auto: on for Onyx Boox devices). */
+    val einkMode: Flow<EinkMode> = store.data.map { EinkMode.from(it[EINK_MODE]) }
+    suspend fun setEinkMode(mode: EinkMode) = store.edit { it[EINK_MODE] = mode.name }
+
+    /** Settings' "Volume keys turn pages"; null until touched (domain.PageKeyMap.volumeKeys). */
+    val volumeKeys: Flow<Boolean?> = store.data.map { it[VOLUME_KEYS] }
+    suspend fun setVolumeKeys(on: Boolean) = store.edit { it[VOLUME_KEYS] = on }
+
+    /**
+     * The first time e-ink mode is on: Pages and screen-off reading, once. The
+     * reading mode is stored by every reader edit, so a choice can't be told
+     * apart and it is set regardless; keep-screen-on only if never chosen.
+     * True when it applied.
+     */
+    suspend fun applyEinkDefaultsOnce(): Boolean {
+        var applied = false
+        store.edit {
+            if (it[EINK_APPLIED] == true) return@edit
+            it[R_MODE] = TextReadingMode.PAGES.name
+            if (R_SCREEN_ON !in it) it[R_SCREEN_ON] = false
+            it[EINK_APPLIED] = true
+            applied = true
+        }
+        return applied
+    }
+
     suspend fun string(name: String): String? = snapshot()[stringPreferencesKey(name)]
     suspend fun setString(name: String, value: String) = store.edit { it[stringPreferencesKey(name)] = value }
 
@@ -175,6 +204,7 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
             // 1.5 turned the default on; a stored choice still wins.
             keepScreenOn = p[R_SCREEN_ON] ?: true,
             mode = TextReadingMode.from(p[R_MODE]),
+            bolder = p[R_BOLDER],
         )
     }
 
@@ -192,6 +222,7 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
             // Stored only once it has been chosen, so a default that was never touched can still change.
             if (next.keepScreenOn != current.keepScreenOn || R_SCREEN_ON in it) it[R_SCREEN_ON] = next.keepScreenOn
             it[R_MODE] = next.mode.name
+            if (next.bolder != null) it[R_BOLDER] = next.bolder else it.remove(R_BOLDER)
         }
     }
 
@@ -228,6 +259,10 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         val R_JUSTIFY = booleanPreferencesKey("reader.justify")
         val R_SCREEN_ON = booleanPreferencesKey("reader.keepScreenOn")
         val R_MODE = stringPreferencesKey("reader.mode")
+        val R_BOLDER = booleanPreferencesKey("reader.bolder")
+        val EINK_MODE = stringPreferencesKey("eink.mode")
+        val EINK_APPLIED = booleanPreferencesKey("eink.defaultsApplied")
+        val VOLUME_KEYS = booleanPreferencesKey("reader.volumeKeys")
         val UPDATE_DISMISSED = intPreferencesKey("update.dismissedBuild")
         val UPDATE_NOTIFY = booleanPreferencesKey("update.notify")
         val UPDATE_NOTIFIED = intPreferencesKey("update.notifiedBuild")

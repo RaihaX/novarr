@@ -64,8 +64,15 @@ class ZoomState(private val maxScale: Float = 5f) {
  *
  * [panY]: false for the vertical (webtoon) list, where vertical movement must
  * keep scrolling the list even when zoomed in.
+ * [doubleTap]: false leaves out double-tap zoom, so a single tap is reported
+ * straight away instead of after the double-tap timeout (e-ink).
  */
-fun Modifier.zoomable(state: ZoomState, panY: Boolean = true, onTap: (at: Offset, width: Int) -> Unit = { _, _ -> }): Modifier = this
+fun Modifier.zoomable(
+    state: ZoomState,
+    panY: Boolean = true,
+    doubleTap: Boolean = true,
+    onTap: (at: Offset, width: Int) -> Unit = { _, _ -> },
+): Modifier = this
     .pointerInput(state, panY) {
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -80,8 +87,12 @@ fun Modifier.zoomable(state: ZoomState, panY: Boolean = true, onTap: (at: Offset
             } while (event.changes.any { it.pressed })
         }
     }
-    .pointerInput(state) {
-        detectTapGestures(onDoubleTap = { state.toggle(it, size) }, onTap = { onTap(it, size.width) })
+    .pointerInput(state, doubleTap) {
+        if (doubleTap) {
+            detectTapGestures(onDoubleTap = { state.toggle(it, size) }, onTap = { onTap(it, size.width) })
+        } else {
+            detectTapGestures(onTap = { onTap(it, size.width) })
+        }
     }
     .graphicsLayer {
         scaleX = state.scale

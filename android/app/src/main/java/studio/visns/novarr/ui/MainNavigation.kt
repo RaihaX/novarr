@@ -1,6 +1,13 @@
 package studio.visns.novarr.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandIn
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkOut
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -51,6 +58,7 @@ import studio.visns.novarr.ui.components.RequestsIcon
 import studio.visns.novarr.ui.requests.RequestsScreen
 import studio.visns.novarr.ui.settings.DownloadsScreen
 import studio.visns.novarr.ui.settings.SettingsScreen
+import studio.visns.novarr.ui.theme.LocalEink
 
 // Type-safe routes.
 @Serializable data object HomeRoute
@@ -102,6 +110,7 @@ fun MainNavigation() {
     // The reader is full-screen: no tab chrome.
     val showTabs = destination?.hasRoute(ReaderRoute::class) != true
     val wide = isWide()
+    val eink = LocalEink.current
 
     // Pushed screens (a series, highlights) keep the tab they were opened from lit.
     var lastTab by rememberSaveable { mutableIntStateOf(0) }
@@ -168,7 +177,12 @@ fun MainNavigation() {
         contentWindowInsets = WindowInsets(0),
         bottomBar = {
             if (!wide) {
-                AnimatedVisibility(showTabs) {
+                AnimatedVisibility(
+                    showTabs,
+                    // AnimatedVisibility's defaults, or none on e-ink.
+                    enter = if (eink) EnterTransition.None else fadeIn() + expandIn(),
+                    exit = if (eink) ExitTransition.None else shrinkOut() + fadeOut(),
+                ) {
                     NavigationBar {
                         tabs.forEach { tab ->
                             NavigationBarItem(
@@ -217,7 +231,16 @@ fun MainNavigation() {
 
 @Composable
 private fun NovarrNavHost(nav: NavHostController) {
-    NavHost(nav, startDestination = HomeRoute) {
+    val eink = LocalEink.current
+    // NavHost's default cross-fade, or an instant switch on e-ink.
+    NavHost(
+        nav,
+        startDestination = HomeRoute,
+        enterTransition = { if (eink) EnterTransition.None else fadeIn(animationSpec = tween(700)) },
+        exitTransition = { if (eink) ExitTransition.None else fadeOut(animationSpec = tween(700)) },
+        popEnterTransition = { if (eink) EnterTransition.None else fadeIn(animationSpec = tween(700)) },
+        popExitTransition = { if (eink) ExitTransition.None else fadeOut(animationSpec = tween(700)) },
+    ) {
         composable<HomeRoute> { HomeScreen(nav) }
         composable<LibraryRoute> { LibraryScreen(nav) }
         composable<SettingsRoute> { SettingsScreen(nav) }

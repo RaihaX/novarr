@@ -1,6 +1,7 @@
 package studio.visns.novarr.ui.reader
 
 import android.app.Activity
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,16 +49,27 @@ import studio.visns.novarr.store.ReaderFont
 import studio.visns.novarr.ui.theme.BrandFonts
 import studio.visns.novarr.store.ReaderTheme
 
-/** Colours of a reading surface. */
-data class ReaderColors(val background: Color, val text: Color, val isDark: Boolean) {
-    val secondary: Color get() = text.copy(alpha = 0.62f)
+/** Colours of a reading surface. [eink]: the e-ink palette, opaque throughout. */
+data class ReaderColors(val background: Color, val text: Color, val isDark: Boolean, val eink: Boolean = false) {
+    val secondary: Color get() = if (eink) Color(0xFF333333) else text.copy(alpha = 0.62f)
 
     /**
      * The tint behind highlighted passages: a translucent amber, light enough
      * on white and sepia to keep the text crisp, and dimmer on dark and black
-     * grounds so the light text still reads over it.
+     * grounds so the light text still reads over it. A solid light grey on e-ink.
      */
-    val highlight: Color get() = if (isDark) Color(0x52E0A800) else Color(0x73FFC94D)
+    val highlight: Color get() = if (eink) Color(0xFFD9D9D9) else if (isDark) Color(0x52E0A800) else Color(0x73FFC94D)
+
+    /** Quiet fills (secondary buttons): a faint tint, or white with [rule] on e-ink. */
+    val quietFill: Color get() = if (eink) background else text.copy(alpha = 0.08f)
+
+    /** On e-ink, the 1 dp black line that takes the place of shadows and faint fills. */
+    val rule: BorderStroke? get() = if (eink) BorderStroke(1.dp, text) else null
+
+    companion object {
+        /** E-ink reading: black on white whatever the stored reader theme (which is kept). */
+        val Eink = ReaderColors(Color.White, Color.Black, isDark = false, eink = true)
+    }
 }
 
 @Composable
@@ -117,12 +129,12 @@ fun LatestPositionBanner(message: String, colors: ReaderColors, onGo: () -> Unit
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = if (colors.isDark) Color(0xFF2A2A30) else colors.background,
-        shadowElevation = 8.dp,
+        shadowElevation = if (colors.eink) 0.dp else 8.dp,
         modifier = modifier
             .widthIn(max = 560.dp)
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp)
-            .border(1.dp, colors.text.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
+            .border(1.dp, if (colors.eink) colors.text else colors.text.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
             .semantics {
                 paneTitle = "Latest reading position"
                 liveRegion = LiveRegionMode.Polite
@@ -136,7 +148,8 @@ fun LatestPositionBanner(message: String, colors: ReaderColors, onGo: () -> Unit
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = onStay,
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.text.copy(alpha = 0.08f), contentColor = colors.text),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.quietFill, contentColor = colors.text),
+                    border = colors.rule,
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 ) { Text("Stay here", textAlign = TextAlign.Center) }
                 Button(onClick = onGo, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {

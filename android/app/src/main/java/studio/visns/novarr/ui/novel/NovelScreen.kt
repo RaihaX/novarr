@@ -1,5 +1,6 @@
 package studio.visns.novarr.ui.novel
 
+import studio.visns.novarr.ui.theme.LocalEink
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -101,6 +102,7 @@ fun NovelScreen(nav: NavController, novelId: Int) {
     val running by app.checks.running.collectAsStateWithLifecycle()
     val readRevision by app.readStateRevision.collectAsStateWithLifecycle()
     val list = rememberLazyListState()
+    val eink = LocalEink.current
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
     var searching by rememberSaveable { mutableStateOf(false) }
@@ -152,7 +154,7 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                                     menu = false
                                     model.chapterSearch = ""
                                     val index = model.chapters.indexOf(unread)
-                                    scope.launch { list.animateScrollToItem(headerItems(model) + index) }
+                                    scope.launch { if (eink) list.scrollToItem(headerItems(model) + index) else list.animateScrollToItem(headerItems(model) + index) }
                                 })
                             }
                             DropdownMenuItem(

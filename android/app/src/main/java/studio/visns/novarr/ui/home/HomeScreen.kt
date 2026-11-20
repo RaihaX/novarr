@@ -1,5 +1,6 @@
 package studio.visns.novarr.ui.home
 
+import studio.visns.novarr.ui.theme.LocalEink
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -276,11 +277,13 @@ private fun ContinueSection(items: List<ContinueItem>, wide: Boolean, nav: NavCo
 
 @Composable
 private fun HeroCard(item: ContinueItem, large: Boolean, onClick: () -> Unit) {
+    val eink = LocalEink.current
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 1.dp,
+        tonalElevation = if (eink) 0.dp else 1.dp,
+        border = if (eink) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -353,7 +356,12 @@ private fun NewChaptersRow(item: NewChaptersItem, modifier: Modifier, onClick: (
         // The row's badges, stacked so the origin never takes width from the title.
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             NewChapters.badge(item.newCount)?.let { badge ->
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)) {
+                val eink = LocalEink.current
+                Surface(
+                    shape = CircleShape,
+                    color = if (eink) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    border = if (eink) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
+                ) {
                     Text(
                         badge,
                         style = MaterialTheme.typography.labelMedium,
