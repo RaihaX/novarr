@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Log;
  * The series URL is https://mangadex.org/title/{uuid}[/slug] and a chapter's
  * https://mangadex.org/chapter/{uuid}.
  */
-class MangaDexSource extends AbstractSource implements ProvidesChapterStats, ReportsPageFetches, PagedDiscover
+class MangaDexSource extends AbstractSource implements ProvidesChapterStats, ReportsPageFetches, PagedDiscover, ProvidesSeriesTitles
 {
     public const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
@@ -530,6 +530,9 @@ class MangaDexSource extends AbstractSource implements ProvidesChapterStats, Rep
             'genres' => normalizeGenres($genres),
             'cover_candidates' => $covers,
             'reading_mode' => $longStrip ? 'vertical' : (strtolower((string) ($attributes['originalLanguage'] ?? '')) === 'ja' ? 'rtl' : 'ltr'),
+            // The series' original language as MangaDex gives it ("ja", "ko",
+            // "zh-hk"); App\Services\MangaOrigin turns it into the origin.
+            'original_language' => strtolower(trim((string) ($attributes['originalLanguage'] ?? ''))),
         ];
         if ($statusText !== null) {
             $metadata['status_text'] = $statusText;
@@ -571,6 +574,48 @@ class MangaDexSource extends AbstractSource implements ProvidesChapterStats, Rep
         }
 
         return self::localized($titles);
+    }
+
+    /**
+     * ProvidesSeriesTitles: the series' title and its alternative titles
+     * (GET /manga/{id}, one request). Null when it could not be had.
+     */
+    public function seriesTitles(Novel $novel): ?array
+    {
+        $id = self::seriesId($novel->translator_url);
+        if ($id === null) {
+            return null;
+        }
+
+        $json = $this->api("manga/{$id}");
+        $attributes = $json['data']['attributes'] ?? null;
+        if (!is_array($attributes)) {
+            return null;
+        }
+        $name = self::title($attributes);
+
+        return array_values(array_filter([$name, ...self::altTitles($attributes, $name)], fn($t) => $t !== ''));
+    }
+
+    /** Whether searchTitle() has already sent a request (pace the next one). */
+    private bool $searchedTitle = false;
+
+    /**
+     * GET /manga?title= — the raw `data` entries (attributes carry title,
+     * altTitles, originalLanguage), or null when the request failed. Paced
+     * like the other multi-request operations. Used by App\Services\
+     * MangaOrigin's cached title lookup only (never on a page load).
+     */
+    public function searchTitle(string $title): ?array
+    {
+        if ($this->searchedTitle) {
+            $this->pauseBetweenRequests();
+        }
+        $this->searchedTitle = true;
+
+        $json = $this->api('manga', ['title' => $title, 'limit' => 10, 'contentRating' => self::CONTENT_RATINGS]);
+
+        return is_array($json['data'] ?? null) ? $json['data'] : null;
     }
 
     /** Other titles of a series (main title in other languages, altTitles), without $name, at most 25. Pure. */

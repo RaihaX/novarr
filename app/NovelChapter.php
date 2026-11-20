@@ -37,6 +37,9 @@ class NovelChapter extends Model
         "last_failure_reason",
     ];
 
+    /** Admin-only provenance (App\Scraping\MangaFallback): never in a reader's JSON. */
+    protected $hidden = ['filled_from', 'filled_at'];
+
     /** Fetch attempts after which a pending chapter needs a human look. */
     public const REVIEW_ATTEMPTS = 8;
 
@@ -76,6 +79,8 @@ class NovelChapter extends Model
         'attempts' => 'integer',
         'next_attempt_at' => 'datetime',
         'page_count' => 'integer',
+        // Pages taken from another source (App\Scraping\MangaFallback).
+        'filled_at' => 'datetime',
     ];
 
     public function novel(): BelongsTo

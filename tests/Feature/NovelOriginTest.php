@@ -265,14 +265,15 @@ class NovelOriginTest extends TestCase
 
         $html = $this->get(route('novels.edit', $novel->id))->assertOk()->getContent();
 
-        $this->assertMatchesRegularExpression('#<option value="translated"\s+selected#', $html);
-        $this->assertMatchesRegularExpression('#<option value="ko"\s+selected#', $html);
-        $this->assertStringContainsString('Set by NovelUpdates (Web Novel (KR))', $html);
+        // Detected, not chosen: the select stays on Auto and names what was found.
+        $this->assertMatchesRegularExpression('#<option value="auto"\s+selected#', $html);
+        $this->assertStringContainsString('Set by NovelUpdates (Web Novel (KR)) — Korean', $html);
 
         $novel->forceFill(['origin_source' => 'inferred'])->saveQuietly();
         $this->get(route('novels.edit', $novel->id))->assertSee('Inferred from the author and chapters');
         $novel->forceFill(['origin_source' => 'manual'])->saveQuietly();
-        $this->get(route('novels.edit', $novel->id))->assertSee('Set by you');
+        $html = $this->get(route('novels.edit', $novel->id))->assertSee('Set by you')->getContent();
+        $this->assertMatchesRegularExpression('#<option value="ko"\s+selected#', $html);
     }
 
     public function test_saving_unchanged_origin_does_not_make_it_manual(): void
@@ -285,11 +286,14 @@ class NovelOriginTest extends TestCase
         $this->put(route('novels.update', $novel->id), ['name' => 'A', 'origin' => 'translated', 'origin_language' => 'ja'])->assertRedirect();
         $this->assertSame(['translated', 'ja', 'manual'], [$novel->fresh()->origin, $novel->fresh()->origin_language, $novel->fresh()->origin_source]);
 
-        // "Other" language stores null; "Unknown" hands it back to detection.
+        // "Other" language stores null; "Unknown" is a choice that sticks;
+        // "Auto" hands it back to detection.
         $this->put(route('novels.update', $novel->id), ['origin' => 'translated', 'origin_language' => 'other'])->assertRedirect();
         $this->assertNull($novel->fresh()->origin_language);
         $this->put(route('novels.update', $novel->id), ['origin' => 'unknown', 'origin_language' => 'en'])->assertRedirect();
-        $this->assertSame([null, null, null], [$novel->fresh()->origin, $novel->fresh()->origin_language, $novel->fresh()->origin_source]);
+        $this->assertSame(['unknown', null, 'manual'], [$novel->fresh()->origin, $novel->fresh()->origin_language, $novel->fresh()->origin_source]);
+        $this->put(route('novels.update', $novel->id), ['origin' => 'auto'])->assertRedirect();
+        $this->assertNotSame('manual', $novel->fresh()->origin_source);
 
         $this->put(route('novels.update', $novel->id), ['origin' => 'bogus'])->assertSessionHasErrors('origin');
     }
@@ -315,8 +319,8 @@ class NovelOriginTest extends TestCase
 
         $html = $this->get(route('novels.index', ['view' => 'grid']))->assertOk()->getContent();
         // The origin sits in the tile caption, not on the cover.
-        $this->assertStringContainsString('<span class="lib-tile-origin">Translated · KO</span>', $html);
-        $this->assertStringContainsString('<span class="lib-tile-origin">Original · EN</span>', $html);
+        $this->assertStringContainsString('<span class="lib-tile-origin-text">Translated · KO</span>', $html);
+        $this->assertStringContainsString('<span class="lib-tile-origin-text">Original · EN</span>', $html);
         $this->assertSame(3, substr_count($html, 'class="lib-tile-origin"'));
         $this->assertStringNotContainsString('cover-chip', $html);
         $this->assertMatchesRegularExpression('#data-chip="translated"[^>]*>\s*Translated\s*<span class="lib-chip-count ">2</span>#', $html);

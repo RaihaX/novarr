@@ -594,6 +594,14 @@ fieldset:disabled .btn {
 
 .badge-accent { @include status($accent); }
 
+// Origin country (x-origin): "KR", "JP" — a neutral label, not a state.
+.badge-origin {
+    @include status-muted();
+    font-family: $font-mono;
+    letter-spacing: 0.06em;
+    flex-shrink: 0;
+}
+
 // Mono count chip (the "15" in the Needs Attention header).
 .chip-count {
     font-family: $font-mono;

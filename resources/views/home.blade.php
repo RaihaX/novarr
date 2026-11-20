@@ -88,6 +88,7 @@
                         @if($novel->author)<span>by {{ $novel->author }}</span><span aria-hidden="true"> · </span>@endif
                         @if($hero['source'])<span class="home-hero-source">{{ $hero['source'] }}</span><span class="home-hero-source" aria-hidden="true"> · </span>@endif
                         <x-status :state="$hero['state']" as="text" class="home-hero-state" />
+                        <x-origin :novel="$novel" class="ms-1" />
                     </p>
                 </div>
                 <div class="home-hero-progress">
@@ -234,7 +235,9 @@
                                 <span class="home-cover-title">{{ $n->name }}</span>
                             @endif
                             @if($item['manga'] ?? false)
-                                <span class="cover-chip">MANGA</span>
+                                {{-- The medium chip carries the origin code too ("MANGA · KR"). --}}
+                                @php $oc = $n->originCountry(); @endphp
+                                <span class="cover-chip">MANGA{!! $oc ? '<span data-origin="' . e($oc) . '" title="' . e($n->originCountryLabel()) . '"> · ' . e($oc) . '</span>' : '' !!}</span>
                             @endif
                             <span class="home-cover-edge"><i style="width: {{ $item['percent'] }}%"></i></span>
                         </div>

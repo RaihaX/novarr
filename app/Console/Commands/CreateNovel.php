@@ -118,6 +118,12 @@ class CreateNovel extends Command
             $this->info("  Genres: " . implode(", ", $metadata["genres"]));
         }
 
+        // A manga's origin comes from its source (MangaDex's original
+        // language, a Manhwa/Manhua/Manga genre, else a cached title lookup).
+        if ($object->isManga() && ($origin = app(\App\Services\MangaOrigin::class)->fromMetadata($object, $metadata))) {
+            $this->info("  Origin: " . ($object->originCountryLabel() ?? ($origin['origin_language'] ?? 'unknown')) . " ({$origin['reason']})");
+        }
+
         foreach (array_unique($coverCandidates) as $imageUrl) {
             $downloaded = downloadCoverImage($imageUrl, $object->id);
 

@@ -156,6 +156,8 @@
 
 {{-- Chapters parked because the source lists them but does not serve them. --}}
 @if(($parked_novels ?? collect())->isNotEmpty())
+    {{-- Per series: what the manga fallback (manga:fill-missing) is doing about it. --}}
+    @php $fallbackNotes = \App\Scraping\MangaFallback::healthNotes($parked_novels->modelKeys()); @endphp
     <div class="card mb-4" id="parkedChapters">
         <div class="panel-head">
             <h2 class="panel-title">
@@ -177,7 +179,12 @@
                 <tbody>
                     @foreach($parked_novels as $parked)
                         <tr>
-                            <td data-label="Novel"><a href="{{ route('novels.show', $parked->id) }}">{{ $parked->name }}</a></td>
+                            <td data-label="Novel">
+                                <a href="{{ route('novels.show', $parked->id) }}">{{ $parked->name }}</a>
+                                @if(!empty($fallbackNotes[$parked->id]))
+                                    <div class="text-muted small" data-fallback-note>{{ $fallbackNotes[$parked->id] }}</div>
+                                @endif
+                            </td>
                             <td class="mono-figure" data-label="Chapters">{{ number_format($parked->parked_count) }}</td>
                             <td data-label="Source answers">{{ \App\Scraping\SourceUnavailable::reasonWords($parked->parked_reasons) }}</td>
                             <td class="mono-muted" data-label="Next re-check">{{ $parked->source_recheck_at ? $parked->source_recheck_at->format('j M Y H:i') : 'next run' }}</td>

@@ -158,6 +158,12 @@ class UpdateMetadata extends Command
                 $this->line("    genres: " . implode(", ", $metadata["genres"]));
             }
 
+            // A manga's origin from its source (App\Services\MangaOrigin):
+            // never over a manual one.
+            if ($novel->isManga() && ($origin = app(\App\Services\MangaOrigin::class)->fromMetadata($novel, $metadata))) {
+                $this->line("    origin: " . ($novel->originCountryLabel() ?? ($origin["origin_language"] ?? "unknown")) . " ({$origin['reason']})");
+            }
+
             if (!$hasValidCover && !empty($coverCandidates)) {
                 $saved = false;
 

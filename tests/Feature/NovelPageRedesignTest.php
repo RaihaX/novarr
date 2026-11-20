@@ -293,7 +293,7 @@ class NovelPageRedesignTest extends TestCase
         $this->assertStringContainsString('>Not started <span class="lib-shelf-count">1</span></h2>', $html);
 
         // Origin in the caption, not on the cover.
-        $this->assertStringContainsString('<span class="lib-tile-origin">Translated · ZH</span>', $html);
+        $this->assertStringContainsString('<span class="lib-tile-origin-text">Translated · ZH</span>', $html);
         $this->assertStringNotContainsString('cover-chip', $html);
     }
 
