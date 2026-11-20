@@ -1,18 +1,26 @@
 package studio.visns.novarr
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
+import androidx.compose.ui.platform.ComposeView
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import studio.visns.novarr.app.Notifications
+import studio.visns.novarr.domain.Eink
+import studio.visns.novarr.domain.EinkMode
 import studio.visns.novarr.domain.RequestFeed
 import studio.visns.novarr.domain.Requests
 import studio.visns.novarr.ui.Root
-import studio.visns.novarr.ui.reader.VolumeKeys
+import studio.visns.novarr.ui.reader.PageKeyFrame
+import studio.visns.novarr.ui.reader.PageKeys
 import studio.visns.novarr.ui.components.LocalApp
+import studio.visns.novarr.ui.theme.LocalEink
 import studio.visns.novarr.ui.theme.NovarrTheme
 
 /** The single activity: everything else is Compose navigation. */
@@ -23,9 +31,18 @@ class MainActivity : ComponentActivity() {
         val app = (application as NovarrApplication).model
         // Not after a configuration change: the same intent would open Home again.
         if (savedInstanceState == null) handle(intent)
-        setContent {
-            NovarrTheme {
-                CompositionLocalProvider(LocalApp provides app) { Root() }
+        // Page keys are taken in PageKeyFrame, around the Compose content.
+        val content = ComposeView(this)
+        setContentView(PageKeyFrame(this).apply { addView(content) })
+        content.setContent {
+            // Null until DataStore answers, so a stored choice isn't applied as Auto first.
+            val einkMode by app.prefs.einkMode.collectAsStateWithLifecycle(null)
+            val eink = Eink.resolve(einkMode ?: EinkMode.AUTO, Build.MANUFACTURER, Build.BRAND)
+            LaunchedEffect(einkMode, eink) { if (einkMode != null && eink) app.prefs.applyEinkDefaultsOnce() }
+            CompositionLocalProvider(LocalEink provides eink) {
+                NovarrTheme(eink = eink) {
+                    CompositionLocalProvider(LocalApp provides app) { Root() }
+                }
             }
         }
     }
@@ -59,26 +76,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Volume keys turn pages while a paged reader asks for them (down = next). */
-    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        val forward = volumeDirection(keyCode)
-        val handler = VolumeKeys.handler
-        if (forward != null && handler != null) {
-            // One turn per press; held repeats are swallowed so the volume doesn't change either.
-            if (event.repeatCount == 0) handler(forward)
-            return true
-        }
-        return super.onKeyDown(keyCode, event)
-    }
-
-    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (volumeDirection(keyCode) != null && VolumeKeys.handler != null) return true
-        return super.onKeyUp(keyCode, event)
-    }
-
-    private fun volumeDirection(keyCode: Int): Boolean? = when (keyCode) {
-        KeyEvent.KEYCODE_VOLUME_DOWN -> true
-        KeyEvent.KEYCODE_VOLUME_UP -> false
-        else -> null
-    }
+    /**
+     * Page keys turn pages while a reader is on screen. PageKeyFrame normally
+     * takes them first; this catches any that reach the activity without it
+     * (no view focused). Text fields only live in sheets and dialogs, which are
+     * their own windows, so the reader window has none to break.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean = PageKeys.handle(event) || super.dispatchKeyEvent(event)
 }

@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -81,6 +80,8 @@ import studio.visns.novarr.domain.Pagination
 import studio.visns.novarr.domain.TapAction
 import studio.visns.novarr.domain.TapZones
 import studio.visns.novarr.store.ReaderSettings
+import studio.visns.novarr.ui.components.LoadingIndicator
+import studio.visns.novarr.ui.theme.LocalEink
 import kotlin.coroutines.coroutineContext
 
 /** A chapter measured and broken into pages for one text width, page height and style. */
@@ -158,8 +159,8 @@ private suspend fun measureChapter(
 
 /**
  * Paged reading: the chapter laid out into screen-sized pages with the
- * current typography. Taps on the outer thirds, swipes and the volume keys
- * turn pages; the middle third toggles the controls. Going past the last page
+ * current typography. Taps on the outer thirds, swipes and the page keys
+ * (PageKeys) turn pages; the middle third toggles the controls. Going past the last page
  * opens the next chapter; going back from the first opens the previous one at
  * its last page. Long-pressing a paragraph offers to highlight it (the pages
  * are drawn, not selectable text, so the sheet does the selecting); TalkBack
@@ -226,7 +227,7 @@ internal fun PagedChapterText(
 
         val layout = measured
         if (layout == null) {
-            CircularProgressIndicator(Modifier.align(Alignment.Center), color = colors.secondary)
+            LoadingIndicator(Modifier.align(Alignment.Center), color = colors.secondary)
             return@BoxWithConstraints
         }
         val textPages = layout.pages.size
@@ -286,63 +287,46 @@ internal fun PagedChapterText(
         LaunchedEffect(page, textPages, total) { model.pageLabel = (page.coerceAtMost(textPages - 1) + 1) to textPages }
         DisposableEffect(Unit) { onDispose { model.pageLabel = null } }
 
-        // Volume keys: down = next, up = previous.
-        DisposableEffect(Unit) {
-            val handler: (Boolean) -> Boolean = { forward -> turn(forward); true }
-            VolumeKeys.handler = handler
-            onDispose { if (VolumeKeys.handler === handler) VolumeKeys.handler = null }
-        }
+        // Page keys (and the volume keys): forward = next, back = previous.
+        RegisterPageKeys(novelPaged = true) { forward -> turn(forward) }
 
         val swipeThreshold = with(density) { 48.dp.toPx() }
-        AnimatedContent(
-            targetState = Shown(layout, page),
-            transitionSpec = {
-                val oldPage = initialState.page
-                val newPage = targetState.page
-                if (initialState.layout !== targetState.layout) {
-                    ContentTransform(EnterTransition.None, ExitTransition.None)
-                } else {
-                    val forward = newPage > oldPage
-                    (slideInHorizontally(tween(220)) { if (forward) it / 3 else -it / 3 } + fadeIn(tween(220))) togetherWith
-                        (slideOutHorizontally(tween(220)) { if (forward) -it / 3 else it / 3 } + fadeOut(tween(160)))
+        val eink = LocalEink.current
+        val pageModifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(onLongPress = { at -> longPress(at) }) { at ->
+                    when (TapZones.actionFor(at.x, size.width.toFloat())) {
+                        TapAction.NEXT -> turn(true)
+                        TapAction.PREVIOUS -> turn(false)
+                        TapAction.TOGGLE_CONTROLS -> onTap()
+                    }
                 }
-            },
-            label = "page",
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures(onLongPress = { at -> longPress(at) }) { at ->
-                        when (TapZones.actionFor(at.x, size.width.toFloat())) {
+            }
+            .pointerInput(Unit) {
+                var dx = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { dx = 0f },
+                    onDragEnd = {
+                        when (TapZones.swipeAction(dx, swipeThreshold)) {
                             TapAction.NEXT -> turn(true)
                             TapAction.PREVIOUS -> turn(false)
-                            TapAction.TOGGLE_CONTROLS -> onTap()
+                            else -> Unit
                         }
-                    }
+                    },
+                ) { change, amount ->
+                    change.consume()
+                    dx += amount
                 }
-                .pointerInput(Unit) {
-                    var dx = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { dx = 0f },
-                        onDragEnd = {
-                            when (TapZones.swipeAction(dx, swipeThreshold)) {
-                                TapAction.NEXT -> turn(true)
-                                TapAction.PREVIOUS -> turn(false)
-                                else -> Unit
-                            }
-                        },
-                    ) { change, amount ->
-                        change.consume()
-                        dx += amount
-                    }
-                }
-                .semantics {
-                    customActions = listOf(
-                        CustomAccessibilityAction("Next page") { turn(true); true },
-                        CustomAccessibilityAction("Previous page") { turn(false); true },
-                        CustomAccessibilityAction("Highlight a passage") { highlightPage(); true },
-                    )
-                },
-        ) { shown ->
+            }
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction("Next page") { turn(true); true },
+                    CustomAccessibilityAction("Previous page") { turn(false); true },
+                    CustomAccessibilityAction("Highlight a passage") { highlightPage(); true },
+                )
+            }
+        val pageContent: @Composable (Shown) -> Unit = { shown ->
             val index = shown.page
             Box(Modifier.fillMaxSize()) {
                 if (index >= shown.layout.pages.size) {
@@ -354,11 +338,32 @@ internal fun PagedChapterText(
                 }
             }
         }
+        if (eink) {
+            // E-ink: the new page replaces the old one in a single frame, no transition.
+            Box(pageModifier) { pageContent(Shown(layout, page)) }
+        } else {
+            AnimatedContent(
+                targetState = Shown(layout, page),
+                transitionSpec = {
+                    val oldPage = initialState.page
+                    val newPage = targetState.page
+                    if (initialState.layout !== targetState.layout) {
+                        ContentTransform(EnterTransition.None, ExitTransition.None)
+                    } else {
+                        val forward = newPage > oldPage
+                        (slideInHorizontally(tween(220)) { if (forward) it / 3 else -it / 3 } + fadeIn(tween(220))) togetherWith
+                            (slideOutHorizontally(tween(220)) { if (forward) -it / 3 else it / 3 } + fadeOut(tween(160)))
+                    }
+                },
+                label = "page",
+                modifier = pageModifier,
+            ) { shown -> pageContent(shown) }
+        }
 
         // A quiet "12 / 48" at the foot of the page.
         Text(
             "${page.coerceAtMost(textPages - 1) + 1} / $textPages",
-            color = colors.secondary.copy(alpha = 0.5f),
+            color = if (colors.eink) colors.secondary else colors.secondary.copy(alpha = 0.5f),
             style = MaterialTheme.typography.labelSmall.copy(fontFamily = BrandFonts.GeistMono),
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bars.calculateBottomPadding() + 14.dp).clearAndSetSemantics { },
         )
@@ -416,10 +421,4 @@ private fun PageBody(
             }
         }
     }
-}
-
-/** Page turns by volume key, while a paged reader is on screen (see MainActivity). */
-object VolumeKeys {
-    @Volatile
-    var handler: ((forward: Boolean) -> Boolean)? = null
 }

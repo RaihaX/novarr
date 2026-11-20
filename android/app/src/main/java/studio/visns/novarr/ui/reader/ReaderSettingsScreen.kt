@@ -40,7 +40,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import studio.visns.novarr.domain.Eink
 import studio.visns.novarr.domain.TextReadingMode
+import studio.visns.novarr.ui.theme.LocalEink
 import studio.visns.novarr.store.ReaderMargins
 import studio.visns.novarr.store.ReaderSettings
 import studio.visns.novarr.store.ReaderSpacing
@@ -62,7 +64,7 @@ fun ReaderSettingsForm(modifier: Modifier = Modifier) {
         Label("Reading mode")
         Segments(TextReadingMode.entries, settings.mode, { it.title }, groupLabel = "Reading mode") { value -> update { it.copy(mode = value) } }
         Text(
-            if (settings.mode == TextReadingMode.PAGES) "Tap the right or left side, swipe, or use the volume keys to turn pages."
+            if (settings.mode == TextReadingMode.PAGES) "Tap the right or left side, swipe, or use the page or volume keys to turn pages."
             else "Scroll through each chapter continuously.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -103,6 +105,8 @@ fun ReaderSettingsForm(modifier: Modifier = Modifier) {
         )
 
         SwitchRow("Justify text", settings.justify) { value -> update { it.copy(justify = value) } }
+        // Untouched, it follows e-ink mode (on there, off elsewhere).
+        SwitchRow("Bolder text", Eink.bolderText(settings.bolder, LocalEink.current)) { value -> update { it.copy(bolder = value) } }
         SwitchRow("Keep screen on while reading", settings.keepScreenOn) { value -> update { it.copy(keepScreenOn = value) } }
     }
 }

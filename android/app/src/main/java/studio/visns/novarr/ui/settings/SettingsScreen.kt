@@ -27,6 +27,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,7 +44,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import android.os.Build
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -52,6 +57,8 @@ import kotlinx.coroutines.launch
 import studio.visns.novarr.BuildConfig
 import studio.visns.novarr.app.Notifications
 import studio.visns.novarr.app.Session
+import studio.visns.novarr.domain.Eink
+import studio.visns.novarr.domain.EinkMode
 import studio.visns.novarr.store.OfflineStore
 import studio.visns.novarr.ui.ChangeServerRoute
 import studio.visns.novarr.ui.DownloadsRoute
@@ -62,6 +69,7 @@ import studio.visns.novarr.ui.components.formatBytes
 import studio.visns.novarr.ui.components.openNotificationSettings
 import studio.visns.novarr.ui.components.rememberNotificationPermissionRequest
 import studio.visns.novarr.ui.components.readableWidth
+import studio.visns.novarr.ui.theme.LocalEink
 import studio.visns.novarr.ui.theme.success
 import studio.visns.novarr.ui.theme.warning
 
@@ -100,6 +108,9 @@ fun SettingsScreen(nav: NavController) {
     val requestsOffered by app.requestsOffered.collectAsStateWithLifecycle()
     val notifyNewChapters by app.prefs.newChapterNotifications.collectAsStateWithLifecycle(true)
     val updatesOffered by app.updatesOffered.collectAsStateWithLifecycle()
+    val einkMode by app.prefs.einkMode.collectAsStateWithLifecycle(EinkMode.AUTO)
+    val eink = LocalEink.current
+    val volumeKeys by app.prefs.volumeKeys.collectAsStateWithLifecycle(null)
     // Re-read on every return: the user may have changed them in Android's settings (each channel can be muted).
     var notificationsAllowed by remember { mutableStateOf(Notifications.canPost(context, Notifications.NotifyChannel.APP_UPDATES)) }
     var requestNotificationsAllowed by remember { mutableStateOf(Notifications.canPost(context, Notifications.NotifyChannel.REQUESTS)) }
@@ -149,6 +160,36 @@ fun SettingsScreen(nav: NavController) {
 
                 Section("Reading")
                 Link("Reader defaults", chevron = true) { nav.navigate(ReaderSettingsRoute) }
+                // Untouched, it shows on: the volume keys turn pages in the novel Pages mode (everywhere on e-ink).
+                SwitchRow("Volume keys turn pages", volumeKeys ?: true) { on -> scope.launch { app.prefs.setVolumeKeys(on) } }
+                Note(
+                    when {
+                        volumeKeys == false -> "The volume keys change the volume, also in the reader. Page, arrow and space keys still turn pages."
+                        volumeKeys == null && !eink -> "In the Pages mode for novels; switch off and on again to use them in every reading mode. Page, arrow and space keys always turn pages."
+                        else -> "Volume down goes to the next page and volume up to the previous one, in every reading mode. Page, arrow and space keys always turn pages."
+                    },
+                )
+
+                Section("Display")
+                Text("E-ink mode", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                SingleChoiceSegmentedButtonRow(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).semantics { contentDescription = "E-ink mode" },
+                ) {
+                    EinkMode.entries.forEachIndexed { index, mode ->
+                        SegmentedButton(
+                            selected = mode == einkMode,
+                            onClick = { scope.launch { app.prefs.setEinkMode(mode) } },
+                            shape = SegmentedButtonDefaults.itemShape(index, EinkMode.entries.size),
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            label = { Text(mode.title) },
+                        )
+                    }
+                }
+                val onyx = Eink.isOnyx(Build.MANUFACTURER, Build.BRAND)
+                Note(
+                    "Black on white, no animations, bolder text and page-button support, for e-ink screens. " +
+                        "Auto turns it on for Onyx Boox devices." + if (onyx) " Onyx Boox detected." else "",
+                )
 
                 Section("Notifications")
                 // Shows off while Android blocks them, whatever the saved choice.

@@ -3,6 +3,9 @@ package studio.visns.novarr.ui.reader
 import android.widget.Toast
 import studio.visns.novarr.ui.theme.BrandFonts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -61,7 +65,7 @@ import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -132,6 +136,10 @@ import studio.visns.novarr.ui.components.BrandMark
 import studio.visns.novarr.ui.components.CenteredNote
 import studio.visns.novarr.ui.components.CheckForChaptersControl
 import studio.visns.novarr.ui.components.LocalApp
+import studio.visns.novarr.ui.components.LoadingIndicator
+import studio.visns.novarr.domain.Eink
+import studio.visns.novarr.domain.PageKeyMap
+import studio.visns.novarr.ui.theme.LocalEink
 
 class TextReaderViewModel(app: AppModel, route: ReaderRoute, saved: SavedStateHandle) :
     BaseReaderViewModel(app, route.novelId, route.chapterId, route.offerLatest, saved, lookup = route.lookupExcerpt.isNotBlank()) {
@@ -379,7 +387,8 @@ fun TextReaderScreen(nav: NavController, route: ReaderRoute) {
     val app = LocalApp.current
     val model = viewModel { TextReaderViewModel(app, route, createSavedStateHandle()) }
     val settings by app.prefs.readerSettings.collectAsStateWithLifecycle(ReaderSettings())
-    val colors = settings.theme.colors()
+    val eink = LocalEink.current
+    val colors = if (eink) ReaderColors.Eink else settings.theme.colors()
     var chromeHidden by rememberSaveable { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     /** The passage the highlight sheet is open for. */
@@ -394,27 +403,37 @@ fun TextReaderScreen(nav: NavController, route: ReaderRoute) {
 
     Box(Modifier.fillMaxSize().background(colors.background)) {
         when (val phase = model.phase) {
-            ReaderPhase.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = colors.secondary)
+            ReaderPhase.Loading -> LoadingIndicator(Modifier.align(Alignment.Center), color = colors.secondary)
             is ReaderPhase.Failed -> Failure(phase.message, colors) { model.load() }
             ReaderPhase.Loaded -> model.content?.let { content ->
                 ChapterText(
                     content, model, settings, colors,
                     onTap = { chromeHidden = !chromeHidden },
                     onBackToSeries = { nav.popBackStack() },
-                    onTurn = { chromeHidden = true },
+                    // Only a write when the bars are showing: no extra redraw per turn.
+                    onTurn = { if (!chromeHidden) chromeHidden = true },
                     onHighlight = { highlightDraft = it },
                 )
             }
         }
 
-        AnimatedVisibility(!chromeHidden, enter = fadeIn() + slideInVertically(), exit = fadeOut() + slideOutVertically(), modifier = Modifier.align(Alignment.TopCenter)) {
+        AnimatedVisibility(
+            !chromeHidden,
+            enter = if (eink) EnterTransition.None else fadeIn() + slideInVertically(),
+            exit = if (eink) ExitTransition.None else fadeOut() + slideOutVertically(),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
             ReaderTopBar(model.content?.title.orEmpty(), model.content?.novelName.orEmpty(), colors, showingCache = model.showingCache) { nav.popBackStack() }
         }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             model.latestOffer?.let { offer ->
                 LatestPositionBanner(offer.message, colors, onGo = model::acceptLatest, onStay = model::declineLatest, modifier = Modifier.navigationBarsPadding())
             }
-            AnimatedVisibility(!chromeHidden, enter = fadeIn() + slideInVertically { it }, exit = fadeOut() + slideOutVertically { it }) {
+            AnimatedVisibility(
+                !chromeHidden,
+                enter = if (eink) EnterTransition.None else fadeIn() + slideInVertically { it },
+                exit = if (eink) ExitTransition.None else fadeOut() + slideOutVertically { it },
+            ) {
                 ReaderBottomBar(
                     colors,
                     prev = model.content?.prev,
@@ -472,8 +491,11 @@ private fun ChapterText(
     onHighlight: (String) -> Unit,
 ) {
     val size = settings.fontSize.sp
+    // Part of the style, so the paged layout re-measures when it changes.
+    val bolder = Eink.bolderText(settings.bolder, LocalEink.current)
     val body = TextStyle(
         fontFamily = settings.font.family(),
+        fontWeight = if (bolder) FontWeight.SemiBold else null,
         fontSize = size,
         lineHeight = (settings.spacing.lineHeight).em,
         color = colors.text,
@@ -577,6 +599,21 @@ private fun ScrollChapterText(
         snapshotFlow { list.layoutInfo.visibleItemsInfo.any { it.index == footerIndex } }
             .distinctUntilChanged()
             .collect { visible -> model.endVisible(visible) }
+    }
+
+    // Page keys: a screen at a time, less a line or so; past either end, the next or previous chapter (as Pages does).
+    val keyScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val overlapPx = with(density) { maxOf(48.dp.toPx(), (settings.fontSize * settings.spacing.lineHeight * 1.5f).sp.toPx()) }.roundToInt()
+    RegisterPageKeys(novelPaged = false) { forward ->
+        when {
+            forward && !list.canScrollForward -> content.next?.let { model.open(it.id) }
+            !forward && !list.canScrollBackward -> content.prev?.let { model.openAtEnd(it.id) }
+            else -> keyScope.launch {
+                val step = PageKeyMap.scrollStep(list.layoutInfo.viewportSize.height, overlapPx).toFloat()
+                list.scrollBy(if (forward) step else -step)
+            }
+        }
     }
 
     val margin = settings.margins.paddingDp.dp
@@ -732,7 +769,7 @@ private fun NotDownloaded(colors: ReaderColors) {
 @Composable
 internal fun Footer(content: ChapterContent, model: BaseReaderViewModel, colors: ReaderColors, onBackToSeries: () -> Unit, modifier: Modifier) {
     Column(modifier.fillMaxWidth().padding(top = 16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        if (content.hasText) BrandMark(Modifier.width(22.dp).padding(top = 24.dp), color = colors.secondary.copy(alpha = 0.5f))
+        if (content.hasText) BrandMark(Modifier.width(22.dp).padding(top = 24.dp), color = if (colors.eink) colors.secondary else colors.secondary.copy(alpha = 0.5f))
         ChapterButtons(content.prev, content.next, colors) { model.open(it.id) }
         val next = content.next
         when {
@@ -752,7 +789,8 @@ fun ChapterButtons(prev: ChapterRef?, next: ChapterRef?, colors: ReaderColors, o
         prev?.let {
             Button(
                 onClick = { onOpen(it) },
-                colors = ButtonDefaults.buttonColors(containerColor = colors.text.copy(alpha = 0.08f), contentColor = colors.text),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.quietFill, contentColor = colors.text),
+                border = colors.rule,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
             ) {
@@ -778,40 +816,54 @@ fun ReaderTopBar(
     actions: @Composable () -> Unit = {},
     onBack: () -> Unit,
 ) {
-    Surface(color = colors.background, contentColor = colors.text, shadowElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-                .heightIn(min = 56.dp)
-                .padding(end = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = colors.text) }
-            Column(Modifier.weight(1f)) {
-                Text(title, color = colors.text, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val sub = listOfNotNull(subtitle.takeIf { it.isNotBlank() }, "offline copy".takeIf { showingCache }).joinToString(" · ")
-                if (sub.isNotEmpty()) Text(sub, color = colors.secondary, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    // E-ink: a 1 dp black rule instead of a shadow.
+    Surface(color = colors.background, contentColor = colors.text, shadowElevation = if (colors.eink) 0.dp else 3.dp, modifier = Modifier.fillMaxWidth()) {
+        Column {
+            Row(
+                Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                    .heightIn(min = 56.dp)
+                    .padding(end = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = colors.text) }
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = colors.text, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val sub = listOfNotNull(subtitle.takeIf { it.isNotBlank() }, "offline copy".takeIf { showingCache }).joinToString(" · ")
+                    if (sub.isNotEmpty()) Text(sub, color = colors.secondary, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                actions()
             }
-            actions()
+            if (colors.eink) HorizontalDivider(thickness = 1.dp, color = colors.text)
         }
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ReaderBottomBar(colors: ReaderColors, prev: ChapterRef?, next: ChapterRef?, onOpen: (ChapterRef) -> Unit, middle: @Composable () -> Unit) {
-    Surface(color = colors.background, contentColor = colors.text, shadowElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.navigationBarsPadding().heightIn(min = 56.dp).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val iconColors = IconButtonDefaults.iconButtonColors(contentColor = colors.text, disabledContentColor = colors.text.copy(alpha = 0.3f))
-            IconButton(onClick = { prev?.let(onOpen) }, enabled = prev != null, colors = iconColors) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous chapter")
-            }
-            Spacer(Modifier.weight(1f))
-            middle()
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = { next?.let(onOpen) }, enabled = next != null, colors = iconColors) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next chapter")
+    Surface(color = colors.background, contentColor = colors.text, shadowElevation = if (colors.eink) 0.dp else 3.dp, modifier = Modifier.fillMaxWidth()) {
+        Column {
+            if (colors.eink) HorizontalDivider(thickness = 1.dp, color = colors.text)
+            Row(
+                // E-ink: the final inset straight away, not one that follows the system bars sliding in.
+                Modifier
+                    .then(if (colors.eink) Modifier.windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility) else Modifier.navigationBarsPadding())
+                    .heightIn(min = 56.dp)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // E-ink: a disabled arrow in opaque light grey rather than a faded black.
+                val disabled = if (colors.eink) Color(0xFFBBBBBB) else colors.text.copy(alpha = 0.3f)
+                val iconColors = IconButtonDefaults.iconButtonColors(contentColor = colors.text, disabledContentColor = disabled)
+                IconButton(onClick = { prev?.let(onOpen) }, enabled = prev != null, colors = iconColors) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous chapter")
+                }
+                Spacer(Modifier.weight(1f))
+                middle()
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { next?.let(onOpen) }, enabled = next != null, colors = iconColors) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next chapter")
+                }
             }
         }
     }

@@ -1,12 +1,20 @@
 package studio.visns.novarr.ui.theme
 
+import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -131,6 +139,51 @@ private val Light = lightColorScheme(
     onErrorContainer = Color(0xFF5C1209),
 )
 
+/**
+ * E-ink: pure white grounds, black text and accents, opaque greys only, no
+ * tonal tints. Light grey marks selection (segmented buttons, the nav indicator).
+ */
+private val Eink = lightColorScheme(
+    primary = Color.Black,
+    onPrimary = Color.White,
+    primaryContainer = Color.White,
+    onPrimaryContainer = Color.Black,
+    inversePrimary = Color.White,
+    secondary = Color.Black,
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFDDDDDD),
+    onSecondaryContainer = Color.Black,
+    tertiary = Color.Black,
+    onTertiary = Color.White,
+    tertiaryContainer = Color.White,
+    onTertiaryContainer = Color.Black,
+    background = Color.White,
+    onBackground = Color.Black,
+    surface = Color.White,
+    onSurface = Color.Black,
+    surfaceVariant = Color.White,
+    onSurfaceVariant = Color(0xFF333333),
+    surfaceTint = Color.White,
+    inverseSurface = Color.Black,
+    inverseOnSurface = Color.White,
+    surfaceBright = Color.White,
+    surfaceDim = Color.White,
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = Color.White,
+    surfaceContainer = Color.White,
+    surfaceContainerHigh = Color.White,
+    surfaceContainerHighest = Color.White,
+    outline = Color.Black,
+    outlineVariant = Color(0xFF555555),
+    error = Color.Black,
+    onError = Color.White,
+    errorContainer = Color.White,
+    onErrorContainer = Color.Black,
+)
+
+/** Whether e-ink mode is on (resolved from Settings and the device, provided at the root). */
+val LocalEink = staticCompositionLocalOf { false }
+
 /** Geist throughout; Literata SemiBold for display titles, with the web's tighter tracking. */
 private fun typography(): Typography {
     val base = Typography()
@@ -157,21 +210,55 @@ private fun typography(): Typography {
 
 private val NovarrTypography = typography()
 
+/** E-ink: nothing lighter than Medium, so thin strokes don't break up on the panel. */
+private val EinkTypography = NovarrTypography.run {
+    fun TextStyle.heavier() = if ((fontWeight ?: FontWeight.Normal) < FontWeight.Medium) copy(fontWeight = FontWeight.Medium) else this
+    Typography(
+        displayLarge = displayLarge.heavier(), displayMedium = displayMedium.heavier(), displaySmall = displaySmall.heavier(),
+        headlineLarge = headlineLarge.heavier(), headlineMedium = headlineMedium.heavier(), headlineSmall = headlineSmall.heavier(),
+        titleLarge = titleLarge.heavier(), titleMedium = titleMedium.heavier(), titleSmall = titleSmall.heavier(),
+        bodyLarge = bodyLarge.heavier(), bodyMedium = bodyMedium.heavier(), bodySmall = bodySmall.heavier(),
+        labelLarge = labelLarge.heavier(), labelMedium = labelMedium.heavier(), labelSmall = labelSmall.heavier(),
+    )
+}
+
+/** [eink]: the e-ink scheme and type whatever the system dark setting, and no ripples. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NovarrTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (dark) Dark else Light, typography = NovarrTypography, content = content)
+fun NovarrTheme(dark: Boolean = isSystemInDarkTheme(), eink: Boolean = false, content: @Composable () -> Unit) {
+    // System bar icons follow the scheme (enableEdgeToEdge only knows the system setting).
+    val view = LocalView.current
+    LaunchedEffect(eink, dark) {
+        val window = (view.context as? Activity)?.window ?: return@LaunchedEffect
+        val light = eink || !dark
+        WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = light
+            isAppearanceLightNavigationBars = light
+        }
+    }
+    // One tree either way: switching modes in Settings must keep navigation and screen state.
+    val ripple = LocalRippleConfiguration.current
+    MaterialTheme(
+        colorScheme = if (eink) Eink else if (dark) Dark else Light,
+        typography = if (eink) EinkTypography else NovarrTypography,
+    ) {
+        CompositionLocalProvider(LocalRippleConfiguration provides if (eink) null else ripple, content = content)
+    }
 }
 
 /** Whether this scheme is the dark one. */
 val ColorScheme.isDark: Boolean get() = background.luminanceIsDark()
 
-/** Success green that reads on both themes ($success / $success-ink-light). */
-val ColorScheme.success: Color get() = if (isDark) Color(0xFF3FB950) else Color(0xFF156C2C)
+/** Whether this is the e-ink scheme (black accents on white). */
+val ColorScheme.isEink: Boolean get() = primary == Color.Black && background == Color.White
 
-/** Warning amber that reads on both themes ($warning / $warning-ink-light). */
-val ColorScheme.warning: Color get() = if (isDark) Amber else AmberInk
+/** Success green that reads on both themes ($success / $success-ink-light); black on e-ink. */
+val ColorScheme.success: Color get() = if (isEink) Color.Black else if (isDark) Color(0xFF3FB950) else Color(0xFF156C2C)
 
-/** The amber for marks and fills (the wordmark dot, progress fills): darker on light grounds (--nv-amber). */
-val ColorScheme.brandAmber: Color get() = if (isDark) Amber else Color(0xFF916300)
+/** Warning amber that reads on both themes ($warning / $warning-ink-light); black on e-ink. */
+val ColorScheme.warning: Color get() = if (isEink) Color.Black else if (isDark) Amber else AmberInk
+
+/** The amber for marks and fills (the wordmark dot, progress fills): darker on light grounds (--nv-amber); black on e-ink. */
+val ColorScheme.brandAmber: Color get() = if (isEink) Color.Black else if (isDark) Amber else Color(0xFF916300)
 
 private fun Color.luminanceIsDark(): Boolean = (0.299 * red + 0.587 * green + 0.114 * blue) < 0.5

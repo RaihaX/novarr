@@ -2,6 +2,17 @@ package studio.visns.novarr.ui.reader
 
 import studio.visns.novarr.ui.theme.BrandFonts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import studio.visns.novarr.domain.PageKeyMap
+import studio.visns.novarr.store.ReaderSettings
+import studio.visns.novarr.ui.components.LoadingIndicator
+import studio.visns.novarr.ui.theme.LocalEink
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -49,7 +60,6 @@ import kotlinx.coroutines.launch
 import studio.visns.novarr.domain.MangaModeOverride
 import studio.visns.novarr.domain.TapAction
 import studio.visns.novarr.domain.TapZones
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -205,17 +215,20 @@ class MangaReaderViewModel(app: AppModel, route: ReaderRoute, saved: SavedStateH
 fun MangaReaderScreen(nav: NavController, route: ReaderRoute) {
     val app = LocalApp.current
     val model = viewModel { MangaReaderViewModel(app, route, createSavedStateHandle()) }
-    // Pages read best on black, whatever the text reader's theme.
-    val colors = ReaderTheme.BLACK.colors().copy(text = Color(0xFFE6E6E6))
+    val eink = LocalEink.current
+    // Pages read best on black, whatever the text reader's theme; on e-ink, white with black chrome.
+    val colors = if (eink) ReaderColors.Eink else ReaderTheme.BLACK.colors().copy(text = Color(0xFFE6E6E6))
+    val settings by app.prefs.readerSettings.collectAsStateWithLifecycle(ReaderSettings())
     var chromeHidden by rememberSaveable { mutableStateOf(false) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { model.stopped() }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { model.started() }
-    ReaderSystemBars(hidden = chromeHidden, darkSurface = true, keepScreenOn = true)
+    // Always awake, except on e-ink, where the reader setting decides (the panel holds the page anyway).
+    ReaderSystemBars(hidden = chromeHidden, darkSurface = colors.isDark, keepScreenOn = if (eink) settings.keepScreenOn else true)
 
     Box(Modifier.fillMaxSize().background(colors.background)) {
         when (val phase = model.phase) {
-            ReaderPhase.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = colors.secondary)
+            ReaderPhase.Loading -> LoadingIndicator(Modifier.align(Alignment.Center), color = colors.secondary)
             is ReaderPhase.Failed -> Failure(phase.message, colors) { model.load() }
             ReaderPhase.Loaded -> model.pages?.let { pages ->
                 if (pages.pages.isEmpty()) {
@@ -230,7 +243,12 @@ fun MangaReaderScreen(nav: NavController, route: ReaderRoute) {
             }
         }
 
-        AnimatedVisibility(!chromeHidden, enter = fadeIn() + slideInVertically(), exit = fadeOut() + slideOutVertically(), modifier = Modifier.align(Alignment.TopCenter)) {
+        AnimatedVisibility(
+            !chromeHidden,
+            enter = if (eink) EnterTransition.None else fadeIn() + slideInVertically(),
+            exit = if (eink) ExitTransition.None else fadeOut() + slideOutVertically(),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
             ReaderTopBar(
                 model.pages?.chapter?.title.orEmpty(),
                 modeLabel(model),
@@ -243,7 +261,11 @@ fun MangaReaderScreen(nav: NavController, route: ReaderRoute) {
             model.latestOffer?.let { offer ->
                 LatestPositionBanner(offer.message, colors, onGo = model::acceptLatest, onStay = model::declineLatest, modifier = Modifier.navigationBarsPadding())
             }
-            AnimatedVisibility(!chromeHidden, enter = fadeIn() + slideInVertically { it }, exit = fadeOut() + slideOutVertically { it }) {
+            AnimatedVisibility(
+                !chromeHidden,
+                enter = if (eink) EnterTransition.None else fadeIn() + slideInVertically { it },
+                exit = if (eink) ExitTransition.None else fadeOut() + slideOutVertically { it },
+            ) {
                 ReaderBottomBar(colors, model.pages?.prev, model.pages?.next, onOpen = { model.open(it.id) }) {
                     val total = model.pages?.pages?.size ?: 0
                     if (total > 0) {
@@ -331,24 +353,51 @@ private fun PagedChapter(pages: MangaPages, model: MangaReaderViewModel, colors:
     }
     val scope = rememberCoroutineScope()
     val rightToLeft = model.mode.rightToLeft
+    val eink = LocalEink.current
     fun turn(forward: Boolean) {
         val target = pager.currentPage + if (forward) 1 else -1
         when {
-            target in 0..count -> scope.launch { pager.animateScrollToPage(target) }
+            // E-ink: straight to the page, no slide.
+            target in 0..count -> scope.launch { if (eink) pager.scrollToPage(target) else pager.animateScrollToPage(target) }
             // Past the end page: the next chapter, as its button would.
             forward -> pages.next?.let(onOpen)
         }
     }
+    // Forward is always the next page, whichever way the series reads.
+    RegisterPageKeys(novelPaged = false) { forward -> turn(forward) }
+    val swipeThreshold = with(LocalDensity.current) { 48.dp.toPx() }
     HorizontalPager(
         state = pager,
         reverseLayout = rightToLeft,
         beyondViewportPageCount = 1,
-        modifier = Modifier.fillMaxSize().semantics {
-            customActions = listOf(
-                CustomAccessibilityAction("Next page") { turn(true); true },
-                CustomAccessibilityAction("Previous page") { turn(false); true },
+        // E-ink: the page doesn't follow the finger; a swipe turns it in one go (as the novel Pages mode does).
+        userScrollEnabled = !eink,
+        modifier = Modifier
+            .fillMaxSize()
+            .then(
+                if (eink) Modifier.pointerInput(rightToLeft) {
+                    var dx = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { dx = 0f },
+                        onDragEnd = {
+                            when (TapZones.swipeAction(dx, swipeThreshold, rightToLeft)) {
+                                TapAction.NEXT -> turn(true)
+                                TapAction.PREVIOUS -> turn(false)
+                                else -> Unit
+                            }
+                        },
+                    ) { change, amount ->
+                        change.consume()
+                        dx += amount
+                    }
+                } else Modifier,
             )
-        },
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction("Next page") { turn(true); true },
+                    CustomAccessibilityAction("Previous page") { turn(false); true },
+                )
+            },
         key = { it },
     ) { index ->
         if (index == count) {
@@ -363,8 +412,9 @@ private fun PagedChapter(pages: MangaPages, model: MangaReaderViewModel, colors:
                     TapAction.TOGGLE_CONTROLS -> onTap()
                 }
             }
-            Box(Modifier.fillMaxSize().zoomable(zoom, onTap = onPageTap), contentAlignment = Alignment.Center) {
-                PageImage(model.model(pages.pages[index]), index, count, ContentScale.Fit, Modifier.fillMaxSize())
+            // E-ink: no double-tap zoom, so a single tap turns at once (pinch still zooms).
+            Box(Modifier.fillMaxSize().zoomable(zoom, doubleTap = !eink, onTap = onPageTap), contentAlignment = Alignment.Center) {
+                PageImage(model.model(pages.pages[index]), index, count, ContentScale.Fit, Modifier.fillMaxSize(), colors)
             }
         }
     }
@@ -377,6 +427,20 @@ private fun VerticalChapter(pages: MangaPages, model: MangaReaderViewModel, colo
     val count = pages.pages.size
     val list = rememberLazyListState(initialFirstVisibleItemIndex = model.scrollRequest?.index?.coerceIn(0, count - 1) ?: 0)
     val zoom = remember(pages.chapter.id) { ZoomState(maxScale = 3f) }
+    val eink = LocalEink.current
+    // Page keys: a screen at a time, less a strip so the reader keeps their place; past the end, the next chapter.
+    val keyScope = rememberCoroutineScope()
+    val overlapPx = with(LocalDensity.current) { 48.dp.toPx() }.toInt()
+    RegisterPageKeys(novelPaged = false) { forward ->
+        when {
+            forward && !list.canScrollForward -> pages.next?.let(onOpen)
+            !forward && !list.canScrollBackward -> Unit
+            else -> keyScope.launch {
+                val step = PageKeyMap.scrollStep(list.layoutInfo.viewportSize.height, overlapPx).toFloat()
+                list.scrollBy(if (forward) step else -step)
+            }
+        }
+    }
     LaunchedEffect(pages.chapter.id, model.scrollRequest) {
         model.scrollRequest?.let { list.scrollToItem(it.index.coerceIn(0, count - 1)) }
         if (!model.tracking) {
@@ -394,7 +458,7 @@ private fun VerticalChapter(pages: MangaPages, model: MangaReaderViewModel, colo
     }
     LazyColumn(
         state = list,
-        modifier = Modifier.fillMaxSize().zoomable(zoom, panY = false, onTap = { _, _ -> onTap() }),
+        modifier = Modifier.fillMaxSize().zoomable(zoom, panY = false, doubleTap = !eink, onTap = { _, _ -> onTap() }),
         horizontalAlignment = Alignment.CenterHorizontally,
         // Page 1 starts below the reader's top bar; stable while system bars hide and show.
         contentPadding = WindowInsets.systemBarsIgnoringVisibility.asPaddingValues().let {
@@ -406,6 +470,7 @@ private fun VerticalChapter(pages: MangaPages, model: MangaReaderViewModel, colo
             PageImage(
                 model.model(page), index, count, ContentScale.FillWidth,
                 Modifier.widthIn(max = 900.dp).fillMaxWidth().then(if (ratio != null) Modifier.aspectRatio(ratio) else Modifier.heightIn(min = 300.dp)),
+                colors,
             )
         }
         item(key = "end") { EndOfChapter(pages, model, colors, onOpen) }
@@ -413,16 +478,16 @@ private fun VerticalChapter(pages: MangaPages, model: MangaReaderViewModel, colo
 }
 
 @Composable
-private fun PageImage(data: Any, index: Int, count: Int, scale: ContentScale, modifier: Modifier) {
+private fun PageImage(data: Any, index: Int, count: Int, scale: ContentScale, modifier: Modifier, colors: ReaderColors) {
     SubcomposeAsyncImage(
         model = data,
         contentDescription = "Page ${index + 1} of $count",
         contentScale = scale,
         modifier = modifier,
-        loading = { Box(Modifier.fillMaxWidth().heightIn(min = 300.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } },
+        loading = { Box(Modifier.fillMaxWidth().heightIn(min = 300.dp), contentAlignment = Alignment.Center) { LoadingIndicator(color = if (colors.eink) colors.secondary else Color.Unspecified) } },
         error = {
             Box(Modifier.fillMaxWidth().heightIn(min = 300.dp), contentAlignment = Alignment.Center) {
-                Text("Couldn't load page ${index + 1}", color = Color(0xFFBDBDBD), textAlign = TextAlign.Center)
+                Text("Couldn't load page ${index + 1}", color = if (colors.eink) colors.text else Color(0xFFBDBDBD), textAlign = TextAlign.Center)
             }
         },
     )
