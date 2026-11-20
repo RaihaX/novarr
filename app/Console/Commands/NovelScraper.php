@@ -89,6 +89,7 @@ class NovelScraper extends Command
         $toc = tableOfContentGenerator($novel, $incrementalAllowed ? fn() => $this->storedUrls($novel) : null);
         $toc = is_array($toc) ? $toc : [];
         $partial = tocRunWasPartial();
+        \App\Services\SourceHealth::recordToc($novel, $toc, $partial, tocRunWasIncremental());
 
         if ($incrementalAllowed && tocRunWasIncremental()) {
             $this->info("  Incremental walk: " . count($toc) . " entries from the newest pages");

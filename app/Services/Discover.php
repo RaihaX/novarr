@@ -118,6 +118,7 @@ class Discover
         }
 
         $items = $source->discover($type, $query);
+        SourceHealth::record(SourceHealth::keyForSource($source), SourceHealth::KIND_SEARCH, $items !== null, 'fetch_failed', "Discover {$type}: the source could not be reached.");
 
         return $items === null ? null : $this->decorate($source, $items);
     }
@@ -146,6 +147,7 @@ class Discover
         }
 
         $result = $source->discoverPage($type, $query, $page);
+        SourceHealth::record(SourceHealth::keyForSource($source), SourceHealth::KIND_SEARCH, $result !== null, 'fetch_failed', "Discover {$type} page {$page}: the source could not be reached.");
         if ($result === null) {
             return null;
         }

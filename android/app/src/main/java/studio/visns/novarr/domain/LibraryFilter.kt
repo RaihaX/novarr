@@ -4,6 +4,7 @@ import java.text.Collator
 import java.text.Normalizer
 import java.util.Locale
 import studio.visns.novarr.api.NovelSummary
+import studio.visns.novarr.api.ReadingList
 
 /** Pure filter/sort/search logic for the library grid (same rules as iOS). */
 object LibraryFilter {
@@ -26,9 +27,13 @@ object LibraryFilter {
     fun shelf(novels: List<NovelSummary>, shelf: Shelf): List<NovelSummary> =
         novels.filter { it.isManga == (shelf == Shelf.MANGA) }
 
-    fun apply(novels: List<NovelSummary>, filter: Filter, sort: Sort, search: String): List<NovelSummary> {
+    /**
+     * The grid: [novels] in [list] (when one is chosen: Library's list
+     * filter, combined with the status [filter]), matching [search], sorted.
+     */
+    fun apply(novels: List<NovelSummary>, filter: Filter, sort: Sort, search: String, list: ReadingList? = null): List<NovelSummary> {
         val query = search.trim()
-        val filtered = novels.filter { novel ->
+        val filtered = ReadingLists.filter(novels, list).filter { novel ->
             filter.matches(novel) &&
                 (query.isEmpty() || matches(novel.name, query) || novel.authorOrNull?.let { matches(it, query) } == true)
         }

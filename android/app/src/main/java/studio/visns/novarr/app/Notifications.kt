@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import studio.visns.novarr.MainActivity
 import studio.visns.novarr.R
 import studio.visns.novarr.api.FeedItem
+import studio.visns.novarr.domain.ChapterUpdates
 import studio.visns.novarr.domain.RequestFeed
 import studio.visns.novarr.domain.Requests
 
@@ -34,6 +35,9 @@ object Notifications {
 
         /** Reader requests: a new one to review (the owner), or a decision on yours. */
         REQUESTS("requests", "Requests", "New requests to review, and the owner's decisions on yours.", NotificationManager.IMPORTANCE_DEFAULT),
+
+        /** The one combined "new chapters" notification (every series in it). */
+        NEW_CHAPTERS("new-chapters", "New chapters", "Series you were caught up on that have something new to read.", NotificationManager.IMPORTANCE_DEFAULT),
     }
 
     /** The one "newer version" notification; a newer build replaces it. */
@@ -41,6 +45,9 @@ object Notifications {
 
     /** The summary of several request notifications (one per item: [RequestFeed.notificationId]). */
     const val REQUESTS_SUMMARY_ID = 2
+
+    /** The one "new chapters" notification; every post replaces it. */
+    const val NEW_CHAPTERS_ID = 3
 
     /** Request notifications are bundled under this group. */
     const val REQUESTS_GROUP = "studio.visns.novarr.requests"
@@ -50,6 +57,11 @@ object Notifications {
 
     /** MainActivity's action for a tapped request notification: the Requests screen ([EXTRA_SECTION], maybe [EXTRA_NOVEL_ID]). */
     const val ACTION_OPEN_REQUESTS = "studio.visns.novarr.action.OPEN_REQUESTS"
+    /** MainActivity's action for the tapped new-chapters notification with one series: that series ([EXTRA_NOVEL_ID]). */
+    const val ACTION_OPEN_SERIES = "studio.visns.novarr.action.OPEN_SERIES"
+
+    /** Marks an intent as coming from the new-chapters notification: tapping it clears what was pending. */
+    const val EXTRA_FROM_NEW_CHAPTERS = "fromNewChapters"
     const val EXTRA_SECTION = "section"
     const val EXTRA_NOVEL_ID = "novelId"
 
@@ -120,6 +132,32 @@ object Notifications {
         return post(context, NotifyChannel.REQUESTS, REQUESTS_SUMMARY_ID, builder)
     }
 
+    /**
+     * The one new-chapters notification for [pending] (domain.ChapterUpdates
+     * builds its text): one series → its name and count, tapping opens it;
+     * several → "New chapters in N series" with a line per series, tapping
+     * opens Home. Re-posting updates it in place; [alert] false posts it
+     * without sound or vibration. Swiping it away clears what was pending
+     * ([NewChaptersDismissedReceiver]).
+     */
+    fun postNewChapters(context: Context, pending: List<ChapterUpdates.Pending>, alert: Boolean): Boolean {
+        if (pending.isEmpty()) return false
+        val channel = NotifyChannel.NEW_CHAPTERS
+        val target = ChapterUpdates.target(pending)
+        val builder = builder(context, channel, ChapterUpdates.title(pending), ChapterUpdates.text(pending))
+            .setContentIntent(if (target != null) openSeries(context, target) else openHome(context, fromNewChapters = true))
+            .setDeleteIntent(newChaptersDismissed(context))
+            .setSilent(!alert)
+            .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
+            .setNumber(pending.size)
+        if (pending.size > 1) {
+            val style = NotificationCompat.InboxStyle()
+            ChapterUpdates.lines(pending).forEach { style.addLine(it) }
+            builder.setStyle(style)
+        }
+        return post(context, channel, NEW_CHAPTERS_ID, builder)
+    }
+
     /** Clears every request notification (the Requests screen is open: they are seen). */
     fun cancelRequests(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -156,6 +194,10 @@ object Notifications {
         }
     }
 
+    /** Whether notification [id] is on screen now (false when Android won't say). */
+    fun isShowing(context: Context, id: Int): Boolean =
+        runCatching { context.getSystemService(NotificationManager::class.java)?.activeNotifications?.any { it.id == id } == true }.getOrDefault(false)
+
     fun cancel(context: Context, id: Int) {
         NotificationManagerCompat.from(context).cancel(id)
     }
@@ -175,10 +217,29 @@ object Notifications {
     }
 
     /** Brings the app to the front on Home; the Home banner offers the update from there. */
-    private fun openHome(context: Context): PendingIntent {
+    private fun openHome(context: Context, fromNewChapters: Boolean = false): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
             .setAction(ACTION_OPEN_HOME)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        return PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        if (fromNewChapters) intent.putExtra(EXTRA_FROM_NEW_CHAPTERS, true)
+        // Its own request code: the update notice's Home intent carries no extra.
+        val requestCode = if (fromNewChapters) NEW_CHAPTERS_ID else 0
+        return PendingIntent.getActivity(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    /** Brings the app to the front on one series (over Home). */
+    private fun openSeries(context: Context, novelId: Int): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java)
+            .setAction(ACTION_OPEN_SERIES)
+            .putExtra(EXTRA_NOVEL_ID, novelId)
+            .putExtra(EXTRA_FROM_NEW_CHAPTERS, true)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        return PendingIntent.getActivity(context, NEW_CHAPTERS_ID, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    /** Swiped away (or "Clear all"): [NewChaptersDismissedReceiver] clears what was pending. */
+    private fun newChaptersDismissed(context: Context): PendingIntent {
+        val intent = Intent(context, NewChaptersDismissedReceiver::class.java)
+        return PendingIntent.getBroadcast(context, NEW_CHAPTERS_ID, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 }

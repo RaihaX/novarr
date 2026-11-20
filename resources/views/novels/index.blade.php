@@ -4,7 +4,9 @@
     use App\Http\Helpers\LibraryMedium;
 
     $originChips ??= [];
-    $hasFilters = request('search') || request()->filled('status') || request()->filled('tag') || $filter !== 'all';
+    $readingLists ??= [];
+    $activeList ??= null;
+    $hasFilters = request('search') || request()->filled('status') || request()->filled('tag') || $filter !== 'all' || $activeList;
     $libraryTitle = LibraryMedium::title($medium);
     $mediumNoun = LibraryMedium::noun($medium);
     // Chip / toggle links keep every other query parameter and the library
@@ -94,6 +96,19 @@
                    class="btn btn-secondary {{ $medium === $mKey ? 'active' : '' }}" @if($medium === $mKey) aria-current="true" @endif>{{ $mLabel }}</a>
             @endforeach
         </div>
+        {{-- The reader's reading lists (?list=, in the URL like the tag);
+             counts are this library's series in each. --}}
+        @if(!empty($readingLists))
+            <label class="lib-list">
+                <span class="visually-hidden">Reading list</span>
+                <select name="list" class="form-select" onchange="this.form.requestSubmit()">
+                    <option value="">All series</option>
+                    @foreach($readingLists as $rl)
+                        <option value="{{ $rl['id'] }}" data-name="{{ $rl['name'] }}" data-count="{{ $rl['count'] }}" @selected($activeList && $activeList['id'] === $rl['id'])>List: {{ $rl['name'] }} ({{ number_format($rl['count']) }})</option>
+                    @endforeach
+                </select>
+            </label>
+        @endif
         @if($tags->isNotEmpty())
             <select name="tag" aria-label="Filter by tag" class="form-select" onchange="this.form.requestSubmit()">
                 <option value="">All tags</option>
@@ -122,6 +137,35 @@
         </div>
     </form>
 </div>
+
+@if($activeList)
+    {{-- The chosen reading list: its name and count, Rename (inline) and
+         Delete (confirmation dialog) — resources/js/lists.js. --}}
+    <section class="lib-listbar" data-list-bar data-list-id="{{ $activeList['id'] }}" aria-labelledby="libListTitle">
+        <div class="lib-listbar-head">
+            <x-icon name="bookmark" :size="16" class="lib-listbar-icon" />
+            <h2 class="lib-listbar-title" id="libListTitle" data-list-title>{{ $activeList['name'] }}</h2>
+            <span class="lib-listbar-count"><span class="mono-num">{{ number_format($activeList['count']) }}</span> {{ LibraryMedium::countNoun($medium, $activeList['count']) }}</span>
+        </div>
+        <div class="lib-listbar-actions">
+            <button type="button" class="btn btn-ghost btn-sm" data-list-rename aria-expanded="false" aria-controls="libListRename">
+                <x-icon name="pencil" :size="13" />Rename
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm lib-listbar-delete" data-list-delete>
+                <x-icon name="trash-2" :size="13" />Delete list
+            </button>
+            <a href="{{ request()->fullUrlWithQuery(['list' => null, 'page' => null, 'medium' => $medium]) }}" class="btn btn-ghost btn-sm">Show all</a>
+        </div>
+        <form class="lib-listbar-form" id="libListRename" data-list-rename-form hidden novalidate>
+            <label for="libListName" class="visually-hidden">New name for the list</label>
+            <input type="text" id="libListName" class="form-control form-control-sm" maxlength="{{ \App\ReadingList::MAX_NAME }}" autocomplete="off" aria-describedby="libListError">
+            <button type="submit" class="btn btn-sm btn-primary">Save</button>
+            <button type="button" class="btn btn-sm btn-secondary" data-list-rename-cancel>Cancel</button>
+        </form>
+        <p class="lists-error" id="libListError" data-list-error role="alert" hidden></p>
+        <p class="visually-hidden" data-list-status role="status" aria-live="polite"></p>
+    </section>
+@endif
 
 <div id="bulkBar" class="novels-bulk-bar">
     <span id="bulkCount" class="bulk-count"></span>

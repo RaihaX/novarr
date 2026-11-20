@@ -117,6 +117,38 @@ object RequestsCheck : BackgroundCheck {
     private const val SESSION_WAIT_MS = 15_000L
 }
 
+/**
+ * New chapters in series the reader was caught up on: one combined
+ * notification ([ChapterUpdatesSync], [studio.visns.novarr.domain.ChapterUpdates]).
+ * Every 2 hours; only while the server offers it (meta `updates`, as last
+ * seen) and the switch is on. A 401 or any failure is silent and tried again
+ * next run.
+ */
+object NewChaptersCheck : BackgroundCheck {
+    override val key = "newChapters"
+    override val periodMs = 2 * BackgroundSchedule.HOUR_MS
+
+    override suspend fun enabled(prefs: AppPrefs): Boolean {
+        if (!prefs.newChapterNotifications.first()) return false
+        val server = prefs.serverUrl()?.let(ServerUrl::normalize) ?: return false
+        return prefs.featureOffered(server, AppModel.FEATURE_UPDATES) == true
+    }
+
+    override suspend fun run(context: Context, model: AppModel, server: String) {
+        // Public meta: the server may have stopped offering it since.
+        val meta = ApiClient(server, model.http).meta()
+        model.noteFeaturesOffered(server, meta)
+        if (!meta.updates) return
+        val session = withTimeoutOrNull(SESSION_WAIT_MS) { model.session.first { it !is Session.Starting } } as? Session.Active ?: return
+        if (session.server != server) return
+        // Its own client without the 401 handler, like the requests check.
+        val client = ApiClient(server, model.http, token = session.account?.token)
+        model.chapterUpdates.poll(session, client)
+    }
+
+    private const val SESSION_WAIT_MS = 15_000L
+}
+
 /** Whether the app is on screen: then it shows things itself instead of posting notifications. */
 internal suspend fun inForeground(): Boolean = withContext(Dispatchers.Main) {
     ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
@@ -155,13 +187,14 @@ class BackgroundCheckWorker(context: Context, params: WorkerParameters) : Corout
 
 /**
  * The schedule: one unique periodic work while any check is enabled, at the
- * shortest enabled period (hourly with request notifications, else every 12
- * hours). WorkManager keeps it across reboots.
+ * shortest enabled period (hourly with request notifications, every 2 hours
+ * with new-chapter notifications, else every 12 hours). WorkManager keeps it
+ * across reboots.
  */
 object BackgroundChecks {
     const val WORK_NAME = "novarr-background-checks"
 
-    val all: List<BackgroundCheck> = listOf(UpdateCheck, RequestsCheck)
+    val all: List<BackgroundCheck> = listOf(UpdateCheck, RequestsCheck, NewChaptersCheck)
 
     suspend fun specs(prefs: AppPrefs): List<BackgroundSchedule.Spec> =
         all.map { BackgroundSchedule.Spec(it.key, it.enabled(prefs), it.periodMs, prefs.checkLastRun(it.key)) }

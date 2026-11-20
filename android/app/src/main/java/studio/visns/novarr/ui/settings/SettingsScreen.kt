@@ -98,18 +98,22 @@ fun SettingsScreen(nav: NavController) {
     val notifyUpdates by app.prefs.updateNotifications.collectAsStateWithLifecycle(true)
     val notifyRequests by app.prefs.requestNotifications.collectAsStateWithLifecycle(true)
     val requestsOffered by app.requestsOffered.collectAsStateWithLifecycle()
+    val notifyNewChapters by app.prefs.newChapterNotifications.collectAsStateWithLifecycle(true)
+    val updatesOffered by app.updatesOffered.collectAsStateWithLifecycle()
     // Re-read on every return: the user may have changed them in Android's settings (each channel can be muted).
     var notificationsAllowed by remember { mutableStateOf(Notifications.canPost(context, Notifications.NotifyChannel.APP_UPDATES)) }
     var requestNotificationsAllowed by remember { mutableStateOf(Notifications.canPost(context, Notifications.NotifyChannel.REQUESTS)) }
+    var newChaptersAllowed by remember { mutableStateOf(Notifications.canPost(context, Notifications.NotifyChannel.NEW_CHAPTERS)) }
     fun recheckNotifications() {
         notificationsAllowed = Notifications.canPost(context, Notifications.NotifyChannel.APP_UPDATES)
         requestNotificationsAllowed = Notifications.canPost(context, Notifications.NotifyChannel.REQUESTS)
+        newChaptersAllowed = Notifications.canPost(context, Notifications.NotifyChannel.NEW_CHAPTERS)
     }
     LifecycleResumeEffect(Unit) {
         recheckNotifications()
         onPauseOrDispose {}
     }
-    // One permission prompt for both switches.
+    // One permission prompt for every switch.
     val askNotifications = rememberNotificationPermissionRequest { recheckNotifications() }
     // Always on opening Settings: server version, sign-in switch and a newer app build.
     LaunchedEffect(Unit) { app.refreshMeta() }
@@ -169,6 +173,19 @@ fun SettingsScreen(nav: NavController) {
                         if (!(notifyUpdates && !notificationsAllowed)) Link("Open notification settings") { openNotificationSettings(context) }
                     } else {
                         Note("New requests to review, and the owner's decisions on yours. Checked about once an hour while the app is closed.")
+                    }
+                }
+                // Only on servers that send new chapters for it (meta `updates`).
+                if (updatesOffered) {
+                    SwitchRow("New chapter notifications", notifyNewChapters && newChaptersAllowed) { on ->
+                        app.setNewChapterNotifications(on)
+                        if (on && !newChaptersAllowed) askNotifications()
+                    }
+                    if (notifyNewChapters && !newChaptersAllowed) {
+                        Note("New chapter notifications are blocked in Android's settings (or their “New chapters” category is off), so new chapters only show on Home.")
+                        Link("Open notification settings") { openNotificationSettings(context) }
+                    } else {
+                        Note("One notification when series you'd caught up on get new chapters. Checked about every 2 hours while the app is closed; never makes a sound more than once in 6 hours, or between 10 pm and 7 am.")
                     }
                 }
 

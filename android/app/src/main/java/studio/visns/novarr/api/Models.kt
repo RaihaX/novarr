@@ -37,6 +37,10 @@ data class ServerMeta(
     @Serializable(with = AndroidReleaseOrNull::class) val android: AndroidRelease? = null,
     /** Reader requests (search, request, the notification feed) are offered; absent on older servers. */
     val requests: Boolean = false,
+    /** `GET /updates` (new chapters since a cursor, for the one combined notification); absent on older servers. */
+    val updates: Boolean = false,
+    /** Reading lists (`/lists`); absent on older servers, and the app then hides lists entirely. */
+    val lists: Boolean = false,
 ) {
     /** Only an explicit `auth.required: true` turns sign-in on. */
     val requiresSignIn: Boolean get() = auth?.required == true

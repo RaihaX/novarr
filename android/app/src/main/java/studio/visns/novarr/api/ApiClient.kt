@@ -226,6 +226,44 @@ class ApiClient(
         return decode(NotificationFeed.serializer(), execute(prepared, reportUnauthorized = reportUnauthorized))
     }
 
+    // New chapters (one combined notification)
+
+    /**
+     * Series with something new to read since [since] (opaque cursor; null:
+     * no series, just a cursor to start from). [reportUnauthorized] false
+     * keeps the background check's 401 from ending the session.
+     */
+    suspend fun updates(since: String?, reportUnauthorized: Boolean = true): UpdatesFeed {
+        val prepared = prepare("GET", "updates", query = since?.let { mapOf("since" to it) }.orEmpty(), fresh = true)
+        return decode(UpdatesFeed.serializer(), execute(prepared, reportUnauthorized = reportUnauthorized))
+    }
+
+    // Reading lists. Never queued: offline the lists are read-only.
+
+    suspend fun lists(): List<ReadingList> = get("lists", ListsEnvelope.serializer(), fresh = true).lists
+
+    /** 201 {list}; 422 with a message for a blank, duplicate or too long name, or too many lists. */
+    suspend fun createList(name: String): ReadingList =
+        decode(ListEnvelope.serializer(), execute(prepare("POST", "lists", body = buildJsonObject { put("name", name) }))).list
+
+    suspend fun renameList(id: Int, name: String): ReadingList =
+        decode(ListEnvelope.serializer(), execute(prepare("PATCH", "lists/$id", body = buildJsonObject { put("name", name) }))).list
+
+    /** 204; a list already gone (404) counts as deleted. */
+    suspend fun deleteList(id: Int) {
+        try {
+            execute(prepare("DELETE", "lists/$id"))
+        } catch (e: ApiError.Http) {
+            if (e.status != 404) throw e
+        }
+    }
+
+    /** Adds ([add]) or removes a series; idempotent either way, answers the whole list. */
+    suspend fun setListMembership(listId: Int, novelId: Int, add: Boolean): ReadingList {
+        val method = if (add) "PUT" else "DELETE"
+        return decode(ListEnvelope.serializer(), execute(prepare(method, "lists/$listId/novels/$novelId", body = if (add) JsonObject(emptyMap()) else null))).list
+    }
+
     // Accounts
 
     /** Password sign-in; `username` may also be the email. 422/429 throw Http with the server's message. */

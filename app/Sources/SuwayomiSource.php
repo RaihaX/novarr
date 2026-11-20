@@ -109,6 +109,12 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDis
         return $this->sourceId;
     }
 
+    /** That source's name as the server lists it ("Asura Scans"), or null (no network: set at construction). */
+    public function sourceName(): ?string
+    {
+        return $this->sourceName;
+    }
+
     // ---- Configuration -------------------------------------------------------
 
     /** The configured base URL without a trailing slash; '' when the source is off. */

@@ -113,6 +113,13 @@ class CommandController extends Controller
             'command' => 'queue:health-check',
             'params' => [],
         ],
+        // Health → Storage "Measure now" (not listed on the Commands page).
+        'storage_measure' => [
+            'name' => 'Measure Storage',
+            'description' => 'Measure storage used by novels, manga, backups, logs and the database',
+            'command' => 'storage:measure',
+            'params' => [],
+        ],
     ];
 
     public function index()

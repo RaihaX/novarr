@@ -364,7 +364,9 @@ class NovelFullSource extends AbstractSource
         $cacheKey = 'discover_nf_' . md5($q);
 
         $fetch = function () use ($q) {
-            $html = fetchWithBrowser('https://novelfull.com/search?keyword=' . urlencode($q));
+            // The host's shared clearance first (plain, ~0.4 s), a FlareSolverr
+            // solve only without one or when it is refused (Fetcher::page()).
+            $html = app(Fetcher::class)->page('https://novelfull.com/search?keyword=' . urlencode($q));
             if (empty($html)) {
                 return null;
             }

@@ -36,16 +36,20 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * A tapped notification opens Home (an update) or the Requests screen
-     * (a request: its part, or the series), also when the app was on another screen.
+     * A tapped notification opens Home (an update, several series with new
+     * chapters), one series (new chapters in it) or the Requests screen (a
+     * request: its part, or the series), also when the app was on another screen.
      */
     private fun handle(intent: Intent?) {
         val action = intent?.action ?: return
         // Reopened from Recents, the old intent comes back: not a new tap.
         if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
         val model = (application as NovarrApplication).model
+        if (intent.getBooleanExtra(Notifications.EXTRA_FROM_NEW_CHAPTERS, false)) model.clearNewChapters()
         when (action) {
             Notifications.ACTION_OPEN_HOME -> model.requestHome()
+            Notifications.ACTION_OPEN_SERIES ->
+                intent.getIntExtra(Notifications.EXTRA_NOVEL_ID, 0).takeIf { it > 0 }?.let(model::openSeries) ?: model.requestHome()
             Notifications.ACTION_OPEN_REQUESTS -> model.openRequests(
                 RequestFeed.Target(
                     Requests.Section.from(intent.getStringExtra(Notifications.EXTRA_SECTION)),

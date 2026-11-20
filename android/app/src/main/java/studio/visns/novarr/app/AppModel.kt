@@ -157,6 +157,24 @@ class AppModel(private val context: Context) {
     private val _openRequests = MutableStateFlow<RequestFeed.Target?>(null)
     val openRequestsRequest: StateFlow<RequestFeed.Target?> = _openRequests.asStateFlow()
 
+    /** The new-chapters notification's state (background check, app start, tap, swipe). */
+    val chapterUpdates = ChapterUpdatesSync(context, prefs)
+
+    /** Whether the current server sends new chapters for the combined notification (meta `updates`; saved). */
+    private val _updatesOffered = MutableStateFlow(false)
+    val updatesOffered: StateFlow<Boolean> = _updatesOffered.asStateFlow()
+
+    /** Whether the current server has reading lists (meta `lists`; saved, so known offline). Without it lists are hidden. */
+    private val _listsOffered = MutableStateFlow(false)
+    val listsOffered: StateFlow<Boolean> = _listsOffered.asStateFlow()
+
+    /** The reader's lists for this session (Library and the series screen). */
+    val lists = ListsModel(this)
+
+    /** A tapped new-chapters notification asked for one series; MainNavigation opens it (over Home) and clears it. */
+    private val _openSeries = MutableStateFlow<Int?>(null)
+    val openSeriesRequest: StateFlow<Int?> = _openSeries.asStateFlow()
+
     /** The Requests screen's search, per session (Session.Active.id), so it survives leaving the screen. */
     var requestSearchMemory: Pair<String, Requests.SearchMemory>? = null
 
@@ -178,6 +196,8 @@ class AppModel(private val context: Context) {
                 _session.value = Session.NoServer
             } else {
                 _requestsOffered.value = prefs.requestsOffered(server) == true
+                _updatesOffered.value = prefs.featureOffered(server, FEATURE_UPDATES) == true
+                _listsOffered.value = prefs.featureOffered(server, FEATURE_LISTS) == true
                 configure(server, notice = null)
                 // Learn whether the server now wants a sign-in (it may have turned auth on
                 // since last time) and whether it publishes a newer app.
@@ -191,13 +211,18 @@ class AppModel(private val context: Context) {
 
     /** Saves a server that ApiClient.meta() already verified. */
     fun connect(server: String, meta: ServerMeta) = scope.launch {
+        // Another server: its new-chapters cursor and pending series start over.
+        if (prefs.serverUrl()?.let(ServerUrl::normalize) != ServerUrl.normalize(server)) chapterUpdates.reset()
         prefs.setServerUrl(server)
         prefs.setAuthRequired(server, meta.requiresSignIn)
         _meta.value = meta
         metaFetchedAt = System.currentTimeMillis()
         _reachable.value = true
         _requestsOffered.value = meta.requests
+        _updatesOffered.value = meta.updates
+        _listsOffered.value = meta.lists
         noteRequestsOffered(server, meta.requests)
+        noteFeaturesOffered(server, meta)
         configure(server, notice = null)
     }
 
@@ -221,6 +246,7 @@ class AppModel(private val context: Context) {
         val directory = withContext(Dispatchers.IO) { OfflineStore.resolveDirectory(storageBase, server, credential?.user) }
         val store = OfflineStore(directory)
         val queue = withContext(Dispatchers.IO) { WriteQueue(store.writeQueueFile) }
+        lists.reset()
         _session.value = Session.Active(server, client, store, queue, credential)
         _pending.value = queue.count()
         _revision.update { it + 1 }
@@ -243,6 +269,7 @@ class AppModel(private val context: Context) {
             notice
         }
         _pending.value = 0
+        lists.reset()
         _session.value = Session.SignIn(server, text, prefs.lastUsername(server))
         _revision.update { it + 1 }
     }
@@ -332,10 +359,51 @@ class AppModel(private val context: Context) {
      */
     suspend fun takeNotificationPermissionPrompt(): Boolean {
         if (!Notifications.needsPermission(context)) return false
-        val wanted = prefs.updateNotifications.first() || (_requestsOffered.value && prefs.requestNotifications.first())
+        val wanted = prefs.updateNotifications.first() ||
+            (_requestsOffered.value && prefs.requestNotifications.first()) ||
+            (_updatesOffered.value && prefs.newChapterNotifications.first())
         if (!wanted || prefs.notificationPermissionAsked()) return false
         prefs.setNotificationPermissionAsked()
         return true
+    }
+
+    // New chapters and reading lists
+
+    /**
+     * The server's offer of the new-chapters feed and of reading lists, from
+     * a meta answer: saved per server (for the worker and offline launches),
+     * the background work rescheduled when the feed's offer changed.
+     */
+    suspend fun noteFeaturesOffered(server: String, meta: ServerMeta) {
+        if (server == currentServer) {
+            _updatesOffered.value = meta.updates
+            _listsOffered.value = meta.lists
+        }
+        prefs.setFeatureOffered(server, FEATURE_LISTS, meta.lists)
+        if (prefs.featureOffered(server, FEATURE_UPDATES) == meta.updates) return
+        prefs.setFeatureOffered(server, FEATURE_UPDATES, meta.updates)
+        if (!meta.updates) chapterUpdates.reset()
+        BackgroundChecks.sync(context, prefs)
+    }
+
+    /** Settings' "New chapter notifications": off cancels it, forgets what was pending and stops the check. */
+    fun setNewChapterNotifications(on: Boolean) = scope.launch {
+        prefs.setNewChapterNotifications(on)
+        if (!on) chapterUpdates.reset()
+        BackgroundChecks.sync(context, prefs)
+    }
+
+    /** In the app (back in the foreground, or the notification tapped): the new-chapters notification is seen. */
+    fun clearNewChapters() {
+        scope.launch { chapterUpdates.clearPending() }
+    }
+
+    fun openSeries(novelId: Int) {
+        _openSeries.value = novelId
+    }
+
+    fun seriesOpened() {
+        _openSeries.value = null
     }
 
     // Reader requests
@@ -417,6 +485,7 @@ class AppModel(private val context: Context) {
         _meta.value = meta
         prefs.setAuthRequired(server, meta.requiresSignIn)
         noteRequestsOffered(server, meta.requests)
+        noteFeaturesOffered(server, meta)
         val session = _session.value
         if (meta.requiresSignIn) {
             if (session is Session.Active && session.account == null) {
@@ -470,6 +539,7 @@ class AppModel(private val context: Context) {
         if (currentServer != session.server) return
         credentials.remove(session.server)
         clearHttpCache()
+        chapterUpdates.reset()
         requireSignIn(session.server, null)
     }
 
@@ -483,6 +553,8 @@ class AppModel(private val context: Context) {
         if (rejectedToken != session.account?.token) return
         val wasSignedIn = session.account != null
         if (wasSignedIn) credentials.remove(session.server)
+        // Signed out all the same: nothing about this account's series may show.
+        chapterUpdates.reset()
         prefs.setAuthRequired(session.server, true)
         clearHttpCache()
         requireSignIn(
@@ -635,5 +707,11 @@ class AppModel(private val context: Context) {
     private fun deviceName(): String {
         val userName = runCatching { Settings.Global.getString(context.contentResolver, Settings.Global.DEVICE_NAME) }.getOrNull()
         return DeviceIdentity.cleanName(userName?.takeIf { it.isNotBlank() } ?: Build.MODEL)
+    }
+
+    companion object {
+        /** Meta keys for optional server features, as saved per server (AppPrefs.featureOffered). */
+        const val FEATURE_UPDATES = "updates"
+        const val FEATURE_LISTS = "lists"
     }
 }

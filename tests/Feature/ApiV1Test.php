@@ -91,7 +91,7 @@ class ApiV1Test extends TestCase
         $json = $this->getJson('/api/v1/meta')->assertOk()->json();
 
         // `auth`: added by sign-in (auth contract); off by default. `requests`: reader requests offered.
-        $this->assertSame(['android', 'api_version', 'app', 'auth', 'instance', 'requests', 'server_version'], $this->sorted(array_keys($json)));
+        $this->assertSame(['android', 'api_version', 'app', 'auth', 'instance', 'lists', 'requests', 'server_version', 'updates'], $this->sorted(array_keys($json)));
         $this->assertTrue($json['requests']);
         // No APK published in tests; the instance id is stable and not the key.
         $this->assertNull($json['android']);

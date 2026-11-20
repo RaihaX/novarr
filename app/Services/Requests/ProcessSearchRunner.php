@@ -28,6 +28,16 @@ use Symfony\Component\Process\Process;
  * lanes still running at the deadline are stopped and their unanswered
  * sources reported as timeouts.
  *
+ * Per-source limit (novarr.requests.source_timeout_seconds): the clock of a
+ * source starts when its "start" line is read. A source still unanswered
+ * after the limit has its lane's process stopped; it is reported as a
+ * timeout (asked), every answer the lane already printed is kept, and the
+ * lane's remaining keys go first in the queue as a new lane (a new process,
+ * counted against the parallelism like any lane). A source that never
+ * printed "start" (the child still booting) has no clock; only the overall
+ * deadline applies to it. The site behind a stopped call (e.g. the Suwayomi
+ * server) may finish that request on its own after the stop.
+ *
  * Runs wherever RunRequestSearch runs (after the response, in the php-fpm
  * worker or the Octane worker): the children are ordinary CLI processes,
  * found with Symfony's PhpExecutableFinder (under php-fpm PHP_BINARY is
@@ -41,7 +51,11 @@ class ProcessSearchRunner implements SearchRunner
     /** Prefix of every result line a child prints. */
     public const MARKER = '@@NOVARR-SEARCH@@';
 
-    public function __construct(private int $parallelism, private ?string $php = null)
+    /**
+     * @param ?float $sourceTimeoutSeconds per-source limit; null: config
+     *                                     novarr.requests.source_timeout_seconds (0 = none)
+     */
+    public function __construct(private int $parallelism, private ?string $php = null, private ?float $sourceTimeoutSeconds = null)
     {
         $this->parallelism = max(1, $parallelism);
     }
@@ -59,6 +73,7 @@ class ProcessSearchRunner implements SearchRunner
 
     public function run(string $medium, string $query, array $lanes, array $sources, int $deadlineMs): array
     {
+        $timeoutMs = (int) round(($this->sourceTimeoutSeconds ?? RequestSearch::sourceTimeoutSeconds()) * 1000);
         $results = [];
         $queue = array_values(array_filter(array_map(fn($lane) => array_values(array_map('strval', (array) $lane)), $lanes)));
         $running = [];
@@ -97,6 +112,12 @@ class ProcessSearchRunner implements SearchRunner
                 if (!$alive) {
                     $this->finished($running[$i], $results);
                     unset($running[$i]);
+                } elseif (($rest = $this->overran($running[$i], $results, $timeoutMs)) !== null) {
+                    unset($running[$i]);
+                    if ($rest !== []) {
+                        // Next in line, counted against parallelism like any lane.
+                        array_unshift($queue, $rest);
+                    }
                 }
             }
             $running = array_values($running);
@@ -132,7 +153,36 @@ class ProcessSearchRunner implements SearchRunner
             return null;
         }
 
-        return ['process' => $process, 'keys' => $keys, 'nonce' => $nonce, 'buffer' => '', 'reported' => [], 'started' => []];
+        return ['process' => $process, 'keys' => $keys, 'nonce' => $nonce, 'buffer' => '', 'reported' => [], 'started' => [], 'current' => null, 'since' => null];
+    }
+
+    /**
+     * The per-source limit: when the lane's current source (its "start"
+     * seen, no answer yet) has run $timeoutMs or longer, the child is
+     * stopped, that source recorded as a timeout (asked) and the lane's
+     * unanswered keys returned, to be asked by a new process. Null while
+     * the lane may go on (no limit, no source running, or still in time).
+     * Answers the child printed before it was stopped still count; a source
+     * that started just before the stop is asked again in the new process.
+     *
+     * @return ?string[]
+     */
+    private function overran(array &$lane, array &$results, int $timeoutMs): ?array
+    {
+        $key = $lane['current'];
+        if ($timeoutMs <= 0 || $key === null || $this->nowMs() - (int) $lane['since'] < $timeoutMs) {
+            return null;
+        }
+
+        $this->stop($lane);
+        $this->collect($lane, $results);
+        if (!isset($lane['reported'][$key])) {
+            $results[$key] = ['items' => null, 'reason' => 'timeout', 'asked' => true];
+            $lane['reported'][$key] = true;
+            Log::info("Request search: {$key} took longer than {$timeoutMs} ms; given up, its lane goes on without it.");
+        }
+
+        return array_values(array_filter($lane['keys'], fn($k) => !isset($lane['reported'][$k])));
     }
 
     /** Read what the child printed so far and record every complete result line. */
@@ -154,6 +204,9 @@ class ProcessSearchRunner implements SearchRunner
             switch ($event['event']) {
                 case 'start':
                     $lane['started'][$key] = true;
+                    // The per-source clock (overran()) runs from here.
+                    $lane['current'] = $key;
+                    $lane['since'] = $this->nowMs();
                     break;
                 case 'done':
                     $results[$key] = ['items' => $event['items'], 'reason' => null, 'asked' => true];
@@ -164,6 +217,10 @@ class ProcessSearchRunner implements SearchRunner
                     $results[$key] = ['items' => null, 'reason' => $event['event'], 'asked' => $event['event'] === 'failed' || isset($lane['started'][$key])];
                     $lane['reported'][$key] = true;
                     break;
+            }
+            if ($event['event'] !== 'start' && $lane['current'] === $key) {
+                $lane['current'] = null;
+                $lane['since'] = null;
             }
         }
     }

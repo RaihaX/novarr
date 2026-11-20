@@ -70,6 +70,7 @@ class User extends Authenticatable
             app(\App\Services\ReadState::class)->forgetUser((int) $user->id);
             ReadingPosition::where('user_id', $user->id)->delete();
             Bookmark::where('user_id', $user->id)->delete();
+            ReadingList::forgetUser((int) $user->id);
             ApiToken::where('user_id', $user->id)->delete();
             DevicePairing::where('user_id', $user->id)->delete();
             UserInvite::where('user_id', $user->id)->delete();

@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
+import androidx.compose.material.icons.automirrored.outlined.PlaylistAddCheck
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.DownloadDone
@@ -84,6 +86,7 @@ import studio.visns.novarr.ui.components.ProgressLine
 import studio.visns.novarr.ui.components.StateBadge
 import studio.visns.novarr.ui.components.readableWidth
 import studio.visns.novarr.ui.highlights.HighlightRow
+import studio.visns.novarr.ui.lists.SeriesListsSheet
 import studio.visns.novarr.ui.theme.warning
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,6 +105,12 @@ fun NovelScreen(nav: NavController, novelId: Int) {
     var searching by rememberSaveable { mutableStateOf(false) }
     var confirmBulk by remember { mutableStateOf<BulkReadRequest?>(null) }
     var confirmRemove by remember { mutableStateOf(false) }
+    var showLists by rememberSaveable { mutableStateOf(false) }
+    val listsOffered by app.listsOffered.collectAsStateWithLifecycle()
+    val listsState by app.lists.state.collectAsStateWithLifecycle()
+    val inAnyList = listsState.lists.any { novelId in it }
+    // Opened from Home before Library ever loaded: the icon shows whether it is in a list.
+    LaunchedEffect(listsOffered) { if (listsOffered && !app.lists.loaded.value) app.lists.refresh() }
     val wide = isWide()
 
     // Load on open, after a check changed the chapters, and when coming back from the reader.
@@ -122,6 +131,15 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                     IconButton(onClick = { nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
+                    // Only on servers with reading lists (meta `lists`).
+                    if (listsOffered) {
+                        IconButton(onClick = { showLists = true }) {
+                            Icon(
+                                if (inAnyList) Icons.AutoMirrored.Outlined.PlaylistAddCheck else Icons.AutoMirrored.Outlined.PlaylistAdd,
+                                contentDescription = if (inAnyList) "Lists (in ${listsState.lists.count { novelId in it }})" else "Lists",
+                            )
+                        }
+                    }
                     IconButton(onClick = { searching = !searching; if (!searching) model.chapterSearch = "" }) {
                         Icon(Icons.Outlined.Search, contentDescription = if (searching) "Close chapter search" else "Search chapters")
                     }
@@ -256,6 +274,9 @@ fun NovelScreen(nav: NavController, novelId: Int) {
         }
     }
 
+    if (showLists && listsOffered) {
+        SeriesListsSheet(novelId, model.summary?.name.orEmpty()) { showLists = false }
+    }
     confirmBulk?.let { request ->
         AlertDialog(
             onDismissRequest = { confirmBulk = null },

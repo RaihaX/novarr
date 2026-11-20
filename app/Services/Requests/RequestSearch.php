@@ -44,7 +44,13 @@ use Illuminate\Support\Facades\RateLimiter;
  * source there holds up only its own lane and the host never gets more
  * than that many calls at once.
  *
- * Results are remembered (cache "request_search_results_v1_*", see
+ * A source running longer than novarr.requests.source_timeout_seconds is
+ * given up (reason 'timeout') and its lane goes on without it
+ * (ProcessSearchRunner only; the inline runner cannot interrupt a call).
+ * Each source's hits are filtered for resemblance to the query
+ * (SearchRelevance) before grouping.
+ *
+ * Results are remembered (cache "request_search_results_v2_*", see
  * cacheKey()) for novarr.requests.search_cache_minutes per medium +
  * normalised query, or PARTIAL_CACHE_MINUTES when a source was skipped. A
  * search for remembered results — by anyone — is recorded as done at once:
@@ -115,7 +121,7 @@ class RequestSearch
     /** Sources (lanes) asked at the same time by one search. */
     public static function parallelism(): int
     {
-        return max(1, (int) config('novarr.requests.search_parallelism', 4));
+        return max(1, (int) config('novarr.requests.search_parallelism', 5));
     }
 
     public static function cacheMinutes(): int
@@ -131,7 +137,8 @@ class RequestSearch
 
     public static function cacheKey(string $medium, string $query): string
     {
-        return 'request_search_results_v1_' . sha1($medium . '|' . static::normalizeQuery($query));
+        // v2: hits are filtered for relevance (SearchRelevance).
+        return 'request_search_results_v2_' . sha1($medium . '|' . static::normalizeQuery($query));
     }
 
     /**
@@ -251,26 +258,154 @@ class RequestSearch
     }
 
     /**
-     * The searchable sources of a medium, in search order: config
-     * novarr.requests.source_order first, then Discover order (hidden
-     * Discover sources and Suwayomi's language / excluded-source settings
-     * apply, as on Discover), at most max_sources_per_search.
+     * The searchable sources of a medium, in search order (searchOrder()):
+     * config novarr.requests.source_order first (by key), then
+     * novarr.requests.source_name_preference (by display name), then the
+     * rest in Discover order (hidden Discover sources and Suwayomi's
+     * language / excluded-source settings apply, as on Discover); of each
+     * novarr.requests.source_families family only the best-placed member;
+     * at most max_sources_per_search.
+     *
+     * The names cost no request: a Suwayomi entry carries the name its
+     * source listing gave (SuwayomiSource::sourceList(), cached an hour and
+     * already read by sourcesFor()); any other source's is its label.
      *
      * @return array<string, Source>
      */
     public function sources(Discover $discover, string $medium): array
     {
         $sources = array_filter($discover->sourcesFor($medium), fn(Source $s) => in_array('search', $s->discoverLists(), true));
-        $order = CandidateRanking::sourceOrder((array) config('novarr.requests.source_order', []), array_keys($sources));
-        uksort($sources, fn($a, $b) => $order[$a] <=> $order[$b]);
+        $names = [];
+        foreach ($sources as $key => $source) {
+            $names[(string) $key] = static::displayName($source, (string) $key);
+        }
+        $ordered = static::searchOrder(
+            $names,
+            (array) config('novarr.requests.source_order', []),
+            (array) config('novarr.requests.source_name_preference', []),
+            (array) config('novarr.requests.source_families', []),
+        );
+        $ordered = array_slice($ordered, 0, max(1, (int) config('novarr.requests.max_sources_per_search', 15)));
 
-        return array_slice($sources, 0, max(1, (int) config('novarr.requests.max_sources_per_search', 12)), true);
+        $result = [];
+        foreach ($ordered as $key) {
+            $result[$key] = $sources[$key];
+        }
+
+        return $result;
+    }
+
+    /**
+     * A source's name as the reader knows it: a Suwayomi entry's own source
+     * name ("Asura Scans"), else its Discover label ("MangaDex (manga)").
+     */
+    public static function displayName(Source $source, string $key): string
+    {
+        try {
+            if ($source instanceof \App\Sources\SuwayomiSource && ($name = $source->sourceName()) !== null && $name !== '') {
+                return $name;
+            }
+
+            return $source->discoverLabel();
+        } catch (\Throwable) {
+            return $key;
+        }
+    }
+
+    /**
+     * Whether a display name is a preference / family entry: the same
+     * normalised name, or that name followed by more words ("MANGA Plus" is
+     * "MANGA Plus by SHUEISHA", "Webtoons" is "Webtoons.com", "MangaDex" is
+     * "MangaDex (manga)"; "Mangago" is not "Mangagoyaoi"). Case-insensitive.
+     */
+    public static function nameMatches(string $name, string $wanted): bool
+    {
+        $name = Discover::normalizeName($name);
+        $wanted = Discover::normalizeName($wanted);
+
+        return $wanted !== '' && ($name === $wanted || str_starts_with($name, $wanted . ' '));
+    }
+
+    /**
+     * Source keys in search order, family losers left out. Pure.
+     *   1. keys placed by $configured (CandidateRanking::sourceOrder() rules:
+     *      "mangadex" or a prefix "suwayomi" of "suwayomi:123"), in that order;
+     *   2. keys whose name matches a $preference entry (nameMatches()), in
+     *      preference order;
+     *   3. the rest, in their given order.
+     * Then of each $families entry (a list of names) only the first key in
+     * that order whose name matches a member is kept.
+     *
+     * @param  array<string, string>  $names  key => display name, in Discover order
+     * @param  string[]  $configured  novarr.requests.source_order
+     * @param  string[]  $preference  novarr.requests.source_name_preference
+     * @param  array<int, string[]>  $families  novarr.requests.source_families
+     * @return string[]
+     */
+    public static function searchOrder(array $names, array $configured, array $preference, array $families): array
+    {
+        $keys = array_map('strval', array_keys($names));
+        $configured = array_values(array_filter(array_map(fn($w) => trim((string) $w), $configured), fn($w) => $w !== ''));
+        $preference = array_values(array_filter(array_map(fn($w) => trim((string) $w), $preference), fn($w) => $w !== ''));
+
+        // [tier, place within the tier, Discover position] per key.
+        $rank = [];
+        foreach ($keys as $position => $key) {
+            $rank[$key] = [2, 0, $position];
+            foreach ($configured as $i => $wanted) {
+                if ($key === $wanted || str_starts_with($key, $wanted . ':')) {
+                    $rank[$key] = [0, $i, $position];
+                    continue 2;
+                }
+            }
+            foreach ($preference as $i => $wanted) {
+                if (static::nameMatches((string) $names[$key], $wanted)) {
+                    $rank[$key] = [1, $i, $position];
+                    continue 2;
+                }
+            }
+        }
+        usort($keys, fn($a, $b) => $rank[$a] <=> $rank[$b]);
+
+        foreach ($families as $family) {
+            $members = array_values(array_filter(array_map(fn($m) => trim((string) $m), (array) $family), fn($m) => $m !== ''));
+            if (count($members) < 2) {
+                continue;
+            }
+            $kept = false;
+            $keys = array_values(array_filter($keys, function (string $key) use ($names, $members, &$kept) {
+                foreach ($members as $member) {
+                    if (static::nameMatches((string) $names[$key], $member)) {
+                        if ($kept) {
+                            return false;
+                        }
+                        $kept = true;
+
+                        return true;
+                    }
+                }
+
+                return true;
+            }));
+        }
+
+        return $keys;
+    }
+
+    /**
+     * Seconds one source may take in ProcessSearchRunner before its lane is
+     * stopped and the lane's remaining sources go on in a new process;
+     * 0 (or less) turns the limit off. Fractions are honoured (tests).
+     */
+    public static function sourceTimeoutSeconds(): float
+    {
+        return max(0.0, (float) config('novarr.requests.source_timeout_seconds', 20));
     }
 
     /** Lanes one host's sources are spread over (calls that host gets at the same time). */
     public static function hostParallelism(): int
     {
-        return max(1, (int) config('novarr.requests.search_host_parallelism', 3));
+        return max(1, (int) config('novarr.requests.search_host_parallelism', 4));
     }
 
     /**
@@ -356,11 +491,18 @@ class RequestSearch
                 $asked[] = $key;
             }
             if (!is_array($answer['items'] ?? null)) {
-                $skipped[] = ['source' => $key, 'source_name' => $this->label($source, $key), 'reason' => $answer['reason'] === 'timeout' ? 'timeout' : 'failed'];
+                // A source stopped at a time limit never reports itself
+                // (its process was killed): count it here, so a source that
+                // always times out shows on the Sources health page.
+                if ($answer['reason'] === 'timeout' && !empty($answer['asked'])) {
+                    \App\Services\SourceHealth::record($key, \App\Services\SourceHealth::KIND_SEARCH, false, 'timeout', 'Request search: no answer within the time limit.');
+                }
+                $skipped[] =['source' => $key, 'source_name' => $this->label($source, $key), 'reason' => $answer['reason'] === 'timeout' ? 'timeout' : 'failed'];
                 continue;
             }
             $name = $this->label($source, $key);
-            foreach ($answer['items'] as $item) {
+            // Hits that don't resemble the query go (SearchRelevance).
+            foreach (SearchRelevance::filter($answer['items'], $query) as $item) {
                 if (is_array($item)) {
                     $hits[] = ['key' => $key, 'name' => $name, 'item' => DiscoverController::item($item, $key)];
                 }
@@ -434,7 +576,8 @@ class RequestSearch
      * form one group, its title / author / cover / description from the
      * first hit that has one (search order), one hit per source. Groups whose
      * title is exactly the query come first, then those found on more
-     * sources, then first-seen order. Pure.
+     * sources, then those whose title starts with the query, then
+     * first-seen order. Pure.
      *
      * @param  array<int, array{key: string, name: string, item: array}>  $hits
      * @return array<int, array>
@@ -482,8 +625,10 @@ class RequestSearch
 
         $wanted = Discover::normalizeName($query);
         $groups = array_values($groups);
+        $starts = fn(array $g) => $wanted !== '' && str_starts_with($g['normalized_title'], $wanted);
         usort($groups, fn(array $a, array $b) => (($b['normalized_title'] === $wanted) <=> ($a['normalized_title'] === $wanted))
             ?: (count($b['hits']) <=> count($a['hits']))
+            ?: ($starts($b) <=> $starts($a))
             ?: ($a['seen'] <=> $b['seen']));
 
         return array_map(function (array $group) {

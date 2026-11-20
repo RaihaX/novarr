@@ -29,6 +29,8 @@ class NovarrApplication : Application(), SingletonImageLoader.Factory {
                 model.refreshMetaIfDue()
                 // Request news since last time: the dot on Requests (no notification while on screen).
                 model.pollRequestFeed()
+                // In the app: the new-chapters notification and what it listed are seen.
+                model.clearNewChapters()
                 // Back from "Install unknown apps": carry on with a waiting update.
                 model.updater.onForeground()
             }

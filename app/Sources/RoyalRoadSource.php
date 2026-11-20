@@ -165,6 +165,25 @@ class RoyalRoadSource extends AbstractSource implements PageNoiseSelectors
         return $html;
     }
 
+    /**
+     * One plain GET with the Fetcher's browser headers and no cookies; the
+     * body when it is a real page, null on anything else (refused, a
+     * challenge, an empty body, a transport error) so the caller can fall
+     * back to fetch().
+     */
+    private function fetchPlain(string $url): ?string
+    {
+        $status = null;
+        $html = app(Fetcher::class)->plain($url, [], [], $status);
+        if ($html === null || $html === '' || Fetcher::isCloudflareChallenge($html)) {
+            Log::debug("RoyalRoadSource: plain request for {$url} got " . ($html === null ? ($status ?? 'no response') : 'a challenge or empty page') . '; using the clearance / FlareSolverr path');
+
+            return null;
+        }
+
+        return $html;
+    }
+
     // ---- Chapter content -----------------------------------------------------
 
     public function contentSelectors(): array
@@ -517,7 +536,11 @@ class RoyalRoadSource extends AbstractSource implements PageNoiseSelectors
 
         $fetch = function () use ($url, $type) {
             $reason = null;
-            $html = $this->fetch($url, $reason);
+            // Search pages are answered to a plain request with the app's
+            // browser headers, no clearance needed: try that first, and the
+            // shared clearance / FlareSolverr path on a refusal or challenge.
+            $html = $type === 'search' ? $this->fetchPlain($url) : null;
+            $html ??= $this->fetch($url, $reason);
             if ($html === null) {
                 Log::warning("RoyalRoadSource: discover fetch failed for {$url} (" . ($reason ?? 'unknown') . ')');
                 return null;

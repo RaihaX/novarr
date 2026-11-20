@@ -41,6 +41,11 @@
             android:name=".app.InstallResultReceiver"
             android:exported="false" />
 
+        <!-- The new-chapters notification was swiped away: what it listed counts as seen. -->
+        <receiver
+            android:name=".app.NewChaptersDismissedReceiver"
+            android:exported="false" />
+
         <!-- This app was updated (in-app or from the browser): clears the "newer version" notification. -->
         <receiver
             android:name=".app.UpdateInstalledReceiver"

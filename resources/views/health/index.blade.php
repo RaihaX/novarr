@@ -6,7 +6,13 @@
 @endsection
 
 @section('content')
-<h1 class="page-title mb-4">System health</h1>
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
+    <h1 class="page-title mb-0">System health</h1>
+    <div class="d-flex flex-wrap gap-2">
+        <a href="{{ route('health.sources') }}" class="btn btn-secondary" id="sourcesLink">Sources</a>
+        <a href="{{ route('health.storage') }}" class="btn btn-secondary" id="storageLink">Storage</a>
+    </div>
+</div>
 
 <div class="row g-3 mb-4">
     <div class="col-sm-4">

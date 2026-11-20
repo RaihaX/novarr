@@ -1,0 +1,221 @@
+// ===========================================================================
+// Reading lists — the novel page's Lists menu and the Library's list bar
+// (resources/js/lists.js). Theme tokens only, so light and dark follow.
+// ===========================================================================
+
+// ---- Novel page: the Lists button and menu --------------------------------
+.nv-lists { display: inline-flex; }
+
+#listsBtn {
+    .caret { opacity: 0.7; margin-left: -2px; }
+
+    // In at least one list: the bookmark takes the brand amber (bookmarks only).
+    &.is-listed > .icon:first-child { color: $brand-amber; }
+
+    .lists-btn-count {
+        font-family: $font-mono;
+        font-size: $fs-micro;
+        padding: 1px 6px;
+        @include status($accent);
+    }
+}
+
+.lists-menu {
+    width: 290px;
+    max-width: calc(100vw - #{$s-7});
+    padding: $s-1 $s-1 $s-2;
+}
+
+.lists-items {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: min(50vh, 320px);
+    overflow-y: auto;
+}
+
+.lists-item {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+    border-radius: $radius;
+    transition: background-color $transition;
+
+    &:hover { background: $surface-alt; }
+}
+
+.lists-check {
+    display: flex;
+    align-items: center;
+    gap: $s-3;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 40px;
+    padding: 6px $s-4;
+    margin: 0;
+    cursor: pointer;
+    color: $text;
+    font-size: 13px;
+
+    .form-check-input {
+        flex: 0 0 auto;
+        margin: 0;
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+    }
+}
+
+.lists-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+// Saved / Failed beside a row (aria-hidden: the status line announces it).
+.lists-state {
+    flex: 0 0 auto;
+    margin-right: $s-3;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    letter-spacing: 0.04em;
+    color: $text-muted;
+
+    &:empty { display: none; }
+    &.is-saved { color: $success; }
+    &.is-failed { color: $danger; }
+}
+
+.lists-starters { padding: $s-2 $s-4 $s-1; }
+
+.lists-hint {
+    margin: 0 0 $s-2;
+    font-size: $fs-caption;
+    color: $text-muted;
+}
+
+.lists-starter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-2;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.lists-starter {
+    min-height: 36px;
+    padding: 6px $s-4;
+    border: $hairline solid $btn-secondary-border;
+    border-radius: 999px;
+    background: transparent;
+    color: $text;
+    font-size: 13px;
+    transition: background-color $transition, border-color $transition;
+
+    &:hover { background: $surface-alt; }
+    &:disabled { color: $btn-disabled-fg; }
+    @include focus-ring;
+}
+
+.lists-new-form {
+    display: flex;
+    gap: $s-2;
+    padding: $s-1 $s-4 $s-1;
+
+    .form-control { flex: 1 1 auto; min-width: 0; }
+}
+
+.lists-error {
+    margin: $s-1 $s-4 0;
+    font-size: $fs-caption;
+    color: $danger;
+}
+
+// ---- Library: the chosen list ------------------------------------------
+.lib-list { margin: 0; }
+.lib-list .form-select { max-width: 240px; }
+
+.lib-listbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: $s-2 $s-5;
+    margin: (-$s-2) 0 $s-5;
+    padding: $s-3 $s-4;
+    border: $hairline solid $border;
+    border-left: $rule-strong solid $brand-amber;
+    border-radius: $radius;
+    background: $surface;
+
+    .lists-error { margin: 0; flex-basis: 100%; }
+}
+
+.lib-listbar-head {
+    display: flex;
+    align-items: baseline;
+    gap: $s-2;
+    min-width: 0;
+}
+
+.lib-listbar-icon { color: $brand-amber; align-self: center; flex: 0 0 auto; }
+
+.lib-listbar-title {
+    margin: 0;
+    font-size: $fs-card-title;
+    font-weight: $fw-card-title;
+    letter-spacing: 0;
+    color: $text;
+    overflow-wrap: anywhere;
+}
+
+.lib-listbar-count {
+    font-size: $fs-caption;
+    color: $text-muted;
+    white-space: nowrap;
+}
+
+.lib-listbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-1;
+
+    .btn { display: inline-flex; align-items: center; gap: 6px; }
+    .lib-listbar-delete { color: $danger; }
+    .lib-listbar-delete:hover { background: rgba($danger, 0.12); color: $danger; }
+}
+
+.lib-listbar-form {
+    display: flex;
+    flex-basis: 100%;
+    gap: $s-2;
+
+    .form-control { flex: 0 1 280px; min-width: 0; }
+}
+
+// ---- Phone ---------------------------------------------------------------
+@include media-breakpoint-down(md) {
+    // The actions row does not wrap on a phone: Lists becomes a square icon
+    // button like Download (its aria-label names it; the count stays).
+    .nv-actions #listsBtn {
+        min-width: 48px;
+        justify-content: center;
+        padding-inline: 10px;
+
+        > span:not(.lists-btn-count),
+        .caret { display: none; }
+    }
+
+    .lists-check { min-height: 44px; }
+    .lists-starter { min-height: 44px; }
+}
+
+@media (max-width: 575.98px) {
+    .lib-list { flex: 1 1 100%; }
+    .lib-list .form-select { max-width: none; width: 100%; }
+
+    .lib-listbar-actions { width: 100%; }
+    .lib-listbar-actions .btn { min-height: 44px; }
+}
