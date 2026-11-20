@@ -302,6 +302,17 @@ class NovelController extends Controller
             $query->whereIn('id', $sets[$filter] ?: [0]);
         }
 
+        // Reading list (?list=<id>, in the URL like ?tag=): the reader's own
+        // lists only — another reader's or a deleted list's id is ignored.
+        // Combines with the chips, search and tag like any other filter.
+        $readerId = app(\App\Support\CurrentReader::class)->id();
+        $readingLists = \App\Services\ReadingLists::forLibrary($readerId, $medium);
+        $activeList = null;
+        if ($listModel = \App\Services\ReadingLists::findOrNull($readerId, $request->query('list'))) {
+            $activeList = collect($readingLists)->firstWhere('id', (int) $listModel->id);
+            $query->whereIn('id', \App\Services\ReadingLists::novelIds($listModel) ?: [0]);
+        }
+
         // Sort: explicit ?sort= wins, otherwise the last choice in session.
         $sort = $request->query('sort');
         if (!in_array($sort, ['read', 'name', 'progress', 'updated', 'chapters'], true)) {
@@ -327,7 +338,8 @@ class NovelController extends Controller
         // filter. They group the current page's tiles (pagination and order
         // are unchanged); any explicit sort or filter shows one flat list.
         $shelved = $view === 'grid' && $sort === 'read' && $filter === 'all'
-            && !$request->filled('search') && !$request->filled('tag') && !$request->filled('status');
+            && !$request->filled('search') && !$request->filled('tag') && !$request->filled('status')
+            && $activeList === null;
 
         return view('novels.index', [
             'shelved' => $shelved,
@@ -344,6 +356,9 @@ class NovelController extends Controller
             'attentionIds' => $attentionIds,
             'tags' => \App\Tag::orderBy('name')->get(['id', 'name']),
             'activeTag' => $request->query('tag'),
+            // The reader's lists ({id, name, count in this library, other}) and the chosen one.
+            'readingLists' => $readingLists,
+            'activeList' => $activeList,
         ]);
     }
 
@@ -1001,6 +1016,8 @@ class NovelController extends Controller
             'review_count' => $stats['review_count'] ?? 0,
             'progress' => round($progress),
             'epub_built_at' => $this->epubBuiltAt($data),
+            // The reader's reading lists and whether this series is in each (the Lists menu).
+            'reading_lists' => \App\Services\ReadingLists::forNovel(app(\App\Support\CurrentReader::class)->id(), (int) $data->id),
         ]);
     }
 

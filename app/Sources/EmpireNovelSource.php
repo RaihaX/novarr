@@ -295,7 +295,12 @@ class EmpireNovelSource extends AbstractSource
 
     /**
      * Search empirenovel.com via its live-search JSON endpoint (behind
-     * Cloudflare, so via FlareSolverr). Returns null on failure.
+     * Cloudflare). Like the chapter-list pages it reuses the host's shared
+     * clearance (Fetcher::page(): a plain request with the stored
+     * cf_clearance + User-Agent, ~0.4 s) and only goes through a FlareSolverr
+     * solve (~13 s) when there is none or it is refused; a plain answer that
+     * is not the JSON list is not trusted and also goes to FlareSolverr.
+     * Returns null on failure.
      */
     public function discover(string $type, ?string $query = null): ?array
     {
@@ -308,7 +313,13 @@ class EmpireNovelSource extends AbstractSource
 
         $fetch = function () use ($q) {
             $url = self::BASE . '/search-live?q=' . urlencode($q);
-            $html = fetchWithBrowser($url);
+            $fetcher = app(Fetcher::class);
+            $reason = null;
+            $via = null;
+            $html = $fetcher->page($url, $reason, $via);
+            if ($via === 'plain' && !empty($html) && !preg_match('/\[.*\]/s', $html)) {
+                $html = $fetcher->html($url);
+            }
             if (empty($html)) {
                 return null;
             }

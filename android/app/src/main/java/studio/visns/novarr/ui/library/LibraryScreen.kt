@@ -18,7 +18,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.automirrored.outlined.Sort
+import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Clear
@@ -50,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,6 +64,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import studio.visns.novarr.api.NovelSummary
+import studio.visns.novarr.api.ReadingList
+import studio.visns.novarr.domain.ReadingLists
+import studio.visns.novarr.ui.lists.LibraryListsSheet
+import studio.visns.novarr.ui.lists.seriesCount
 import studio.visns.novarr.app.AppModel
 import studio.visns.novarr.domain.LibraryFilter
 import studio.visns.novarr.domain.LibraryFilter.Filter
@@ -96,6 +103,10 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
         private set
     var sort by mutableStateOf(Sort.LAST_READ)
         private set
+
+    /** The chosen reading list (Library's list filter); null: all series. Remembered like the other filters. */
+    var listId by mutableStateOf<Int?>(null)
+        private set
     private var loadedRevision = -1
     private var loadedAt = 0L
 
@@ -104,18 +115,20 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
             app.prefs.string("library.shelf")?.let { v -> Shelf.entries.firstOrNull { it.name == v } }?.let { shelf = it }
             app.prefs.string("library.filter")?.let { v -> Filter.entries.firstOrNull { it.name == v } }?.let { filter = it }
             app.prefs.string("library.sort")?.let { v -> Sort.entries.firstOrNull { it.name == v } }?.let { sort = it }
+            app.prefs.string("library.list")?.toIntOrNull()?.let { listId = it }
         }
     }
 
     fun select(value: Shelf) { shelf = value; save("library.shelf", value.name) }
     fun select(value: Filter) { filter = value; save("library.filter", value.name) }
     fun select(value: Sort) { sort = value; save("library.sort", value.name) }
+    fun select(value: ReadingList?) { listId = value?.id; save("library.list", value?.id?.toString().orEmpty()) }
     private fun save(key: String, value: String) = viewModelScope.launch { app.prefs.setString(key, value) }
 
     val onShelf: List<NovelSummary> get() = LibraryFilter.shelf(novels, shelf)
-    val visible: List<NovelSummary> get() = LibraryFilter.apply(onShelf, filter, sort, search)
-    fun count(filter: Filter) = onShelf.count(filter::matches)
-    fun count(shelf: Shelf) = LibraryFilter.shelf(novels, shelf).size
+    fun visible(list: ReadingList?): List<NovelSummary> = LibraryFilter.apply(onShelf, filter, sort, search, list)
+    fun count(filter: Filter, list: ReadingList?) = ReadingLists.filter(onShelf, list).count(filter::matches)
+    fun count(shelf: Shelf, list: ReadingList?) = ReadingLists.filter(LibraryFilter.shelf(novels, shelf), list).size
 
     fun refreshIfStale() {
         val stale = System.currentTimeMillis() - loadedAt > 60_000
@@ -129,12 +142,15 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
             app.cached(OfflineStore.Key.novels)?.let { novels = it; fromCache = true }
         }
         loadedRevision = app.readStateRevision.value
+        // Lists come with the library refresh (and are saved for offline with it).
+        val lists = launch { app.lists.refresh() }
         val result = app.load(OfflineStore.Key.novels) { it.novels() }
         result.value?.let { novels = it; loaded = true }
         if (!result.fromCache && result.value != null) loadedAt = System.currentTimeMillis()
         failure = if (novels.isEmpty() && result.value == null) result.error?.userMessage ?: "Couldn't load the library." else null
         if (failure == null) loaded = true
         fromCache = result.fromCache || (result.error != null && novels.isNotEmpty())
+        lists.join()
         refreshing = false
     }
 }
@@ -148,6 +164,15 @@ fun LibraryScreen(nav: NavController) {
     LaunchedEffect(revision) { model.refreshIfStale() }
     val wide = isWide()
     var sortMenu by remember { mutableStateOf(false) }
+    var listSheet by remember { mutableStateOf(false) }
+    val listsOffered by app.listsOffered.collectAsStateWithLifecycle()
+    val listsState by app.lists.state.collectAsStateWithLifecycle()
+    val listsLoaded by app.lists.loaded.collectAsStateWithLifecycle()
+    // Without lists on the server (or the chosen one deleted elsewhere): all series.
+    val list = if (listsOffered) ReadingLists.selected(listsState.lists, model.listId) else null
+    LaunchedEffect(listsLoaded, list, model.listId) {
+        if (listsLoaded && listsOffered && model.listId != null && list == null) model.select(null as ReadingList?)
+    }
 
     Scaffold(
         topBar = {
@@ -184,7 +209,7 @@ fun LibraryScreen(nav: NavController) {
                         selected = model.shelf == shelf,
                         onClick = { model.select(shelf) },
                         unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        text = { Text(if (model.novels.isEmpty()) shelf.title else "${shelf.title} (${model.count(shelf)})") },
+                        text = { Text(if (model.novels.isEmpty()) shelf.title else "${shelf.title} (${model.count(shelf, list)})") },
                     )
                 }
             }
@@ -207,11 +232,23 @@ fun LibraryScreen(nav: NavController) {
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                if (listsOffered) {
+                    item(key = "lists") {
+                        FilterChip(
+                            selected = list != null,
+                            onClick = { listSheet = true },
+                            label = { Text(list?.name ?: "Lists", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Outlined.List, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                            trailingIcon = { Icon(Icons.Outlined.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                            modifier = Modifier.semantics { contentDescription = if (list != null) "List: ${list.name}. Change or manage lists" else "Filter by list, or manage lists" },
+                        )
+                    }
+                }
                 items(Filter.entries) { filter ->
                     FilterChip(
                         selected = model.filter == filter,
                         onClick = { model.select(filter) },
-                        label = { Text(if (model.novels.isEmpty()) filter.title else "${filter.title} ${model.count(filter)}") },
+                        label = { Text(if (model.novels.isEmpty()) filter.title else "${filter.title} ${model.count(filter, list)}") },
                     )
                 }
             }
@@ -220,7 +257,7 @@ fun LibraryScreen(nav: NavController) {
                 onRefresh = { model.load(pull = true) },
                 modifier = Modifier.fillMaxSize(),
             ) {
-                val visible = model.visible
+                val visible = model.visible(list)
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(if (wide) 150.dp else 104.dp),
                     contentPadding = PaddingValues(horizontal = if (wide) 24.dp else 16.dp, vertical = 12.dp),
@@ -237,7 +274,7 @@ fun LibraryScreen(nav: NavController) {
                             LoadFailed("Library unavailable", model.failure.orEmpty()) { model.load() }
                         }
                         model.novels.isEmpty() && !model.loaded -> item(span = full) { CenteredProgress() }
-                        visible.isEmpty() -> item(span = full) { LibraryEmpty(model) }
+                        visible.isEmpty() -> item(span = full) { LibraryEmpty(model, list) }
                         else -> items(visible, key = { it.id }) { novel ->
                             LibraryCell(novel) { nav.navigate(NovelRoute(novel.id)) }
                         }
@@ -246,17 +283,37 @@ fun LibraryScreen(nav: NavController) {
             }
         }
     }
+
+    if (listSheet && listsOffered) {
+        LibraryListsSheet(
+            selected = list?.id,
+            onSelect = { chosen -> model.select(chosen); listSheet = false },
+            onDismiss = { listSheet = false },
+        )
+    }
 }
 
 @Composable
-private fun LibraryEmpty(model: LibraryViewModel) {
+private fun LibraryEmpty(model: LibraryViewModel, list: ReadingList?) {
+    val listReason = list?.let { ReadingLists.emptyReason(it, model.novels, model.onShelf) }
     when {
         model.search.isNotBlank() -> EmptyState("No results", "Nothing on this shelf matches “${model.search}”.", Icons.Outlined.Search)
+        list != null && listReason == ReadingLists.Empty.NoSeries -> EmptyState(
+            "“${list.name}” is empty",
+            "Open a series and tap Lists at the top to add it here.",
+            Icons.AutoMirrored.Outlined.List,
+        )
+        list != null && listReason is ReadingLists.Empty.OtherShelf -> EmptyState(
+            if (model.shelf == Shelf.MANGA) "No manga in “${list.name}”" else "No novels in “${list.name}”",
+            "Its ${seriesCount(listReason.count)} ${if (listReason.count == 1) "is" else "are"} on the ${if (model.shelf == Shelf.MANGA) "Novels" else "Manga"} tab.",
+            Icons.AutoMirrored.Outlined.List,
+        )
         model.onShelf.isEmpty() -> EmptyState(
             if (model.shelf == Shelf.MANGA) "No manga yet" else "No novels yet",
             "Add series on your Novarr server and they'll show up here.",
             Icons.Outlined.CollectionsBookmark,
         )
+        list != null -> EmptyState("Nothing here", "Nothing in “${list.name}” matches “${model.filter.title}”.", Icons.Outlined.FilterList)
         else -> EmptyState("Nothing here", "Nothing matches “${model.filter.title}”.", Icons.Outlined.FilterList)
     }
 }

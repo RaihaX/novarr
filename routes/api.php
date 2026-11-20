@@ -87,6 +87,15 @@ Route::prefix('v1')
         Route::post('/highlights', [ApiV1\HighlightController::class, 'store'])->name('highlights.store');
         Route::delete('/highlights/{id}', [ApiV1\HighlightController::class, 'destroy'])->whereNumber('id')->name('highlights.destroy');
 
+        // Reading lists: the reader's own named groups of series (App\Services\ReadingLists).
+        // Writes are unthrottled like the highlights' (cheap, own rows, capped per reader).
+        Route::get('/lists', [ApiV1\ReadingListController::class, 'index'])->name('lists');
+        Route::post('/lists', [ApiV1\ReadingListController::class, 'store'])->name('lists.store');
+        Route::patch('/lists/{list}', [ApiV1\ReadingListController::class, 'update'])->whereNumber('list')->name('lists.update');
+        Route::delete('/lists/{list}', [ApiV1\ReadingListController::class, 'destroy'])->whereNumber('list')->name('lists.destroy');
+        Route::put('/lists/{list}/novels/{novel}', [ApiV1\ReadingListController::class, 'addNovel'])->whereNumber(['list', 'novel'])->name('lists.novels.add');
+        Route::delete('/lists/{list}/novels/{novel}', [ApiV1\ReadingListController::class, 'removeNovel'])->whereNumber(['list', 'novel'])->name('lists.novels.remove');
+
         // Reader requests: search every source of a medium, request a series,
         // the owner approves / declines (App\Services\Requests). Searching,
         // requesting and the notification feed are reader routes; deciding is
@@ -101,6 +110,8 @@ Route::prefix('v1')
         Route::post('/requests/{id}/decline', [ApiV1\RequestController::class, 'decline'])->whereNumber('id')->name('requests.decline');
         Route::post('/requests/{id}/rerank', [ApiV1\RequestController::class, 'rerank'])->whereNumber('id')->name('requests.rerank');
         Route::get('/notifications', [ApiV1\NotificationController::class, 'index'])->name('notifications');
+        // New chapters to read in series the reader follows (one combined phone notification).
+        Route::get('/updates', [ApiV1\UpdatesController::class, 'index'])->name('updates');
 
         // The KOReader plugin's "update over Wi-Fi".
         Route::get('/koreader/plugin', [ApiV1\KoreaderPluginController::class, 'manifest'])->name('koreader.plugin');

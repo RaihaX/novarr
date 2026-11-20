@@ -51,11 +51,11 @@ class RequestSearchTest extends TestCase
     {
         FakeRequestSource::$search[FakeMangaA::class] = [
             ['name' => 'Solo Leveling', 'url' => 'https://manga-a.test/solo', 'cover' => 'https://uploads.mangadex.org/covers/solo.jpg', 'author' => 'Chugong', 'description' => '<p>Hunters.</p>'],
-            ['name' => 'Other Title', 'url' => 'https://manga-a.test/other', 'cover' => 'https://img.example/other.jpg'],
+            ['name' => 'Solo Other Title', 'url' => 'https://manga-a.test/other', 'cover' => 'https://img.example/other.jpg'],
         ];
         FakeRequestSource::$search[FakeMangaB::class] = [
             ['name' => 'Solo Leveling!', 'url' => 'https://manga-b.test/solo', 'chapters' => 200, 'status' => 'Completed'],
-            ['name' => 'Third One', 'url' => 'https://manga-b.test/third'],
+            ['name' => 'Solo Third One', 'url' => 'https://manga-b.test/third'],
         ];
         FakeRequestSource::$search[FakeMangaC::class] = null; // the source is down
         FakeRequestSource::$search[FakeNovelA::class] = [['name' => 'Solo Leveling', 'url' => 'https://novel-a.test/solo']];
@@ -73,8 +73,8 @@ class RequestSearchTest extends TestCase
         $reader = $this->makeReader();
         $token = $this->tokenFor($reader);
         $this->mangaHits();
-        $inLibrary = Novel::create(['name' => 'Other Title', 'group_id' => 1, 'translator_url' => 'https://manga-a.test/other', 'medium' => Novel::MEDIUM_MANGA]);
-        NovelRequest::create(['user_id' => $this->owner()->id, 'medium' => 'manga', 'title' => 'Third One', 'normalized_title' => Discover::normalizeName('Third One'), 'status' => 'pending']);
+        $inLibrary = Novel::create(['name' => 'Solo Other Title', 'group_id' => 1, 'translator_url' => 'https://manga-a.test/other', 'medium' => Novel::MEDIUM_MANGA]);
+        NovelRequest::create(['user_id' => $this->owner()->id, 'medium' => 'manga', 'title' => 'Solo Third One', 'normalized_title' => Discover::normalizeName('Solo Third One'), 'status' => 'pending']);
 
         $posted = $this->startSearch($token)->assertStatus(202)->json('search');
         $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $posted['id']);
@@ -90,7 +90,7 @@ class RequestSearchTest extends TestCase
         $this->assertSame(['solo', 'solo', 'solo'], array_column(FakeRequestSource::$calls, 'arg'));
 
         $results = collect($search['results'])->keyBy('title');
-        $this->assertSame(['Solo Leveling', 'Other Title', 'Third One'], array_column($search['results'], 'title'));
+        $this->assertSame(['Solo Leveling', 'Solo Other Title', 'Solo Third One'], array_column($search['results'], 'title'));
         $solo = $results['Solo Leveling'];
         $this->assertSame(['key', 'title', 'author', 'cover_url', 'description', 'medium', 'sources', 'in_library', 'novel_id', 'requested'], array_keys($solo));
         $this->assertSame([
@@ -104,11 +104,11 @@ class RequestSearchTest extends TestCase
         $this->assertSame('manga', $solo['medium']);
         $this->assertArrayNotHasKey('url', $solo['sources'][0]);
 
-        $this->assertTrue($results['Other Title']['in_library']);
-        $this->assertSame($inLibrary->id, $results['Other Title']['novel_id']);
+        $this->assertTrue($results['Solo Other Title']['in_library']);
+        $this->assertSame($inLibrary->id, $results['Solo Other Title']['novel_id']);
         // A cover the browser may load directly stays as it is.
-        $this->assertSame('https://img.example/other.jpg', $results['Other Title']['cover_url']);
-        $this->assertSame(['status' => 'pending', 'by_me' => false], $results['Third One']['requested']);
+        $this->assertSame('https://img.example/other.jpg', $results['Solo Other Title']['cover_url']);
+        $this->assertSame(['status' => 'pending', 'by_me' => false], $results['Solo Third One']['requested']);
 
         // The same work keeps its key across searches.
         $this->assertSame(RequestSearch::groupKey('manga', 'solo leveling'), $solo['key']);
@@ -301,6 +301,41 @@ class RequestSearchTest extends TestCase
         $keys = array_keys(app(RequestSearch::class)->sources(app(Discover::class), 'manga'));
 
         $this->assertSame(['fakemanga_c', 'fakemanga_a'], $keys);
+
+        // The name preference places what source_order does not.
+        config(['novarr.requests.max_sources_per_search' => 3, 'novarr.requests.source_name_preference' => ['Fake B']]);
+        $this->assertSame(['fakemanga_c', 'fakemanga_b', 'fakemanga_a'], array_keys(app(RequestSearch::class)->sources(app(Discover::class), 'manga')));
+    }
+
+    public function test_hits_that_do_not_resemble_the_query_are_dropped_before_grouping(): void
+    {
+        $this->enableSignIn();
+        $token = $this->tokenFor($this->makeReader());
+        // A source answering with loosely related titles (as Royal Road does).
+        FakeRequestSource::$search[FakeMangaA::class] = [
+            ['name' => 'The Wandering Inn', 'url' => 'https://manga-a.test/inn'],
+            ['name' => 'Mother of Learning: Side Stories', 'url' => 'https://manga-a.test/side'],
+            ['name' => 'Mother of Learning', 'url' => 'https://manga-a.test/mol'],
+            ['name' => 'Beware of Chicken', 'url' => 'https://manga-a.test/chicken'],
+            ['name' => 'Kaa-san no Gakushuu', 'alt_titles' => ['Mother of Learning (fan title)'], 'url' => 'https://manga-a.test/alt'],
+            ['name' => 'Learning Magic', 'url' => 'https://manga-a.test/magic'],
+        ];
+        FakeRequestSource::$search[FakeMangaB::class] = [['name' => 'Super Supportive', 'url' => 'https://manga-b.test/ss']];
+
+        $id = $this->startSearch($token, 'mother of learning')->json('search.id');
+        $search = $this->asToken($token)->getJson("/api/v1/requests/searches/{$id}")->json('search');
+
+        // Exact title first, then (same source count) titles starting with
+        // the query, then the rest in search order.
+        $this->assertSame(['Mother of Learning', 'Mother of Learning: Side Stories', 'Kaa-san no Gakushuu'], array_column($search['results'], 'title'));
+        $this->assertSame([], $search['skipped_sources'], 'a source whose hits were all dropped still answered');
+        $this->assertSame(['id', 'status', 'message', 'query', 'medium', 'results', 'skipped_sources'], array_keys($search), 'no new field');
+
+        // A query in an unspaced script is not filtered.
+        FakeRequestSource::$search[FakeMangaA::class] = [['name' => 'Battle Through the Heavens', 'url' => 'https://manga-a.test/btth']];
+        $id = $this->startSearch($this->tokenFor($this->makeReader('kim', 'Kim')), '斗破苍穹')->json('search.id');
+        $this->assertSame(['Battle Through the Heavens', 'Super Supportive'],
+            array_column(app(RequestSearch::class)->find($id)['groups'], 'title'));
     }
 
     // ---- Remembered results -----------------------------------------------------
@@ -315,7 +350,7 @@ class RequestSearchTest extends TestCase
         $benToken = $this->tokenFor($ben);
         $catToken = $this->tokenFor($this->makeReader('cat', 'Cat'));
         $this->mangaHits();
-        FakeRequestSource::$search[FakeMangaC::class] = [['name' => 'Gamma', 'url' => 'https://manga-c.test/gamma']]; // no skipped source
+        FakeRequestSource::$search[FakeMangaC::class] = [['name' => 'Solo Gamma', 'url' => 'https://manga-c.test/gamma']]; // no skipped source
 
         $first = $this->startSearch($anaToken)->assertStatus(202)->json('search.id');
         $this->assertSame('done', app(RequestSearch::class)->find($first)['status']);
@@ -331,7 +366,7 @@ class RequestSearchTest extends TestCase
         $cached = $this->startSearch($benToken, '  SOLO ')->assertStatus(202)->json('search');
         $this->assertSame('done', $cached['status']);
         $this->assertSame('SOLO', $cached['query'], 'the reader\'s own query is kept');
-        $this->assertSame(['Solo Leveling', 'Other Title', 'Third One', 'Gamma'], array_column($cached['results'], 'title'));
+        $this->assertSame(['Solo Leveling', 'Solo Other Title', 'Solo Third One', 'Solo Gamma'], array_column($cached['results'], 'title'));
         $this->assertSame($askedOnce, count(FakeRequestSource::$calls), 'no source was asked again');
         Bus::assertNotDispatched(RunRequestSearch::class, fn(RunRequestSearch $job) => $job->searchId === $cached['id']);
         $this->assertNull(app(RequestSearch::class)->find($cached['id'])['slot']);

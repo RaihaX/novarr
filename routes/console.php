@@ -180,3 +180,26 @@ Schedule::command('covers:thumbs')
     ->name('cover_thumbnails')
     ->withoutOverlapping(30)
     ->runInBackground();
+
+// Source health (App\Services\SourceHealth): hourly, tell the admin (webhook
+// + owner email) when a source turns Failing — once per transition, not
+// again within 24 hours. Daily, drop counters older than 90 days.
+$oneServer(Schedule::command('sources:health-check')
+    ->hourlyAt(25)
+    ->name('source_health_check')
+    ->withoutOverlapping(15));
+
+$oneServer(Schedule::command('sources:health-check --prune')
+    ->dailyAt('04:25')
+    ->name('source_health_prune')
+    ->withoutOverlapping(15));
+
+// Storage usage (Health → Storage): walk the manga pages, covers, ePubs,
+// backups and logs and size the database, once a day after the backup and
+// cover jobs. Tells the admin once when free space first drops under
+// novarr.storage.low_free_percent.
+$oneServer(Schedule::command('storage:measure')
+    ->dailyAt('05:10')
+    ->name('storage_measure')
+    ->withoutOverlapping(180)
+    ->runInBackground());

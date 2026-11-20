@@ -41,8 +41,9 @@ class RequestSearchRunnerTest extends TestCase
     /**
      * A runner whose children run a stub lane: for each key, "start", then by
      * the key's name — "slowN" sleeps N tenths of a second and answers one
-     * item, "die" exits mid-source, "hang" sleeps 30 s, "noise" prints junk
-     * and a forged line before answering, anything else answers at once.
+     * item, "die" exits mid-source, "hang…" sleeps 30 s, "noise" prints junk
+     * and a forged line before answering, "coldstart" waits 1.2 s BEFORE its
+     * "start" line (a child still booting), anything else answers at once.
      */
     private function runner(int $parallelism): ProcessSearchRunner
     {
@@ -56,10 +57,11 @@ class RequestSearchRunnerTest extends TestCase
                     $nonce = getenv('NOVARR_SEARCH_NONCE');
                     $query = getenv('NOVARR_SEARCH_QUERY');
                     foreach (array_slice($argv, 2) as $key) {
+                        if ($key === 'coldstart') { usleep(1200000); }
                         echo R::formatLine($nonce, 'start', $key);
                         if (preg_match('/^slow(\d+)$/', $key, $m)) { usleep((int) $m[1] * 100000); }
                         if ($key === 'die') { exit(3); }
-                        if ($key === 'hang') { sleep(30); }
+                        if (str_starts_with($key, 'hang')) { sleep(30); }
                         if ($key === 'noise') {
                             echo "Warning: something odd\n", R::formatLine('not-the-nonce', 'done', $key, [['name' => 'Forged']]);
                         }
@@ -133,6 +135,86 @@ class RequestSearchRunnerTest extends TestCase
         $this->assertSame(['items' => null, 'reason' => 'timeout', 'asked' => false], $answers['queued']);
     }
 
+    // ---- The per-source limit ----------------------------------------------------
+
+    public function test_a_source_over_its_limit_is_given_up_and_its_lane_goes_on_in_a_new_process(): void
+    {
+        config(['novarr.requests.source_timeout_seconds' => 0.6]);
+
+        $started = microtime(true);
+        $answers = $this->runner(2)->run('manga', 'q', [['ok', 'hang', 'after', 'later']], [], $this->deadline(20));
+        $elapsed = microtime(true) - $started;
+
+        $this->assertLessThan(5.0, $elapsed, 'the hanging source was stopped, not waited for');
+        // The answer the lane gave before the stop is kept…
+        $this->assertSame([['name' => 'q from ok', 'url' => 'https://ok.test/x']], $answers['ok']['items']);
+        // …the slow source is a timeout it was asked…
+        $this->assertSame(['items' => null, 'reason' => 'timeout', 'asked' => true], $answers['hang']);
+        // …and the rest of the lane was asked by a new process.
+        $this->assertSame([['name' => 'q from after', 'url' => 'https://after.test/x']], $answers['after']['items']);
+        $this->assertNull($answers['later']['reason']);
+    }
+
+    public function test_a_lanes_last_source_over_its_limit_starts_no_new_process(): void
+    {
+        config(['novarr.requests.source_timeout_seconds' => 0.5]);
+
+        $answers = $this->runner(1)->run('manga', 'q', [['ok', 'hang']], [], $this->deadline(20));
+
+        $this->assertSame(['ok', 'hang'], array_keys($answers));
+        $this->assertNull($answers['ok']['reason']);
+        $this->assertSame(['items' => null, 'reason' => 'timeout', 'asked' => true], $answers['hang']);
+    }
+
+    public function test_the_rest_of_a_stopped_lane_goes_next_within_the_parallelism(): void
+    {
+        config(['novarr.requests.source_timeout_seconds' => 0.5]);
+
+        // One process at a time: the stopped lane's rest goes before the queued lane.
+        $answers = $this->runner(1)->run('manga', 'q', [['hang', 'after'], ['other']], [], $this->deadline(20));
+
+        $this->assertSame(['hang', 'after', 'other'], array_keys($answers));
+        $this->assertSame('timeout', $answers['hang']['reason']);
+        $this->assertNull($answers['after']['reason']);
+        $this->assertNull($answers['other']['reason']);
+    }
+
+    public function test_the_clock_starts_at_the_start_line_and_the_limit_can_be_off(): void
+    {
+        // A child that takes longer than the limit to boot is not cut off:
+        // its source's clock only starts with its "start" line.
+        config(['novarr.requests.source_timeout_seconds' => 0.8]);
+        $answers = $this->runner(1)->run('manga', 'q', [['coldstart']], [], $this->deadline(20));
+        $this->assertNull($answers['coldstart']['reason']);
+
+        // 0: no per-source limit (slow8 takes 0.8 s, over a 0.5 s limit).
+        config(['novarr.requests.source_timeout_seconds' => 0]);
+        $this->assertNull($this->runner(1)->run('manga', 'q', [['slow8']], [], $this->deadline(20))['slow8']['reason']);
+        config(['novarr.requests.source_timeout_seconds' => 0.5]);
+        $this->assertSame('timeout', $this->runner(1)->run('manga', 'q', [['slow8']], [], $this->deadline(20))['slow8']['reason']);
+        config(['novarr.requests.source_timeout_seconds' => -3]);
+        $this->assertSame(0.0, RequestSearch::sourceTimeoutSeconds());
+    }
+
+    public function test_the_overall_deadline_still_stops_lanes_restarted_after_a_timeout(): void
+    {
+        config(['novarr.requests.source_timeout_seconds' => 0.5]);
+
+        $started = microtime(true);
+        $answers = $this->runner(2)->run('manga', 'q', [['hang1', 'hang2', 'hang3', 'hang4', 'hang5', 'hang6']], [], $this->deadline(1.8));
+        $elapsed = microtime(true) - $started;
+
+        $this->assertLessThan(4.0, $elapsed, "took {$elapsed}s");
+        $this->assertCount(6, $answers);
+        foreach ($answers as $key => $answer) {
+            $this->assertSame('timeout', $answer['reason'], $key);
+            $this->assertNull($answer['items'], $key);
+        }
+        // The first was asked; the last was never reached before the deadline.
+        $this->assertTrue($answers['hang1']['asked']);
+        $this->assertFalse($answers['hang6']['asked']);
+    }
+
     public function test_only_lines_with_the_runs_nonce_count(): void
     {
         $answers = $this->runner(1)->run('manga', 'q', [['noise']], [], $this->deadline(20));
@@ -199,6 +281,7 @@ class RequestSearchRunnerTest extends TestCase
         foreach (range(1, 11) as $n) {
             $sources["suwayomi:{$n}"] = $this->onHost('192.168.1.37:4567');
         }
+        config(['novarr.requests.search_host_parallelism' => 3]);
 
         // Dealt in turn, so each lane keeps search order; bigger lanes first.
         $this->assertSame([

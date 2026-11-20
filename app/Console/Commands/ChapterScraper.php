@@ -15,6 +15,7 @@ use App\Scraping\SourceUnavailable;
 use App\Services\DownloadLanes;
 use App\Services\LaneProcessStarter;
 use App\Services\NovelHealth;
+use App\Services\SourceHealth;
 use App\Sources\SuwayomiSource;
 use Carbon\Carbon;
 
@@ -188,6 +189,7 @@ class ChapterScraper extends Command
             $result = $this->downloadChapterPages($chapter);
             if ($result->ok) {
                 $this->updateMangaChapter($chapter, $result->pages);
+                SourceHealth::record(SourceHealth::keyForNovel($chapter->novel), SourceHealth::KIND_CHAPTER, true);
                 \App\Http\Helpers\CacheHelper::clearNovelCache($chapter->novel_id);
                 $this->info("  ✓ Downloaded: {$chapter->label} ({$result->pages} pages)");
                 return 0;
@@ -195,6 +197,7 @@ class ChapterScraper extends Command
 
             $category = $result->category ?: "fetch_failed";
             self::recordFailure($chapter, $category);
+            SourceHealth::record(SourceHealth::keyForNovel($chapter->novel), SourceHealth::KIND_CHAPTER, false, $category, "{$chapter->label}: " . self::failureHint($category, true));
             $this->error("  ✗ The chapter's pages could not all be downloaded — not saved. " . self::failureHint($category, true)
                 . ($result->message ? " ({$result->message})" : ""));
             return 1;
@@ -218,6 +221,7 @@ class ChapterScraper extends Command
 
             $kind = self::chapterKind($chapter->label, $wordCount, $minWords, $description);
             $this->updateChapter($chapter, $description, $kind);
+            SourceHealth::record(SourceHealth::keyForNovel($chapter->novel), SourceHealth::KIND_CHAPTER, true);
             \App\Http\Helpers\CacheHelper::clearNovelCache($chapter->novel_id);
             $this->info("  ✓ Downloaded: {$chapter->label} ({$wordCount} words)");
             return 0;
@@ -227,7 +231,9 @@ class ChapterScraper extends Command
 
         // User-triggered, so the schedule was ignored for the fetch — but the
         // failure still counts towards the chapter's backoff.
-        self::recordFailure($chapter, $failureReason ?: ($wordCount == 0 ? "no_content" : "short_content"));
+        $category = $failureReason ?: ($wordCount == 0 ? "no_content" : "short_content");
+        self::recordFailure($chapter, $category);
+        SourceHealth::record(SourceHealth::keyForNovel($chapter->novel), SourceHealth::KIND_CHAPTER, false, $category, "{$chapter->label}: " . self::failureHint($category));
 
         $this->error("  ✗ Fetched only {$wordCount} words (need >{$minWords}) — not saved. {$hint}");
         return 1;
@@ -1097,6 +1103,7 @@ class ChapterScraper extends Command
                 Cache::forget(self::hostFailuresKey($lane));
             }
             $this->hostPace()->record($lane, null);
+            SourceHealth::record(SourceHealth::keyForNovel($novel), SourceHealth::KIND_CHAPTER, true);
             // A chapter the source had stopped serving is back: release the
             // novel's parked chapters now instead of at the next re-check. A
             // brand-new chapter downloading says nothing about the dead ones,
@@ -1142,6 +1149,7 @@ class ChapterScraper extends Command
         // Any other result between two content failures breaks the run.
         $run->consecutiveContent = SourceUnavailable::isContentFailure($category) ? $run->consecutiveContent + 1 : 0;
         $this->hostPace()->record($lane, $category);
+        SourceHealth::record(SourceHealth::keyForNovel($run->novel), SourceHealth::KIND_CHAPTER, false, $category, "{$item->label}: " . self::failureHint($category, $run->novel->isManga()));
 
         if (self::isNeedsReview($attempts)) {
             // A long-dead chapter: retried on the slow cadence but kept out
@@ -1210,6 +1218,7 @@ class ChapterScraper extends Command
                 Cache::forget(self::hostFailuresKey($lane));
             }
             $this->hostPace()->record($lane, null);
+            SourceHealth::record(SourceHealth::keyForNovel($novel), SourceHealth::KIND_CHAPTER, true);
             if ($wasUnavailable) {
                 SourceUnavailable::release($novel);
             }
@@ -1342,6 +1351,7 @@ class ChapterScraper extends Command
         );
 
         if ($item instanceof \App\NovelChapter) {
+            SourceHealth::record(SourceHealth::keyForNovel($novel), SourceHealth::KIND_CHAPTER, false, "exception", "{$item->label}: " . mb_substr($e->getMessage(), 0, 200));
             try {
                 if (!self::isNeedsReview(self::recordFailure($item, "exception"))) {
                     $run->failed++;

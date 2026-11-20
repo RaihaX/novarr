@@ -52,6 +52,7 @@ class RequestSearchLane extends Command
             }
             $this->emit(ProcessSearchRunner::formatLine($nonce, 'start', $key));
             $items = RequestSearch::ask($source, $key, $query);
+            \App\Services\SourceHealth::record($key, \App\Services\SourceHealth::KIND_SEARCH, $items !== null, 'fetch_failed', 'Request search: the source failed or could not be reached.');
             $this->emit($items === null
                 ? ProcessSearchRunner::formatLine($nonce, 'failed', $key)
                 : ProcessSearchRunner::formatLine($nonce, 'done', $key, $items));

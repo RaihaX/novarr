@@ -406,10 +406,13 @@ return [
         'searches_per_window' => (int) env('NOVARR_REQUESTS_SEARCHES_PER_WINDOW', 12),
         'search_window_minutes' => (int) env('NOVARR_REQUESTS_SEARCH_WINDOW_MINUTES', 10),
         'search_budget_seconds' => (int) env('NOVARR_REQUESTS_SEARCH_BUDGET_SECONDS', 90),
-        'search_parallelism' => (int) env('NOVARR_REQUESTS_SEARCH_PARALLELISM', 4),
-        'search_host_parallelism' => (int) env('NOVARR_REQUESTS_SEARCH_HOST_PARALLELISM', 3),
+        'search_parallelism' => (int) env('NOVARR_REQUESTS_SEARCH_PARALLELISM', 5),
+        'search_host_parallelism' => (int) env('NOVARR_REQUESTS_SEARCH_HOST_PARALLELISM', 4),
+        // One source running longer than this is given up and its lane goes
+        // on without it (ProcessSearchRunner); 0 = no per-source limit.
+        'source_timeout_seconds' => (float) env('NOVARR_REQUESTS_SOURCE_TIMEOUT_SECONDS', 20),
         'search_cache_minutes' => (int) env('NOVARR_REQUESTS_SEARCH_CACHE_MINUTES', 10),
-        'max_sources_per_search' => (int) env('NOVARR_REQUESTS_MAX_SOURCES_PER_SEARCH', 12),
+        'max_sources_per_search' => (int) env('NOVARR_REQUESTS_MAX_SOURCES_PER_SEARCH', 15),
         'max_pending_per_reader' => (int) env('NOVARR_REQUESTS_MAX_PENDING_PER_READER', 5),
         'max_candidates' => (int) env('NOVARR_REQUESTS_MAX_CANDIDATES', 8),
         'rank_budget_seconds' => (int) env('NOVARR_REQUESTS_RANK_BUDGET_SECONDS', 300),
@@ -419,6 +422,19 @@ return [
             'trim',
             explode(',', (string) env('NOVARR_REQUESTS_SOURCE_ORDER', 'mangadex'))
         ), fn($k) => $k !== '')),
+        // Sources source_order does not place, by display name (case-insensitive;
+        // "MANGA Plus" also matches "MANGA Plus by SHUEISHA"); the rest follow
+        // in Discover order. RequestSearch::searchOrder().
+        'source_name_preference' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('NOVARR_REQUESTS_SOURCE_NAME_PREFERENCE', 'MangaDex,MANGA Plus,Asura Scans,Flame Comics,MangaFire,Weeb Central,Webtoons,TCB Scans,Toonily,MangaPark,Mangakakalot,MangaPill,Kagane,MangaKatana,Manga Demon,Atsumaru,Mangago,MangaHub,MangaFox'))
+        ), fn($n) => $n !== '')),
+        // Mirrors of one site: only the best-placed installed member is
+        // searched. Env: families split by ";", members by "|".
+        'source_families' => array_values(array_filter(array_map(
+            fn($family) => array_values(array_filter(array_map('trim', explode('|', $family)), fn($n) => $n !== '')),
+            explode(';', (string) env('NOVARR_REQUESTS_SOURCE_FAMILIES', 'Mangakakalot|Manganato|Mangabat;MangaFox|Mangahere|Mangatown'))
+        ), fn($family) => count($family) > 1)),
         'page_url' => env('NOVARR_REQUESTS_URL'),
     ],
 
@@ -450,5 +466,42 @@ return [
         'max_parallel_lanes' => 6,
         // Mirrors App\Scraping\NovelUpdatesMatcher::THRESHOLD.
         'novelupdates_match_threshold' => 0.85,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Source health (App\Services\SourceHealth, Health → Sources)
+    |--------------------------------------------------------------------------
+    |
+    | Each source's chapter downloads, chapter-list walks and searches are
+    | counted per hour. A kind of call is judged over the last 24 hours once
+    | it has min_attempts: Failing below failing_below of them ok, Degraded
+    | below degraded_below. Rate-limited failures alone never make a source
+    | Failing (that is the scraper's pace, not a broken site): it is at worst
+    | Degraded. A source turning Failing is told to the admin once
+    | (sources:health-check, hourly), not again for alert_repeat_hours.
+    |
+    */
+    'source_health' => [
+        'min_attempts' => (int) env('NOVARR_SOURCE_HEALTH_MIN_ATTEMPTS', 20),
+        'failing_below' => (float) env('NOVARR_SOURCE_HEALTH_FAILING_BELOW', 0.5),
+        'degraded_below' => (float) env('NOVARR_SOURCE_HEALTH_DEGRADED_BELOW', 0.85),
+        'retention_days' => (int) env('NOVARR_SOURCE_HEALTH_RETENTION_DAYS', 90),
+        'alert_repeat_hours' => (int) env('NOVARR_SOURCE_HEALTH_ALERT_REPEAT_HOURS', 24),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Storage usage (App\Services\StorageUsage, Health → Storage)
+    |--------------------------------------------------------------------------
+    |
+    | storage:measure (daily) records where the disk goes. low_free_percent:
+    | a volume with less free space than this (percent of its size) shows a
+    | warning, and the admin is told once when a measurement first finds it
+    | (not again within 24 hours).
+    |
+    */
+    'storage' => [
+        'low_free_percent' => (float) env('NOVARR_STORAGE_LOW_FREE_PERCENT', 10),
     ],
 ];

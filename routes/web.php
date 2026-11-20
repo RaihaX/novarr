@@ -145,6 +145,8 @@ Route::post('/health/retry/{uuid}', [SystemHealthController::class, 'retry'])->n
 Route::post('/health/retry-all', [SystemHealthController::class, 'retryAll'])->name('health.retry_all');
 Route::post('/health/forget/{uuid}', [SystemHealthController::class, 'forget'])->name('health.forget');
 Route::post('/health/flush', [SystemHealthController::class, 'flush'])->name('health.flush');
+Route::get('/health/sources', [\App\Http\Controllers\SourceHealthController::class, 'index'])->name('health.sources');
+Route::get('/health/storage', [\App\Http\Controllers\StorageUsageController::class, 'index'])->name('health.storage');
 
 Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
 Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');

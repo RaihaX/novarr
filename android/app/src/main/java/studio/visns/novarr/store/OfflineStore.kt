@@ -14,6 +14,7 @@ import studio.visns.novarr.api.MangaPages
 import studio.visns.novarr.api.NovarrJson
 import studio.visns.novarr.api.NovelDetail
 import studio.visns.novarr.api.NovelSummary
+import studio.visns.novarr.api.ReadingList
 import studio.visns.novarr.api.ServerUrl
 
 /**
@@ -22,7 +23,7 @@ import studio.visns.novarr.api.ServerUrl
  * dir) so the system never purges chapters the user downloaded on purpose.
  *
  * Layout under [root]:
- *   novels.json, home.json, pending-writes.json
+ *   novels.json, home.json, lists.json, pending-writes.json
  *   novels/<id>/detail.json, novels/<id>/chapters.json, novels/<id>/highlights.json
  *   novels/<id>/content/<chapterId>.json          a text chapter
  *   novels/<id>/content/<chapterId>.manga/        a manga chapter: page images,
@@ -34,6 +35,9 @@ class OfflineStore(val root: File) {
         companion object {
             val novels = Key("novels.json", ListSerializer(NovelSummary.serializer()))
             val home = Key("home.json", HomeFeed.serializer())
+
+            /** The reader's lists, saved with each library refresh so they show offline (read-only). */
+            val lists = Key("lists.json", ListSerializer(ReadingList.serializer()))
             fun novel(id: Int) = Key("novels/$id/detail.json", NovelDetail.serializer())
             fun chapters(id: Int) = Key("novels/$id/chapters.json", ListSerializer(ChapterListItem.serializer()))
 

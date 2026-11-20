@@ -32,6 +32,10 @@ document.addEventListener('turbo:load', () => initCopyButtons());
 import { initNovelPage } from './novel';
 document.addEventListener('turbo:load', initNovelPage);
 
+// Reading lists: the novel page's Lists menu, the Library's list bar; per visit.
+import { initLists } from './lists';
+document.addEventListener('turbo:load', initLists);
+
 // Reader requests page (search, my requests, review); re-initialised per visit.
 import { initRequestsPage } from './requests';
 document.addEventListener('turbo:load', initRequestsPage);

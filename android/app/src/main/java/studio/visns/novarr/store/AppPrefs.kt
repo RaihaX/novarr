@@ -138,6 +138,24 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
     suspend fun addRequestsUnseen(scope: String, count: Int) = store.edit { it[unseenKey(scope)] = (it[unseenKey(scope)] ?: 0) + count }
     suspend fun clearRequestsUnseen(scope: String) = store.edit { it.remove(unseenKey(scope)) }
 
+    /** Settings' "New chapter notifications" (default on): the background check posts the one combined notification. */
+    val newChapterNotifications: Flow<Boolean> = store.data.map { it[NEW_CHAPTERS_NOTIFY] ?: true }
+    suspend fun setNewChapterNotifications(on: Boolean) = store.edit { it[NEW_CHAPTERS_NOTIFY] = on }
+
+    /**
+     * Whether [server]'s meta last said it offers [feature] (`updates`,
+     * `lists`); null: not known yet. Saved so the background check and an
+     * offline launch know without asking.
+     */
+    suspend fun featureOffered(server: String, feature: String): Boolean? = snapshot()[featureKey(server, feature)]
+    suspend fun setFeatureOffered(server: String, feature: String, offered: Boolean) = store.edit { it[featureKey(server, feature)] = offered }
+
+    /** The new-chapters check's state (domain.ChapterUpdates.State as JSON): cursor, pending series, last alert. */
+    suspend fun chapterUpdatesState(): String? = snapshot()[CHAPTER_UPDATES_STATE]
+    suspend fun setChapterUpdatesState(json: String?) = store.edit {
+        if (json == null) it.remove(CHAPTER_UPDATES_STATE) else it[CHAPTER_UPDATES_STATE] = json
+    }
+
     /** When a background check last ran successfully (epoch ms), by its key. */
     suspend fun checkLastRun(key: String): Long? = snapshot()[checkRunKey(key)]
     suspend fun setCheckLastRun(key: String, at: Long) = store.edit { it[checkRunKey(key)] = at }
@@ -190,6 +208,7 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
     private fun feedCursorKey(scope: String) = stringPreferencesKey("requests.feedCursor:$scope")
     private fun feedLastKey(scope: String) = longPreferencesKey("requests.feedLastId:$scope")
     private fun unseenKey(scope: String) = intPreferencesKey("requests.unseen:$scope")
+    private fun featureKey(server: String, feature: String) = booleanPreferencesKey("offered.$feature:${ServerUrl.storageKey(server)}")
     private fun checkRunKey(key: String) = longPreferencesKey("checks.lastRun:$key")
     private fun authKey(server: String) = booleanPreferencesKey("authRequired:${ServerUrl.storageKey(server)}")
     private fun userKey(server: String) = stringPreferencesKey("lastUsername:${ServerUrl.storageKey(server)}")
@@ -216,6 +235,8 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         val UPDATE_UNFINISHED = intPreferencesKey("update.unfinishedBuild")
         val NOTIFY_ASKED = booleanPreferencesKey("notifications.permissionAsked")
         val REQUESTS_NOTIFY = booleanPreferencesKey("requests.notify")
+        val NEW_CHAPTERS_NOTIFY = booleanPreferencesKey("newChapters.notify")
+        val CHAPTER_UPDATES_STATE = stringPreferencesKey("newChapters.state")
 
         inline fun <reified E : Enum<E>> enumOr(raw: String?, default: E): E =
             raw?.let { name -> enumValues<E>().firstOrNull { it.name == name } } ?: default

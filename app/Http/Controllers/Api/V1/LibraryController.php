@@ -43,6 +43,10 @@ class LibraryController extends Controller
             ],
             // Reader requests (search, request, notifications feed) are offered.
             'requests' => (bool) config('novarr.requests.enabled', true),
+            // Reading lists (GET /api/v1/lists …) are offered.
+            'lists' => true,
+            // GET /api/v1/updates (new chapters to read) is offered.
+            'updates' => true,
         ]);
     }
 

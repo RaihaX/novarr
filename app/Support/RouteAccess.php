@@ -120,6 +120,13 @@ final class RouteAccess
         'api.v1.highlights',
         'api.v1.highlights.store',
         'api.v1.highlights.destroy',
+        // Own reading lists (App\Services\ReadingLists)
+        'api.v1.lists',
+        'api.v1.lists.store',
+        'api.v1.lists.update',
+        'api.v1.lists.destroy',
+        'api.v1.lists.novels.add',
+        'api.v1.lists.novels.remove',
         // Reader requests: the page, search, request, cancel own, the notification feed
         'requests.index',
         'api.v1.requests.searches.store',
@@ -129,6 +136,7 @@ final class RouteAccess
         'api.v1.requests.store',
         'api.v1.requests.destroy', // own pending only, per RequestController::destroy()
         'api.v1.notifications',
+        'api.v1.updates', // new chapters to read (App\Services\Updates\NewChapterUpdates)
         // Covers in request results: only through a URL the server signed
         'requests.cover',
     ];
@@ -142,6 +150,8 @@ final class RouteAccess
         'commands.index', 'commands.execute', 'commands.execute-async', 'commands.status', 'commands.form',
         'discover.cover',
         'health.index', 'health.job', 'health.retry', 'health.retry_all', 'health.forget', 'health.flush',
+        'health.sources',
+        'health.storage',
         'logs.index', 'logs.tail', 'logs.clear', 'logs.download', 'logs.destroy', 'logs.show',
         'novels.create', 'novels.discover', 'novels.discover.browse', 'novels.store', 'novels.edit', 'novels.update',
         'novels.destroy', 'novels.toggle_pause', 'novels.toggle_frequent', 'novels.toggle_complete',

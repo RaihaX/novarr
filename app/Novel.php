@@ -100,6 +100,8 @@ class Novel extends Model
             ChapterPage::purgeNovel((int) $novel->id);
             app(\App\Services\ReadState::class)->forgetNovel((int) $novel->id);
             ReadingPosition::where('novel_id', $novel->id)->delete();
+            // …and takes it out of every reader's lists (a soft-deleted one stays, hidden).
+            ReadingList::forgetNovel((int) $novel->id);
         });
         // A request approved into this series no longer points at it once
         // the series is deleted (soft or hard): the request stays as history.

@@ -337,9 +337,11 @@ class LibraryAggregatesTest extends TestCase
                 // Cold: reading index (2) + aggregates (1) + origins + candidates
                 // + page novels + covers + tags, and on the very first page the
                 // admin's pending-requests nav badge (cached 10 minutes, so not
-                // forgotten here). Warm: the five page queries only.
-                $this->assertLessThanOrEqual(9, count($cold), implode("\n", $cold));
-                $this->assertLessThanOrEqual(5, count($warm), implode("\n", $warm));
+                // forgotten here). Warm: the five page queries only. Both: plus
+                // the reader's reading lists (one indexed lookup; the list
+                // filter, App\Services\ReadingLists::forLibrary()).
+                $this->assertLessThanOrEqual(10, count($cold), implode("\n", $cold));
+                $this->assertLessThanOrEqual(6, count($warm), implode("\n", $warm));
                 $this->assertSame(1, count(array_filter($cold, fn($q) => str_contains($q, 'MAX(download_date)'))));
                 $this->assertSame([], array_values(array_filter($warm, fn($q) => str_contains($q, 'from "novel_chapters"'))));
             }

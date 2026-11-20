@@ -140,8 +140,9 @@ class GoldenRoyalRoadTest extends GoldenTestCase
 
         $this->assertSame($expected, $items);
         $this->assertCount(20, $items);
-        // No cached clearance yet: one FlareSolverr fetch.
-        $this->assertSame([self::SEARCH . 'mother+of+learning'], $fetcher->urls('html'));
+        // Search answers a plain request with the app's browser headers: no FlareSolverr.
+        $this->assertSame([self::SEARCH . 'mother+of+learning'], $fetcher->urls('plain'));
+        $this->assertSame([], $fetcher->urls('html'));
 
         $first = $items[0];
         $this->assertSame(['name', 'url', 'cover', 'author', 'description', 'status', 'chapters'], array_keys($first));

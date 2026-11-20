@@ -573,6 +573,23 @@ class MangaDexSource extends AbstractSource implements ProvidesChapterStats, Rep
         return self::localized($titles);
     }
 
+    /** Other titles of a series (main title in other languages, altTitles), without $name, at most 25. Pure. */
+    public static function altTitles(array $attributes, string $name): array
+    {
+        $titles = [];
+        foreach ((array) ($attributes['title'] ?? []) as $title) {
+            $titles[] = $title;
+        }
+        foreach ((array) ($attributes['altTitles'] ?? []) as $alt) {
+            foreach ((array) $alt as $title) {
+                $titles[] = $title;
+            }
+        }
+        $titles = array_filter(array_map(fn($t) => is_string($t) ? trim($t) : '', $titles), fn($t) => $t !== '' && $t !== $name);
+
+        return array_slice(array_values(array_unique($titles)), 0, 25);
+    }
+
     /** MangaDex descriptions are Markdown: links become their text, emphasis marks go, paragraphs become <p>. */
     public static function descriptionHtml(string $markdown): string
     {
@@ -901,6 +918,13 @@ class MangaDexSource extends AbstractSource implements ProvidesChapterStats, Rep
             ];
             if (($status = self::statusLabel($attributes['status'] ?? null)) !== null) {
                 $item['status'] = $status;
+            }
+            // MangaDex's search also matches alternative titles ("Na Honjaman
+            // Level Up" finds "Solo Leveling"): keep them, so a reader-request
+            // search's relevance check (SearchRelevance) sees why it matched.
+            $alt = self::altTitles($attributes, $name);
+            if ($alt !== []) {
+                $item['alt_titles'] = $alt;
             }
             $last = $attributes['lastChapter'] ?? null;
             if (is_numeric($last) && (float) $last > 0) {

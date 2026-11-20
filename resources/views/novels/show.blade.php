@@ -173,6 +173,52 @@
             </div>
         </span>
         @endunless
+        {{-- Reading lists: the reader's own (every account; the owner when
+             sign-in is off). A tick saves at once through /api/v1/lists…
+             (resources/js/lists.js); with no lists yet, one-tap starters. --}}
+        @php $inLists = collect($reading_lists ?? [])->where('in', true)->count(); @endphp
+        <div class="dropdown nv-lists" data-lists-menu data-novel="{{ $data->id }}">
+            <button type="button" id="listsBtn" class="btn btn-secondary btn-icon-label {{ $inLists ? 'is-listed' : '' }}" data-lists-toggle data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-controls="listsMenu"
+                    aria-label="{{ $inLists ? 'Lists, in ' . $inLists . ' ' . Str::plural('list', $inLists) : 'Lists' }}">
+                <x-icon name="bookmark" :size="14" />
+                <span>Lists</span>
+                <span class="lists-btn-count" data-lists-count @if(!$inLists) hidden @endif>{{ $inLists ?: '' }}</span>
+                <x-icon name="chevron-down" :size="14" class="icon caret" />
+            </button>
+            <div class="dropdown-menu dropdown-menu-end lists-menu" id="listsMenu">
+                <p class="dropdown-header label-caption mb-0" id="listsMenuTitle">Your lists</p>
+                <ul class="lists-items" data-lists-items aria-labelledby="listsMenuTitle" @if(empty($reading_lists)) hidden @endif>
+                    @foreach($reading_lists ?? [] as $list)
+                        <li class="lists-item">
+                            <label class="lists-check">
+                                <input type="checkbox" class="form-check-input" data-list-id="{{ $list['id'] }}" data-list-name="{{ $list['name'] }}" @checked($list['in'])>
+                                <span class="lists-name">{{ $list['name'] }}</span>
+                            </label>
+                            <span class="lists-state" data-list-state aria-hidden="true"></span>
+                        </li>
+                    @endforeach
+                </ul>
+                <div class="lists-starters" data-lists-starters @if(!empty($reading_lists)) hidden @endif>
+                    <p class="lists-hint" id="listsStartersHint">No lists yet. Start one with a tap — this series goes in it:</p>
+                    <ul class="lists-starter-row" data-lists-starter-buttons aria-labelledby="listsStartersHint">
+                        @foreach(\App\ReadingList::STARTERS as $starter)
+                            <li><button type="button" class="lists-starter" data-starter="{{ $starter }}">{{ $starter }}</button></li>
+                        @endforeach
+                    </ul>
+                </div>
+                <div class="dropdown-divider"></div>
+                <button type="button" class="dropdown-item" data-lists-new aria-expanded="false" aria-controls="listsNewForm">
+                    <x-icon name="plus" :size="14" />New list…
+                </button>
+                <form class="lists-new-form" id="listsNewForm" data-lists-new-form hidden novalidate>
+                    <label for="listsNewName" class="visually-hidden">New list name</label>
+                    <input type="text" id="listsNewName" class="form-control form-control-sm" maxlength="{{ \App\ReadingList::MAX_NAME }}" placeholder="List name" autocomplete="off" aria-describedby="listsError">
+                    <button type="submit" class="btn btn-sm btn-primary">Add</button>
+                </form>
+                <p class="lists-error" id="listsError" data-lists-error role="alert" hidden></p>
+                <p class="visually-hidden" data-lists-status role="status" aria-live="polite"></p>
+            </div>
+        </div>
         @cannot('admin')
         {{-- A reader: "check for new chapters" through the API, in plain
              sight (the admin has the commands in Maintenance). --}}
@@ -543,6 +589,21 @@
         <x-icon name="chevron-down" :size="16" class="icon maintenance-caret" />
     </summary>
     <div class="card-body">
+        {{-- Stored size from the last storage:measure (Health → Storage). --}}
+        @php $storage = \App\Services\StorageUsage::forSeries((int) $data->id); @endphp
+        <div class="qa-section" id="seriesStorage">
+            <div class="qa-label">Storage</div>
+            <p class="text-muted mb-0">
+                @if($storage)
+                    <strong class="mono-figure">{{ \App\Support\Bytes::human($storage['bytes']) }}</strong>
+                    ({{ $storage['pages_bytes'] > 0 ? 'pages ' . \App\Support\Bytes::human($storage['pages_bytes']) . ', ' : '' }}{{ $storage['text_bytes'] > 0 ? 'text ' . ($storage['text_estimated'] ? '≈ ' : '') . \App\Support\Bytes::human($storage['text_bytes']) . ', ' : '' }}cover {{ \App\Support\Bytes::human($storage['cover_bytes']) }}, ePub {{ \App\Support\Bytes::human($storage['epub_bytes']) }})
+                    · measured {{ $storage['measured_at']?->diffForHumans() }}
+                @else
+                    Not measured yet.
+                @endif
+                · <a href="{{ route('health.storage') }}">Storage</a>
+            </p>
+        </div>
         <div class="qa-section">
             <div class="qa-label">Acquire</div>
             <div class="qa-buttons">

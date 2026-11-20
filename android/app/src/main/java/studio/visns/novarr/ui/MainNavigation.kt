@@ -134,6 +134,18 @@ fun MainNavigation() {
         app.requestsOpened()
     }
 
+    // A tapped new-chapters notification for one series: that series, over Home.
+    val openSeries by app.openSeriesRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(openSeries) {
+        val novelId = openSeries ?: return@LaunchedEffect
+        nav.navigate(HomeRoute) {
+            popUpTo(nav.graph.findStartDestination().id)
+            launchSingleTop = true
+        }
+        nav.navigate(NovelRoute(novelId))
+        app.seriesOpened()
+    }
+
     // Requests: in the rail on tablets (only when the server offers them); on phones Home's top bar has it.
     val requestsOffered by app.requestsOffered.collectAsStateWithLifecycle()
     val unseenRequests by app.requestsUnseen.collectAsStateWithLifecycle(0)
