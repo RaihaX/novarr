@@ -103,7 +103,13 @@ fun MainNavigation() {
     val showTabs = destination?.hasRoute(ReaderRoute::class) != true
     val wide = isWide()
 
+    // Pushed screens (a series, highlights) keep the tab they were opened from lit.
+    var lastTab by rememberSaveable { mutableIntStateOf(0) }
+
     fun select(tab: Tab) {
+        // The tab's saved stack may come back with a pushed screen on top (a series opened from the
+        // Library): that screen belongs to this tab, not to the one being left.
+        lastTab = tabs.indexOf(tab)
         nav.navigate(tab.route) {
             popUpTo(nav.graph.findStartDestination().id) { saveState = true }
             launchSingleTop = true
@@ -142,6 +148,7 @@ fun MainNavigation() {
             popUpTo(nav.graph.findStartDestination().id)
             launchSingleTop = true
         }
+        lastTab = tabs.indexOfFirst { it.route == HomeRoute }.coerceAtLeast(0)
         nav.navigate(NovelRoute(novelId))
         app.seriesOpened()
     }
@@ -151,8 +158,6 @@ fun MainNavigation() {
     val unseenRequests by app.requestsUnseen.collectAsStateWithLifecycle(0)
     val onRequests = destination?.hasRoute(RequestsRoute::class) == true
 
-    // Pushed screens (a series, highlights) keep the tab they were opened from lit.
-    var lastTab by rememberSaveable { mutableIntStateOf(0) }
     val current = tabs.indexOfFirst { tab -> destination?.hierarchy?.any { it.hasRoute(tab.route::class) } == true }
     val selected = if (current >= 0) current else lastTab
     SideEffect { lastTab = selected }

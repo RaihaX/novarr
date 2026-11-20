@@ -84,6 +84,7 @@ import studio.visns.novarr.ui.components.LocalApp
 import studio.visns.novarr.ui.components.OfflinePill
 import studio.visns.novarr.ui.components.ProgressLine
 import studio.visns.novarr.ui.components.StateBadge
+import studio.visns.novarr.ui.components.OriginBadge
 import studio.visns.novarr.ui.components.readableWidth
 import studio.visns.novarr.ui.highlights.HighlightRow
 import studio.visns.novarr.ui.lists.SeriesListsSheet
@@ -337,10 +338,18 @@ private fun NovelHeader(summary: NovelSummary, detail: NovelDetail?, wide: Boole
                     modifier = Modifier.semantics { heading() },
                 )
                 summary.authorOrNull?.let { Text(it, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                // Wraps rather than clips when the badges and the origin caption don't fit (narrow screens, large text).
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     StateBadge(summary.state, summary.stateLabel)
+                    OriginBadge(summary, Modifier.align(Alignment.CenterVertically))
                     summary.origin?.let {
-                        Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            modifier = Modifier.align(Alignment.CenterVertically),
+                        )
                     }
                 }
                 if (summary.isManga) {

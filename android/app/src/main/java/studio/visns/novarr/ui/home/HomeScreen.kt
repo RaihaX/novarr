@@ -71,6 +71,7 @@ import studio.visns.novarr.ui.components.Cover
 import studio.visns.novarr.ui.components.LoadFailed
 import studio.visns.novarr.ui.components.LocalApp
 import studio.visns.novarr.ui.components.OfflinePill
+import studio.visns.novarr.ui.components.OriginBadge
 import studio.visns.novarr.ui.components.ProgressLine
 import studio.visns.novarr.ui.components.readableWidth
 import studio.visns.novarr.ui.components.UpdateBanner
@@ -349,15 +350,19 @@ private fun NewChaptersRow(item: NewChaptersItem, modifier: Modifier, onClick: (
                 Text("From ${it.title}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        NewChapters.badge(item.newCount)?.let { badge ->
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)) {
-                Text(
-                    badge,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                )
+        // The row's badges, stacked so the origin never takes width from the title.
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            NewChapters.badge(item.newCount)?.let { badge ->
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)) {
+                    Text(
+                        badge,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
             }
+            OriginBadge(item.novel)
         }
     }
 }

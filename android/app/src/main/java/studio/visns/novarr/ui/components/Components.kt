@@ -57,7 +57,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
+import studio.visns.novarr.api.NovelSummary
 import studio.visns.novarr.app.AppModel
+import studio.visns.novarr.domain.Origin
 import studio.visns.novarr.domain.CoverTitle
 import androidx.compose.runtime.remember
 import androidx.compose.ui.layout.FirstBaseline
@@ -259,6 +261,35 @@ fun StateBadge(state: String, label: String) {
         modifier = Modifier
             .clip(CircleShape)
             .background(color.copy(alpha = 0.14f))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
+}
+
+/**
+ * The two-letter country-of-origin badge ("JP", "KR", "CN", "EN"), drawn
+ * like [StateBadge]; nothing when the series' origin is unknown. Read out as
+ * "Japanese" / "Korean manhwa" / "English original" (domain/Origin).
+ * [onCover] draws it over a cover image, on an opaque surface so it reads on
+ * any artwork. The code never wraps; it is short enough for any tile.
+ */
+@Composable
+fun OriginBadge(novel: NovelSummary, modifier: Modifier = Modifier, onCover: Boolean = false) {
+    val country = Origin.country(novel) ?: return
+    val label = country.label(novel.isManga)
+    val scheme = MaterialTheme.colorScheme
+    val color = scheme.onSurfaceVariant
+    Text(
+        country.code,
+        style = MaterialTheme.typography.labelSmall,
+        color = if (onCover) scheme.onSurface else color,
+        maxLines = 1,
+        softWrap = false,
+        modifier = modifier
+            .clearAndSetSemantics { contentDescription = label }
+            .clip(CircleShape)
+            .background(if (onCover) scheme.surface.copy(alpha = 0.9f) else color.copy(alpha = 0.14f))
+            // On a cover: a hairline so it stands out from pale artwork and the typographic placeholder too.
+            .then(if (onCover) Modifier.border(0.5.dp, scheme.onSurface.copy(alpha = 0.2f), CircleShape) else Modifier)
             .padding(horizontal = 8.dp, vertical = 3.dp),
     )
 }
