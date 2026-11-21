@@ -133,6 +133,9 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 - **Each reader has their own progress** — read marks, reading position, highlights and stats are kept per account.
 - **Invite by email** — type a name and an email; the person opens the link, picks a password and is signed in. The email also links to the Android app when one is published.
 - **Link a Kindle with a code** — the KOReader plugin shows a 6-character code that you enter on the website; no typing passwords on an e-reader.
+- **Sign-in history and alerts** — every sign-in, failed attempt and account change is logged (Settings → Users → Sign-in history); each reader sees their own recent sign-ins and signed-in browsers (each one can be signed out on its own), and gets an email when their account is signed in to from a new device.
+- **A second step on the public address** — after the password, a passkey, a code from an authenticator app, an emailed code or a recovery code; "Sign in with a passkey" does it in one step. The home network keeps the password alone.
+- **Catalogue passwords** — e-reader apps browse OPDS with a generated password of their own, never the account password, on the public address.
 - See [Accounts and sign-in](#accounts-and-sign-in).
 
 ### Apps & API
@@ -362,6 +365,9 @@ Most operational settings are editable from the **Settings** page (stored in `ap
 | `TRUSTED_PROXIES` | Proxies whose `X-Forwarded-*` headers are trusted (nginx / Tailscale / the Cloudflare Tunnel connector in front) | `*` |
 | `NOVARR_AUTH` | Force sign-in `on` or `off`, overriding the switch in Settings → Users (which is then shown locked); see [Accounts and sign-in](#accounts-and-sign-in) | — (use the switch) |
 | `NOVARR_PUBLIC_HOSTS` / `NOVARR_PUBLIC_URL` | Hostnames published on the internet (see [Publishing on the internet with a Cloudflare Tunnel](#publishing-on-the-internet-with-a-cloudflare-tunnel)); empty = off | — / `https://` + first host |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile keys: the human check on the public address's sign-in and invite forms (see [Publishing on the internet](#publishing-on-the-internet-with-a-cloudflare-tunnel)); either empty = off | — |
+| `NOVARR_PASSWORD_BREACH_CHECK` | `off` stops refusing new passwords found in a data leak (Have I Been Pwned range API; see [Accounts and sign-in](#accounts-and-sign-in)) | on |
+| `NOVARR_AUTH_LOG_DAYS` | Days of sign-in history kept; `0` = forever | `180` |
 | `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER` | Must exceed the 3600 s job timeout | `3700` |
 
 ### DB-backed settings (Settings UI)
@@ -399,6 +405,7 @@ Novarr is **scheduler-driven**. Add the single Laravel cron entry and everything
 | Priority TOC refresh | hourly | `novel:toc --frequent-only` — novels flagged "hourly checks" |
 | Chapter download | every 10 min | `novel:chapter` — download newly-found pending chapters |
 | Completion verify | daily @ 06:00 | `novel:verify-completion` — mark fully-downloaded series complete |
+| Sign-in history prune | daily @ 04:35 | `novarr:prune-auth-log` — drop history older than `NOVARR_AUTH_LOG_DAYS` (180 days) |
 | Summary email | daily @ `summary_time` | `novel:email-summary` — recap since the previous summary (`summary_last_sent_at`): continue-reading block, headline figures, one row per updated novel, completed novels, and the attention list when it has changed (`summary_attention_hash`); a table-based brand email with a text part, built to survive Gmail/Outlook |
 
 Jobs queued from the web UI use the **database** queue (`jobs` table); failures land in `failed_jobs` and are inspectable/retryable from the **Health** page. For instant pickup, run a **persistent worker** alongside the cron (on bare metal use a systemd unit; the Docker stacks rely on the scheduler's every-minute drain):
@@ -437,8 +444,9 @@ Run `php artisan queue:restart` after each deploy so the worker reloads new code
 | `novel:chaptercleaner {novel} {--dry-run}` | Re-queue downloaded chapters that fail the scraper's word gate (text kept until re-downloaded) |
 | `novel:info` | Print novel info, chapter counts, completion % |
 | `queue:health-check` | Report queue system health |
-| `novarr:auth {on\|off\|status}` | Turn "Require sign-in" on or off, or show its state and the public address |
-| `novarr:password {username?} {--password=}` | Set an account's password (prompts when `--password` is not given); the way back in if you are locked out |
+| `novarr:auth {on\|off\|status}` | Turn "Require sign-in" on or off, or show its state, the public address and emails two accounts share |
+| `novarr:password {username?} {--password=}` | Set an account's password (prompts when `--password` is not given; same rules as the website); the way back in if you are locked out |
+| `novarr:prune-auth-log` | Delete sign-in history older than `NOVARR_AUTH_LOG_DAYS`, forget signed-in browsers and remember-me rows past their lifetime, and unfinished second steps (daily at 04:35) |
 
 Any of these can also be run from the **Commands** page in the UI with live job-status polling, or from the command palette ("scrape toc <novel>"). The destructive ones (normalize, fix, clean, cleaner) run as a **dry run first** from the novel page and ask before applying.
 
@@ -452,7 +460,7 @@ Novarr starts with **sign-in off**: there is one account, the owner, and every r
 
 1. Settings → Users: give the owner account a sign-in name and a password. The switch stays locked until that is done.
 2. Flip **Require sign-in** (or run `php artisan novarr:auth on`). You are signed in on the spot.
-3. Sign in again on each app: the iPhone and Android apps ask for the name and password, and a Kindle is linked with a code (below).
+3. Sign in again on each app: the iPhone and Android apps ask for the name and password (and, on the public address, a sign-in code: see [The second step](#the-second-step-public-address)), or choose **Link with a code** and enter the code they show under Account → Link a device on the website; a Kindle is always linked with a code (below).
 
 `NOVARR_AUTH=on|off` in `.env` overrides the switch. Locked out? `php artisan novarr:password <name>` sets a new password and `php artisan novarr:auth off` turns sign-in off.
 
@@ -471,15 +479,52 @@ The rule is enforced on the server for every route; a route that is not explicit
 
 Settings → Users → **Invite a reader**: enter a name and an email. Novarr emails a link (valid 7 days, shown once on screen as well) where the person picks a sign-in name and password. Pending invites can be resent (the old link stops working) or cancelled. Readers can sign in with their name or their email. Disabling an account stops its sessions and app tokens at once; deleting it removes its read state.
 
+**Passwords**
+
+Every new or changed password (accepting an invite, the Account page, Settings → Users, "Add without an invite", `php artisan novarr:password`) must be 12 to 255 characters, with no rules about which characters, and must not be the account's display name, sign-in name or email. It is also refused when it appears in a known data leak: Novarr asks [Have I Been Pwned](https://haveibeenpwned.com/Passwords)'s range API, sending only the first 5 characters of the password's SHA-1 (with padding on), so neither the password nor its hash leaves the server. If that service cannot be reached within 3 seconds the password is allowed (a warning goes to the log, at most once an hour). `NOVARR_PASSWORD_BREACH_CHECK=off` turns the check off. Existing passwords keep working; nobody is asked to change one.
+
+**Sign-in history**
+
+Settings → Users → **Sign-in history** (admin, home network only) lists, newest first, every sign-in and sign-out, failed attempt, refusal by a limit, account lock, second step passed or failed, sign-in code emailed, recovery code used, passkey or authenticator added or removed, recovery codes made, emailed codes turned on or off, catalogue password made or revoked, browser signed out, second step reset by the admin, password change or reset, account created / edited / turned off / deleted, invite sent / resent / cancelled / accepted, app or device signed in or out, and the sign-in switch (also when changed with `novarr:auth`). Each line shows the account, the address (the visitor's, through `TRUSTED_PROXIES`), whether it came in on the public address, and the browser or app. Filter by account or by sign-ins / failures / admin actions. A failed attempt names the account only when the name matches one. Passwords, tokens and invite links are never stored. History older than 180 days is dropped daily (`NOVARR_AUTH_LOG_DAYS`, `0` = keep forever).
+
+Each reader's **Account** page shows their own **Recent sign-ins** (the last 20, failed ones and failed second steps included) and their **Signed-in browsers** (device, address, public address or home network, when it signed in and was last active, "This browser"). **Sign out** on a row ends that browser's session at once and forgets its remember-me; every other browser stays signed in. **Sign out all other browsers** does it for all but this one; apps stay. Signing out of a browser never signs out another. Settings → Users shows "N browsers" next to "N devices" for each account.
+
+**Remember-me**
+
+Every web sign-in is remembered on that browser by its own remember-me row (a random selector and token in the cookie; only the token's SHA-256 is stored). A row stops working after 30 days without use (any use of the browser keeps it alive) and a year after it was made whatever happens. Signing out deletes only that browser's row. Sign out everywhere, a password change (the other browsers), an admin password reset, turning an account off and "Reset second step" delete the account's rows. Remember-me cookies from before this release are not honoured anywhere (on the home network too): everyone signs in once more on each browser after the upgrade.
+
+<a id="the-second-step-public-address"></a>
+**The second step (public address)**
+
+On the public address (`NOVARR_PUBLIC_HOSTS`, sign-in on) a correct password is not enough: the website shows "One more step", and the apps get `401 second_step_required` (see the API below). Ways through, in the order they are offered:
+
+1. **Passkey** (website only) — added under Account → **Sign-in steps**. A passkey belongs to the address it was made on (the public hostname, or an https Tailscale name) and only works there; plain-http addresses cannot use passkeys at all (browsers allow them only on https), so the page says so there. **Sign in with a passkey** on the sign-in page replaces the password and the second step. Novarr requires the device to verify it is you (fingerprint, face, PIN), checks the origin, the address, a one-time challenge and the signature counter.
+2. **Authenticator app** — any app that makes 6-digit codes (RFC 6238: 30 seconds, SHA-1). Set up under Account → Sign-in steps: scan the QR code (drawn by Novarr itself, so the secret never goes anywhere else) and type a code. The secret is stored encrypted with `APP_KEY`. A code is accepted for 30 seconds either side, and never twice.
+3. **Emailed code** — "Email me a code" (never sent unasked): 6 digits, valid 10 minutes, at most 3 per sign-in and 6 per account an hour. Every account with an email address has it without any setup, as long as mail is set up (`MAIL_MAILER` not `log`). It can be turned off once a passkey or authenticator exists, and comes back on when the last of those is removed.
+4. **Recovery codes** — once a passkey or authenticator exists, Account → Sign-in steps → **Make recovery codes**: 10 codes like `k7m4q-x9p2a`, shown once, each usable once; making new ones kills the old set.
+
+Five wrong codes end the attempt (sign in again); the attempt also expires after 10 minutes and grants nothing on its own. Wrong codes count toward the account lock and the per-address limit, like wrong passwords. A browser that passed the second step stays signed in there (remember-me, above); a browser signed in on the home network does not count on the public address. An account with no way through there (no email, nothing set up) is refused after the correct password with "This account needs a second sign-in step before it can be used here. Set one up from your home network, or ask the person who runs this Novarr." — methods are only ever set up after signing in, never with the password alone on the public address. Someone who lost their phone or passkey: Settings → Users → **Reset second step** (removes passkeys, authenticator and recovery codes, turns emailed codes back on, signs them out everywhere). Each account's second steps are listed on Settings → Users.
+
+An invite accepted on the public address makes the account and goes on to the second step (the emailed code: the invite went to that address).
+
+**Confirm it's you**
+
+Adding or removing a passkey or the authenticator, new recovery codes, emailed codes on or off, a new password, a catalogue password and linking a device need a confirmation from this browser within the last 10 minutes: the password on the home network, a second step on the public address. Signing in counts. Wrong passwords there are limited to 5 per 15 minutes per account; on the public address the per-address cap and the account lock apply first, and wrong codes count toward them, as when signing in. The Account page is sent `Cache-Control: no-store, private` (it can show an authenticator key, recovery codes or a new catalogue password). Bearer tokens do not open it.
+
+**New sign-in email**
+
+When an account is signed in to with its password (the website or an app) from a device it has not used before, Novarr emails the account's address: when, which device, from which address, and whether it was the public address. A browser is recognised by a random id in a long-lived cookie, an app by the device id it sends; only their SHA-256 is kept (50 per account). The first device of an account (the browser an invite is accepted on, or the first sign-in after this was installed) sends nothing, nor does an account without an email, nor a server whose mail is not set up. The email goes out after the sign-in has answered, so a slow mail server never holds it up.
+
 **Devices**
 
-- **Apps** sign in with name and password and keep a token; each one is listed under **Account → Signed-in apps and devices** with a Revoke button.
+- **Apps** sign in with name and password (plus a sign-in code on the public address) and keep a token; each one is listed under **Account → Signed-in apps and devices** with a Revoke button. An account whose only second step is a passkey links its apps with a code instead (**Link with a code** in the app, then Account → Link a device on the website).
 - **Kindle / KOReader**: the plugin (1.9.0+) shows a 6-character code; enter it under **Account → Link a device** on the website and confirm. See [koreader/README.md](koreader/README.md).
-- **OPDS** readers use HTTP Basic with the same name and password.
+- **OPDS** readers use HTTP Basic: the sign-in name (or email) and a **catalogue password** (below); on the home network the account password works too.
 
 **Details**
 
-- Sign-in attempts are limited to 5 a minute per name and address.
+- Sign-in attempts are limited to 5 a minute per name and address. On the public address there are two more limits: 20 attempts per address per 10 minutes, and a per-account lock (see [Publishing on the internet](#publishing-on-the-internet-with-a-cloudflare-tunnel)). Every 429 says how long to wait and carries `Retry-After`.
+- Emails are unique, ignoring case (Settings → Users → Edit sets or changes one). On SQLite, whose unique index on emails is case-sensitive, older data can hold one address twice in different cases (MySQL/MariaDB's index already refuses that): signing in with such an address is then refused (the sign-in names still work), and `php artisan novarr:auth status` lists it.
 - Cover and manga page image URLs are signed per reader, so they load in `<img>` tags and in the apps without a session.
 - Pages and API responses that contain reader state are cached per account (`Cache-Control: private`, per-reader `ETag`).
 - To reach Novarr from outside your network, see [Publishing on the internet with a Cloudflare Tunnel](#publishing-on-the-internet-with-a-cloudflare-tunnel): admin features are switched off on the public address.
@@ -489,6 +534,8 @@ Settings → Users → **Invite a reader**: enter a name and an email. Novarr em
 ## OPDS catalog
 
 Every novel with a generated ePub is published as an **OPDS 1.2 acquisition feed** at `/opds` — point KOReader, Moon+ Reader, Calibre, or any OPDS-capable reader at `https://<your-host>/opds` to browse your library with covers and download ePubs directly. No configuration needed; the feed reflects whatever `novel:epub` has produced.
+
+With sign-in on, the reader app asks for a user name and password (HTTP Basic). Use your sign-in name (or email) and a **catalogue password**: Account → **Catalogue passwords** → name it after the app → **Make a catalogue password**, and copy it (it is shown once; only its SHA-256 is kept). It opens `/opds` and the ePub downloads only — no other page or API — is listed with when it was last used, and can be revoked. On the public address the catalogue does not accept the account password at all (it is not even checked); on the home network the account password still works as before.
 
 ---
 
@@ -500,8 +547,9 @@ Three readers besides the website live in this repository: the iPhone / iPad app
 
 | Endpoint | What it does |
 |---|---|
-| `GET /meta` | App id, API version and server version; the apps use it to check an address is Novarr. `auth: {required, methods}` says whether to sign in |
-| `POST /auth/token`, `DELETE /auth/token`, `GET /auth/me` | Sign in with name (or email) and password for a bearer token, sign out, and who is signed in |
+| `GET /meta` | App id, API version and server version; the apps use it to check an address is Novarr. `auth: {required, available, second_step, methods}` says whether to sign in, whether this address accepts sign-ins (`false` on the public address while sign-in is off), and whether a sign-in code follows the password here |
+| `POST /auth/token`, `DELETE /auth/token`, `GET /auth/me` | Sign in with name (or email) and password for a bearer token, sign out, and who is signed in. On the public address the password answers `401 {"code":"second_step_required","message","challenge","expires_in":600,"methods":["totp","email","recovery"],"email_hint"}` (only the account's methods; `email_hint` whenever `"email"` is listed), or `403 {"code":"second_step_unavailable","message"}` when the account has no method an app can use |
+| `POST /auth/token/email-code`, `POST /auth/token/second-step` | The second step: `{challenge, device_id}` emails a code (204); `{challenge, method: totp\|email\|recovery, code, device_id}` answers `200 {token, user}`, `422 {"code":"wrong_code","message","tries_left"}` (always ≥ 1) or `404 {"code":"challenge_expired","message"}` (timed out, used, or the 5th wrong code). A challenge is single use, 10 minutes, bound to the account and the `device_id` of the password request: when that sent one, both calls must send the same (missing or different: 404) |
 | `POST /auth/pairings`, `GET /auth/pairings/{secret}` | Link a device by code: the device asks for a code, the user enters it on the website, the device collects its token |
 | `GET /home` | The novel being read and the shelves of the home screen |
 | `GET /novels`, `GET /novels/{id}` | The library and one novel's details |
@@ -516,15 +564,17 @@ Three readers besides the website live in this repository: the iPhone / iPad app
 | `GET /highlights`, `POST /highlights`, `DELETE /highlights/{id}` | Highlights (the website's bookmarks: an excerpt with an optional note), newest first, per novel with `novel_id` |
 | `GET /koreader/plugin`, `GET /koreader/plugin/files/{path}` | The KOReader plugin's update manifest and files |
 
-With sign-in on, send `Authorization: Bearer <token>`; a missing or bad token answers 401 `{"message", "code": "unauthenticated"}` and an admin-only endpoint answers 403 `{"message", "code": "forbidden"}` to a reader (Discover and adding novels are admin-only). List endpoints answer conditional requests (`ETag` / `If-None-Match`). A Discover search can take a minute or two when the source sits behind FlareSolverr. A check runs on the queue (`novel:toc`, then `novel:chapter`), so it needs the queue worker or the scheduler's drain. A background Discover search does not use the queue.
+Every 429 from the sign-in endpoints is `{"code":"throttled","message":"… Try again in N seconds.","retry_after":N}` with `Retry-After`. With sign-in on, send `Authorization: Bearer <token>` (it is read on `/api/*`, `/opds` and the ePub download only; on web pages a bearer token is ignored); a missing or bad token answers 401 `{"message", "code": "unauthenticated"}` and an admin-only endpoint answers 403 `{"message", "code": "forbidden"}` to a reader (Discover and adding novels are admin-only). List endpoints answer conditional requests (`ETag` / `If-None-Match`). A Discover search can take a minute or two when the source sits behind FlareSolverr. A check runs on the queue (`novel:toc`, then `novel:chapter`), so it needs the queue worker or the scheduler's drain. A background Discover search does not use the queue.
 
 ### iPhone / iPad app (`ios/`)
 
-A native SwiftUI app (iOS 17+): connect to the server by address, sign in when the server has accounts, then Home, Library, novel pages with **Check for new chapters**, the reader, Highlights (per novel and across the library) and Settings. Like the Android app it reads only: Discover and library management stay on the website. The Xcode project is generated from `ios/project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen); open `ios/Novarr.xcodeproj` to build and run, and `NovarrTests` holds its tests.
+A native SwiftUI app (iOS 17+): connect to the server by address, sign in when the server has accounts (name and password, then a sign-in code when the address asks for a second step: authenticator app, emailed code or recovery code; or **Link with a code instead**, entered on the website under Account → Link a device), then Home, Library, novel pages with **Check for new chapters**, the reader, Highlights (per novel and across the library) and Settings. Like the Android app it reads only: Discover and library management stay on the website. The Xcode project is generated from `ios/project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen); open `ios/Novarr.xcodeproj` to build and run, and `NovarrTests` holds its tests.
 
 ### Android app (`android/`)
 
 A native Kotlin / Jetpack Compose reader (Android 8.0+, API 26): connect to the server by address, sign in when the server has accounts, then Home, Library (novels and manga on separate shelves), series pages with **Check for new chapters** and offline downloads, the text reader, a manga reader, Highlights and Settings. It reads only: there is no Discover or library management, whoever signs in. Reading progress and read marks sync through the API and are queued while offline.
+
+**Signing in.** With sign-in on, the app asks for the name (or email) and password; on the public address it then asks for a sign-in code: from an authenticator app, emailed on request (**Email me a code**, **Send again** after 30 seconds) or a recovery code, whichever the account has. The password is never stored, and the code step lives only in memory (it survives turning the device, not the app being closed by Android). **Link with a code instead** (when the server offers linking, and always after the server says the account can't pass the second step in an app, such as a passkey-only account) shows a code like `K7M 4QX` to enter on the website under Account → Link a device; the app checks every few seconds until the code is used or expires. When sign-in is switched off at the address the app uses, it says so instead of showing the form.
 
 - **Scroll or Pages** — the text reader scrolls continuously or turns screen-sized pages (tap the right or left side, swipe, or use the volume keys). The place is kept when you switch modes, rotate or change the text size.
 - **Manga** — paged left-to-right or right-to-left, or vertical scroll, following the series' reading mode; each series can be overridden on the device (Follow series / Pages / Scroll).
@@ -701,6 +751,9 @@ Novarr can be reached from the internet at one hostname (say `read.example.com`)
    # the connector's address (127.0.0.1 if cloudflared runs on the Novarr box;
    # keep 127.0.0.1 in the list if Tailscale Serve proxies to it):
    TRUSTED_PROXIES=192.168.1.50,127.0.0.1
+   # optional: Cloudflare's human check on the sign-in and invite forms
+   # TURNSTILE_SITE_KEY=…
+   # TURNSTILE_SECRET_KEY=…
    ```
 
    then `php artisan config:cache` (deploy.sh does it) and check `php artisan novarr:auth status` — it shows the public address and warns while sign-in is off.
@@ -708,10 +761,12 @@ Novarr can be reached from the internet at one hostname (say `read.example.com`)
 What changes **on the public address only**:
 
 - **No admin features, even for the admin.** Every admin page and API endpoint answers 403 "Admin features are only available on your home network."; admin buttons, Home cards and palette commands are hidden. The admin can sign in there and read like any reader. Do admin work (adding series, settings, users, invites) from the home network or Tailscale.
-- **Sign-in is required.** With sign-in off every page except sign-in, health and the invite/app-download/pairing endpoints answers 403 "This address is only available once sign-in is turned on.", and `/api/v1/meta` reports `auth.required: true`.
+- **Sign-in is required, with a second step.** With sign-in off every page except sign-in, health and the app-download/pairing endpoints answers 403 "This address is only available once sign-in is turned on." — accepting an invite and the apps' sign-in (`POST /api/v1/auth/token` and its second step) included, so no account or token is made there before sign-in is on — and `/api/v1/meta` reports `auth.required: true, auth.available: false`. With it on, the password is followed by a second step (see [The second step](#the-second-step-public-address)) and `auth.second_step` is `true`; OPDS takes catalogue passwords only.
 - **HTTPS only:** links are generated as `https://read.example.com/…`, session and remember-me cookies are `Secure`, and responses carry `Strict-Transport-Security: max-age=31536000`.
 - **Not for search engines:** `X-Robots-Tag: noindex, nofollow, noarchive` on every response (and `robots.txt` disallows everything on every host), plus `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and `X-Frame-Options: DENY`.
-- **Tighter limits:** on top of the per-name sign-in limit, at most 20 credential attempts per IP per 10 minutes across the web login, `POST /api/v1/auth/token`, OPDS (HTTP Basic) and invite acceptance (429 with `Retry-After`). This relies on `TRUSTED_PROXIES` naming the connector, so the visitor's address (from `X-Forwarded-For`) is the one counted. `CF-Connecting-IP` is not used.
+- **Tighter limits:** on top of the per-name sign-in limit, at most 20 credential attempts per IP per 10 minutes across the web login, `POST /api/v1/auth/token`, wrong second-step codes and passkeys, OPDS (HTTP Basic) and invite acceptance (429 with `Retry-After`). The second-step and passkey endpoints are also limited to 30 requests a minute per address. This relies on `TRUSTED_PROXIES` naming the connector, so the visitor's address (from `X-Forwarded-For`) is the one counted. `CF-Connecting-IP` is not used.
+- **Account lock:** 10 wrong passwords for one sign-in name as typed (a name, an email, or a name nobody has: all alike), or 10 wrong second-step codes for one account (Confirm it's you included), within 15 minutes and from any addresses (home network included), lock password sign-in with that name — or the account, under every name — on the public address for 15 minutes: web login, `POST /api/v1/auth/token`, the second step and Confirm it's you alike (429 "Too many sign-in attempts. Try again in N seconds.", `Retry-After`). Every failure is counted before the answer is checked, so requests sent in parallel cannot get past it. The home network is never locked: signing in there works throughout and lifts the locks. Known and unknown names get exactly the same lock and answers, so they never tell whether a name or an email belongs to an account. The lock is logged in the sign-in history.
+- **Human check (optional):** with `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` set (a [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) widget for the public hostname), the sign-in and invite forms on the public address show Cloudflare's check and Novarr verifies the answer with Cloudflare before looking at the password. A missing or wrong answer gets "Please complete the check below and try again." and counts as a failed attempt; if Cloudflare cannot be reached the form says "The sign-in check is not available right now. Try again in a minute." (it fails closed). The home network never shows it (the forms work without JavaScript there), and the apps, OPDS and Kindle pairing never need it.
 
 Invite links and the Android-app link always use the public address once it is set, whichever address you send the invite from.
 

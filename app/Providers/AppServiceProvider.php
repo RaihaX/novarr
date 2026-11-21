@@ -36,7 +36,36 @@ class AppServiceProvider extends ServiceProvider
         Vite::useScriptTagAttributes(['data-turbo-track' => 'reload']);
         Vite::useStyleTagAttributes(['data-turbo-track' => 'reload']);
 
+        $this->bootGuard();
         $this->bootAccess();
+    }
+
+    /**
+     * The `web` guard's driver: Laravel's session guard with per-browser
+     * remember-me (App\Auth\BrowserGuard), built the way the framework
+     * builds its own session guard.
+     */
+    private function bootGuard(): void
+    {
+        \Illuminate\Support\Facades\Auth::extend('novarr', function ($app, string $name, array $config) {
+            $auth = $app['auth'];
+            $guard = new \App\Auth\BrowserGuard(
+                $name,
+                $auth->createUserProvider($config['provider'] ?? null),
+                $app['session.store'],
+                rehashOnLogin: $app['config']->get('hashing.rehash_on_login', true),
+                timeboxDuration: $app['config']->get('auth.timebox_duration', 200000),
+                hashKey: $app['config']->get('app.key'),
+            );
+            $guard->setCookieJar($app['cookie']);
+            $guard->setDispatcher($app['events']);
+            $guard->setRequest($app->refresh('request', $guard, 'setRequest'));
+            if (isset($config['remember'])) {
+                $guard->setRememberDuration($config['remember']);
+            }
+
+            return $guard;
+        });
     }
 
     /**
@@ -103,6 +132,13 @@ class AppServiceProvider extends ServiceProvider
             ->response(fn() => response()->json(['message' => 'Too many link codes asked for. Try again later.', 'code' => 'throttled'], 429)));
         // Polling by secret: generous (every 3 s), per IP.
         RateLimiter::for('novarr-pairing-poll', fn(Request $request) => Limit::perMinute(60)->by('pair-poll|' . $request->ip()));
+        // The second step and passkey sign-in (public), per IP: about load;
+        // guessing is stopped by the challenge's 5 tries, the account's lock
+        // and the public address's per-IP cap (App\Services\Credentials).
+        RateLimiter::for('novarr-second-step', fn(Request $request) => Limit::perMinute(30)->by('second-step|' . $request->ip())
+            ->response(fn(Request $request, array $headers) => \App\Http\Middleware\IdentifyReader::wantsJson($request)
+                ? \App\Services\Credentials::tooManyJson((int) ($headers['Retry-After'] ?? 60))
+                : response()->view('auth.forbidden', ['message' => \App\Services\Credentials::tooManyMessage((int) ($headers['Retry-After'] ?? 60)), 'title' => 'Too many attempts'], 429, $headers)));
         // Invite links (public): opening and accepting, per IP. A token is 64
         // hex characters, so this is about load, not guessing.
         RateLimiter::for('novarr-invite', fn(Request $request) => Limit::perMinute(30)->by('invite|' . $request->ip()));

@@ -36,6 +36,13 @@ final class RouteAccess
         'login',
         'login.store',
         'logout',
+        // The second step after the password, and "Sign in with a passkey"
+        'login.second_step',
+        'login.second_step.verify',
+        'login.second_step.email',
+        'login.second_step.passkey_options',
+        'login.passkey.options',
+        'login.passkey.verify',
         // Accepting an invite (the link is the credential; throttled)
         'invite.show',
         'invite.accept',
@@ -52,6 +59,8 @@ final class RouteAccess
         // Native clients: discovery, password sign-in, device pairing
         'api.v1.meta',
         'api.v1.auth.token.store',
+        'api.v1.auth.token.email_code',
+        'api.v1.auth.token.second_step',
         'api.v1.auth.pairings.store',
         'api.v1.auth.pairings.show',
         // Old KOReader plugins must be able to update themselves
@@ -100,6 +109,22 @@ final class RouteAccess
         'account.tokens.revoke',
         'account.link',
         'account.link.confirm',
+        'account.browsers.sign_out_others',
+        'account.browsers.sign_out',
+        // Own sign-in steps and catalogue passwords (each change needs a recent confirmation)
+        'account.confirm',
+        'account.confirm.email',
+        'account.confirm.passkey_options',
+        'account.passkeys.options',
+        'account.passkeys.store',
+        'account.passkeys.destroy',
+        'account.authenticator.start',
+        'account.authenticator.store',
+        'account.authenticator.destroy',
+        'account.recovery_codes',
+        'account.email_codes',
+        'account.catalogue.store',
+        'account.catalogue.destroy',
         // Native app API
         'api.v1.auth.me',
         'api.v1.auth.token.destroy',
@@ -160,8 +185,9 @@ final class RouteAccess
         'settings.index', 'settings.update', 'settings.test_email', 'settings.test_flaresolverr',
         'settings.test_notification', 'settings.tailscale_status', 'settings.tailscale_serve', 'settings.tailscale_funnel',
         'settings.users', 'settings.users.store', 'settings.users.update', 'settings.users.password',
-        'settings.users.disable', 'settings.users.destroy', 'settings.users.auth',
+        'settings.users.disable', 'settings.users.destroy', 'settings.users.auth', 'settings.users.second_step.reset',
         'settings.users.invites.store', 'settings.users.invites.resend', 'settings.users.invites.destroy',
+        'settings.users.history',
         'api.v1.discover', 'api.v1.discover.browse', 'api.v1.discover.searches.store', 'api.v1.discover.searches.show',
         'api.v1.novels.store',
         'api.v1.requests.approve', 'api.v1.requests.decline', 'api.v1.requests.rerank',
@@ -176,6 +202,18 @@ final class RouteAccess
 
     /** Routes that also accept HTTP Basic (username + password): ereader OPDS clients. */
     public const BASIC_ROUTES = ['opds.index', 'novels.download_epub'];
+
+    /**
+     * Public routes that, on the public address, answer only while sign-in
+     * is on (403 "only available once sign-in is turned on" otherwise):
+     * they make tokens or accounts that would work once it is.
+     */
+    public const SIGN_IN_ON_ROUTES = [
+        'api.v1.auth.token.store',
+        'api.v1.auth.token.email_code',
+        'api.v1.auth.token.second_step',
+        'invite.accept',
+    ];
 
     /** The key a route is listed under. */
     public static function key(?Route $route): ?string
@@ -216,6 +254,17 @@ final class RouteAccess
     public static function acceptsSignature(?Route $route): bool
     {
         return $route !== null && in_array($route->getName(), self::SIGNED_ROUTES, true);
+    }
+
+    public static function needsSignInOn(?Route $route): bool
+    {
+        return $route !== null && in_array($route->getName(), self::SIGN_IN_ON_ROUTES, true);
+    }
+
+    /** Bearer tokens are read on the API and the Basic routes (the ePub download) only. */
+    public static function acceptsBearer(\Illuminate\Http\Request $request, ?Route $route): bool
+    {
+        return $request->is('api/*') || static::acceptsBasic($route);
     }
 
     public static function acceptsBasic(?Route $route): bool

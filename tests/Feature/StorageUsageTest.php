@@ -385,11 +385,11 @@ class StorageUsageTest extends TestCase
     {
         $this->enableSignIn();
         $token = $this->tokenFor($this->makeReader());
-        $this->asToken($token)->get(route('health.storage'))->assertStatus(403);
+        $this->asSignedIn(\App\ApiToken::where('token_hash', hash('sha256', $token))->sole()->user)->get(route('health.storage'))->assertStatus(403);
 
         // The admin, on the public address (as cloudflared forwards it).
         config(['novarr.public_hosts' => ['read.example.com'], 'novarr.public_url' => null]);
-        $this->asToken($this->tokenFor($this->owner()))
+        $this->asSignedIn($this->owner(), 'http://read.example.com', fn($t) => $t->withServerVariables(['REMOTE_ADDR' => '192.168.1.50'])->withHeaders(['X-Forwarded-Proto' => 'https', 'X-Forwarded-For' => '203.0.113.7']))
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.50'])
             ->withHeaders(['X-Forwarded-Proto' => 'https', 'X-Forwarded-For' => '203.0.113.7'])
             ->getJson('http://read.example.com/health/storage')

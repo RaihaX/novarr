@@ -22,6 +22,7 @@ import studio.visns.novarr.api.ApiError
 import studio.visns.novarr.api.BulkReadRequest
 import studio.visns.novarr.api.DeviceIdentity
 import studio.visns.novarr.api.NovarrJson
+import studio.visns.novarr.api.SignInAnswer
 import studio.visns.novarr.store.WriteKind
 
 /** Answers every request locally and records it; nothing touches the network. */
@@ -74,8 +75,8 @@ class ApiClientTest {
         }
         val client = ApiClient("http://host", server.client, device, token = "old")
         client.meta()
-        val response = client.signIn("reader", "pw", device)
-        assertEquals("new", response.token)
+        val response = client.signIn("reader", "pw", device) as SignInAnswer.Signed
+        assertEquals("new", response.response.token)
         server.requests.forEach { assertNull(it.header("Authorization")) }
         val body = NovarrJson.parseToJsonElement(server.bodies[1]).jsonObject
         assertEquals("reader", body["username"]?.jsonPrimitive?.content)

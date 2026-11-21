@@ -66,7 +66,7 @@ class RequestsPageTest extends TestCase
     {
         $this->pending($this->owner, 'Someone Else');
 
-        $page = $this->asToken($this->tokenFor($this->reader))->get('/requests');
+        $page = $this->asSignedIn($this->reader)->get('/requests');
 
         $page->assertOk()
             ->assertSee('data-requests-page', false)
@@ -87,7 +87,7 @@ class RequestsPageTest extends TestCase
         $this->pending($this->reader, 'One');
         $this->pending($this->reader, 'Two');
 
-        $page = $this->asToken($this->tokenFor($this->owner))->get('/requests');
+        $page = $this->asSignedIn($this->owner)->get('/requests');
 
         $page->assertOk()->assertSee('data-requests-page', false)->assertDontSee('id="reqAway"', false);
         $html = $page->getContent();
@@ -104,10 +104,10 @@ class RequestsPageTest extends TestCase
     {
         $this->pending($this->reader, 'Waiting');
 
-        $admin = $this->asToken($this->tokenFor($this->owner))->get('/');
+        $admin = $this->asSignedIn($this->owner)->get('/');
         $admin->assertOk()->assertSee('id="navRequests"', false)->assertSee('data-requests-badge', false);
 
-        $reader = $this->asToken($this->tokenFor($this->reader))->get('/');
+        $reader = $this->asSignedIn($this->reader)->get('/');
         $reader->assertOk()->assertSee('id="navRequests"', false)->assertDontSee('data-requests-badge', false);
         $this->assertStringContainsString(route('requests.index'), $reader->getContent());
     }
@@ -116,10 +116,10 @@ class RequestsPageTest extends TestCase
     {
         config(['novarr.requests.enabled' => false]);
 
-        $this->asToken($this->tokenFor($this->reader))->get('/requests')->assertNotFound();
-        $this->asToken($this->tokenFor($this->owner))->get('/requests')->assertNotFound();
+        $this->asSignedIn($this->reader)->get('/requests')->assertNotFound();
+        $this->asSignedIn($this->owner)->get('/requests')->assertNotFound();
 
-        $home = $this->asToken($this->tokenFor($this->owner))->get('/');
+        $home = $this->asSignedIn($this->owner)->get('/');
         $home->assertOk()->assertDontSee('id="navRequests"', false);
         $this->assertStringNotContainsString('"title":"Requests"', $home->getContent());
     }
@@ -136,12 +136,10 @@ class RequestsPageTest extends TestCase
         $public = 'http://' . self::PUBLIC_HOST . '/requests';
         $tunnel = ['REMOTE_ADDR' => '192.168.1.50'];
 
-        $this->asToken($this->tokenFor($this->reader))->withServerVariables($tunnel)
-            ->withHeaders(['X-Forwarded-Proto' => 'https'])->get($public)
+        $this->asSignedIn($this->reader, 'http://' . self::PUBLIC_HOST, fn($t) => $t->withServerVariables($tunnel)->withHeaders(['X-Forwarded-Proto' => 'https']))->get($public)
             ->assertOk()->assertSee('data-requests-page', false)->assertDontSee('id="reqAway"', false);
 
-        $this->asToken($this->tokenFor($this->owner))->withServerVariables($tunnel)
-            ->withHeaders(['X-Forwarded-Proto' => 'https'])->get($public)
+        $this->asSignedIn($this->owner, 'http://' . self::PUBLIC_HOST, fn($t) => $t->withServerVariables($tunnel)->withHeaders(['X-Forwarded-Proto' => 'https']))->get($public)
             ->assertOk()
             ->assertSee('id="reqAway"', false)
             ->assertSee('only available on your home network')
@@ -199,7 +197,7 @@ class RequestsPageTest extends TestCase
         $this->assertNull(NovelRequest::find($id)->candidates_ranked_at, 'faked: nothing ranked in the request');
 
         // The admin's rerank goes the same way.
-        $this->asToken($this->tokenFor($this->owner))->postJson("/api/v1/requests/{$id}/rerank")->assertStatus(202);
+        $this->asSignedIn($this->owner)->postJson("/api/v1/requests/{$id}/rerank")->assertStatus(202);
         Bus::assertDispatchedTimes(RankRequestCandidates::class, 2);
         Bus::assertDispatched(RankRequestCandidates::class, fn(RankRequestCandidates $job) => $job->queue === 'commands');
     }

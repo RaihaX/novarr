@@ -162,6 +162,32 @@ return [
         return $publicHosts === [] ? null : 'https://' . $publicHosts[0];
     })(),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Sign-in hardening
+    |--------------------------------------------------------------------------
+    |
+    | auth_log_days: days of sign-in history kept (App\AuthEvent, pruned
+    | daily by novarr:prune-auth-log). NOVARR_AUTH_LOG_DAYS, default 180;
+    | 0 = keep forever.
+    | password_breach_check: refuse new passwords found in a data leak.
+    |
+    */
+    // Unset or empty = 180 (an empty line copied from .env.example must
+    // not mean "forever").
+    'auth_log_days' => is_numeric($days = env('NOVARR_AUTH_LOG_DAYS')) ? max(0, (int) $days) : 180,
+    // New passwords are checked against Have I Been Pwned's range API
+    // (App\Services\BreachedPasswords; only 5 characters of the SHA-1 are
+    // sent). NOVARR_PASSWORD_BREACH_CHECK=off turns it off; default on.
+    'password_breach_check' => (static function () {
+        $value = env('NOVARR_PASSWORD_BREACH_CHECK');
+        if (is_bool($value)) {
+            return $value;
+        }
+        $value = is_string($value) ? strtolower(trim($value)) : '';
+        return !in_array($value, ['off', 'false', '0', 'no'], true);
+    })(),
+
     'flaresolverr_url' => env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'),
     // Verify TLS certificates on every scraper request (App\Scraping\Fetcher).
     // Only turn off for a source with a broken certificate chain.

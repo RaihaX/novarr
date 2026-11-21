@@ -204,6 +204,13 @@ $oneServer(Schedule::command('storage:measure')
     ->withoutOverlapping(180)
     ->runInBackground());
 
+// Sign-in history (Settings → Users → Sign-in history): drop entries older
+// than novarr.auth_log_days (default 180; 0 keeps everything).
+$oneServer(Schedule::command('novarr:prune-auth-log')
+    ->dailyAt('04:35')
+    ->name('prune_auth_log')
+    ->withoutOverlapping(30));
+
 // Manga fallback (App\Scraping\MangaFallback): hourly at :35 (clear of the
 // :00 TOC check and the :20 / :25 checks), download chapters a series' own
 // source keeps failing on from the same series on another installed source.

@@ -34,5 +34,8 @@
         <env name="NOVARR_NOVELFIRE_REQUEST_DELAY_MS" value="0"/>
         <env name="NOVARR_NOVELFIRE_RATE_LIMIT_WAIT_MS" value="0"/>
         <env name="NOVARR_SUWAYOMI_URL" value=""/>
+        <!-- No test reaches Have I Been Pwned or Cloudflare: the breach check is
+             off unless a test turns it on (with Http::fake). -->
+        <env name="NOVARR_PASSWORD_BREACH_CHECK" value="off"/>
     </php>
 </phpunit>

@@ -37,8 +37,13 @@ class LibraryController extends Controller
             'android' => \App\Support\AndroidApp::release($request),
             // Auth contract: clients show sign-in only when required.
             'auth' => [
-                // The public address only serves signed-in accounts.
+                // The public address only serves signed-in accounts: there it
+                // is always required, and only available while sign-in is on
+                // (off: "This server is not accepting sign-ins at this address.").
                 'required' => \App\Support\AuthMode::required() || \App\Support\PublicAddress::current(),
+                'available' => \App\Support\AuthMode::required() || !\App\Support\PublicAddress::current(),
+                // A sign-in code follows the password here (App\Services\SecondStep).
+                'second_step' => \App\Services\SecondStep::requiredFor($request),
                 'methods' => ['password', 'pairing'],
             ],
             // Reader requests (search, request, notifications feed) are offered.

@@ -2,6 +2,18 @@
 
 @section('title', 'Your invite')
 
+@php($turnstileKey = \App\Services\Turnstile::siteKeyFor(request()))
+
+@if($turnstileKey)
+    {{-- Full page loads here (Turbo would run the widget's script twice). --}}
+    @push('styles')
+        <meta name="turbo-visit-control" content="reload">
+    @endpush
+    @push('scripts')
+        <script src="{{ \App\Services\Turnstile::SCRIPT_URL }}" async defer></script>
+    @endpush
+@endif
+
 @section('content')
 <div class="auth-page">
     <div class="card auth-card auth-card-wide">
@@ -34,6 +46,9 @@
                 {{-- Plain form: works without JavaScript; Turbo kept out so a sign-in loads the next page in full. --}}
                 <form method="POST" action="{{ route('invite.accept', ['token' => $token]) }}" class="auth-form" data-turbo="false" novalidate>
                     @csrf
+                    @error('turnstile')
+                        <div class="alert alert-danger" role="alert" id="humanCheckError">{{ $message }}</div>
+                    @enderror
                     <input type="text" value="{{ $invite->email }}" autocomplete="email" hidden readonly>
 
                     <div class="form-row">
@@ -54,16 +69,22 @@
                     <div class="form-row">
                         <label for="invite-password" class="form-label">Password</label>
                         <input type="password" name="password" id="invite-password" class="form-control @error('password') is-invalid @enderror"
-                               autocomplete="new-password" minlength="8" required
+                               autocomplete="new-password" minlength="12" required
                                aria-describedby="invite-password-help @error('password') invite-password-error @enderror">
                         @error('password')<div class="invalid-feedback" id="invite-password-error">{{ $message }}</div>@enderror
-                        <div class="form-text" id="invite-password-help">At least 8 characters.</div>
+                        <div class="form-text" id="invite-password-help">At least 12 characters, and not your name or email.</div>
                     </div>
                     <div class="form-row">
                         <label for="invite-password2" class="form-label">Password again</label>
                         <input type="password" name="password_confirmation" id="invite-password2" class="form-control"
                                autocomplete="new-password" required>
                     </div>
+    {{-- The human check: public address only, when configured (App\Services\Turnstile). --}}
+                    @if($turnstileKey)
+                        <div class="form-row auth-check" id="humanCheck">
+                            <div class="cf-turnstile" data-sitekey="{{ $turnstileKey }}" data-theme="auto" data-response-field-name="{{ \App\Services\Turnstile::FIELD }}"></div>
+                        </div>
+                    @endif
                     <button type="submit" class="btn btn-primary w-100">Create my account</button>
                     <p class="form-text auth-note">This invite works until {{ $invite->expires_at->timezone(config('app.timezone'))->format('j F Y') }}.</p>
                 </form>

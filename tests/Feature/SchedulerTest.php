@@ -66,6 +66,7 @@ class SchedulerTest extends TestCase
             'verify_novel_completion' => 120,
             'email_chapter_summary' => 30,
             'prune_failed_jobs' => 30,
+            'prune_auth_log' => 30,
         ];
 
         $events = $this->events();

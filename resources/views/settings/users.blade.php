@@ -21,6 +21,7 @@
 <div class="acct-shell users-page">
     <header class="acct-head">
         <h1 class="page-title">Users</h1>
+        <p class="acct-text"><a href="{{ route('settings.users.history') }}" id="historyLink">Sign-in history</a>: sign-ins, failed attempts and changes to accounts.</p>
     </header>
 
     {{-- ================= Invite made / resent: the link, once ================= --}}
@@ -70,7 +71,7 @@
                         @endif
                     </p>
                     @unless($authOn)
-                        <p class="form-text">When it is on: everyone must sign in on the web; the iOS app must sign in again, and each Kindle must be linked again with a code (Account → Link a device).</p>
+                        <p class="form-text">When it is on: everyone must sign in on the web; the iOS and Android apps must sign in again, and each Kindle must be linked again with a code (Account → Link a device). On the public address a sign-in code (second step) follows the password.</p>
                     @endunless
 
                     @if($authForced !== null)
@@ -125,12 +126,26 @@
                                         @if(($tokenCounts[$u->id] ?? 0) > 0)
                                             · {{ $tokenCounts[$u->id] }} {{ Str::plural('device', (int) $tokenCounts[$u->id]) }}
                                         @endif
+                                        @if(($browserCounts[$u->id] ?? 0) > 0)
+                                            · <span class="users-browsers">{{ $browserCounts[$u->id] }} {{ Str::plural('browser', (int) $browserCounts[$u->id]) }}</span>
+                                        @endif
                                         @if($u->isDisabled())
                                             · <strong class="users-off">Turned off</strong>
                                         @endif
                                         @if($u->password_set_at === null)
                                             · <strong class="users-off">No password yet</strong>
                                         @endif
+                                    </span>
+                                    @php
+                                        $steps = array_values(array_filter([
+                                            ($n = (int) ($passkeyCounts[$u->id] ?? 0)) > 0 ? $n . ' ' . Str::plural('passkey', $n) : null,
+                                            $u->totp_enabled_at !== null ? 'authenticator app' : null,
+                                            \App\Services\SecondStep::emailAddress($u) !== null && ($u->email_codes_off_at === null || ($n === 0 && $u->totp_enabled_at === null)) ? 'emailed codes' : null,
+                                            ($r = (int) ($recoveryCounts[$u->id] ?? 0)) > 0 ? $r . ' recovery ' . Str::plural('code', $r) . ' left' : null,
+                                        ]));
+                                    @endphp
+                                    <span class="users-meta users-steps" id="user-steps-{{ $u->id }}">
+                                        Second step: {{ $steps === [] ? 'none set up (cannot sign in on the public address)' : implode(', ', $steps) }}
                                     </span>
                                 </div>
 
@@ -150,6 +165,12 @@
                                                 <input type="text" name="username" id="username-{{ $u->id }}" class="form-control @if($editBag->has('username')) is-invalid @endif" value="{{ $editBag->any() ? old('username', $u->username) : $u->username }}" maxlength="60" autocapitalize="none" spellcheck="false" required>
                                                 @if($editBag->has('username'))<div class="invalid-feedback">{{ $editBag->first('username') }}</div>@endif
                                             </div>
+                                            <div class="form-row">
+                                                <label class="form-label" for="email-{{ $u->id }}">Email</label>
+                                                <input type="email" name="email" id="email-{{ $u->id }}" class="form-control @if($editBag->has('email')) is-invalid @endif" value="{{ $editBag->any() ? old('email', $u->email) : $u->email }}" maxlength="255" autocapitalize="none" spellcheck="false">
+                                                @if($editBag->has('email'))<div class="invalid-feedback">{{ $editBag->first('email') }}</div>@endif
+                                                <div class="form-text">Optional. They can sign in with it, and sign-in codes are emailed there.</div>
+                                            </div>
                                             <div class="acct-actions">
                                                 <button type="submit" class="btn btn-primary btn-sm">Save</button>
                                             </div>
@@ -163,9 +184,9 @@
                                             <input type="text" name="username" value="{{ $u->username }}" autocomplete="username" hidden readonly>
                                             <div class="form-row">
                                                 <label class="form-label" for="password-{{ $u->id }}">New password</label>
-                                                <input type="password" name="password" id="password-{{ $u->id }}" class="form-control @if($passBag->has('password')) is-invalid @endif" autocomplete="new-password" minlength="8" required>
+                                                <input type="password" name="password" id="password-{{ $u->id }}" class="form-control @if($passBag->has('password')) is-invalid @endif" autocomplete="new-password" minlength="12" required>
                                                 @if($passBag->has('password'))<div class="invalid-feedback">{{ $passBag->first('password') }}</div>@endif
-                                                <div class="form-text">At least 8 characters.{{ $isOwner ? '' : ' Tell ' . $u->name . ' the new password; they can change it on their Account page.' }}</div>
+                                                <div class="form-text">At least 12 characters, and not their name or email.{{ $isOwner ? '' : ' Tell ' . $u->name . ' the new password; they can change it on their Account page.' }}</div>
                                             </div>
                                             <div class="acct-actions">
                                                 <button type="submit" class="btn btn-primary btn-sm">Save password</button>
@@ -173,6 +194,13 @@
                                         </form>
                                     </details>
 
+                                    @if(($passkeyCounts[$u->id] ?? 0) > 0 || $u->totp_enabled_at !== null || ($recoveryCounts[$u->id] ?? 0) > 0)
+                                        <form method="POST" action="{{ route('settings.users.second_step.reset', $u->id) }}" class="d-inline"
+                                              data-confirm="Reset {{ $u->name }}'s second step? Their passkeys, authenticator app and recovery codes are removed, emailed codes are turned back on, and they are signed out everywhere." data-confirm-title="Reset second step?" data-confirm-text="Reset">
+                                            @csrf
+                                            <button type="submit" class="btn btn-secondary btn-sm" id="reset-steps-{{ $u->id }}">Reset second step</button>
+                                        </form>
+                                    @endif
                                     @unless($isOwner)
                                         <form method="POST" action="{{ route('settings.users.disable', $u->id) }}" class="d-inline"
                                               @unless($u->isDisabled()) data-confirm="Turn off {{ $u->name }}? They are signed out everywhere and cannot sign in until you turn them on again. Their reading history is kept." data-confirm-title="Turn off account?" data-confirm-text="Turn off" @endunless>
@@ -288,10 +316,16 @@
                                 <div class="form-text">What they type to sign in, e.g. “sam”. Not case-sensitive.</div>
                             </div>
                             <div class="form-row">
+                                <label class="form-label" for="add-email">Email <span class="form-text">(optional)</span></label>
+                                <input type="email" name="email" id="add-email" class="form-control @if($addBag->has('email')) is-invalid @endif" value="{{ $addBag->any() ? old('email') : '' }}" maxlength="255" autocapitalize="none" spellcheck="false" autocomplete="off">
+                                @if($addBag->has('email'))<div class="invalid-feedback">{{ $addBag->first('email') }}</div>@endif
+                                <div class="form-text">Needed for sign-in codes on the public address.</div>
+                            </div>
+                            <div class="form-row">
                                 <label class="form-label" for="add-password">First password</label>
-                                <input type="password" name="password" id="add-password" class="form-control @if($addBag->has('password')) is-invalid @endif" autocomplete="new-password" minlength="8" required>
+                                <input type="password" name="password" id="add-password" class="form-control @if($addBag->has('password')) is-invalid @endif" autocomplete="new-password" minlength="12" required>
                                 @if($addBag->has('password'))<div class="invalid-feedback">{{ $addBag->first('password') }}</div>@endif
-                                <div class="form-text">At least 8 characters. They can change it on their Account page.</div>
+                                <div class="form-text">At least 12 characters, and not their name. They can change it on their Account page.</div>
                             </div>
                             <div class="acct-actions">
                                 <button type="submit" class="btn btn-primary">Add reader</button>

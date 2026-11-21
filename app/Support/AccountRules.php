@@ -2,9 +2,9 @@
 
 namespace App\Support;
 
+use App\Services\BreachedPasswords;
 use App\User;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rules\Password;
 
 /**
  * Validation rules shared by every place an account is made or changed
@@ -38,11 +38,78 @@ final class AccountRules
         ];
     }
 
-    /** A new password: at least 8 characters (typed twice when $confirmed). */
-    public static function password(bool $confirmed = false): array
+    public const EMAIL_FORMAT = 'That does not look like an email address.';
+
+    public const EMAIL_TAKEN = 'Another account already has that email.';
+
+    /** An optional email, unique among accounts (case-insensitive; except $ignoreId). */
+    public static function email(?int $ignoreId = null): array
     {
+        return [
+            'nullable', 'string', 'max:255', 'email',
+            function ($attribute, $value, $fail) use ($ignoreId) {
+                if (User::emailTaken($value, $ignoreId)) {
+                    $fail(self::EMAIL_TAKEN);
+                }
+            },
+        ];
+    }
+
+    /** Emails are stored lowercase (null when empty). */
+    public static function normaliseEmail(?string $email): ?string
+    {
+        $email = strtolower(trim((string) $email));
+
+        return $email === '' ? null : $email;
+    }
+
+    /** The shortest new password. */
+    public const PASSWORD_MIN = 12;
+
+    public const PASSWORD_SHORT = 'Use at least ' . self::PASSWORD_MIN . ' characters.';
+
+    public const PASSWORD_LONG = 'Use at most 255 characters.';
+
+    public const PASSWORD_IS_A_NAME = 'Choose a password that is not your name, sign-in name or email.';
+
+    /**
+     * A new password: PASSWORD_MIN to 255 characters, no rules about which
+     * characters, not one of $names (the account's display name, sign-in
+     * name and email, case-insensitive), and not in a known data leak
+     * (App\Services\BreachedPasswords; asked last, only when the rest pass).
+     * Typed twice when $confirmed. Existing passwords are never re-checked.
+     *
+     * @param array<int, string|null> $names
+     */
+    public static function password(bool $confirmed = false, array $names = []): array
+    {
+        $names = array_values(array_filter(array_map(
+            fn($name) => mb_strtolower(trim((string) $name)),
+            $names
+        ), fn(string $name) => $name !== ''));
+
         return array_values(array_filter([
-            'required', 'string', $confirmed ? 'confirmed' : null, Password::min(8), 'max:255',
+            'bail', 'required', 'string', $confirmed ? 'confirmed' : null,
+            function ($attribute, $value, $fail) {
+                if (mb_strlen((string) $value) < self::PASSWORD_MIN) {
+                    $fail(self::PASSWORD_SHORT);
+                }
+            },
+            function ($attribute, $value, $fail) {
+                if (mb_strlen((string) $value) > 255) {
+                    $fail(self::PASSWORD_LONG);
+                }
+            },
+            function ($attribute, $value, $fail) use ($names) {
+                if (in_array(mb_strtolower(trim((string) $value)), $names, true)) {
+                    $fail(self::PASSWORD_IS_A_NAME);
+                }
+            },
+            function ($attribute, $value, $fail) {
+                if (app(BreachedPasswords::class)->appears((string) $value)) {
+                    $fail(BreachedPasswords::MESSAGE);
+                }
+            },
         ]));
     }
 

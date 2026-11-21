@@ -32,6 +32,16 @@ $conditionalGet = 'cache.headers:private;max_age=0;etag';
 Route::get('/login', [\App\Http\Controllers\Auth\LoginController::class, 'show'])->name('login');
 Route::post('/login', [\App\Http\Controllers\Auth\LoginController::class, 'store'])->name('login.store');
 Route::post('/logout', [\App\Http\Controllers\Auth\LoginController::class, 'destroy'])->name('logout');
+// The second step after the password on the public address, and "Sign in
+// with a passkey" (public, throttled per address).
+Route::middleware('throttle:novarr-second-step')->group(function () {
+    Route::get('/login/second-step', [\App\Http\Controllers\Auth\SecondStepController::class, 'show'])->name('login.second_step');
+    Route::post('/login/second-step', [\App\Http\Controllers\Auth\SecondStepController::class, 'verify'])->name('login.second_step.verify');
+    Route::post('/login/second-step/email', [\App\Http\Controllers\Auth\SecondStepController::class, 'email'])->name('login.second_step.email');
+    Route::post('/login/second-step/passkey', [\App\Http\Controllers\Auth\SecondStepController::class, 'passkeyOptions'])->name('login.second_step.passkey_options');
+    Route::post('/login/passkey/options', [\App\Http\Controllers\Auth\PasskeyLoginController::class, 'options'])->name('login.passkey.options');
+    Route::post('/login/passkey', [\App\Http\Controllers\Auth\PasskeyLoginController::class, 'verify'])->name('login.passkey.verify');
+});
 
 // Accepting an invite (public; App\Http\Controllers\Auth\InviteController)
 Route::get('/invite/{token}', [\App\Http\Controllers\Auth\InviteController::class, 'show'])->middleware('throttle:novarr-invite')->name('invite.show');
@@ -47,6 +57,25 @@ Route::post('/account/password', [\App\Http\Controllers\AccountController::class
 Route::delete('/account/tokens/{id}', [\App\Http\Controllers\AccountController::class, 'revokeToken'])->whereNumber('id')->name('account.tokens.revoke');
 Route::post('/account/link', [\App\Http\Controllers\AccountController::class, 'linkLookup'])->name('account.link');
 Route::post('/account/link/confirm', [\App\Http\Controllers\AccountController::class, 'linkConfirm'])->name('account.link.confirm');
+Route::post('/account/browsers/sign-out-others', [\App\Http\Controllers\AccountController::class, 'signOutOtherBrowsers'])->name('account.browsers.sign_out_others');
+Route::delete('/account/browsers/{id}', [\App\Http\Controllers\AccountController::class, 'signOutBrowser'])->whereNumber('id')->name('account.browsers.sign_out');
+// Sign-in steps and catalogue passwords (App\Http\Controllers\AccountSecurityController);
+// changes need a recent "Confirm it's you" (App\Support\RecentConfirmation).
+Route::controller(\App\Http\Controllers\AccountSecurityController::class)->group(function () {
+    Route::post('/account/confirm', 'confirm')->middleware('throttle:novarr-second-step')->name('account.confirm');
+    Route::post('/account/confirm/email', 'confirmEmail')->middleware('throttle:novarr-second-step')->name('account.confirm.email');
+    Route::post('/account/confirm/passkey', 'confirmPasskeyOptions')->middleware('throttle:novarr-second-step')->name('account.confirm.passkey_options');
+    Route::post('/account/passkeys/options', 'passkeyOptions')->name('account.passkeys.options');
+    Route::post('/account/passkeys', 'storePasskey')->name('account.passkeys.store');
+    Route::delete('/account/passkeys/{id}', 'destroyPasskey')->whereNumber('id')->name('account.passkeys.destroy');
+    Route::post('/account/authenticator/start', 'startAuthenticator')->name('account.authenticator.start');
+    Route::post('/account/authenticator', 'storeAuthenticator')->name('account.authenticator.store');
+    Route::delete('/account/authenticator', 'destroyAuthenticator')->name('account.authenticator.destroy');
+    Route::post('/account/recovery-codes', 'recoveryCodes')->name('account.recovery_codes');
+    Route::post('/account/email-codes', 'emailCodes')->name('account.email_codes');
+    Route::post('/account/catalogue-passwords', 'storeCataloguePassword')->name('account.catalogue.store');
+    Route::delete('/account/catalogue-passwords/{id}', 'destroyCataloguePassword')->whereNumber('id')->name('account.catalogue.destroy');
+});
 
 // Dashboard
 Route::get('/', [HomeController::class, 'index'])->name('home');
@@ -162,10 +191,13 @@ Route::put('/settings/users/{id}', [\App\Http\Controllers\UserController::class,
 Route::post('/settings/users/{id}/password', [\App\Http\Controllers\UserController::class, 'password'])->whereNumber('id')->name('settings.users.password');
 Route::post('/settings/users/{id}/disable', [\App\Http\Controllers\UserController::class, 'toggleDisabled'])->whereNumber('id')->name('settings.users.disable');
 Route::delete('/settings/users/{id}', [\App\Http\Controllers\UserController::class, 'destroy'])->whereNumber('id')->name('settings.users.destroy');
+Route::post('/settings/users/{id}/second-step/reset', [\App\Http\Controllers\UserController::class, 'resetSecondStep'])->whereNumber('id')->name('settings.users.second_step.reset');
 Route::post('/settings/users/invites', [\App\Http\Controllers\UserInviteController::class, 'store'])->name('settings.users.invites.store');
 Route::post('/settings/users/invites/{id}/resend', [\App\Http\Controllers\UserInviteController::class, 'resend'])->whereNumber('id')->name('settings.users.invites.resend');
 Route::delete('/settings/users/invites/{id}', [\App\Http\Controllers\UserInviteController::class, 'destroy'])->whereNumber('id')->name('settings.users.invites.destroy');
 Route::post('/settings/sign-in', [\App\Http\Controllers\UserController::class, 'auth'])->name('settings.users.auth');
+// Settings → Users → Sign-in history (admin; App\AuthEvent)
+Route::get('/settings/users/history', [\App\Http\Controllers\AuthHistoryController::class, 'index'])->name('settings.users.history');
 
 // Tailscale panel (status + Serve/Funnel toggles)
 Route::get('/settings/tailscale', [TailscaleController::class, 'status'])->name('settings.tailscale_status');

@@ -2,9 +2,12 @@
 
 namespace App\Console\Commands;
 
+use App\AuthEvent;
+use App\Support\AccountRules;
 use App\Support\CurrentReader;
 use App\User;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Validator;
 
 /**
  * Set an account's password from the server (the owner's by default) — the
@@ -13,7 +16,7 @@ use Illuminate\Console\Command;
  */
 class SetPassword extends Command
 {
-    public const MIN_LENGTH = 8;
+    public const MIN_LENGTH = AccountRules::PASSWORD_MIN;
 
     protected $signature = 'novarr:password
         {username? : the account (default: the owner)}
@@ -42,13 +45,18 @@ class SetPassword extends Command
             }
         }
 
-        if (mb_strlen((string) $password) < self::MIN_LENGTH) {
-            $this->error('Use at least ' . self::MIN_LENGTH . ' characters. Nothing changed.');
+        // The same rules as everywhere else (App\Support\AccountRules).
+        $validator = Validator::make(['password' => (string) $password], [
+            'password' => AccountRules::password(names: [$user->name, $user->username, $user->email]),
+        ]);
+        if ($validator->fails()) {
+            $this->error($validator->errors()->first('password') . ' Nothing changed.');
 
             return self::FAILURE;
         }
 
         $user->setNewPassword((string) $password);
+        AuthEvent::record(AuthEvent::PASSWORD_SET, null, (int) $user->id, ['via' => 'cli']);
         // Browsers signed in with the old password are signed out; the
         // account's apps and devices (tokens) stay.
         $user->signOutEverywhere(keepTokens: true);

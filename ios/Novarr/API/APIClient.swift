@@ -152,12 +152,80 @@ struct APIClient: Sendable {
 
     // MARK: Accounts
 
-    /// Password sign-in. 422 (wrong name or password) and 429 (throttled)
-    /// throw `.http` with the server's message.
-    func signIn(username: String, password: String, device: DeviceIdentity) async throws -> AuthTokenResponse {
+    /// Password sign-in: a token, or (401 `second_step_required`) a challenge
+    /// for the sign-in code. 403 `second_step_unavailable` throws
+    /// `.secondStepUnavailable`; 422 (wrong name or password), 429 (throttled)
+    /// and anything else throw `.http` with the server's message.
+    func signIn(username: String, password: String, device: DeviceIdentity) async throws -> SignInOutcome {
         let body = SignInBody(username: username, password: password, deviceId: device.id, deviceName: device.name)
-        let data = try await send("POST", "auth/token", body: body, authenticated: false)
-        return try decode(AuthTokenResponse.self, from: data)
+        let (status, data) = try await exchange("POST", "auth/token", body: body)
+        if (200..<300).contains(status) { return .signedIn(try decode(AuthTokenResponse.self, from: data)) }
+        let error = Self.authError(data)
+        if status == 401, let challenge = error.secondStepChallenge { return .secondStepRequired(challenge) }
+        if status == 403, error.code == AuthErrorBody.secondStepUnavailable {
+            throw APIError.secondStepUnavailable(error.message)
+        }
+        throw APIError.http(status: status, message: error.message)
+    }
+
+    /// Emails a sign-in code for the challenge (204). 404 throws
+    /// `.challengeExpired`; 429 and the rest throw `.http`.
+    /// `device` must be the one the password was sent with: the challenge is
+    /// bound to its id (another, or none, answers 404).
+    func requestEmailCode(challenge: String, device: DeviceIdentity) async throws {
+        let body = ChallengeBody(challenge: challenge, deviceId: device.id)
+        let (status, data) = try await exchange("POST", "auth/token/email-code", body: body)
+        if (200..<300).contains(status) { return }
+        let error = Self.authError(data)
+        if status == 404 { throw APIError.challengeExpired(error.message) }
+        throw APIError.http(status: status, message: error.message)
+    }
+
+    /// Finishes a sign-in with a code. 422 throws `.wrongCode` (with the tries
+    /// left), 404 `.challengeExpired`, 429 and the rest `.http`.
+    func submitSecondStep(challenge: String, method: SecondStepMethod, code: String,
+                          device: DeviceIdentity) async throws -> AuthTokenResponse {
+        let body = SecondStepBody(challenge: challenge, method: method.rawValue, code: code, deviceId: device.id)
+        let (status, data) = try await exchange("POST", "auth/token/second-step", body: body)
+        if (200..<300).contains(status) { return try decode(AuthTokenResponse.self, from: data) }
+        let error = Self.authError(data)
+        switch status {
+        case 422 where error.code == AuthErrorBody.wrongCode:
+            throw APIError.wrongCode(message: error.message, triesLeft: error.triesLeft)
+        case 404: throw APIError.challengeExpired(error.message)
+        default: throw APIError.http(status: status, message: error.message)
+        }
+    }
+
+    /// Asks for a link code (201). 429 when too many were asked for.
+    func startPairing(device: DeviceIdentity) async throws -> PairingStart {
+        let body = PairingBody(deviceId: device.id, deviceName: device.name)
+        let (status, data) = try await exchange("POST", "auth/pairings", body: body)
+        guard (200..<300).contains(status) else {
+            throw APIError.http(status: status, message: Self.authError(data).message)
+        }
+        return try decode(PairingStart.self, from: data)
+    }
+
+    /// One look at a link code: pending, linked (with the token) or expired (404).
+    func pollPairing(secret: String) async throws -> PairingPoll {
+        let (status, data) = try await exchange("GET", "auth/pairings/\(secret)", body: Optional<EmptyBody>.none,
+                                                timeout: 15)
+        if status == 404 { return .expired }
+        guard (200..<300).contains(status) else {
+            throw APIError.http(status: status, message: Self.authError(data).message)
+        }
+        let body = try decode(PairingStatusBody.self, from: data)
+        switch body.status.lowercased() {
+        case "pending": return .pending
+        case "linked":
+            guard let token = body.token, !token.isEmpty, let user = body.user else {
+                throw APIError.decoding("linked without a token or user")
+            }
+            return .linked(AuthTokenResponse(token: token, user: user))
+        default:
+            throw APIError.decoding("unknown pairing status \(body.status)")
+        }
     }
 
     func me() async throws -> AuthUser {
@@ -235,7 +303,25 @@ struct APIClient: Sendable {
         return try await perform(request, reportUnauthorized: authenticated && reportUnauthorized)
     }
 
-    private func perform(_ request: URLRequest, reportUnauthorized: Bool) async throws -> Data {
+    /// A public auth call: never carries the token and never reports a 401
+    /// as a lost session. Returns the status and body of any HTTP answer, so
+    /// the caller reads the error codes; only "no answer" throws.
+    private func exchange<Body: Encodable>(_ method: String, _ path: String, body: Body?,
+                                           timeout: TimeInterval = 20) async throws -> (Int, Data) {
+        var request = makeRequest(method, path, timeout: timeout, fresh: true, authenticated: false)
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONCoding.encoder().encode(body)
+        }
+        return try await load(request)
+    }
+
+    private static func authError(_ data: Data) -> AuthErrorBody {
+        (try? JSONCoding.decoder().decode(AuthErrorBody.self, from: data)) ?? AuthErrorBody()
+    }
+
+    /// Sends a request; throws only when no HTTP answer came back.
+    private func load(_ request: URLRequest) async throws -> (Int, Data) {
         let data: Data
         let response: URLResponse
         do {
@@ -248,12 +334,17 @@ struct APIClient: Sendable {
         guard let http = response as? HTTPURLResponse else {
             throw APIError.unreachable("No HTTP response.")
         }
-        guard (200..<300).contains(http.statusCode) else {
+        return (http.statusCode, data)
+    }
+
+    private func perform(_ request: URLRequest, reportUnauthorized: Bool) async throws -> Data {
+        let (status, data) = try await load(request)
+        guard (200..<300).contains(status) else {
             let body = try? JSONDecoder().decode(ErrorBody.self, from: data)
-            if http.statusCode == 401, reportUnauthorized { onUnauthorized?(token) }
+            if status == 401, reportUnauthorized { onUnauthorized?(token) }
             // The text endpoint's answer for a chapter that is page images.
-            if http.statusCode == 422, body?.medium?.lowercased() == Medium.manga { throw APIError.mangaChapter }
-            throw APIError.http(status: http.statusCode, message: body?.message)
+            if status == 422, body?.medium?.lowercased() == Medium.manga { throw APIError.mangaChapter }
+            throw APIError.http(status: status, message: body?.message)
         }
         return data
     }
@@ -268,6 +359,23 @@ struct APIClient: Sendable {
     private struct SignInBody: Encodable {
         var username: String
         var password: String
+        var deviceId: String
+        var deviceName: String
+    }
+
+    private struct ChallengeBody: Encodable {
+        var challenge: String
+        var deviceId: String
+    }
+
+    private struct SecondStepBody: Encodable {
+        var challenge: String
+        var method: String
+        var code: String
+        var deviceId: String
+    }
+
+    private struct PairingBody: Encodable {
         var deviceId: String
         var deviceName: String
     }

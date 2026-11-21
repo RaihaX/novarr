@@ -28,6 +28,10 @@ initDevice();
 import { initCopyButtons } from './copy-link';
 document.addEventListener('turbo:load', () => initCopyButtons());
 
+// Passkeys: sign in, second step, confirm, add (Account); per visit.
+import { initPasskeys } from './passkeys';
+document.addEventListener('turbo:load', () => initPasskeys());
+
 // Novel page chapter list (filter, selection); re-initialised per visit.
 import { initNovelPage } from './novel';
 document.addEventListener('turbo:load', initNovelPage);

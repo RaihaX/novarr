@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\AuthEvent;
 use App\Support\AuthMode;
 use App\Support\CurrentReader;
 use App\Support\PublicAddress;
@@ -31,11 +32,19 @@ class AuthSwitch extends Command
 
                     return self::FAILURE;
                 }
+                $wasOn = AuthMode::setting();
                 AuthMode::store(true);
+                if (!$wasOn) {
+                    AuthEvent::record(AuthEvent::SIGN_IN_SWITCH, null, null, ['on' => true, 'via' => 'cli']);
+                }
                 $this->info('Sign-in is on.');
                 break;
             case 'off':
+                $wasOn = AuthMode::setting();
                 AuthMode::store(false);
+                if ($wasOn) {
+                    AuthEvent::record(AuthEvent::SIGN_IN_SWITCH, null, null, ['on' => false, 'via' => 'cli']);
+                }
                 $this->info('Sign-in is off: every request is the owner.');
                 break;
             case 'status':
@@ -65,10 +74,21 @@ class AuthSwitch extends Command
             ['Accounts', (string) User::count()],
             ['Pending invites', (string) \App\UserInvite::pending()->count()],
             ['Public address', PublicAddress::url() ?? 'not set'],
+            ['Second step on the public address', PublicAddress::configured() ? (AuthMode::required() ? 'required' : 'sign-in is off') : 'no public address'],
         ]);
 
         if (PublicAddress::configured() && !AuthMode::required()) {
             $this->warn('A public address is set (NOVARR_PUBLIC_HOSTS) but sign-in is off: the public address refuses every page until sign-in is on.');
+        }
+
+        // Sign-in by email is refused for an address two accounts share
+        // (in different cases: only SQLite's case-sensitive unique index
+        // lets that exist; MySQL/MariaDB's refuses it).
+        $shared = User::whereNotNull('email')->where('email', '!=', '')
+            ->selectRaw('LOWER(email) AS address, COUNT(*) AS n')->groupByRaw('LOWER(email)')->havingRaw('COUNT(*) > 1')
+            ->pluck('n', 'address');
+        foreach ($shared as $address => $count) {
+            $this->warn("{$count} accounts share the email {$address}: signing in with it is refused until it is changed (Settings → Users → Edit). Their sign-in names still work.");
         }
 
         if ($forced !== null && $forced !== AuthMode::setting()) {

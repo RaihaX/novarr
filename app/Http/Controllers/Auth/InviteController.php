@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\AuthEvent;
 use App\Http\Controllers\Controller;
 use App\Support\AccountRules;
 use App\Services\Credentials;
+use App\Services\Turnstile;
 use App\Support\AuthMode;
 use App\Support\PublicAddress;
 use App\User;
@@ -53,6 +55,8 @@ class InviteController extends Controller
         // on credential attempts (App\Services\Credentials).
         if (PublicAddress::isPublicRequest($request)) {
             if (($seconds = Credentials::publicCapRetryAfter($request->ip())) !== null) {
+                Credentials::recordLimited($request, 'invite', 'address', null, Credentials::publicCapKey($request->ip()));
+
                 return $this->tooMany($request, $seconds);
             }
             Credentials::hitPublicCap($request->ip());
@@ -67,10 +71,21 @@ class InviteController extends Controller
             return redirect()->route('invite.show', ['token' => $token]);
         }
 
+        // The human check (public address, when configured). Cloudflare
+        // unreachable refuses, as on the sign-in form.
+        if (Turnstile::requiredFor($request)) {
+            $outcome = app(Turnstile::class)->verify((string) $request->input(Turnstile::FIELD, ''), $request->ip());
+            if ($outcome !== Turnstile::OK) {
+                return back()
+                    ->withInput($request->except(['password', 'password_confirmation', Turnstile::FIELD]))
+                    ->withErrors(['turnstile' => $outcome === Turnstile::UNAVAILABLE ? Turnstile::UNAVAILABLE_MESSAGE : Turnstile::INVALID_MESSAGE]);
+            }
+        }
+
         $data = $request->validate([
             'name' => 'required|string|max:80',
             'username' => AccountRules::username(),
-            'password' => AccountRules::password(confirmed: true),
+            'password' => AccountRules::password(confirmed: true, names: [$request->input('name'), $request->input('username'), $invite->email]),
         ], [
             'name.required' => 'Enter your name.',
             'username.required' => 'Choose a name to sign in with.',
@@ -108,14 +123,25 @@ class InviteController extends Controller
         if ($user === null) {
             return $this->unusable();
         }
+        AuthEvent::record(AuthEvent::ACCOUNT_CREATED, $request, (int) $user->id, ['via' => 'invite', 'invite_id' => (int) $invite->id]);
+        AuthEvent::record(AuthEvent::INVITE_ACCEPTED, $request, (int) $user->id, ['invite_id' => (int) $invite->id, 'email' => $invite->email]);
 
         if (!AuthMode::required()) {
             return $this->page('auth.invite-done', ['user' => $user]);
         }
 
-        LoginController::signInHere($request, $user);
+        // The public address: the new account signs in like any other, with
+        // the second step (an emailed code: the invite went to that address).
+        if (\App\Services\SecondStep::requiredFor($request)) {
+            return LoginController::startSecondStep($request, $user, (string) $user->username)?->with(self::FLASH_WELCOME, $user->name)
+                ?? redirect()->route('login')->withErrors(['username' => \App\Services\SecondStep::UNAVAILABLE_MESSAGE]);
+        }
 
-        return redirect()->route('home')->with(self::FLASH_WELCOME, $user->name);
+        LoginController::signInHere($request, $user);
+        // The browser the account was made on is its first known device (no email).
+        $device = app(\App\Services\KnownDevices::class)->webSignIn($request, $user, notify: false);
+
+        return redirect()->route('home')->with(self::FLASH_WELCOME, $user->name)->withCookie($device);
     }
 
     /** The account signed in on this browser (only meaningful while sign-in is on). */

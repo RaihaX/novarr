@@ -485,3 +485,89 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
     text-align: center;
 }
 
+
+// --- Sign-in history (Settings → Users) and Recent sign-ins (Account) --------
+.history-filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: $s-3 $s-4;
+    margin-bottom: $s-5;
+
+    .form-row { flex: 1 1 200px; margin: 0; }
+    .acct-actions { margin: 0; }
+}
+
+.history-row.is-failure .account-device-name { color: $warning; }
+
+.history-pages { margin-top: $s-5; }
+
+// --- The second step (/login/second-step) and passkeys -----------------------
+.second-step {
+    margin-top: $s-5;
+    padding-top: $s-5;
+    border-top: 1px solid $border;
+
+    &:first-of-type { margin-top: 0; padding-top: 0; border-top: 0; }
+    .auth-form { margin-top: $s-3; }
+}
+
+.second-step-title {
+    margin-bottom: $s-3;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.code-input {
+    font-family: $font-mono;
+    letter-spacing: 0.12em;
+}
+
+.auth-passkey { margin-top: $s-5; }
+
+.auth-or {
+    display: flex;
+    align-items: center;
+    gap: $s-3;
+    margin-bottom: $s-4;
+    color: $text-muted;
+    font-size: $fs-caption;
+
+    &::before, &::after { content: ''; flex: 1; border-top: 1px solid $border; }
+}
+
+// Account → Sign-in steps: the QR code (inline SVG, drawn on the server)
+.totp-qr {
+    display: inline-block;
+    padding: $s-3;
+    background: #fff;
+    border-radius: 8px;
+    line-height: 0;
+
+    svg { width: 180px; height: 180px; }
+}
+
+.recovery-codes {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: $s-2 $s-4;
+    margin: $s-3 0;
+    padding: $s-4;
+    list-style: none;
+    font-family: $font-mono;
+    background-color: $surface-alt;
+    border-radius: 8px;
+}
+
+.secret-once {
+    font-family: $font-mono;
+    overflow-wrap: anywhere;
+}
+
+.acct-subtitle {
+    margin: $s-5 0 $s-2;
+    font-size: 0.9375rem;
+    font-weight: 600;
+}
+
+.acct-card.is-highlighted { border-color: $accent; }

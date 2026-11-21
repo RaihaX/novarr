@@ -76,8 +76,10 @@ class ReaderAccountsTest extends TestCase
         $this->asToken($readerToken)->getJson("/api/v1/novels/{$novel->id}/chapters", ['If-None-Match' => $ownerRes->headers->get('ETag')])->assertOk();
         $this->asToken($readerToken)->getJson("/api/v1/novels/{$novel->id}/chapters", ['If-None-Match' => $readerRes->headers->get('ETag')])->assertStatus(304);
         // The web routes' conditional GET too.
-        $web = $this->asToken($readerToken)->getJson(route('novels.chapters_json', $novel->id))->assertOk();
-        $this->asToken($ownerToken)->getJson(route('novels.chapters_json', $novel->id), ['If-None-Match' => $web->headers->get('ETag')])->assertOk();
+        // (web routes: signed-in browsers; bearer tokens open the API only)
+        $userOf = fn(string $token) => \App\ApiToken::where('token_hash', hash('sha256', $token))->sole()->user;
+        $web = $this->asSignedIn($userOf($readerToken))->getJson(route('novels.chapters_json', $novel->id))->assertOk();
+        $this->asSignedIn($userOf($ownerToken))->getJson(route('novels.chapters_json', $novel->id), ['If-None-Match' => $web->headers->get('ETag')])->assertOk();
     }
 
     // ---- Signed asset URLs --------------------------------------------------
@@ -196,12 +198,12 @@ class ReaderAccountsTest extends TestCase
         // Sign-in off: the page works (accounts are prepared ahead).
         $this->post(route('settings.users.store'), ['name' => 'Kim', 'username' => 'Kim.Lee', 'password' => 'short'])
             ->assertSessionHasErrors(['password'], null, 'add');
-        $this->post(route('settings.users.store'), ['name' => 'Kim', 'username' => 'Kim.Lee', 'password' => 'kim-pass-1'])
+        $this->post(route('settings.users.store'), ['name' => 'Kim', 'username' => 'Kim.Lee', 'password' => 'kims-password-1'])
             ->assertRedirect(route('settings.users'));
         $kim = User::where('username', 'kim.lee')->sole();
         $this->assertSame(User::ROLE_READER, $kim->role);
         $this->assertNotNull($kim->password_set_at);
-        $this->post(route('settings.users.store'), ['name' => 'Kim 2', 'username' => 'KIM.LEE', 'password' => 'kim-pass-1'])
+        $this->post(route('settings.users.store'), ['name' => 'Kim 2', 'username' => 'KIM.LEE', 'password' => 'kims-password-1'])
             ->assertSessionHasErrors(['username'], null, 'add');
 
         // Rename, reset password.
@@ -300,7 +302,7 @@ class ReaderAccountsTest extends TestCase
         $token = $this->tokenFor($reader);
 
         $change = $this->withBrowser($here)->post(route('account.password'), [
-            'current_password' => self::READER_PASSWORD, 'password' => 'brand-new-2', 'password_confirmation' => 'brand-new-2',
+            'current_password' => self::READER_PASSWORD, 'password' => 'brand-new-pass-2', 'password_confirmation' => 'brand-new-pass-2',
         ])->assertRedirect(route('account'));
 
         $this->withBrowser($this->cookiesOf($change) + $here)->get(route('account'))->assertOk();
@@ -326,9 +328,10 @@ class ReaderAccountsTest extends TestCase
         $other = $this->makeReader('other', 'Other');
         $token = $this->tokenFor($this->makeReader());
 
-        $this->asToken($token)->get(route('settings.users'))->assertStatus(403);
-        $this->asToken($token)->delete(route('settings.users.destroy', $other->id))->assertStatus(403);
-        $this->asToken($token)->post(route('settings.users.auth'), ['required' => 0])->assertStatus(403);
+        $reader = \App\ApiToken::where('token_hash', hash('sha256', $token))->sole()->user;
+        $this->asSignedIn($reader)->get(route('settings.users'))->assertStatus(403);
+        $this->asSignedIn($reader)->delete(route('settings.users.destroy', $other->id))->assertStatus(403);
+        $this->asSignedIn($reader)->post(route('settings.users.auth'), ['required' => 0])->assertStatus(403);
         $this->assertNotNull($other->fresh());
         $this->assertTrue(AuthMode::required());
     }
@@ -349,13 +352,13 @@ class ReaderAccountsTest extends TestCase
         $this->withBrowser($browser)->post(route('account.profile'), ['name' => 'Samantha'])->assertRedirect(route('account'));
         $this->assertSame('Samantha', $reader->fresh()->name);
 
-        $this->withBrowser($browser)->post(route('account.password'), ['current_password' => 'wrong', 'password' => 'brand-new-1', 'password_confirmation' => 'brand-new-1'])
+        $this->withBrowser($browser)->post(route('account.password'), ['current_password' => 'wrong', 'password' => 'brand-new-pass-1', 'password_confirmation' => 'brand-new-pass-1'])
             ->assertSessionHasErrors(['current_password'], null, 'password');
-        $changed = $this->withBrowser($browser)->post(route('account.password'), ['current_password' => self::READER_PASSWORD, 'password' => 'brand-new-1', 'password_confirmation' => 'brand-new-1'])
+        $changed = $this->withBrowser($browser)->post(route('account.password'), ['current_password' => self::READER_PASSWORD, 'password' => 'brand-new-pass-1', 'password_confirmation' => 'brand-new-pass-1'])
             ->assertRedirect(route('account'));
         // This browser carries on with the cookies the change handed it.
         $browser = $this->cookiesOf($changed) + $browser;
-        $this->asNobody()->post('/login', ['username' => 'sam', 'password' => 'brand-new-1'])->assertRedirect(route('home'));
+        $this->asNobody()->post('/login', ['username' => 'sam', 'password' => 'brand-new-pass-1'])->assertRedirect(route('home'));
 
         $token = ApiToken::where('user_id', $reader->id)->sole();
         $this->withBrowser($browser)->delete(route('account.tokens.revoke', $token->id))->assertRedirect(route('account'));

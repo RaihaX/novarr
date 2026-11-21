@@ -44,7 +44,7 @@ class User extends Authenticatable
      * @var array
      */
     protected $hidden = [
-        'password', 'remember_token',
+        'password', 'remember_token', 'totp_secret',
     ];
 
     /**
@@ -58,6 +58,8 @@ class User extends Authenticatable
         'last_seen_at' => 'datetime',
         'password_set_at' => 'datetime',
         'sessions_valid_after' => 'datetime',
+        'totp_enabled_at' => 'datetime',
+        'email_codes_off_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -73,6 +75,11 @@ class User extends Authenticatable
             ReadingList::forgetUser((int) $user->id);
             ApiToken::where('user_id', $user->id)->delete();
             DevicePairing::where('user_id', $user->id)->delete();
+            app(\App\Services\BrowserSessions::class)->endAll($user);
+            Passkey::where('user_id', $user->id)->delete();
+            app(\App\Services\RecoveryCodes::class)->forget($user);
+            app(\App\Services\SecondStep::class)->forgetUser($user);
+            \Illuminate\Support\Facades\DB::table('known_devices')->where('user_id', $user->id)->delete();
             UserInvite::where('user_id', $user->id)->delete();
             // Their requests (and the feed items about them) go too.
             $requestIds = NovelRequest::where('user_id', $user->id)->pluck('id');
@@ -129,10 +136,36 @@ class User extends Authenticatable
             return null;
         }
         if (str_contains($login, '@')) {
-            return static::findByEmail($login);
+            return static::findBySignInEmail($login);
         }
 
         return static::where('username', $login)->first();
+    }
+
+    /**
+     * The account signing in with an email address: none when two accounts
+     * share it (older data; novarr:auth status lists them) — signing in by
+     * that address is refused, the sign-in name still works.
+     */
+    public static function findBySignInEmail(?string $email): ?self
+    {
+        $email = strtolower(trim((string) $email));
+        if ($email === '') {
+            return null;
+        }
+        $matches = static::whereRaw('LOWER(email) = ?', [$email])->orderBy('id')->limit(2)->get();
+
+        return $matches->count() === 1 ? $matches->first() : null;
+    }
+
+    /** Whether another account (not $exceptId) has this email, case-insensitive. */
+    public static function emailTaken(?string $email, ?int $exceptId = null): bool
+    {
+        $email = strtolower(trim((string) $email));
+
+        return $email !== '' && static::whereRaw('LOWER(email) = ?', [$email])
+            ->when($exceptId !== null, fn($q) => $q->where('id', '!=', $exceptId))
+            ->exists();
     }
 
     /** Case-insensitive (older rows may hold mixed case; new ones are stored lowercase). */
@@ -155,21 +188,53 @@ class User extends Authenticatable
     /** Session key: when this browser signed in (unix seconds). */
     public const SESSION_SIGNED_IN_AT = 'novarr_signed_in_at';
 
+    /** Session key: when this browser's sign-in passed a second step or used a passkey (unix seconds). */
+    public const SESSION_SECOND_STEP_AT = 'novarr_second_step_at';
+
+    /** Session key: when this browser last confirmed it is the account's owner (App\Support\RecentConfirmation). */
+    public const SESSION_CONFIRMED_AT = 'novarr_confirmed_at';
+
     /**
      * Sign this account out everywhere: every web session signed in before
-     * now ends (IdentifyReader compares the session's sign-in time), every
-     * remember-me cookie stops working, and — unless $keepTokens — every
-     * app / device token is revoked.
+     * now ends (IdentifyReader compares the session's sign-in time; the
+     * listed ones end in the session store at once), every remember-me row
+     * is deleted, and — unless $keepTokens — every app / device token and
+     * catalogue password is revoked.
      */
     public function signOutEverywhere(bool $keepTokens = false): void
     {
-        $this->forceFill([
-            'sessions_valid_after' => now(),
-            'remember_token' => \Illuminate\Support\Str::random(60),
-        ])->save();
+        $this->forceFill(['sessions_valid_after' => now()])->save();
         if (!$keepTokens) {
             ApiToken::where('user_id', $this->id)->whereNull('revoked_at')->update(['revoked_at' => now()]);
         }
+        // Gone from Account → Signed-in browsers, with their remember-me
+        // (a browser kept signed in here is listed again by the sign-in
+        // that follows).
+        app(\App\Services\BrowserSessions::class)->endAll($this);
+    }
+
+    /**
+     * The admin's "Reset second step": passkeys, authenticator and recovery
+     * codes are removed, emailed codes are on again, and the account is
+     * signed out everywhere (apps too).
+     */
+    public function resetSecondStep(): void
+    {
+        Passkey::where('user_id', $this->id)->delete();
+        app(\App\Services\RecoveryCodes::class)->forget($this);
+        app(\App\Services\SecondStep::class)->forgetUser($this);
+        $this->forceFill([
+            'totp_secret' => null,
+            'totp_enabled_at' => null,
+            'totp_last_step' => null,
+            'email_codes_off_at' => null,
+        ])->save();
+        $this->signOutEverywhere();
+    }
+
+    public function passkeys(): HasMany
+    {
+        return $this->hasMany(Passkey::class);
     }
 
     /** Whether a web session signed in at $signedInAt (unix seconds, null: unknown) is still valid. */

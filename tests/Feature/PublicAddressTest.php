@@ -180,13 +180,17 @@ class PublicAddressTest extends TestCase
         $this->enableSignIn();
         $this->configurePublic();
         $token = $this->tokenFor($this->owner());
+        $publicBrowser = $this->cookiesOf($this->publicWebSignIn($this->owner()->username, self::OWNER_PASSWORD, self::PUBLIC, fn($t) => $t->viaTunnel()));
 
         $checked = 0;
         foreach ($this->routes() as $route) {
             if (RouteAccess::classify($route) !== RouteAccess::ADMIN) {
                 continue;
             }
-            $this->asToken($token)->viaTunnel();
+            // The API with the token, pages with the browser (bearer tokens open the API only).
+            RouteAccess::acceptsBearer(Request::create(self::PUBLIC . $this->uri($route)), $route)
+                ? $this->asToken($token)->viaTunnel()
+                : $this->withBrowser($publicBrowser)->viaTunnel();
             $response = $this->json($this->method($route), self::PUBLIC . $this->uri($route));
             $response->assertStatus(403);
             $response->assertExactJson(['message' => PublicAddress::ADMIN_MESSAGE, 'code' => 'forbidden']);
@@ -196,12 +200,15 @@ class PublicAddressTest extends TestCase
 
         // Guests too (not a sign-in prompt), and a browser gets the 403 page.
         $this->asNobody()->viaTunnel()->getJson(self::PUBLIC . '/settings')->assertStatus(403)->assertJsonPath('code', 'forbidden');
-        $cookies = $this->webSignIn($this->owner()->username, self::OWNER_PASSWORD);
+        // Signed in at home (explicit host: a relative URL would take the last request's forced public root).
+        $this->serverVariables = [];
+        $cookies = $this->cookiesOf($this->asNobody()->post(self::LAN . '/login', ['username' => $this->owner()->username, 'password' => self::OWNER_PASSWORD])->assertRedirect());
         $this->withBrowser($cookies)->viaTunnel()->get(self::PUBLIC . '/settings', ['Accept' => 'text/html'])
             ->assertStatus(403)->assertSee(PublicAddress::ADMIN_MESSAGE)->assertSee(PublicAddress::TITLE);
 
         // The same admin on the home network: allowed.
-        $this->asToken($token)->get(self::LAN . '/settings')->assertOk();
+        $this->serverVariables = [];
+        $this->withBrowser($cookies)->get(self::LAN . '/settings')->assertOk();
     }
 
     public function test_reader_routes_work_on_the_public_host_for_the_admin_and_a_reader(): void
@@ -212,12 +219,21 @@ class PublicAddressTest extends TestCase
         $reader = $this->makeReader();
 
         foreach ([$this->owner(), $reader] as $user) {
+            $browser = $this->cookiesOf($this->publicWebSignIn($user->username, $user->is($reader) ? self::READER_PASSWORD : self::OWNER_PASSWORD, self::PUBLIC, fn($t) => $t->viaTunnel()));
             foreach ($this->routes() as $route) {
-                if (RouteAccess::classify($route) !== RouteAccess::READER) {
+                if (RouteAccess::classify($route) !== RouteAccess::READER || RouteAccess::acceptsSignature($route)) {
                     continue;
                 }
                 $key = RouteAccess::key($route);
-                $this->asToken($this->tokenFor($user))->viaTunnel();
+                if (RouteAccess::acceptsBearer(Request::create(self::PUBLIC . $this->uri($route)), $route)) {
+                    $this->asToken($this->tokenFor($user))->viaTunnel();
+                } else {
+                    // A route may sign this browser out (logout of its own row): a new sign-in then.
+                    if (in_array($key, ['account.browsers.sign_out', 'account.browsers.sign_out_others', 'account.password'], true)) {
+                        $browser = $this->cookiesOf($this->publicWebSignIn($user->username, $user->is($reader) ? self::READER_PASSWORD : self::OWNER_PASSWORD, self::PUBLIC, fn($t) => $t->viaTunnel()));
+                    }
+                    $this->withBrowser($browser)->viaTunnel();
+                }
                 $body = $key === 'novels.bulk' ? ['action' => 'read', 'ids' => [1]] : [];
                 $response = $this->json($this->method($route), self::PUBLIC . $this->uri($route), $body);
                 $this->assertNotContains($response->getStatusCode(), [401, 403], "{$key} refused {$user->username}: " . $response->getContent());
@@ -229,7 +245,7 @@ class PublicAddressTest extends TestCase
         $this->asToken($this->tokenFor($this->owner()))->viaTunnel()->getJson(self::PUBLIC . '/api/v1/auth/me')
             ->assertOk()->assertJsonPath('user.role', 'admin');
         // A per-action admin check inside a reader route is refused too.
-        $this->asToken($this->tokenFor($this->owner()))->viaTunnel()
+        $this->withBrowser($this->cookiesOf($this->publicWebSignIn($this->owner()->username, self::OWNER_PASSWORD, self::PUBLIC, fn($t) => $t->viaTunnel())))->viaTunnel()
             ->postJson(self::PUBLIC . '/novels/bulk', ['action' => 'complete', 'ids' => [1]])->assertStatus(403);
     }
 
@@ -286,15 +302,17 @@ class PublicAddressTest extends TestCase
         ];
 
         $cookies = $this->webSignIn($this->owner()->username, self::OWNER_PASSWORD);
+        // The public address has its own sign-in (with the second step).
+        $publicCookies = $this->cookiesOf($this->publicWebSignIn($this->owner()->username, self::OWNER_PASSWORD, self::PUBLIC, fn($t) => $t->viaTunnel()));
         foreach ($pages as $uri => $markers) {
             // Home network: the admin's controls are there…
-            $lan = $this->withBrowser($cookies)->get(self::LAN . $uri);
+            $lan = $this->withBrowser($cookies)->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])->get(self::LAN . $uri);
             $lan->assertOk();
             foreach ($markers as $marker) {
                 $this->assertStringContainsString($marker, $lan->getContent(), "LAN {$uri}: {$marker}");
             }
             // …and gone on the public address.
-            $public = $this->withBrowser($cookies)->viaTunnel()->get(self::PUBLIC . $uri);
+            $public = $this->withBrowser($publicCookies)->viaTunnel()->get(self::PUBLIC . $uri);
             $public->assertOk();
             foreach ($markers as $marker) {
                 $this->assertStringNotContainsString($marker, $public->getContent(), "public {$uri}: {$marker}");
@@ -305,7 +323,7 @@ class PublicAddressTest extends TestCase
         $lan = (string) $this->withBrowser($cookies)->get(self::LAN . '/')->getContent();
         $this->assertStringContainsString('"title":"Settings"', $lan);
         $this->assertStringContainsString('"commands":true', $lan);
-        $public = (string) $this->withBrowser($cookies)->viaTunnel()->get(self::PUBLIC . '/')->getContent();
+        $public = (string) $this->withBrowser($publicCookies)->viaTunnel()->get(self::PUBLIC . '/')->getContent();
         $this->assertStringNotContainsString('"title":"Settings"', $public);
         $this->assertStringContainsString('"commands":false', $public);
     }
@@ -321,7 +339,7 @@ class PublicAddressTest extends TestCase
             $key = RouteAccess::key($route);
             $this->asNobody()->viaTunnel();
             $response = $this->json($this->method($route), self::PUBLIC . $this->uri($route));
-            if (RouteAccess::classify($route) === RouteAccess::PUBLIC) {
+            if (RouteAccess::classify($route) === RouteAccess::PUBLIC && !RouteAccess::needsSignInOn($route)) {
                 $this->assertStringNotContainsString(PublicAddress::SIGN_IN_OFF_MESSAGE, (string) $response->getContent(), $key);
                 continue;
             }
@@ -368,7 +386,7 @@ class PublicAddressTest extends TestCase
         $page->assertHeader('X-Frame-Options', 'DENY');
 
         // Signing in: the session and remember-me cookies are Secure.
-        $login = $this->asNobody()->viaTunnel()->post(self::PUBLIC . '/login', ['username' => $this->owner()->username, 'password' => self::OWNER_PASSWORD]);
+        $login = $this->publicWebSignIn($this->owner()->username, self::OWNER_PASSWORD, self::PUBLIC, fn($t) => $t->viaTunnel());
         $login->assertRedirect('https://' . self::HOST);
         $names = [];
         foreach ($login->headers->getCookies() as $cookie) {
@@ -478,7 +496,8 @@ class PublicAddressTest extends TestCase
         for ($i = 0; $i < 5; $i++) {
             $this->asNobody()->viaTunnel($ip)->post(self::PUBLIC . '/login', ['username' => "web{$i}", 'password' => 'nope'])->assertRedirect();
             $this->asNobody()->viaTunnel($ip)->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => "api{$i}", 'password' => 'nope'])->assertStatus(422);
-            $this->asNobody()->viaTunnel($ip)->get(self::PUBLIC . '/opds', ['Authorization' => 'Basic ' . base64_encode("basic{$i}:nope")])->assertStatus(401);
+            // (OPDS there takes catalogue passwords only: a wrong one counts.)
+            $this->asNobody()->viaTunnel($ip)->get(self::PUBLIC . '/opds', ['Authorization' => 'Basic ' . base64_encode("basic{$i}:nvr_" . str_repeat('x', 60))])->assertStatus(401);
             $this->asNobody()->viaTunnel($ip)->post(self::PUBLIC . '/invite/' . str_repeat('a', 64), [])->assertNotFound();
         }
         $this->assertSame(20, RateLimiter::attempts(Credentials::publicCapKey($ip)));
@@ -489,14 +508,18 @@ class PublicAddressTest extends TestCase
         $api = $this->asNobody()->viaTunnel($ip)->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD]);
         $api->assertStatus(429)->assertHeader('Retry-After');
         $this->assertStringStartsWith('Too many sign-in attempts. Try again in', $api->json('message'));
-        $basic = $this->asNobody()->viaTunnel($ip)->get(self::PUBLIC . '/opds', ['Authorization' => 'Basic ' . base64_encode('sam:' . self::READER_PASSWORD)]);
+        $basic = $this->asNobody()->viaTunnel($ip)->get(self::PUBLIC . '/opds', ['Authorization' => 'Basic ' . base64_encode('sam:nvr_' . str_repeat('y', 60))]);
         $basic->assertStatus(429)->assertHeader('Retry-After');
+        // The account password there is not even looked at: the challenge.
+        $this->asNobody()->viaTunnel($ip)->get(self::PUBLIC . '/opds', ['Authorization' => 'Basic ' . base64_encode('sam:' . self::READER_PASSWORD)])->assertStatus(401);
         $invite = $this->asNobody()->viaTunnel($ip)->post(self::PUBLIC . '/invite/' . str_repeat('b', 64), []);
         $invite->assertStatus(429)->assertHeader('Retry-After')->assertSee('Too many sign-in attempts.');
         $this->assertLessThanOrEqual(600, (int) $api->headers->get('Retry-After'));
 
         // Another visitor through the same connector is not affected.
-        $this->asNobody()->viaTunnel('198.51.100.9')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])->assertOk();
+        // (the password is right; this account has no second step it can use there)
+        $this->asNobody()->viaTunnel('198.51.100.9')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])
+            ->assertStatus(403)->assertJsonPath('code', 'second_step_unavailable');
         // Nor is the home network (only the per-name limit there).
         $this->asNobody()->withServerVariables(['REMOTE_ADDR' => $ip])->postJson(self::LAN . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])->assertOk();
     }

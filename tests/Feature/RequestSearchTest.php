@@ -138,9 +138,12 @@ class RequestSearchTest extends TestCase
         $this->asNobody()->get(str_replace('solo.jpg', 'other.jpg', $cover))->assertStatus(401);
         // A signed-in reader without a signature gets nothing either: no unsigned proxy.
         config(['novarr.discover_cover_proxy_hosts' => ['uploads.mangadex.org']]);
-        $this->asToken($token)->get('/requests/cover?u=' . urlencode('https://uploads.mangadex.org/covers/solo.jpg'))->assertNotFound();
-        // Discover's own cover route stays the admin's.
-        $this->asToken($token)->getJson('/discover/cover?u=' . urlencode('https://uploads.mangadex.org/covers/solo.jpg'))->assertStatus(403);
+        $reader = \App\ApiToken::where('token_hash', hash('sha256', $token))->sole()->user;
+        // (a session-less asset route: without the signature nobody is signed in there)
+        $this->asSignedIn($reader)->get('/requests/cover?u=' . urlencode('https://uploads.mangadex.org/covers/solo.jpg'))->assertStatus(401);
+        $this->asToken($token)->get('/requests/cover?u=' . urlencode('https://uploads.mangadex.org/covers/solo.jpg'))->assertStatus(401);
+        // Discover's own cover route stays the admin's (session-less too: refused without the admin's signature).
+        $this->asSignedIn($reader)->getJson('/discover/cover?u=' . urlencode('https://uploads.mangadex.org/covers/solo.jpg'))->assertStatus(401);
     }
 
     public function test_a_cover_signed_for_a_reader_is_served(): void

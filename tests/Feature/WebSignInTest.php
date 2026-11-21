@@ -213,7 +213,7 @@ class WebSignInTest extends TestCase
 
     public function test_meta_reports_whether_sign_in_is_required(): void
     {
-        $this->getJson('/api/v1/meta')->assertJsonPath('auth', ['required' => false, 'methods' => ['password', 'pairing']]);
+        $this->getJson('/api/v1/meta')->assertJsonPath('auth', ['required' => false, 'available' => true, 'second_step' => false, 'methods' => ['password', 'pairing']]);
         $this->enableSignIn();
         $this->asNobody()->getJson('/api/v1/meta')->assertOk()->assertJsonPath('auth.required', true);
     }

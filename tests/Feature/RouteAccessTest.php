@@ -128,18 +128,64 @@ class RouteAccessTest extends TestCase
         }
     }
 
+    /**
+     * Requests from here on are $user's, the way that route takes them: a
+     * bearer token on the API and the Basic routes, a signed-in browser
+     * elsewhere (bearer tokens are ignored there).
+     */
+    private function asUserOn(Route $route, \App\User $user, string $host = '', ?callable $prepare = null): static
+    {
+        if (RouteAccess::acceptsBearer(\Illuminate\Http\Request::create($host . $this->uri($route)), $route)) {
+            $this->asToken($this->tokenFor($user));
+            $prepare && $prepare($this);
+
+            return $this;
+        }
+
+        return $this->asSignedIn($user, $host, $prepare);
+    }
+
+    public function test_bearer_tokens_open_the_api_and_the_basic_routes_only(): void
+    {
+        $this->enableSignIn();
+        $reader = $this->makeReader();
+        [$novel] = $this->novelWithChapters();
+        $token = $this->tokenFor($reader);
+
+        $this->asToken($token)->getJson('/api/v1/auth/me')->assertOk();
+        $this->asToken($token)->get('/opds')->assertOk();
+        $epub = $this->asToken($token)->get('/novels/' . $novel->id . '/epub');
+        $this->assertNotContains($epub->getStatusCode(), [401, 403]);
+        // Web pages: the bearer is ignored (not signed in).
+        foreach (['/', '/account', '/stats', '/library'] as $uri) {
+            $this->asToken($token)->getJson($uri)->assertStatus(401);
+        }
+        $this->asToken($token)->post('/account/confirm', ['password' => self::READER_PASSWORD])->assertRedirect(route('login'));
+        $this->asToken($token)->post('/account/catalogue-passwords', ['name' => 'x'])->assertRedirect(route('login'));
+        $this->assertSame(0, \App\ApiToken::where('kind', \App\ApiToken::KIND_CATALOGUE)->count());
+        // With a browser's session too, the bearer adds nothing: the session decides.
+        $cookies = $this->webSignIn('sam', self::READER_PASSWORD);
+        $this->withBrowser($cookies)->withHeader('Authorization', 'Bearer ' . $this->tokenFor($this->owner()))
+            ->getJson('/settings')->assertStatus(403);
+    }
+
     public function test_with_sign_in_on_a_reader_is_refused_every_admin_route(): void
     {
         $this->enableSignIn();
-        $token = $this->tokenFor($this->makeReader());
+        $reader = $this->makeReader();
 
         $checked = 0;
         foreach ($this->routes() as $route) {
             if (RouteAccess::classify($route) !== RouteAccess::ADMIN) {
                 continue;
             }
-            $this->asToken($token);
+            $this->asUserOn($route, $reader);
             $response = $this->json($this->method($route), $this->uri($route));
+            if (RouteAccess::acceptsSignature($route)) {
+                // Session-less, opened by a signed URL only: nobody is signed in there.
+                $response->assertStatus(401);
+                continue;
+            }
             $response->assertStatus(403);
             $response->assertExactJson(['message' => 'Only the admin can do that.', 'code' => 'forbidden']);
             $checked++;
@@ -160,8 +206,12 @@ class RouteAccessTest extends TestCase
                 continue;
             }
             $key = RouteAccess::key($route);
-            // A fresh token each time: DELETE /api/v1/auth/token revokes its own.
-            $this->asToken($this->tokenFor($reader));
+            // A fresh token / sign-in each time: DELETE /api/v1/auth/token
+            // revokes its own token, the browser routes may sign out.
+            if (RouteAccess::acceptsSignature($route)) {
+                continue; // signed URLs only (covered by their own tests)
+            }
+            $this->asUserOn($route, $reader);
             // novels.bulk is authorised per action: "read" is the reader's.
             $body = $key === 'novels.bulk' ? ['action' => 'read', 'ids' => [1]] : [];
             $response = $this->json($this->method($route), $this->uri($route), $body);
@@ -174,7 +224,7 @@ class RouteAccessTest extends TestCase
     {
         $this->enableSignIn();
         [$novel] = $this->novelWithChapters();
-        $this->asToken($this->tokenFor($this->makeReader()));
+        $this->asSignedIn($this->makeReader());
 
         foreach (['delete', 'complete'] as $action) {
             $this->postJson('/novels/bulk', ['action' => $action, 'ids' => [$novel->id]])
@@ -183,7 +233,7 @@ class RouteAccessTest extends TestCase
         $this->assertNotSoftDeleted($novel);
         $this->postJson('/novels/bulk', ['action' => 'read', 'ids' => [$novel->id]])->assertOk()->assertJsonPath('chapters', 3);
 
-        $this->asToken($this->tokenFor($this->owner()));
+        $this->asSignedIn($this->owner());
         $this->postJson('/novels/bulk', ['action' => 'complete', 'ids' => [$novel->id]])->assertOk();
         $this->assertSame(1, (int) $novel->fresh()->status);
     }
@@ -197,7 +247,7 @@ class RouteAccessTest extends TestCase
         foreach (['settings.index', 'settings.users', 'activity.index', 'commands.index', 'health.index', 'logs.index',
                      'novels.create', 'novels.edit', 'api.v1.discover'] as $name) {
             $route = RouteFacade::getRoutes()->getByName($name);
-            $this->asToken($token);
+            $this->asUserOn($route, $this->owner());
             $response = $this->get($this->uri($route));
             $this->assertNotContains($response->getStatusCode(), [401, 403], $name);
             $this->assertLessThan(500, $response->getStatusCode(), $name);

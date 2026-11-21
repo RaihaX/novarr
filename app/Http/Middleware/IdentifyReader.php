@@ -3,7 +3,10 @@
 namespace App\Http\Middleware;
 
 use App\ApiToken;
+use App\Auth\BrowserGuard;
+use App\Services\BrowserSessions;
 use App\Services\Credentials;
+use App\Services\SecondStep;
 use App\Support\AuthMode;
 use App\Support\CurrentReader;
 use App\Support\PublicAddress;
@@ -26,13 +29,18 @@ use Symfony\Component\HttpFoundation\Response;
  * default), whatever credentials it carries.
  *
  * Sign-in on: identifies the user from, in order,
- *   1. a bearer token (Authorization: Bearer …) — the native clients; a
+ *   1. a bearer token (Authorization: Bearer …) — the native clients, on
+ *      api/* and RouteAccess::BASIC_ROUTES only (ignored elsewhere); a
  *      token that is present but not valid means "not signed in";
  *   2. a signed URL naming the reader — session-less assets only
  *      (RouteAccess::SIGNED_ROUTES);
- *   3. HTTP Basic — OPDS and its ePub links only (RouteAccess::BASIC_ROUTES);
- *   4. the web session (incl. the remember-me cookie) — web pages, and the
- *      web UI's own same-origin /api/v1 calls (App\Http\Middleware\ApiSession).
+ *   3. HTTP Basic — OPDS and its ePub links only (RouteAccess::BASIC_ROUTES):
+ *      a catalogue password, or (home network only) the account password;
+ *   4. the web session (incl. the per-browser remember-me cookie,
+ *      App\Auth\BrowserGuard) — web pages, and the web UI's own same-origin
+ *      /api/v1 calls (App\Http\Middleware\ApiSession). On the public address
+ *      only a sign-in that passed the second step counts
+ *      (App\Services\SecondStep).
  * Disabled users count as not signed in (their session is ended). The user
  * becomes the request's CurrentReader and the `web` guard's user (so
  * auth()->user(), @can and the gate see it). Then public routes pass,
@@ -51,6 +59,8 @@ class IdentifyReader
 {
     public const BASIC_REALM = 'Novarr';
 
+    public const CATALOGUE_PASSWORD_NEEDED = 'On this address the catalogue needs a catalogue password: make one on your Account page and use it with your sign-in name.';
+
     /** Request attribute holding the ApiToken a request authenticated with. */
     public const TOKEN_ATTRIBUTE = 'novarr.api_token';
 
@@ -67,7 +77,9 @@ class IdentifyReader
         $publicHost = PublicAddress::isPublicRequest($request);
 
         if (!AuthMode::required()) {
-            if ($publicHost && $access !== RouteAccess::PUBLIC) {
+            // Signing in and making accounts need sign-in on there too: a
+            // token or account made now would work the moment it is turned on.
+            if ($publicHost && ($access !== RouteAccess::PUBLIC || RouteAccess::needsSignInOn($route))) {
                 // Nobody is the owner here: the refusal page shows no one.
                 app()->instance(CurrentReader::class, CurrentReader::guest());
 
@@ -111,7 +123,11 @@ class IdentifyReader
     {
         $basicFailure = null;
 
-        $bearer = $request->bearerToken();
+        // Bearer tokens are the apps': the API, and the two routes HTTP Basic
+        // also opens (OPDS, the ePub download KOReader fetches). Anywhere
+        // else (the Account page, Confirm it's you) a bearer is ignored and
+        // only the browser's session counts.
+        $bearer = RouteAccess::acceptsBearer($request, $route) ? $request->bearerToken() : null;
         if ($bearer !== null) {
             $token = ApiToken::findActive($bearer);
             if ($token === null) {
@@ -128,13 +144,7 @@ class IdentifyReader
         }
 
         if (RouteAccess::acceptsBasic($route) && $request->getUser() !== null) {
-            $result = $this->credentials->attempt($request->getUser(), $request->getPassword(), $request->ip(), PublicAddress::isPublicRequest($request));
-            if ($result instanceof User) {
-                return $result;
-            }
-            $basicFailure = static::basicChallenge($result['error'], $result['status'] === 429 ? 429 : 401, $result['retry_after'] ?? null);
-
-            return null;
+            return $this->basic($request, $basicFailure);
         }
 
         if ($request->hasSession()) {
@@ -145,18 +155,42 @@ class IdentifyReader
             }
 
             $session = $request->session();
-            // Signed in just now by the remember-me cookie (its token was
-            // still current): this session starts now.
+            // Signed in just now by the remember-me cookie (its row was
+            // still live): this session starts now, with the row's second step.
             if ($guard->viaRemember()) {
-                $session->put(User::SESSION_SIGNED_IN_AT, $user->signInStamp());
+                $session->put(User::SESSION_SIGNED_IN_AT, $stamp = $user->signInStamp());
+                $row = $guard instanceof BrowserGuard ? $guard->recalledRow() : null;
+                if ($row !== null && $row->second_step_passed_at !== null) {
+                    $session->put(User::SESSION_SECOND_STEP_AT, $stamp);
+                }
+                app(BrowserSessions::class)->start($request, $user, $stamp);
             }
             $signedInAt = $session->get(User::SESSION_SIGNED_IN_AT);
 
             // Turned off, or signed out everywhere (password reset, turned
             // off) after this session signed in. Only this browser is signed
-            // out: logout() would also cycle the remember token and sign out
-            // the account's newer browsers.
+            // out (its own remember-me row goes; the others stay).
             if ($user->isDisabled() || !$user->sessionStillValid(is_numeric($signedInAt) ? (int) $signedInAt : null)) {
+                app(BrowserSessions::class)->end($request);
+                $guard->logoutCurrentDevice();
+
+                return null;
+            }
+
+            // The public address only counts a sign-in that passed the
+            // second step: a session from the home network (same hostname
+            // there), or from before the second step existed, is not signed
+            // in here. It is left as it is (it may still be valid at home).
+            if (SecondStep::requiredFor($request) && !$session->has(User::SESSION_SECOND_STEP_AT)) {
+                if ($guard instanceof BrowserGuard) {
+                    $guard->forgetForThisRequest();
+                }
+
+                return null;
+            }
+
+            // Signed out from another browser's Account page ("Sign out" on its row).
+            if (!app(BrowserSessions::class)->touch($request, $user)) {
                 $guard->logoutCurrentDevice();
 
                 return null;
@@ -164,6 +198,53 @@ class IdentifyReader
 
             return $user;
         }
+
+        return null;
+    }
+
+    /**
+     * HTTP Basic (OPDS and its ePub links). The password is a catalogue
+     * password (App\ApiToken kind catalogue) or, on the home network only,
+     * the account password. On the public address the account password is
+     * never even checked: 401 with the challenge.
+     */
+    private function basic(Request $request, ?Response &$basicFailure): ?User
+    {
+        $name = (string) $request->getUser();
+        $password = $request->getPassword();
+        $publicHost = PublicAddress::isPublicRequest($request);
+
+        if (ApiToken::looksLikeToken($password)) {
+            if (($refusal = Credentials::refusal($name, $request->ip(), $publicHost)) !== null) {
+                $basicFailure = static::basicChallenge($refusal['error'], 429, $refusal['retry_after'] ?? null);
+
+                return null;
+            }
+            $user = User::findForSignIn($name);
+            $token = ApiToken::findActive($password, ApiToken::KIND_CATALOGUE);
+            if ($user !== null && $token !== null && (int) $token->user_id === (int) $user->id && !$user->isDisabled()) {
+                $token->touchUsed();
+
+                return $user;
+            }
+            Credentials::recordFailure($name, $request->ip(), $publicHost);
+            Credentials::recordFailed($request, 'basic', $user, 'wrong');
+            $basicFailure = static::basicChallenge(Credentials::WRONG, 401);
+
+            return null;
+        }
+
+        if ($publicHost) {
+            $basicFailure = static::basicChallenge(self::CATALOGUE_PASSWORD_NEEDED, 401);
+
+            return null;
+        }
+
+        $result = $this->credentials->attempt($name, $password, $request->ip(), false, $request, 'basic');
+        if ($result instanceof User) {
+            return $result;
+        }
+        $basicFailure = static::basicChallenge($result['error'], $result['status'] === 429 ? 429 : 401, $result['retry_after'] ?? null);
 
         return null;
     }

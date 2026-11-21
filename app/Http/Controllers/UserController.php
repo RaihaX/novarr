@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\ApiToken;
+use App\AuthEvent;
 use App\Http\Controllers\Auth\LoginController;
 use App\Support\AccountRules;
 use App\Support\AuthMode;
@@ -32,7 +33,11 @@ class UserController extends Controller
         return view('settings.users', [
             'users' => User::orderByRaw('id = ? DESC', [$ownerId])->orderBy('name')->orderBy('id')->get(),
             'ownerId' => $ownerId,
-            'tokenCounts' => ApiToken::whereNull('revoked_at')->selectRaw('user_id, COUNT(*) AS n')->groupBy('user_id')->pluck('n', 'user_id'),
+            'tokenCounts' => ApiToken::whereNull('revoked_at')->where('kind', ApiToken::KIND_APP)->selectRaw('user_id, COUNT(*) AS n')->groupBy('user_id')->pluck('n', 'user_id'),
+            // Which second steps each account has set up.
+            'passkeyCounts' => \App\Passkey::selectRaw('user_id, COUNT(*) AS n')->groupBy('user_id')->pluck('n', 'user_id'),
+            'recoveryCounts' => \Illuminate\Support\Facades\DB::table('recovery_codes')->whereNull('used_at')->selectRaw('user_id, COUNT(*) AS n')->groupBy('user_id')->pluck('n', 'user_id'),
+            'browserCounts' => app(\App\Services\BrowserSessions::class)->counts(),
             'authOn' => AuthMode::required(),
             'authSetting' => AuthMode::setting(),
             'authForced' => AuthMode::forced(),
@@ -47,17 +52,20 @@ class UserController extends Controller
         $data = $request->validateWithBag('add', [
             'name' => 'required|string|max:80',
             'username' => $this->usernameRules(),
-            'password' => AccountRules::password(),
+            'email' => AccountRules::email(),
+            'password' => AccountRules::password(names: [$request->input('name'), $request->input('username'), $request->input('email')]),
         ], $this->messages());
 
         $user = new User();
         $user->forceFill([
             'name' => trim($data['name']),
             'username' => User::normaliseUsername($data['username']),
+            'email' => AccountRules::normaliseEmail($data['email'] ?? null),
             'role' => User::ROLE_READER,
             'password' => $data['password'],
             'password_set_at' => now(),
         ])->save();
+        AuthEvent::record(AuthEvent::ACCOUNT_CREATED, $request, (int) $user->id, ['via' => 'admin'], app(CurrentReader::class)->id());
 
         return redirect()->route('settings.users')->with('status', "Added {$user->name}. They sign in as “{$user->username}”.");
     }
@@ -69,12 +77,22 @@ class UserController extends Controller
         $data = $request->validateWithBag('edit' . $user->id, [
             'name' => 'required|string|max:80',
             'username' => $this->usernameRules($user->id),
+            'email' => AccountRules::email($user->id),
         ], $this->messages());
 
         $user->forceFill([
             'name' => trim($data['name']),
             'username' => User::normaliseUsername($data['username']),
+            'email' => AccountRules::normaliseEmail($data['email'] ?? null),
         ])->save();
+        $changed = array_values(array_filter([
+            $user->wasChanged('name') ? 'display name' : null,
+            $user->wasChanged('username') ? 'sign-in name' : null,
+            $user->wasChanged('email') ? 'email' : null,
+        ]));
+        if ($changed !== []) {
+            AuthEvent::record(AuthEvent::ACCOUNT_EDITED, $request, (int) $user->id, ['changed' => $changed], app(CurrentReader::class)->id());
+        }
 
         return redirect()->route('settings.users')->with('status', "Saved {$user->name}.");
     }
@@ -84,10 +102,11 @@ class UserController extends Controller
     {
         $user = User::findOrFail($id);
         $data = $request->validateWithBag('password' . $user->id, [
-            'password' => AccountRules::password(),
+            'password' => AccountRules::password(names: [$user->name, $user->username, $user->email]),
         ], ['password.required' => 'Type the new password.']);
 
         $user->setNewPassword($data['password']);
+        AuthEvent::record(AuthEvent::PASSWORD_SET, $request, (int) $user->id, [], app(CurrentReader::class)->id());
 
         // A reset ends the account's other sign-ins: someone who knew the
         // old password is out. Your own: this browser and your devices stay.
@@ -102,7 +121,25 @@ class UserController extends Controller
             : "New password set for {$user->name}. They are signed out everywhere.");
     }
 
-    public function toggleDisabled($id)
+    /**
+     * "Reset second step": the account's passkeys, authenticator app and
+     * recovery codes are removed, emailed codes are on again, and it is
+     * signed out everywhere (browsers and apps). For someone who lost
+     * their phone or passkey.
+     */
+    public function resetSecondStep(Request $request, $id)
+    {
+        $user = User::findOrFail($id);
+        $user->resetSecondStep();
+        AuthEvent::record(AuthEvent::SECOND_STEP_RESET, $request, (int) $user->id, [], app(CurrentReader::class)->id());
+        if ((int) $user->id === app(CurrentReader::class)->id() && AuthMode::required()) {
+            LoginController::signInHere($request, $user->fresh());
+        }
+
+        return redirect()->route('settings.users')->with('status', "Reset {$user->name}'s second step: their passkeys, authenticator app and recovery codes are removed, emailed codes are on, and they are signed out everywhere.");
+    }
+
+    public function toggleDisabled(Request $request, $id)
     {
         $user = User::findOrFail($id);
         if ($user->isOwner()) {
@@ -114,13 +151,14 @@ class UserController extends Controller
             $user->signOutEverywhere();
         }
         $user->forceFill(['disabled_at' => $user->isDisabled() ? null : now()])->save();
+        AuthEvent::record($user->isDisabled() ? AuthEvent::ACCOUNT_DISABLED : AuthEvent::ACCOUNT_ENABLED, $request, (int) $user->id, [], app(CurrentReader::class)->id());
 
         return redirect()->route('settings.users')->with('status', $user->isDisabled()
             ? "Turned off {$user->name}: they are signed out everywhere and cannot sign in."
             : "Turned {$user->name} back on.");
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         $user = User::findOrFail($id);
         if ($user->isOwner()) {
@@ -129,6 +167,7 @@ class UserController extends Controller
 
         $name = $user->name;
         $user->delete();
+        AuthEvent::record(AuthEvent::ACCOUNT_DELETED, $request, (int) $user->id, ['name' => $name, 'username' => $user->username], app(CurrentReader::class)->id());
 
         return redirect()->route('settings.users')->with('status', "Deleted {$name} and their reading history.");
     }
@@ -148,6 +187,9 @@ class UserController extends Controller
 
         $wasOn = AuthMode::required();
         AuthMode::store($on);
+        if ($on !== $wasOn) {
+            AuthEvent::record(AuthEvent::SIGN_IN_SWITCH, $request, null, ['on' => $on, 'via' => 'ui'], app(CurrentReader::class)->id());
+        }
 
         if ($on && !$wasOn) {
             // Whoever turned it on is the owner (with sign-in off every
@@ -173,6 +215,7 @@ class UserController extends Controller
             'name.required' => 'Enter a name.',
             'username.required' => 'Enter the name they sign in with.',
             'password.required' => 'Type a first password for them.',
+            'email.email' => AccountRules::EMAIL_FORMAT,
         ];
     }
 }
