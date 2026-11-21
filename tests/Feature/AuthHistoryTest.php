@@ -325,6 +325,27 @@ class AuthHistoryTest extends TestCase
         $this->assertSame(1, AuthEvent::count());
     }
 
+    public function test_the_retention_env_value(): void
+    {
+        $read = function (?string $value) {
+            $value === null ? putenv('NOVARR_AUTH_LOG_DAYS') : putenv('NOVARR_AUTH_LOG_DAYS=' . $value);
+            unset($_ENV['NOVARR_AUTH_LOG_DAYS'], $_SERVER['NOVARR_AUTH_LOG_DAYS']);
+            \Illuminate\Support\Env::enablePutenv();
+
+            return (require base_path('config/novarr.php'))['auth_log_days'];
+        };
+        try {
+            $this->assertSame(180, $read(null));
+            $this->assertSame(180, $read(''));
+            $this->assertSame(0, $read('0'));
+            $this->assertSame(30, $read('30'));
+            $this->assertSame(180, $read('forever'));
+        } finally {
+            putenv('NOVARR_AUTH_LOG_DAYS');
+            \Illuminate\Support\Env::enablePutenv();
+        }
+    }
+
     public function test_a_write_failure_never_breaks_signing_in(): void
     {
         $this->enableSignIn();

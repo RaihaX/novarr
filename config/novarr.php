@@ -173,7 +173,9 @@ return [
     | password_breach_check: refuse new passwords found in a data leak.
     |
     */
-    'auth_log_days' => (int) env('NOVARR_AUTH_LOG_DAYS', 180),
+    // Unset or empty = 180 (an empty line copied from .env.example must
+    // not mean "forever").
+    'auth_log_days' => is_numeric($days = env('NOVARR_AUTH_LOG_DAYS')) ? max(0, (int) $days) : 180,
     // New passwords are checked against Have I Been Pwned's range API
     // (App\Services\BreachedPasswords; only 5 characters of the SHA-1 are
     // sent). NOVARR_PASSWORD_BREACH_CHECK=off turns it off; default on.

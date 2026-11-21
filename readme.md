@@ -133,6 +133,7 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 - **Each reader has their own progress** — read marks, reading position, highlights and stats are kept per account.
 - **Invite by email** — type a name and an email; the person opens the link, picks a password and is signed in. The email also links to the Android app when one is published.
 - **Link a Kindle with a code** — the KOReader plugin shows a 6-character code that you enter on the website; no typing passwords on an e-reader.
+- **Sign-in history and alerts** — every sign-in, failed attempt and account change is logged (Settings → Users → Sign-in history); each reader sees their own recent sign-ins and signed-in browsers, and gets an email when their account is signed in to from a new device.
 - See [Accounts and sign-in](#accounts-and-sign-in).
 
 ### Apps & API
@@ -362,6 +363,9 @@ Most operational settings are editable from the **Settings** page (stored in `ap
 | `TRUSTED_PROXIES` | Proxies whose `X-Forwarded-*` headers are trusted (nginx / Tailscale / the Cloudflare Tunnel connector in front) | `*` |
 | `NOVARR_AUTH` | Force sign-in `on` or `off`, overriding the switch in Settings → Users (which is then shown locked); see [Accounts and sign-in](#accounts-and-sign-in) | — (use the switch) |
 | `NOVARR_PUBLIC_HOSTS` / `NOVARR_PUBLIC_URL` | Hostnames published on the internet (see [Publishing on the internet with a Cloudflare Tunnel](#publishing-on-the-internet-with-a-cloudflare-tunnel)); empty = off | — / `https://` + first host |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile keys: the human check on the public address's sign-in and invite forms (see [Publishing on the internet](#publishing-on-the-internet-with-a-cloudflare-tunnel)); either empty = off | — |
+| `NOVARR_PASSWORD_BREACH_CHECK` | `off` stops refusing new passwords found in a data leak (Have I Been Pwned range API; see [Accounts and sign-in](#accounts-and-sign-in)) | on |
+| `NOVARR_AUTH_LOG_DAYS` | Days of sign-in history kept; `0` = forever | `180` |
 | `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER` | Must exceed the 3600 s job timeout | `3700` |
 
 ### DB-backed settings (Settings UI)
@@ -399,6 +403,7 @@ Novarr is **scheduler-driven**. Add the single Laravel cron entry and everything
 | Priority TOC refresh | hourly | `novel:toc --frequent-only` — novels flagged "hourly checks" |
 | Chapter download | every 10 min | `novel:chapter` — download newly-found pending chapters |
 | Completion verify | daily @ 06:00 | `novel:verify-completion` — mark fully-downloaded series complete |
+| Sign-in history prune | daily @ 04:35 | `novarr:prune-auth-log` — drop history older than `NOVARR_AUTH_LOG_DAYS` (180 days) |
 | Summary email | daily @ `summary_time` | `novel:email-summary` — recap since the previous summary (`summary_last_sent_at`): continue-reading block, headline figures, one row per updated novel, completed novels, and the attention list when it has changed (`summary_attention_hash`); a table-based brand email with a text part, built to survive Gmail/Outlook |
 
 Jobs queued from the web UI use the **database** queue (`jobs` table); failures land in `failed_jobs` and are inspectable/retryable from the **Health** page. For instant pickup, run a **persistent worker** alongside the cron (on bare metal use a systemd unit; the Docker stacks rely on the scheduler's every-minute drain):
@@ -438,7 +443,8 @@ Run `php artisan queue:restart` after each deploy so the worker reloads new code
 | `novel:info` | Print novel info, chapter counts, completion % |
 | `queue:health-check` | Report queue system health |
 | `novarr:auth {on\|off\|status}` | Turn "Require sign-in" on or off, or show its state and the public address |
-| `novarr:password {username?} {--password=}` | Set an account's password (prompts when `--password` is not given); the way back in if you are locked out |
+| `novarr:password {username?} {--password=}` | Set an account's password (prompts when `--password` is not given; same rules as the website); the way back in if you are locked out |
+| `novarr:prune-auth-log` | Delete sign-in history older than `NOVARR_AUTH_LOG_DAYS` and forget signed-in browsers past the remember-me lifetime (daily at 04:35) |
 
 Any of these can also be run from the **Commands** page in the UI with live job-status polling, or from the command palette ("scrape toc <novel>"). The destructive ones (normalize, fix, clean, cleaner) run as a **dry run first** from the novel page and ask before applying.
 
@@ -471,6 +477,20 @@ The rule is enforced on the server for every route; a route that is not explicit
 
 Settings → Users → **Invite a reader**: enter a name and an email. Novarr emails a link (valid 7 days, shown once on screen as well) where the person picks a sign-in name and password. Pending invites can be resent (the old link stops working) or cancelled. Readers can sign in with their name or their email. Disabling an account stops its sessions and app tokens at once; deleting it removes its read state.
 
+**Passwords**
+
+Every new or changed password (accepting an invite, the Account page, Settings → Users, "Add without an invite", `php artisan novarr:password`) must be 12 to 255 characters, with no rules about which characters, and must not be the account's display name, sign-in name or email. It is also refused when it appears in a known data leak: Novarr asks [Have I Been Pwned](https://haveibeenpwned.com/Passwords)'s range API, sending only the first 5 characters of the password's SHA-1 (with padding on), so neither the password nor its hash leaves the server. If that service cannot be reached within 3 seconds the password is allowed (a warning goes to the log, at most once an hour). `NOVARR_PASSWORD_BREACH_CHECK=off` turns the check off. Existing passwords keep working; nobody is asked to change one.
+
+**Sign-in history**
+
+Settings → Users → **Sign-in history** (admin, home network only) lists, newest first, every sign-in and sign-out, failed attempt, refusal by a limit, account lock, password change or reset, account created / edited / turned off / deleted, invite sent / resent / cancelled / accepted, app or device signed in or out, and the sign-in switch (also when changed with `novarr:auth`). Each line shows the account, the address (the visitor's, through `TRUSTED_PROXIES`), whether it came in on the public address, and the browser or app. Filter by account or by sign-ins / failures / admin actions. A failed attempt names the account only when the name matches one. Passwords, tokens and invite links are never stored. History older than 180 days is dropped daily (`NOVARR_AUTH_LOG_DAYS`, `0` = keep forever).
+
+Each reader's **Account** page shows their own **Recent sign-ins** (the last 20, failed ones included) and their **Signed-in browsers** (device, address, public address or home network, when it signed in and was last active, "This browser"), with **Sign out all other browsers**: every other browser is signed out, remember-me included; this browser and the apps stay. Settings → Users shows "N browsers" next to "N devices" for each account.
+
+**New sign-in email**
+
+When an account is signed in to with its password (the website or an app) from a device it has not used before, Novarr emails the account's address: when, which device, from which address, and whether it was the public address. A browser is recognised by a random id in a long-lived cookie, an app by the device id it sends; only their SHA-256 is kept (50 per account). The first device of an account (the browser an invite is accepted on, or the first sign-in after this was installed) sends nothing, nor does an account without an email, nor a server whose mail is not set up. The email goes out after the sign-in has answered, so a slow mail server never holds it up.
+
 **Devices**
 
 - **Apps** sign in with name and password and keep a token; each one is listed under **Account → Signed-in apps and devices** with a Revoke button.
@@ -479,7 +499,7 @@ Settings → Users → **Invite a reader**: enter a name and an email. Novarr em
 
 **Details**
 
-- Sign-in attempts are limited to 5 a minute per name and address.
+- Sign-in attempts are limited to 5 a minute per name and address. On the public address there are two more limits: 20 attempts per address per 10 minutes, and a per-account lock (see [Publishing on the internet](#publishing-on-the-internet-with-a-cloudflare-tunnel)).
 - Cover and manga page image URLs are signed per reader, so they load in `<img>` tags and in the apps without a session.
 - Pages and API responses that contain reader state are cached per account (`Cache-Control: private`, per-reader `ETag`).
 - To reach Novarr from outside your network, see [Publishing on the internet with a Cloudflare Tunnel](#publishing-on-the-internet-with-a-cloudflare-tunnel): admin features are switched off on the public address.
@@ -701,6 +721,9 @@ Novarr can be reached from the internet at one hostname (say `read.example.com`)
    # the connector's address (127.0.0.1 if cloudflared runs on the Novarr box;
    # keep 127.0.0.1 in the list if Tailscale Serve proxies to it):
    TRUSTED_PROXIES=192.168.1.50,127.0.0.1
+   # optional: Cloudflare's human check on the sign-in and invite forms
+   # TURNSTILE_SITE_KEY=…
+   # TURNSTILE_SECRET_KEY=…
    ```
 
    then `php artisan config:cache` (deploy.sh does it) and check `php artisan novarr:auth status` — it shows the public address and warns while sign-in is off.
@@ -712,6 +735,8 @@ What changes **on the public address only**:
 - **HTTPS only:** links are generated as `https://read.example.com/…`, session and remember-me cookies are `Secure`, and responses carry `Strict-Transport-Security: max-age=31536000`.
 - **Not for search engines:** `X-Robots-Tag: noindex, nofollow, noarchive` on every response (and `robots.txt` disallows everything on every host), plus `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and `X-Frame-Options: DENY`.
 - **Tighter limits:** on top of the per-name sign-in limit, at most 20 credential attempts per IP per 10 minutes across the web login, `POST /api/v1/auth/token`, OPDS (HTTP Basic) and invite acceptance (429 with `Retry-After`). This relies on `TRUSTED_PROXIES` naming the connector, so the visitor's address (from `X-Forwarded-For`) is the one counted. `CF-Connecting-IP` is not used.
+- **Account lock:** 10 wrong passwords for one account within 15 minutes, from any addresses (home network included), lock that account's password sign-in on the public address for 15 minutes — web login, `POST /api/v1/auth/token` and OPDS alike (429 "Too many sign-in attempts. Try again in N seconds.", `Retry-After`). The home network is never locked: signing in there works throughout and lifts the lock. Names that match no account have no lock and answer as before. The lock is logged in the sign-in history.
+- **Human check (optional):** with `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` set (a [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) widget for the public hostname), the sign-in and invite forms on the public address show Cloudflare's check and Novarr verifies the answer with Cloudflare before looking at the password. A missing or wrong answer gets "Please complete the check below and try again." and counts as a failed attempt; if Cloudflare cannot be reached the form says "The sign-in check is not available right now. Try again in a minute." (it fails closed). The home network never shows it (the forms work without JavaScript there), and the apps, OPDS and Kindle pairing never need it.
 
 Invite links and the Android-app link always use the public address once it is set, whichever address you send the invite from.
 
