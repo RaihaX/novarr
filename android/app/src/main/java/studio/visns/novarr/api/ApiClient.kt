@@ -292,22 +292,31 @@ class ApiClient(
         return SignInAnswer.Signed(decode(AuthTokenResponse.serializer(), answer))
     }
 
-    /** Emails a sign-in code for [challenge]: 204; 404 `challenge_expired`, 429 `throttled` throw Http. */
-    suspend fun sendSignInCode(challenge: String) {
-        val body = buildJsonObject { put("challenge", challenge) }
+    /**
+     * Emails a sign-in code for [challenge]: 204; 404 `challenge_expired`,
+     * 429 `throttled` throw Http. [device] must be the one sent with
+     * `POST auth/token` (another or none answers 404).
+     */
+    suspend fun sendSignInCode(challenge: String, device: DeviceIdentity) {
+        val body = buildJsonObject {
+            put("challenge", challenge)
+            put("device_id", device.id)
+        }
         execute(prepare("POST", "auth/token/email-code", body = body, authenticated = false), reportUnauthorized = false)
     }
 
     /**
      * Finishes a sign-in with a code; [method] is "totp", "email" or
      * "recovery". 422 `wrong_code` (with `tries_left`), 404
-     * `challenge_expired` and 429 throw Http.
+     * `challenge_expired` and 429 throw Http. [device] must be the one sent
+     * with `POST auth/token` (another or none answers 404).
      */
-    suspend fun finishSignIn(challenge: String, method: String, code: String): AuthTokenResponse {
+    suspend fun finishSignIn(challenge: String, method: String, code: String, device: DeviceIdentity): AuthTokenResponse {
         val body = buildJsonObject {
             put("challenge", challenge)
             put("method", method)
             put("code", code)
+            put("device_id", device.id)
         }
         return decode(
             AuthTokenResponse.serializer(),

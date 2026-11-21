@@ -107,7 +107,7 @@ class SignInFlow(
         _secondStep.value = state.copy(sending = true, error = null)
         stepJob = scope.launch {
             try {
-                client(state.server, null).sendSignInCode(state.challenge)
+                client(state.server, null).sendSignInCode(state.challenge, device())
                 updateIfSame(state) { it.copy(sending = false, emailSentAt = clock(), error = null) }
             } catch (e: Exception) {
                 e.rethrowIfCancellation()
@@ -124,7 +124,7 @@ class SignInFlow(
         _secondStep.value = state.copy(submitting = true, error = null)
         stepJob = scope.launch {
             val response = try {
-                client(state.server, null).finishSignIn(state.challenge, state.method.wire, SignInCode.wire(state.method, typed))
+                client(state.server, null).finishSignIn(state.challenge, state.method.wire, SignInCode.wire(state.method, typed), device())
             } catch (e: Exception) {
                 e.rethrowIfCancellation()
                 fail(state, SecondStepMessages.submitFailed(ApiError.from(e)))

@@ -71,25 +71,25 @@ class SecondStepApiTest {
     @Test
     fun emailCodeRequest() = runTest {
         val server = FakeServer { 204 to "" }
-        ApiClient("http://host", server.client, device, token = "t").sendSignInCode(challenge)
+        ApiClient("http://host", server.client, device, token = "t").sendSignInCode(challenge, device)
         val request = server.requests.single()
         assertEquals("POST", request.method)
         assertEquals("/api/v1/auth/token/email-code", request.url.encodedPath)
         assertNull(request.header("Authorization"))
-        assertEquals("""{"challenge":"$challenge"}""", server.bodies.single())
+        assertEquals("""{"challenge":"$challenge","device_id":"a_TESTDEVICE123"}""", server.bodies.single())
     }
 
     @Test
     fun secondStepRequest() = runTest {
         val server = FakeServer { 200 to """{"token":"tok","user":{"id":2,"username":"reader","role":"reader"}}""" }
-        val response = ApiClient("http://host", server.client, device, token = "t").finishSignIn(challenge, "totp", "123456")
+        val response = ApiClient("http://host", server.client, device, token = "t").finishSignIn(challenge, "totp", "123456", device)
         assertEquals("tok", response.token)
         assertEquals(2, response.user.id)
         val request = server.requests.single()
         assertEquals("POST", request.method)
         assertEquals("/api/v1/auth/token/second-step", request.url.encodedPath)
         assertNull(request.header("Authorization"))
-        assertEquals("""{"challenge":"$challenge","method":"totp","code":"123456"}""", server.bodies.single())
+        assertEquals("""{"challenge":"$challenge","method":"totp","code":"123456","device_id":"a_TESTDEVICE123"}""", server.bodies.single())
     }
 
     @Test
@@ -97,7 +97,7 @@ class SecondStepApiTest {
         val server = FakeServer {
             422 to """{"code":"wrong_code","message":"That code is not right. Check it and try again.","tries_left":3}"""
         }
-        val error = runCatching { ApiClient("http://host", server.client, device).finishSignIn(challenge, "email", "000000") }
+        val error = runCatching { ApiClient("http://host", server.client, device).finishSignIn(challenge, "email", "000000", device) }
             .exceptionOrNull() as ApiError.Http
         assertEquals(422, error.status)
         assertEquals(AuthCodes.WRONG_CODE, error.code)
@@ -110,8 +110,8 @@ class SecondStepApiTest {
         var reported = 0
         val client = ApiClient("http://host", server.client, device, token = "t") { reported++ }
         runCatching { client.signIn("a", "b", device) }
-        runCatching { client.sendSignInCode(challenge) }
-        runCatching { client.finishSignIn(challenge, "recovery", "abcde-fghij") }
+        runCatching { client.sendSignInCode(challenge, device) }
+        runCatching { client.finishSignIn(challenge, "recovery", "abcde-fghij", device) }
         runCatching { client.startPairing(device) }
         runCatching { client.pairingStatus("s3cret") }
         assertEquals(0, reported)

@@ -91,7 +91,7 @@ class SignInFlowTest {
         h.flow.submitCode()
         runCurrent()
         assertEquals("auth/token/second-step", path(h.server.requests[1]))
-        assertEquals("""{"challenge":"$challenge","method":"totp","code":"123456"}""", h.server.bodies[1])
+        assertEquals("""{"challenge":"$challenge","method":"totp","code":"123456","device_id":"a_TESTDEVICE123"}""", h.server.bodies[1])
         // The same completion as a password sign-in, with the name typed on the form.
         assertEquals("tok", h.completed.single().second.token)
         assertEquals("reader", h.completed.single().third)
@@ -118,7 +118,9 @@ class SignInFlowTest {
         h.flow.sendEmailCode()
         runCurrent()
         assertEquals("auth/token/email-code", path(h.server.requests[1]))
-        assertEquals(challenge, body(h.server, 1)["challenge"]?.jsonPrimitive?.content)
+        assertEquals("""{"challenge":"$challenge","device_id":"a_TESTDEVICE123"}""", h.server.bodies[1])
+        // The same device id as on auth/token, or the server answers 404.
+        assertEquals(body(h.server, 0)["device_id"], body(h.server, 1)["device_id"])
         val sent = h.flow.secondStep.value!!
         assertNotNull(sent.emailSentAt)
         // Too soon for "Send again".
@@ -133,7 +135,7 @@ class SignInFlowTest {
         h.flow.updateCode("654321")
         h.flow.submitCode()
         runCurrent()
-        assertEquals("email", body(h.server, 3)["method"]?.jsonPrimitive?.content)
+        assertEquals("""{"challenge":"$challenge","method":"email","code":"654321","device_id":"a_TESTDEVICE123"}""", h.server.bodies[3])
         assertEquals(1, h.completed.size)
     }
 
@@ -146,7 +148,7 @@ class SignInFlowTest {
         assertEquals("abcdefghij", h.flow.code)
         h.flow.submitCode()
         runCurrent()
-        assertEquals("""{"challenge":"$challenge","method":"recovery","code":"abcde-fghij"}""", h.server.bodies[1])
+        assertEquals("""{"challenge":"$challenge","method":"recovery","code":"abcde-fghij","device_id":"a_TESTDEVICE123"}""", h.server.bodies[1])
     }
 
     @Test
