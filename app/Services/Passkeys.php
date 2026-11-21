@@ -284,19 +284,26 @@ class Passkeys
             return null;
         }
 
-        // The counter moves forward atomically: a replayed assertion (same
-        // counter) racing this one cannot also pass.
-        // (An authenticator that never counts stays at 0: the single-use
-        // challenge is what stops a replay then.)
-        $query = Passkey::whereKey($passkey->id);
-        (int) $checked->counter === 0 ? $query->where('counter', 0) : $query->where('counter', '<', (int) $checked->counter);
-        $moved = $query->toBase()->update([
-                'counter' => (int) $checked->counter,
-                'backup_status' => $checked->backupStatus,
-                'last_used_at' => now(),
-            ]);
-        if ($moved !== 1) {
-            return null;
+        $counter = (int) $checked->counter;
+        $values = ['counter' => $counter, 'backup_status' => $checked->backupStatus, 'last_used_at' => now()];
+        if ($counter === 0) {
+            // An authenticator that never counts (synced passkeys) stays at
+            // 0: the single-use challenge is what stops a replay then. This
+            // update may change nothing (the same values in the same second),
+            // and MySQL/MariaDB report changed rows, not matched ones: so the
+            // stored counter is asked, never the affected rows.
+            Passkey::whereKey($passkey->id)->where('counter', 0)->toBase()->update($values);
+            if (!Passkey::whereKey($passkey->id)->where('counter', 0)->exists()) {
+                return null;
+            }
+        } else {
+            // A counter that moves forward always changes the row, so one
+            // affected row means this request moved it: a replayed assertion
+            // (same counter) racing this one cannot also pass.
+            $moved = Passkey::whereKey($passkey->id)->where('counter', '<', $counter)->toBase()->update($values);
+            if ($moved !== 1) {
+                return null;
+            }
         }
 
         return $passkey->refresh();

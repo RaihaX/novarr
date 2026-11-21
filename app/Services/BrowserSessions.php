@@ -155,6 +155,11 @@ class BrowserSessions
             'user_agent' => AuthEvent::truncate($request->userAgent()),
             'public' => PublicAddress::isPublicRequest($request),
         ]);
+        // MySQL/MariaDB report changed rows: the same values in the same
+        // second change nothing although the row is there. Ask for the row.
+        if ($updated === 0 && DB::table('browser_sessions')->where('session_hash', $hash)->where('user_id', $user->id)->exists()) {
+            $updated = 1;
+        }
         if ($updated === 0) {
             if ($session->has(self::SESSION_ROW)) {
                 // It had a row, and someone signed it out.

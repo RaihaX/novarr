@@ -101,9 +101,21 @@ class AdminSecondStepTest extends TestCase
         $this->enableSignIn();
         $sam = $this->makeReader();
         $kim = $this->makeReader('kim', 'Kim');
-        // Older data: the same address in two cases (the database's unique index is case-sensitive on SQLite).
+        // Older data: the same address in two cases. Only SQLite can hold it
+        // (its unique index on users.email is case-sensitive); MySQL/MariaDB's
+        // index (case-insensitive collation) refuses it outright.
         DB::table('users')->where('id', $sam->id)->update(['email' => 'shared@example.test']);
-        DB::table('users')->where('id', $kim->id)->update(['email' => 'Shared@Example.test']);
+        try {
+            DB::table('users')->where('id', $kim->id)->update(['email' => 'Shared@Example.test']);
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            $this->assertNotSame('sqlite', DB::connection()->getDriverName());
+            $this->assertNull(DB::table('users')->where('id', $kim->id)->value('email'));
+            // So nothing is shared, and status reports nothing.
+            $this->artisan('novarr:auth status')->doesntExpectOutputToContain('accounts share the email')->assertExitCode(0);
+            $this->asNobody()->post('/login', ['username' => 'shared@example.test', 'password' => self::READER_PASSWORD])->assertRedirect(route('home'));
+
+            return;
+        }
 
         $this->asNobody()->post('/login', ['username' => 'shared@example.test', 'password' => self::READER_PASSWORD])
             ->assertSessionHasErrors(['username' => \App\Services\Credentials::WRONG]);

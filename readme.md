@@ -524,7 +524,7 @@ When an account is signed in to with its password (the website or an app) from a
 **Details**
 
 - Sign-in attempts are limited to 5 a minute per name and address. On the public address there are two more limits: 20 attempts per address per 10 minutes, and a per-account lock (see [Publishing on the internet](#publishing-on-the-internet-with-a-cloudflare-tunnel)). Every 429 says how long to wait and carries `Retry-After`.
-- Emails are unique, ignoring case (Settings → Users → Edit sets or changes one). Signing in with an email that two older accounts share is refused (their sign-in names still work); `php artisan novarr:auth status` lists such addresses.
+- Emails are unique, ignoring case (Settings → Users → Edit sets or changes one). On SQLite, whose unique index on emails is case-sensitive, older data can hold one address twice in different cases (MySQL/MariaDB's index already refuses that): signing in with such an address is then refused (the sign-in names still work), and `php artisan novarr:auth status` lists it.
 - Cover and manga page image URLs are signed per reader, so they load in `<img>` tags and in the apps without a session.
 - Pages and API responses that contain reader state are cached per account (`Cache-Control: private`, per-reader `ETag`).
 - To reach Novarr from outside your network, see [Publishing on the internet with a Cloudflare Tunnel](#publishing-on-the-internet-with-a-cloudflare-tunnel): admin features are switched off on the public address.

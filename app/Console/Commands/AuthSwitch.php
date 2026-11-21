@@ -81,7 +81,9 @@ class AuthSwitch extends Command
             $this->warn('A public address is set (NOVARR_PUBLIC_HOSTS) but sign-in is off: the public address refuses every page until sign-in is on.');
         }
 
-        // Sign-in by email is refused for an address two accounts share.
+        // Sign-in by email is refused for an address two accounts share
+        // (in different cases: only SQLite's case-sensitive unique index
+        // lets that exist; MySQL/MariaDB's refuses it).
         $shared = User::whereNotNull('email')->where('email', '!=', '')
             ->selectRaw('LOWER(email) AS address, COUNT(*) AS n')->groupByRaw('LOWER(email)')->havingRaw('COUNT(*) > 1')
             ->pluck('n', 'address');
