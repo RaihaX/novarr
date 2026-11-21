@@ -60,6 +60,23 @@
                 <p class="form-text auth-note">You stay signed in on this device until you sign out.</p>
                 <p class="form-text auth-note">Forgot your password? Ask the person who runs this server to set a new one.</p>
             </form>
+
+            {{-- One step instead of the password (and the sign-in code):
+                 resources/js/passkeys.js. Browsers offer passkeys only on
+                 https, so a plain-http address says so instead. --}}
+            @if(\App\Services\Passkeys::available(request()))
+                <div class="auth-passkey" id="passkeySignIn" data-passkey-signin
+                     data-options-url="{{ route('login.passkey.options') }}" data-verify-url="{{ route('login.passkey.verify') }}">
+                    <p class="auth-or"><span>or</span></p>
+                    <div class="alert alert-danger" role="alert" data-passkey-error hidden></div>
+                    <button type="button" class="btn btn-secondary w-100" data-passkey-button hidden>
+                        <x-icon name="key" :size="14" /> Sign in with a passkey
+                    </button>
+                    <p class="form-text auth-note" data-passkey-unsupported hidden>This browser cannot use passkeys.</p>
+                </div>
+            @else
+                <p class="form-text auth-note" id="passkeyUnavailable">{{ \App\Services\Passkeys::UNAVAILABLE_MESSAGE }}</p>
+            @endif
         </div>
     </div>
     <p class="auth-help">No account? Ask the person who runs this Novarr to invite you.</p>

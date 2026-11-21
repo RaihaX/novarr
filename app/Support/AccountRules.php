@@ -38,6 +38,31 @@ final class AccountRules
         ];
     }
 
+    public const EMAIL_FORMAT = 'That does not look like an email address.';
+
+    public const EMAIL_TAKEN = 'Another account already has that email.';
+
+    /** An optional email, unique among accounts (case-insensitive; except $ignoreId). */
+    public static function email(?int $ignoreId = null): array
+    {
+        return [
+            'nullable', 'string', 'max:255', 'email',
+            function ($attribute, $value, $fail) use ($ignoreId) {
+                if (User::emailTaken($value, $ignoreId)) {
+                    $fail(self::EMAIL_TAKEN);
+                }
+            },
+        ];
+    }
+
+    /** Emails are stored lowercase (null when empty). */
+    public static function normaliseEmail(?string $email): ?string
+    {
+        $email = strtolower(trim((string) $email));
+
+        return $email === '' ? null : $email;
+    }
+
     /** The shortest new password. */
     public const PASSWORD_MIN = 12;
 

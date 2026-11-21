@@ -71,6 +71,15 @@ class TurnstileTest extends TestCase
         });
     }
 
+    /** The reader, with an authenticator (so a public sign-in goes on to the second step). */
+    protected function makeReader(string $username = 'sam', string $name = 'Sam'): User
+    {
+        $user = $this->makeReaderAccount($username, $name);
+        $this->giveAuthenticator($user);
+
+        return $user;
+    }
+
     private function signIn(string $host, array $extra = [], string $password = self::READER_PASSWORD)
     {
         return $this->asNobody()->from($host . '/login')->post($host . '/login', ['username' => 'sam', 'password' => $password] + $extra);
@@ -85,7 +94,8 @@ class TurnstileTest extends TestCase
         $page = $this->asNobody()->get(self::PUBLIC . '/login')->assertOk()->getContent();
         $this->assertStringNotContainsString('challenges.cloudflare.com', $page);
         $this->assertStringNotContainsString('cf-turnstile', $page);
-        $this->signIn(self::PUBLIC)->assertRedirect(route('home'));
+        // The password is right: on to the second step (no check asked).
+        $this->assertStringEndsWith('/login/second-step', $this->signIn(self::PUBLIC)->headers->get('Location'));
         Http::assertNothingSent();
 
         // One key alone is still off.
@@ -118,7 +128,11 @@ class TurnstileTest extends TestCase
         $this->makeReader();
         $this->siteverify(true);
 
-        $this->signIn(self::PUBLIC, [Turnstile::FIELD => 'good-token'])->assertRedirect(route('home'));
+        // The check passed and the password is right: the second step follows
+        // (it never shows the human check: that stays on the password form).
+        $next = $this->signIn(self::PUBLIC, [Turnstile::FIELD => 'good-token']);
+        $this->assertStringEndsWith('/login/second-step', $next->headers->get('Location'));
+        $this->assertStringNotContainsString('cf-turnstile', $this->withBrowser($this->cookiesOf($next))->get(self::PUBLIC . '/login/second-step')->assertOk()->getContent());
 
         Http::assertSent(function (HttpRequest $request) {
             $this->assertSame(Turnstile::VERIFY_URL, $request->url());
@@ -189,8 +203,10 @@ class TurnstileTest extends TestCase
         // The home network: the form works as before, without JavaScript.
         $this->signIn(self::LAN)->assertRedirect(route('home'));
         // Apps and e-readers on the public address.
-        $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])->assertOk();
-        $this->asNobody()->withHeader('Authorization', 'Basic ' . base64_encode('sam:' . self::READER_PASSWORD))->get(self::PUBLIC . '/opds')->assertOk();
+        $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])
+            ->assertStatus(401)->assertJsonPath('code', 'second_step_required');
+        $catalogue = \App\ApiToken::issue(\App\User::findByUsername('sam'), 'KOReader', null, \App\ApiToken::KIND_CATALOGUE)[1];
+        $this->asNobody()->withHeader('Authorization', 'Basic ' . base64_encode('sam:' . $catalogue))->get(self::PUBLIC . '/opds')->assertOk();
         $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/pairings', ['device_name' => 'Kindle'])->assertStatus(201);
 
         Http::assertNothingSent();
@@ -227,7 +243,9 @@ class TurnstileTest extends TestCase
             ->assertSessionHasErrors(['turnstile' => Turnstile::UNAVAILABLE_MESSAGE]);
 
         $this->siteverify(true);
-        $this->asNobody()->post(self::PUBLIC . '/invite/' . $token, $form + [Turnstile::FIELD => 'good'])->assertRedirect(route('home'));
+        // Made; on the public address the new account then signs in with the second step.
+        $made = $this->asNobody()->post(self::PUBLIC . '/invite/' . $token, $form + [Turnstile::FIELD => 'good']);
+        $this->assertStringEndsWith('/login/second-step', $made->headers->get('Location'));
         $this->assertNotNull(User::where('username', 'sam.lee')->first());
     }
 

@@ -36,8 +36,11 @@ return [
     */
 
     'guards' => [
+        // App\Auth\BrowserGuard: the session guard with per-browser
+        // remember-me (App\Services\RememberTokens). `remember` is the
+        // cookie's lifetime: the hard maximum of a row (a year).
         'web' => [
-            'driver' => 'session',
+            'driver' => 'novarr',
             'provider' => 'users',
             // Web sign-in is always remembered, for a year (minutes).
             'remember' => 525600,

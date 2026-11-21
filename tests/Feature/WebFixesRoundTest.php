@@ -202,11 +202,14 @@ class WebFixesRoundTest extends TestCase
         $this->assertStringContainsString('initConfirmForms();', file_get_contents(resource_path('js/app.js')));
     }
 
-    public function test_the_devices_empty_state_names_android_and_kindle(): void
+    public function test_the_devices_empty_state_is_device_neutral(): void
     {
+        // Second step (phase 2): the texts no longer say apps use the password.
         $owner = $this->enableSignIn();
-        $this->withBrowser($this->webSignIn($owner->username, self::OWNER_PASSWORD))->get(route('account'))->assertOk()
-            ->assertSee('The Android and iOS apps sign in with your name and password; a Kindle is linked with a code.');
+        $page = $this->withBrowser($this->webSignIn($owner->username, self::OWNER_PASSWORD))->get(route('account'))->assertOk();
+        $page->assertSee('No apps or devices are signed in yet. Sign in from the app, or link it with a code (Link a device, above).');
+        $page->assertSee('On the device, choose Link with a code: it shows a 6-character code. Type it here.');
+        $page->assertDontSee('sign in with your name and password');
     }
 
     // ---- 6. Manga look-up -------------------------------------------------------

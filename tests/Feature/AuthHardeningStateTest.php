@@ -52,7 +52,7 @@ class AuthHardeningStateTest extends TestCase
         Http::fake(['challenges.cloudflare.com/*' => Http::response(['success' => true])]);
 
         $this->asNobody()->get('http://read.example.com/login')->assertSee('cf-turnstile', false);
-        $public = $this->asNobody()->post('http://read.example.com/login', ['username' => 'sam', 'password' => self::READER_PASSWORD, Turnstile::FIELD => 'ok']);
+        $public = $this->publicWebSignIn('sam', self::READER_PASSWORD, 'http://read.example.com', null, [Turnstile::FIELD => 'ok']);
         $public->assertRedirect();
 
         // The next request on the same application, on the home network.

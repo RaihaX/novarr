@@ -38,6 +38,32 @@ class AuthEvent extends Model
 
     public const SIGN_OUT = 'sign_out';
 
+    // The second step (App\Services\SecondStep)
+    public const SECOND_STEP_PASSED = 'second_step_passed';
+
+    public const SECOND_STEP_FAILED = 'second_step_failed';
+
+    public const SIGN_IN_CODE_SENT = 'sign_in_code_sent';
+
+    public const RECOVERY_CODE_USED = 'recovery_code_used';
+
+    public const CONFIRM_FAILED = 'confirm_failed';
+
+    // Own sign-in steps and passwords (Account page)
+    public const METHOD_ADDED = 'second_step_added';
+
+    public const METHOD_REMOVED = 'second_step_removed';
+
+    public const RECOVERY_CODES_MADE = 'recovery_codes_made';
+
+    public const EMAIL_CODES_SWITCHED = 'email_codes_switched';
+
+    public const CATALOGUE_PASSWORD_CREATED = 'catalogue_password_created';
+
+    public const CATALOGUE_PASSWORD_REVOKED = 'catalogue_password_revoked';
+
+    public const BROWSER_SIGNED_OUT = 'browser_signed_out';
+
     // Own account
     public const PASSWORD_CHANGED = 'password_changed';
 
@@ -66,6 +92,8 @@ class AuthEvent extends Model
 
     public const SIGN_IN_SWITCH = 'sign_in_switch';
 
+    public const SECOND_STEP_RESET = 'second_step_reset';
+
     // Apps and devices
     public const TOKEN_ISSUED = 'token_issued';
 
@@ -73,12 +101,12 @@ class AuthEvent extends Model
 
     /** The filter groups of the history page (an event may be in none: it shows under "All"). */
     public const GROUPS = [
-        'sign-ins' => [self::SIGN_IN, self::SIGN_OUT],
-        'failures' => [self::SIGN_IN_FAILED, self::RATE_LIMITED, self::ACCOUNT_LOCKED],
+        'sign-ins' => [self::SIGN_IN, self::SIGN_OUT, self::SECOND_STEP_PASSED, self::BROWSER_SIGNED_OUT],
+        'failures' => [self::SIGN_IN_FAILED, self::RATE_LIMITED, self::ACCOUNT_LOCKED, self::SECOND_STEP_FAILED, self::CONFIRM_FAILED],
         'admin' => [
             self::PASSWORD_SET, self::ACCOUNT_CREATED, self::ACCOUNT_DISABLED, self::ACCOUNT_ENABLED,
             self::ACCOUNT_DELETED, self::ACCOUNT_EDITED, self::INVITE_CREATED, self::INVITE_RESENT,
-            self::INVITE_CANCELLED, self::SIGN_IN_SWITCH,
+            self::INVITE_CANCELLED, self::SIGN_IN_SWITCH, self::SECOND_STEP_RESET,
         ],
     ];
 
@@ -89,7 +117,7 @@ class AuthEvent extends Model
     ];
 
     /** Detail keys that are never stored, whatever a caller passes. */
-    private const FORBIDDEN_DETAIL = ['password', 'password_confirmation', 'current_password', 'token', 'token_hash', 'secret', 'link', 'cf-turnstile-response'];
+    private const FORBIDDEN_DETAIL = ['password', 'password_confirmation', 'current_password', 'token', 'token_hash', 'secret', 'link', 'cf-turnstile-response', 'code', 'credential'];
 
     protected $table = 'auth_events';
 
@@ -152,7 +180,17 @@ class AuthEvent extends Model
         $via = match ($d['via'] ?? null) {
             'api' => ' (app)',
             'basic' => ' (OPDS)',
+            'passkey' => ' with a passkey',
             default => '',
+        };
+        $method = match ($d['method'] ?? null) {
+            'passkey' => 'a passkey',
+            'totp' => 'the authenticator app',
+            'email' => 'an emailed code',
+            'recovery' => 'a recovery code',
+            'authenticator' => 'the authenticator app',
+            'password' => 'the password',
+            default => 'a code',
         };
 
         return match ($this->event) {
@@ -163,6 +201,8 @@ class AuthEvent extends Model
                 'no_password' => 'Sign-in refused: the account has no password yet' . $via,
                 'check' => 'Sign-in failed: the human check was not completed' . $via,
                 'check_unavailable' => 'Sign-in refused: the human check was not available' . $via,
+                'no_second_step' => 'Sign-in refused: the account has no second step it can use here' . $via,
+                'passkey' => 'Sign-in failed: the passkey was not accepted',
                 default => 'Sign-in failed: wrong password' . $via,
             },
             self::RATE_LIMITED => (($d['limit'] ?? null) === 'account' ? 'Refused: the account is locked on the public address' : 'Too many attempts: refused') . match ($d['via'] ?? null) {
@@ -173,6 +213,31 @@ class AuthEvent extends Model
             },
             self::ACCOUNT_LOCKED => 'Account locked on the public address for 15 minutes after repeated wrong passwords',
             self::SIGN_OUT => 'Signed out',
+            self::SECOND_STEP_PASSED => (($d['purpose'] ?? null) === 'confirm' ? 'Confirmed it was them with ' : 'Second step passed with ') . $method . $via,
+            self::SECOND_STEP_FAILED => (($d['purpose'] ?? null) === 'confirm' ? 'Confirmation failed: wrong ' : 'Second step failed: wrong ') . match ($d['method'] ?? null) {
+                'passkey' => 'passkey',
+                'totp' => 'authenticator code',
+                'email' => 'emailed code',
+                'recovery' => 'recovery code',
+                default => 'code',
+            } . $via,
+            self::SIGN_IN_CODE_SENT => 'Sign-in code emailed' . $via,
+            self::RECOVERY_CODE_USED => 'Recovery code used' . (isset($d['left']) ? ' (' . $d['left'] . ' left)' : ''),
+            self::CONFIRM_FAILED => 'Confirmation failed: wrong password',
+            self::METHOD_ADDED => match ($d['method'] ?? null) {
+                'passkey' => 'Passkey added' . (isset($d['name']) ? ': ' . $d['name'] : ''),
+                default => 'Authenticator app set up',
+            },
+            self::METHOD_REMOVED => match ($d['method'] ?? null) {
+                'passkey' => 'Passkey removed' . (isset($d['name']) ? ': ' . $d['name'] : ''),
+                default => 'Authenticator app removed',
+            },
+            self::RECOVERY_CODES_MADE => 'New recovery codes made',
+            self::EMAIL_CODES_SWITCHED => !empty($d['on']) ? 'Emailed sign-in codes turned on' : 'Emailed sign-in codes turned off',
+            self::CATALOGUE_PASSWORD_CREATED => 'Catalogue password made' . (isset($d['name']) ? ': ' . $d['name'] : ''),
+            self::CATALOGUE_PASSWORD_REVOKED => 'Catalogue password revoked' . (isset($d['name']) ? ': ' . $d['name'] : ''),
+            self::BROWSER_SIGNED_OUT => 'Signed out a browser' . (isset($d['device']) ? ': ' . $d['device'] : ''),
+            self::SECOND_STEP_RESET => 'Second step reset by the admin',
             self::PASSWORD_CHANGED => 'Changed their password',
             self::SIGNED_OUT_EVERYWHERE => 'Signed out all other browsers',
             self::PASSWORD_SET => 'Password set by the admin',

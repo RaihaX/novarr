@@ -32,6 +32,11 @@ trait UsesAccounts
 
     protected function makeReader(string $username = 'sam', string $name = 'Sam'): User
     {
+        return $this->makeReaderAccount($username, $name);
+    }
+
+    protected function makeReaderAccount(string $username = 'sam', string $name = 'Sam'): User
+    {
         $user = new User();
         $user->forceFill([
             'name' => $name,
@@ -68,6 +73,10 @@ trait UsesAccounts
         // its attributes would leak into the next request (a browser gets a
         // fresh one from its cookie). Saved sessions stay in the handler.
         $this->app['session.store']->flush();
+        // The cookie jar is one object for the whole test too: a cookie
+        // queued for one response (the remember-me cookie) would be added to
+        // the next ones. Octane flushes it per request (FlushQueuedCookies).
+        $this->app['cookie']->flushQueuedCookies();
 
         return $this;
     }
@@ -85,6 +94,47 @@ trait UsesAccounts
         $response->assertRedirect();
 
         return $this->cookiesOf($response);
+    }
+
+    /** A known authenticator secret for $user (set up, nothing used yet). Returns the secret. */
+    protected function giveAuthenticator(User $user, string $secret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'): string
+    {
+        app(\App\Services\Authenticator::class)->enable($user, $secret, 0);
+        $user->forceFill(['totp_last_step' => null])->save();
+
+        return $secret;
+    }
+
+    /** The authenticator code of $secret now (+ $steps time steps). */
+    protected function totpCode(string $secret, int $steps = 0): string
+    {
+        $step = intdiv(now()->getTimestamp(), \App\Services\Authenticator::PERIOD) + $steps;
+
+        return \OTPHP\TOTP::createFromSecret($secret, new \App\Support\AppClock())->at($step * \App\Services\Authenticator::PERIOD);
+    }
+
+    /**
+     * Sign in on the public address the whole way: the password, then the
+     * authenticator code (set up for the account when it has none; its used
+     * step is forgotten first, so a test can sign in many times a second).
+     * $prepare adds headers / server variables to both requests. Returns the
+     * last response (the redirect after signing in).
+     */
+    protected function publicWebSignIn(string $username, string $password, string $host = 'http://read.example.com', ?callable $prepare = null, array $fields = [])
+    {
+        $user = User::findForSignIn($username);
+        $secret = app(\App\Services\Authenticator::class)->secretOf($user) ?? $this->giveAuthenticator($user);
+        $user->forceFill(['totp_last_step' => null])->save();
+
+        $this->asNobody();
+        $prepare && $prepare($this);
+        $first = $this->post($host . '/login', ['username' => $username, 'password' => $password] + $fields);
+        $this->assertStringEndsWith('/login/second-step', (string) $first->headers->get('Location'), 'The password should lead to the second step.');
+
+        $this->withBrowser($this->cookiesOf($first));
+        $prepare && $prepare($this);
+
+        return $this->post($host . '/login/second-step', ['method' => 'totp', 'code' => $this->totpCode($secret)]);
     }
 
     /** @return array<string, string> */

@@ -33,6 +33,17 @@ class BrowserSessionsTest extends TestCase
 
     private function signInAs(string $ua, string $host = 'http://novarr.lan', string $ip = '127.0.0.1'): array
     {
+        if (str_contains($host, 'read.example.com')) {
+            $response = $this->publicWebSignIn('sam', self::READER_PASSWORD, $host, fn($test) => $test->withHeader('User-Agent', $ua)->withServerVariables(['REMOTE_ADDR' => $ip]));
+            $response->assertRedirect();
+            $cookies = $this->cookiesOf($response);
+            // route() in the test would otherwise build public-host URLs
+            // (the generator keeps the last request's root; a browser's cookies
+            // never cross hosts anyway).
+            $this->asNobody()->get('http://novarr.lan/up');
+
+            return $cookies;
+        }
         $this->asNobody();
         $response = $this->withHeader('User-Agent', $ua)->withServerVariables(['REMOTE_ADDR' => $ip])
             ->post($host . '/login', ['username' => 'sam', 'password' => self::READER_PASSWORD]);
@@ -65,8 +76,9 @@ class BrowserSessionsTest extends TestCase
         $this->assertSame(1, substr_count($list, 'This browser'));
         $this->assertMatchesRegularExpression('#Firefox on macOS\s*<span class="badge badge-accent">This browser#', $list);
         $this->assertStringContainsString('Sign out all other browsers', $page);
-        // No per-row sign-out (see the report: one remember token per account).
-        $this->assertStringNotContainsString('browsers.destroy', $page);
+        // Per-row "Sign out" on the other browsers, not on this one.
+        $this->assertSame(1, substr_count($list, 'aria-label="Sign out '));
+        $this->assertStringContainsString('aria-label="Sign out Safari on iPhone"', $list);
 
         // Only hashes are stored.
         $row = DB::table('browser_sessions')->first();
@@ -169,16 +181,19 @@ class BrowserSessionsTest extends TestCase
         $this->assertNotSame($oldHash, $rows[0]->session_hash);
     }
 
-    public function test_a_session_without_a_row_gets_one(): void
+    public function test_a_session_whose_row_was_removed_is_signed_out_at_its_next_touch(): void
     {
+        // "Sign out" on a row ends the session in the store at once; should
+        // the store not have been reachable then, the missing row ends it.
         $this->enableSignIn();
         $this->makeReader();
         $cookies = $this->signInAs(self::FIREFOX);
         DB::table('browser_sessions')->delete();
 
         $this->travel(6)->minutes();
-        $this->withBrowser($cookies)->get('/')->assertOk();
-        $this->assertSame(1, DB::table('browser_sessions')->count());
+        $this->withBrowser(array_filter($cookies, fn($name) => !str_starts_with($name, 'remember_web_'), ARRAY_FILTER_USE_KEY))
+            ->get('/')->assertRedirect(route('login'));
+        $this->assertSame(0, DB::table('browser_sessions')->count());
     }
 
     public function test_settings_users_shows_browsers_next_to_devices(): void

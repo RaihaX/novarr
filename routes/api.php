@@ -54,6 +54,9 @@ Route::prefix('v1')
         // Sign-in (auth contract): password → token, sign out, who am I, and
         // linking a device by code (the KOReader plugin).
         Route::post('/auth/token', [ApiV1\AuthController::class, 'store'])->name('auth.token.store');
+        // The second step after a password on the public address (App\Services\SecondStep).
+        Route::post('/auth/token/email-code', [ApiV1\AuthController::class, 'emailCode'])->middleware('throttle:novarr-second-step')->name('auth.token.email_code');
+        Route::post('/auth/token/second-step', [ApiV1\AuthController::class, 'secondStep'])->middleware('throttle:novarr-second-step')->name('auth.token.second_step');
         Route::delete('/auth/token', [ApiV1\AuthController::class, 'destroy'])->name('auth.token.destroy');
         Route::get('/auth/me', [ApiV1\AuthController::class, 'me'])->name('auth.me');
         Route::post('/auth/pairings', [ApiV1\PairingController::class, 'store'])->middleware('throttle:novarr-pairing-create')->name('auth.pairings.store');

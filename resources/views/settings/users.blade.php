@@ -71,7 +71,7 @@
                         @endif
                     </p>
                     @unless($authOn)
-                        <p class="form-text">When it is on: everyone must sign in on the web; the iOS app must sign in again, and each Kindle must be linked again with a code (Account → Link a device).</p>
+                        <p class="form-text">When it is on: everyone must sign in on the web; the iOS and Android apps must sign in again, and each Kindle must be linked again with a code (Account → Link a device). On the public address a sign-in code (second step) follows the password.</p>
                     @endunless
 
                     @if($authForced !== null)
@@ -136,6 +136,17 @@
                                             · <strong class="users-off">No password yet</strong>
                                         @endif
                                     </span>
+                                    @php
+                                        $steps = array_values(array_filter([
+                                            ($n = (int) ($passkeyCounts[$u->id] ?? 0)) > 0 ? $n . ' ' . Str::plural('passkey', $n) : null,
+                                            $u->totp_enabled_at !== null ? 'authenticator app' : null,
+                                            \App\Services\SecondStep::emailAddress($u) !== null && ($u->email_codes_off_at === null || ($n === 0 && $u->totp_enabled_at === null)) ? 'emailed codes' : null,
+                                            ($r = (int) ($recoveryCounts[$u->id] ?? 0)) > 0 ? $r . ' recovery ' . Str::plural('code', $r) . ' left' : null,
+                                        ]));
+                                    @endphp
+                                    <span class="users-meta users-steps" id="user-steps-{{ $u->id }}">
+                                        Second step: {{ $steps === [] ? 'none set up (cannot sign in on the public address)' : implode(', ', $steps) }}
+                                    </span>
                                 </div>
 
                                 <div class="users-actions">
@@ -153,6 +164,12 @@
                                                 <label class="form-label" for="username-{{ $u->id }}">Sign-in name</label>
                                                 <input type="text" name="username" id="username-{{ $u->id }}" class="form-control @if($editBag->has('username')) is-invalid @endif" value="{{ $editBag->any() ? old('username', $u->username) : $u->username }}" maxlength="60" autocapitalize="none" spellcheck="false" required>
                                                 @if($editBag->has('username'))<div class="invalid-feedback">{{ $editBag->first('username') }}</div>@endif
+                                            </div>
+                                            <div class="form-row">
+                                                <label class="form-label" for="email-{{ $u->id }}">Email</label>
+                                                <input type="email" name="email" id="email-{{ $u->id }}" class="form-control @if($editBag->has('email')) is-invalid @endif" value="{{ $editBag->any() ? old('email', $u->email) : $u->email }}" maxlength="255" autocapitalize="none" spellcheck="false">
+                                                @if($editBag->has('email'))<div class="invalid-feedback">{{ $editBag->first('email') }}</div>@endif
+                                                <div class="form-text">Optional. They can sign in with it, and sign-in codes are emailed there.</div>
                                             </div>
                                             <div class="acct-actions">
                                                 <button type="submit" class="btn btn-primary btn-sm">Save</button>
@@ -177,6 +194,13 @@
                                         </form>
                                     </details>
 
+                                    @if(($passkeyCounts[$u->id] ?? 0) > 0 || $u->totp_enabled_at !== null || ($recoveryCounts[$u->id] ?? 0) > 0)
+                                        <form method="POST" action="{{ route('settings.users.second_step.reset', $u->id) }}" class="d-inline"
+                                              data-confirm="Reset {{ $u->name }}'s second step? Their passkeys, authenticator app and recovery codes are removed, emailed codes are turned back on, and they are signed out everywhere." data-confirm-title="Reset second step?" data-confirm-text="Reset">
+                                            @csrf
+                                            <button type="submit" class="btn btn-secondary btn-sm" id="reset-steps-{{ $u->id }}">Reset second step</button>
+                                        </form>
+                                    @endif
                                     @unless($isOwner)
                                         <form method="POST" action="{{ route('settings.users.disable', $u->id) }}" class="d-inline"
                                               @unless($u->isDisabled()) data-confirm="Turn off {{ $u->name }}? They are signed out everywhere and cannot sign in until you turn them on again. Their reading history is kept." data-confirm-title="Turn off account?" data-confirm-text="Turn off" @endunless>
@@ -290,6 +314,12 @@
                                 <input type="text" name="username" id="add-username" class="form-control @if($addBag->has('username')) is-invalid @endif" value="{{ $addBag->any() ? old('username') : '' }}" maxlength="60" autocapitalize="none" spellcheck="false" autocomplete="off" required>
                                 @if($addBag->has('username'))<div class="invalid-feedback">{{ $addBag->first('username') }}</div>@endif
                                 <div class="form-text">What they type to sign in, e.g. “sam”. Not case-sensitive.</div>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label" for="add-email">Email <span class="form-text">(optional)</span></label>
+                                <input type="email" name="email" id="add-email" class="form-control @if($addBag->has('email')) is-invalid @endif" value="{{ $addBag->any() ? old('email') : '' }}" maxlength="255" autocapitalize="none" spellcheck="false" autocomplete="off">
+                                @if($addBag->has('email'))<div class="invalid-feedback">{{ $addBag->first('email') }}</div>@endif
+                                <div class="form-text">Needed for sign-in codes on the public address.</div>
                             </div>
                             <div class="form-row">
                                 <label class="form-label" for="add-password">First password</label>

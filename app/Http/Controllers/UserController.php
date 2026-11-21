@@ -33,7 +33,10 @@ class UserController extends Controller
         return view('settings.users', [
             'users' => User::orderByRaw('id = ? DESC', [$ownerId])->orderBy('name')->orderBy('id')->get(),
             'ownerId' => $ownerId,
-            'tokenCounts' => ApiToken::whereNull('revoked_at')->selectRaw('user_id, COUNT(*) AS n')->groupBy('user_id')->pluck('n', 'user_id'),
+            'tokenCounts' => ApiToken::whereNull('revoked_at')->where('kind', ApiToken::KIND_APP)->selectRaw('user_id, COUNT(*) AS n')->groupBy('user_id')->pluck('n', 'user_id'),
+            // Which second steps each account has set up.
+            'passkeyCounts' => \App\Passkey::selectRaw('user_id, COUNT(*) AS n')->groupBy('user_id')->pluck('n', 'user_id'),
+            'recoveryCounts' => \Illuminate\Support\Facades\DB::table('recovery_codes')->whereNull('used_at')->selectRaw('user_id, COUNT(*) AS n')->groupBy('user_id')->pluck('n', 'user_id'),
             'browserCounts' => app(\App\Services\BrowserSessions::class)->counts(),
             'authOn' => AuthMode::required(),
             'authSetting' => AuthMode::setting(),
@@ -49,13 +52,15 @@ class UserController extends Controller
         $data = $request->validateWithBag('add', [
             'name' => 'required|string|max:80',
             'username' => $this->usernameRules(),
-            'password' => AccountRules::password(names: [$request->input('name'), $request->input('username')]),
+            'email' => AccountRules::email(),
+            'password' => AccountRules::password(names: [$request->input('name'), $request->input('username'), $request->input('email')]),
         ], $this->messages());
 
         $user = new User();
         $user->forceFill([
             'name' => trim($data['name']),
             'username' => User::normaliseUsername($data['username']),
+            'email' => AccountRules::normaliseEmail($data['email'] ?? null),
             'role' => User::ROLE_READER,
             'password' => $data['password'],
             'password_set_at' => now(),
@@ -72,15 +77,18 @@ class UserController extends Controller
         $data = $request->validateWithBag('edit' . $user->id, [
             'name' => 'required|string|max:80',
             'username' => $this->usernameRules($user->id),
+            'email' => AccountRules::email($user->id),
         ], $this->messages());
 
         $user->forceFill([
             'name' => trim($data['name']),
             'username' => User::normaliseUsername($data['username']),
+            'email' => AccountRules::normaliseEmail($data['email'] ?? null),
         ])->save();
         $changed = array_values(array_filter([
             $user->wasChanged('name') ? 'display name' : null,
             $user->wasChanged('username') ? 'sign-in name' : null,
+            $user->wasChanged('email') ? 'email' : null,
         ]));
         if ($changed !== []) {
             AuthEvent::record(AuthEvent::ACCOUNT_EDITED, $request, (int) $user->id, ['changed' => $changed], app(CurrentReader::class)->id());
@@ -111,6 +119,24 @@ class UserController extends Controller
         return redirect()->route('settings.users')->with('status', $self
             ? 'Your new password is set.'
             : "New password set for {$user->name}. They are signed out everywhere.");
+    }
+
+    /**
+     * "Reset second step": the account's passkeys, authenticator app and
+     * recovery codes are removed, emailed codes are on again, and it is
+     * signed out everywhere (browsers and apps). For someone who lost
+     * their phone or passkey.
+     */
+    public function resetSecondStep(Request $request, $id)
+    {
+        $user = User::findOrFail($id);
+        $user->resetSecondStep();
+        AuthEvent::record(AuthEvent::SECOND_STEP_RESET, $request, (int) $user->id, [], app(CurrentReader::class)->id());
+        if ((int) $user->id === app(CurrentReader::class)->id() && AuthMode::required()) {
+            LoginController::signInHere($request, $user->fresh());
+        }
+
+        return redirect()->route('settings.users')->with('status', "Reset {$user->name}'s second step: their passkeys, authenticator app and recovery codes are removed, emailed codes are on, and they are signed out everywhere.");
     }
 
     public function toggleDisabled(Request $request, $id)
@@ -189,6 +215,7 @@ class UserController extends Controller
             'name.required' => 'Enter a name.',
             'username.required' => 'Enter the name they sign in with.',
             'password.required' => 'Type a first password for them.',
+            'email.email' => AccountRules::EMAIL_FORMAT,
         ];
     }
 }

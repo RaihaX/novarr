@@ -7,8 +7,10 @@ use Illuminate\Console\Command;
 
 /**
  * Drops sign-in history (App\AuthEvent) older than novarr.auth_log_days
- * (NOVARR_AUTH_LOG_DAYS, default 180; 0 = keep forever), and signed-in
- * browser rows past the remember-me lifetime (App\Services\BrowserSessions).
+ * (NOVARR_AUTH_LOG_DAYS, default 180; 0 = keep forever), signed-in
+ * browser rows past the remember-me lifetime (App\Services\BrowserSessions),
+ * expired remember-me rows (App\Services\RememberTokens) and unfinished
+ * second steps (App\Services\SecondStep).
  * Daily, from the scheduler (routes/console.php).
  */
 class PruneAuthLog extends Command
@@ -19,6 +21,10 @@ class PruneAuthLog extends Command
 
     public function handle(): int
     {
+        // Remember-me rows unused for 30 days (or a year old), and second
+        // steps nobody finished.
+        app(\App\Services\RememberTokens::class)->prune();
+        \App\Services\SecondStep::sweep();
         // Signed-in browsers past the remember-me lifetime cannot come back.
         $browsers = app(\App\Services\BrowserSessions::class)->prune();
         if ($browsers > 0) {

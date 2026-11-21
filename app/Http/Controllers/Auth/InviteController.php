@@ -130,6 +130,13 @@ class InviteController extends Controller
             return $this->page('auth.invite-done', ['user' => $user]);
         }
 
+        // The public address: the new account signs in like any other, with
+        // the second step (an emailed code: the invite went to that address).
+        if (\App\Services\SecondStep::requiredFor($request)) {
+            return LoginController::startSecondStep($request, $user, (string) $user->username)?->with(self::FLASH_WELCOME, $user->name)
+                ?? redirect()->route('login')->withErrors(['username' => \App\Services\SecondStep::UNAVAILABLE_MESSAGE]);
+        }
+
         LoginController::signInHere($request, $user);
         // The browser the account was made on is its first known device (no email).
         $device = app(\App\Services\KnownDevices::class)->webSignIn($request, $user, notify: false);

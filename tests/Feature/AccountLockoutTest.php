@@ -30,6 +30,15 @@ class AccountLockoutTest extends TestCase
         config(['novarr.public_hosts' => ['read.example.com']]);
     }
 
+    /** The reader, with an authenticator: on the public address a right password leads to the second step (401 second_step_required). */
+    protected function makeReader(string $username = 'sam', string $name = 'Sam'): \App\User
+    {
+        $user = $this->makeReaderAccount($username, $name);
+        $this->giveAuthenticator($user);
+
+        return $user;
+    }
+
     /** One wrong password per address, so neither the per-name nor the per-IP limit is what refuses. */
     private function failFromManyAddresses(int $times, string $host = self::PUBLIC, string $name = 'sam'): void
     {
@@ -70,9 +79,11 @@ class AccountLockoutTest extends TestCase
         $reader->forceFill(['email' => 'sam@example.test'])->save();
         $this->fromAddress('198.51.100.4')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam@example.test', 'password' => self::READER_PASSWORD])->assertStatus(429);
 
+        // OPDS on the public address never takes the account password at all
+        // (a catalogue password only): the challenge, not the lock.
         $basic = $this->fromAddress('198.51.100.5')->withHeader('Authorization', 'Basic ' . base64_encode('sam:' . self::READER_PASSWORD))->get(self::PUBLIC . '/opds');
-        $basic->assertStatus(429);
-        $this->assertNotNull($basic->headers->get('Retry-After'));
+        $basic->assertStatus(401);
+        $this->assertNotNull($basic->headers->get('WWW-Authenticate'));
 
         $refusal = AuthEvent::where('event', AuthEvent::RATE_LIMITED)->firstOrFail();
         $this->assertSame('account', $refusal->detail['limit']);
@@ -90,7 +101,8 @@ class AccountLockoutTest extends TestCase
         // ... but at home the password works ...
         $this->asNobody()->post(self::LAN . '/login', ['username' => 'sam', 'password' => self::READER_PASSWORD])->assertRedirect(route('home'));
         // ... and that lifts the lock.
-        $this->fromAddress('198.51.100.9')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])->assertOk();
+        $this->fromAddress('198.51.100.9')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])
+            ->assertStatus(401)->assertJsonPath('code', 'second_step_required');
     }
 
     public function test_failures_at_home_count_but_never_lock_home(): void
@@ -112,7 +124,8 @@ class AccountLockoutTest extends TestCase
         $this->travel(14)->minutes();
         $this->fromAddress('198.51.100.9')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])->assertStatus(429);
         $this->travel(2)->minutes();
-        $this->fromAddress('198.51.100.9')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])->assertOk();
+        $this->fromAddress('198.51.100.9')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])
+            ->assertStatus(401)->assertJsonPath('code', 'second_step_required');
     }
 
     public function test_failures_spread_beyond_fifteen_minutes_do_not_lock(): void
@@ -123,18 +136,55 @@ class AccountLockoutTest extends TestCase
         $this->travel(16)->minutes();
         $this->failFromManyAddresses(9);
 
-        $this->fromAddress('198.51.100.9')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])->assertOk();
+        $this->fromAddress('198.51.100.9')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])
+            ->assertStatus(401)->assertJsonPath('code', 'second_step_required');
         $this->assertSame(0, AuthEvent::where('event', AuthEvent::ACCOUNT_LOCKED)->count());
     }
 
-    public function test_unknown_names_behave_as_before(): void
+    public function test_unknown_names_get_the_same_lock_so_it_tells_nothing(): void
     {
         $this->enableSignIn();
-        $this->failFromManyAddresses(15, self::PUBLIC, 'nobody-here');
+        $this->makeReader();
+        $this->failFromManyAddresses(10, self::PUBLIC, 'nobody-here');
+        $this->failFromManyAddresses(10, self::PUBLIC, 'sam');
 
-        $this->fromAddress('198.51.100.9')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'nobody-here', 'password' => 'x'])
+        // The same answer for a name that exists and one that does not.
+        $unknown = $this->fromAddress('198.51.100.9')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'nobody-here', 'password' => 'x']);
+        $known = $this->fromAddress('198.51.100.10')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => 'x']);
+        $unknown->assertStatus(429);
+        $known->assertStatus(429);
+        $this->assertSame(array_keys($known->json()), array_keys($unknown->json()));
+        $this->assertSame($known->json('code'), $unknown->json('code'));
+        $this->assertStringStartsWith('Too many sign-in attempts. Try again in ', $unknown->json('message'));
+        // Keyed by the normalised name (case and spaces do not escape it).
+        $this->fromAddress('198.51.100.11')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => ' NOBODY-here ', 'password' => 'x'])->assertStatus(429);
+        // The web form too.
+        $this->fromAddress('198.51.100.12')->post(self::PUBLIC . '/login', ['username' => 'nobody-here', 'password' => 'x'])->assertStatus(429);
+
+        $locks = AuthEvent::where('event', AuthEvent::ACCOUNT_LOCKED)->orderBy('id')->get();
+        $this->assertCount(2, $locks);
+        $this->assertNull($locks[0]->user_id);
+        $this->assertTrue($locks[0]->detail['unknown_name']);
+        // The home network is not locked for an unknown name either: the usual answer.
+        $this->fromAddress('10.0.0.9')->postJson(self::LAN . '/api/v1/auth/token', ['username' => 'nobody-here', 'password' => 'x'])
             ->assertStatus(422)->assertJsonPath('message', Credentials::WRONG);
-        $this->assertSame(0, AuthEvent::where('event', AuthEvent::ACCOUNT_LOCKED)->count());
+    }
+
+    public function test_wrong_second_step_codes_count_toward_the_lock(): void
+    {
+        $this->enableSignIn();
+        $this->makeReader();
+        // Two challenges, five wrong codes each.
+        for ($round = 0; $round < 2; $round++) {
+            $challenge = $this->fromAddress('198.51.100.' . (20 + $round))->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])
+                ->assertStatus(401)->json('challenge');
+            for ($i = 0; $i < 5; $i++) {
+                $this->fromAddress('198.51.100.' . (30 + $round * 5 + $i))->postJson(self::PUBLIC . '/api/v1/auth/token/second-step', ['challenge' => $challenge, 'method' => 'totp', 'code' => '000000']);
+            }
+        }
+        $this->assertSame(1, AuthEvent::where('event', AuthEvent::ACCOUNT_LOCKED)->count());
+        $this->fromAddress('198.51.100.60')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam', 'password' => self::READER_PASSWORD])
+            ->assertStatus(429)->assertJsonPath('code', 'throttled');
     }
 
     public function test_the_other_limits_are_unchanged(): void

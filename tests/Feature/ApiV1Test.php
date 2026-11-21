@@ -97,7 +97,7 @@ class ApiV1Test extends TestCase
         $this->assertNull($json['android']);
         $this->assertMatchesRegularExpression('/^[0-9a-f]{16}$/', $json['instance']);
         $this->assertSame($json['instance'], $this->getJson('/api/v1/meta')->json('instance'));
-        $this->assertSame(['required' => false, 'methods' => ['password', 'pairing']], $json['auth']);
+        $this->assertSame(['required' => false, 'available' => true, 'second_step' => false, 'methods' => ['password', 'pairing']], $json['auth']);
         $this->assertSame('novarr', $json['app']);
         $this->assertSame(1, $json['api_version']);
         $this->assertTrue($json['server_version'] === null || is_string($json['server_version']));

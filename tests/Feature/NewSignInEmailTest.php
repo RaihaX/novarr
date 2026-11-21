@@ -55,6 +55,16 @@ class NewSignInEmailTest extends TestCase
 
     private function signInWith(array $cookies, string $host = 'http://novarr.lan', string $ua = self::SAFARI)
     {
+        // The public address: the password and then the second step (the
+        // email goes when the sign-in is done, after both).
+        if (str_contains($host, 'read.example.com')) {
+            return $this->publicWebSignIn('sam', self::READER_PASSWORD, $host, function ($test) use ($ua, $cookies) {
+                $test->withHeader('User-Agent', $ua);
+                $test->unencryptedCookies += $cookies;
+                $test->withCredentials = true;
+            });
+        }
+
         return $this->withBrowser($cookies)->withHeader('User-Agent', $ua)
             ->post($host . '/login', ['username' => 'sam', 'password' => self::READER_PASSWORD]);
     }
