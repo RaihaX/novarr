@@ -100,6 +100,7 @@ final class RouteAccess
         'account.tokens.revoke',
         'account.link',
         'account.link.confirm',
+        'account.browsers.sign_out_others',
         // Native app API
         'api.v1.auth.me',
         'api.v1.auth.token.destroy',

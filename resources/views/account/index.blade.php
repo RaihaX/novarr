@@ -134,6 +134,41 @@
                 </div>
             </section>
 
+            {{-- Web browsers signed in to this account (App\Services\BrowserSessions) --}}
+            <section class="card form-panel acct-card" aria-labelledby="browsersTitle" id="browsers">
+                <div class="card-body">
+                    <h2 class="acct-card-title" id="browsersTitle">Signed-in browsers</h2>
+                    <ul class="account-devices" id="browsersList">
+                        @foreach($browsers as $browser)
+                            <li class="account-device {{ $browser->current ? 'is-current' : '' }}">
+                                <span class="account-device-main">
+                                    <span class="account-device-name">
+                                        {{ $browser->device }}
+                                        @if($browser->current)
+                                            <span class="badge badge-accent">This browser</span>
+                                        @endif
+                                    </span>
+                                    <span class="account-device-meta">
+                                        {{ $browser->ip }} · {{ $browser->public ? 'public address' : 'home network' }}
+                                    </span>
+                                    <span class="account-device-meta">
+                                        Signed in {{ $browser->signed_in_at?->timezone(config('app.timezone'))->format('j M Y') }}
+                                        · last active {{ $browser->last_active_at?->diffForHumans() }}
+                                    </span>
+                                </span>
+                            </li>
+                        @endforeach
+                    </ul>
+                    @if($browsers->where('current', false)->isNotEmpty())
+                        <form method="POST" action="{{ route('account.browsers.sign_out_others') }}" class="acct-actions" data-turbo="false"
+                              data-confirm="Sign out every other browser signed in to your account? This browser and your apps and devices stay signed in." data-confirm-title="Sign out other browsers?" data-confirm-text="Sign out">
+                            @csrf
+                            <button type="submit" class="btn btn-outline-danger btn-sm" id="signOutOthers">Sign out all other browsers</button>
+                        </form>
+                    @endif
+                </div>
+            </section>
+
             {{-- Signed-in devices (tokens) --}}
             <section class="card form-panel acct-card" aria-labelledby="devicesTitle" id="devices">
                 <div class="card-body">

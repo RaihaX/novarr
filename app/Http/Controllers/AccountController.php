@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\ApiToken;
 use App\AuthEvent;
 use App\DevicePairing;
+use App\Services\BrowserSessions;
 use App\Services\Credentials;
 use App\Support\AccountRules;
 use App\Support\AuthMode;
@@ -38,6 +39,7 @@ class AccountController extends Controller
             'tokens' => ApiToken::where('user_id', $user->id)->whereNull('revoked_at')
                 ->orderByRaw('last_used_at IS NULL')->orderByDesc('last_used_at')->orderByDesc('id')->get(),
             'pairing' => session('pairing_id') ? DevicePairing::find(session('pairing_id')) : null,
+            'browsers' => app(BrowserSessions::class)->forUser($user, request()),
             'signIns' => AuthEvent::where('user_id', $user->id)
                 ->whereIn('event', [AuthEvent::SIGN_IN, AuthEvent::SIGN_IN_FAILED])
                 ->orderByDesc('occurred_at')->orderByDesc('id')
@@ -85,6 +87,24 @@ class AccountController extends Controller
         \App\Http\Controllers\Auth\LoginController::signInHere($request, $user->fresh());
 
         return redirect()->route('account')->with('status', 'Password changed. Other browsers are signed out; your apps and devices stay signed in.');
+    }
+
+    /**
+     * "Sign out all other browsers": every other web session of this account
+     * ends, with its remember-me cookie (App\User::signOutEverywhere); this
+     * browser is signed in again on the spot; apps and devices stay.
+     */
+    public function signOutOtherBrowsers(Request $request, CurrentReader $reader)
+    {
+        abort_unless(AuthMode::required(), 404);
+        $user = $reader->user();
+
+        $user->signOutEverywhere(keepTokens: true);
+        \App\Http\Controllers\Auth\LoginController::signInHere($request, $user->fresh());
+        AuthEvent::record(AuthEvent::SIGNED_OUT_EVERYWHERE, $request, (int) $user->id, ['kept' => 'this browser, apps and devices']);
+
+        return redirect()->route('account')->withFragment('browsers')
+            ->with('status', 'Signed out all other browsers. This browser and your apps and devices stay signed in.');
     }
 
     public function revokeToken(Request $request, CurrentReader $reader, $id)

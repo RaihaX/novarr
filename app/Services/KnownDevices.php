@@ -50,6 +50,9 @@ class KnownDevices
     {
         $id = $this->browserId($request) ?? bin2hex(random_bytes(32));
         $this->seen($request, $user, 'web:' . $id, DeviceDescription::from($request->userAgent()), $notify);
+        // A browser signing in for the first time gets its id only now: tie
+        // it to the session row, so a later remember-me session replaces it.
+        app(BrowserSessions::class)->setDevice($request, static::hash('web:' . $id));
 
         return $this->cookie($request, $id);
     }

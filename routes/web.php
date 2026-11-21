@@ -47,6 +47,7 @@ Route::post('/account/password', [\App\Http\Controllers\AccountController::class
 Route::delete('/account/tokens/{id}', [\App\Http\Controllers\AccountController::class, 'revokeToken'])->whereNumber('id')->name('account.tokens.revoke');
 Route::post('/account/link', [\App\Http\Controllers\AccountController::class, 'linkLookup'])->name('account.link');
 Route::post('/account/link/confirm', [\App\Http\Controllers\AccountController::class, 'linkConfirm'])->name('account.link.confirm');
+Route::post('/account/browsers/sign-out-others', [\App\Http\Controllers\AccountController::class, 'signOutOtherBrowsers'])->name('account.browsers.sign_out_others');
 
 // Dashboard
 Route::get('/', [HomeController::class, 'index'])->name('home');

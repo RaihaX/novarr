@@ -126,6 +126,9 @@
                                         @if(($tokenCounts[$u->id] ?? 0) > 0)
                                             · {{ $tokenCounts[$u->id] }} {{ Str::plural('device', (int) $tokenCounts[$u->id]) }}
                                         @endif
+                                        @if(($browserCounts[$u->id] ?? 0) > 0)
+                                            · <span class="users-browsers">{{ $browserCounts[$u->id] }} {{ Str::plural('browser', (int) $browserCounts[$u->id]) }}</span>
+                                        @endif
                                         @if($u->isDisabled())
                                             · <strong class="users-off">Turned off</strong>
                                         @endif

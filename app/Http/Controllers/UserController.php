@@ -34,6 +34,7 @@ class UserController extends Controller
             'users' => User::orderByRaw('id = ? DESC', [$ownerId])->orderBy('name')->orderBy('id')->get(),
             'ownerId' => $ownerId,
             'tokenCounts' => ApiToken::whereNull('revoked_at')->selectRaw('user_id, COUNT(*) AS n')->groupBy('user_id')->pluck('n', 'user_id'),
+            'browserCounts' => app(\App\Services\BrowserSessions::class)->counts(),
             'authOn' => AuthMode::required(),
             'authSetting' => AuthMode::setting(),
             'authForced' => AuthMode::forced(),

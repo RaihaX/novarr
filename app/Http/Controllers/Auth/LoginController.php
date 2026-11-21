@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\AuthEvent;
 use App\Http\Controllers\Controller;
+use App\Services\BrowserSessions;
 use App\Services\Credentials;
 use App\Services\KnownDevices;
 use App\Services\Turnstile;
@@ -120,8 +121,10 @@ class LoginController extends Controller
     {
         Auth::guard('web')->login($user, true);
         $request->session()->regenerate();
-        $request->session()->put(User::SESSION_SIGNED_IN_AT, $user->signInStamp());
+        $request->session()->put(User::SESSION_SIGNED_IN_AT, $stamp = $user->signInStamp());
         $request->session()->flash(self::FLASH_SIGNED, 'in');
+        // Listed under Account → Signed-in browsers.
+        app(BrowserSessions::class)->start($request, $user, $stamp);
     }
 
     public function destroy(Request $request)
@@ -129,6 +132,7 @@ class LoginController extends Controller
         $user = AuthMode::required() ? Auth::guard('web')->user() : null;
         if ($user instanceof User) {
             AuthEvent::record(AuthEvent::SIGN_OUT, $request, (int) $user->id);
+            app(BrowserSessions::class)->end($request);
         }
 
         Auth::guard('web')->logout();

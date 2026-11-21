@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\ApiToken;
+use App\Services\BrowserSessions;
 use App\Services\Credentials;
 use App\Support\AuthMode;
 use App\Support\CurrentReader;
@@ -148,7 +149,8 @@ class IdentifyReader
             // Signed in just now by the remember-me cookie (its token was
             // still current): this session starts now.
             if ($guard->viaRemember()) {
-                $session->put(User::SESSION_SIGNED_IN_AT, $user->signInStamp());
+                $session->put(User::SESSION_SIGNED_IN_AT, $stamp = $user->signInStamp());
+                app(BrowserSessions::class)->start($request, $user, $stamp);
             }
             $signedInAt = $session->get(User::SESSION_SIGNED_IN_AT);
 
@@ -157,10 +159,13 @@ class IdentifyReader
             // out: logout() would also cycle the remember token and sign out
             // the account's newer browsers.
             if ($user->isDisabled() || !$user->sessionStillValid(is_numeric($signedInAt) ? (int) $signedInAt : null)) {
+                app(BrowserSessions::class)->end($request);
                 $guard->logoutCurrentDevice();
 
                 return null;
             }
+
+            app(BrowserSessions::class)->touch($request, $user);
 
             return $user;
         }

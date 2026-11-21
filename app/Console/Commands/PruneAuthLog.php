@@ -7,8 +7,9 @@ use Illuminate\Console\Command;
 
 /**
  * Drops sign-in history (App\AuthEvent) older than novarr.auth_log_days
- * (NOVARR_AUTH_LOG_DAYS, default 180; 0 = keep forever). Daily, from the
- * scheduler (routes/console.php).
+ * (NOVARR_AUTH_LOG_DAYS, default 180; 0 = keep forever), and signed-in
+ * browser rows past the remember-me lifetime (App\Services\BrowserSessions).
+ * Daily, from the scheduler (routes/console.php).
  */
 class PruneAuthLog extends Command
 {
@@ -18,6 +19,12 @@ class PruneAuthLog extends Command
 
     public function handle(): int
     {
+        // Signed-in browsers past the remember-me lifetime cannot come back.
+        $browsers = app(\App\Services\BrowserSessions::class)->prune();
+        if ($browsers > 0) {
+            $this->info("Forgot {$browsers} signed-in " . ($browsers === 1 ? 'browser' : 'browsers') . ' not seen within the remember-me lifetime.');
+        }
+
         $days = (int) config('novarr.auth_log_days', 180);
         if ($days <= 0) {
             $this->info('Sign-in history is kept forever (NOVARR_AUTH_LOG_DAYS=0).');

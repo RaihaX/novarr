@@ -73,6 +73,7 @@ class User extends Authenticatable
             ReadingList::forgetUser((int) $user->id);
             ApiToken::where('user_id', $user->id)->delete();
             DevicePairing::where('user_id', $user->id)->delete();
+            app(\App\Services\BrowserSessions::class)->endAll($user);
             \Illuminate\Support\Facades\DB::table('known_devices')->where('user_id', $user->id)->delete();
             UserInvite::where('user_id', $user->id)->delete();
             // Their requests (and the feed items about them) go too.
@@ -171,6 +172,9 @@ class User extends Authenticatable
         if (!$keepTokens) {
             ApiToken::where('user_id', $this->id)->whereNull('revoked_at')->update(['revoked_at' => now()]);
         }
+        // Gone from Account → Signed-in browsers (a browser kept signed in
+        // here is listed again by the sign-in that follows).
+        app(\App\Services\BrowserSessions::class)->endAll($this);
     }
 
     /** Whether a web session signed in at $signedInAt (unix seconds, null: unknown) is still valid. */
