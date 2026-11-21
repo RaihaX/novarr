@@ -41,6 +41,14 @@ final class AppModel {
     private(set) var needsSignIn = false
     /// Why the sign-in screen is showing (session ended), if not a plain sign-out.
     private(set) var signInNotice: String?
+    /// The second sign-in step after a right password; nil on the password
+    /// form. In memory only: the challenge is never written anywhere.
+    private(set) var secondStep: SecondStepFlow?
+    /// "Link with a code" in progress; nil when it isn't showing.
+    private(set) var pairing: PairingFlow?
+    /// What the password form says after a sign-in flow sent it back there
+    /// (the second step took too long).
+    private(set) var signInError: String?
 
     /// Whether the last request reached the server.
     private(set) var isReachable = true
@@ -61,6 +69,14 @@ final class AppModel {
     @ObservationIgnored private let storageBase: URL
     @ObservationIgnored private let monitor = NWPathMonitor()
     @ObservationIgnored private let log = Logger(subsystem: "studio.visns.novarr", category: "App")
+    /// The one poll loop for "Link with a code"; owned here so a re-created
+    /// sign-in screen never asks for a second code.
+    @ObservationIgnored private var pairingTask: Task<Void, Never>?
+    /// Injectable for tests: the time, and the wait between two polls.
+    @ObservationIgnored var currentDate: @Sendable () -> Date = { Date() }
+    @ObservationIgnored var sleep: @Sendable (TimeInterval) async throws -> Void = { seconds in
+        try await Task.sleep(for: .seconds(seconds))
+    }
 
     init(defaults: UserDefaults = .standard,
          credentials: CredentialStore = CredentialStore(),
@@ -100,6 +116,7 @@ final class AppModel {
         defaults.set(url.absoluteString, forKey: Self.serverDefaultsKey)
         setAuthRequired(meta.requiresSignIn, for: url)
         signInNotice = nil
+        resetSignInFlows()
         configure(url)
         serverMeta = meta
         isReachable = true
@@ -122,6 +139,7 @@ final class AppModel {
     private func activate(_ url: URL, credential: Credential?) {
         checks.cancelAll()
         downloads.cancelAll()
+        resetSignInFlows()
         account = credential
         needsSignIn = false
         client = APIClient(baseURL: url, session: session, device: device, token: credential?.token,
@@ -205,30 +223,186 @@ final class AppModel {
 
     // MARK: Sign-in
 
+    /// The name typed before a second step that was cancelled or ran out.
+    @ObservationIgnored private var interruptedUsername: String?
+
     /// The name last used to sign in to this server, to prefill the form.
     var lastUsername: String? {
         guard let serverURL else { return nil }
+        if let interruptedUsername { return interruptedUsername }
         return (defaults.dictionary(forKey: Self.lastUsernameDefaultsKey) as? [String: String])?[
             ServerURL.storageKey(for: serverURL)]
     }
 
     /// Password sign-in. Throws `APIError` (422 wrong name or password, 429
-    /// throttled, connectivity) for the form to show.
+    /// throttled, 403 `.secondStepUnavailable`, connectivity) for the form to
+    /// show. When the server asks for a sign-in code, `secondStep` is set and
+    /// the sign-in finishes in `submitSecondStep`; the password isn't kept.
     func signIn(username: String, password: String) async throws {
         guard let url = serverURL else { throw APIError.invalidServerURL }
-        let response = try await APIClient(baseURL: url, session: session, device: device)
+        signInError = nil
+        let outcome = try await APIClient(baseURL: url, session: session, device: device)
             .signIn(username: username, password: password, device: device)
         guard serverURL == url else { return }
+        isReachable = true
+        switch outcome {
+        case .signedIn(let response):
+            completeSignIn(response, username: username, url: url)
+        case .secondStepRequired(let challenge):
+            cancelPairing()
+            secondStep = SecondStepFlow(server: url, username: username, challenge: challenge)
+        }
+    }
+
+    /// Keeps the token and starts the session: the end of every sign-in
+    /// (password, second step or link code).
+    private func completeSignIn(_ response: AuthTokenResponse, username: String, url: URL) {
         let credential = Credential(token: response.token, user: response.user)
         if !credentials.save(credential, for: url) {
             log.error("Signed in, but the token could not be saved; it lasts until the app quits")
         }
         setAuthRequired(true, for: url)
-        rememberUsername(username, for: url)
+        if !username.isEmpty { rememberUsername(username, for: url) }
         clearHTTPCache()
         signInNotice = nil
+        signInError = nil
         isReachable = true
         activate(url, credential: credential)
+    }
+
+    // MARK: Second step
+
+    func selectSecondStepMethod(_ method: SecondStepMethod) {
+        secondStep?.select(method)
+    }
+
+    /// "Email me a code" / "Send again". Never sent without a tap.
+    func requestEmailCode() async {
+        guard let flow = secondStep, serverURL == flow.server, flow.canSendEmail(at: currentDate()) else { return }
+        do {
+            try await APIClient(baseURL: flow.server, session: session)
+                .requestEmailCode(challenge: flow.challenge.challenge, device: device)
+            guard secondStep?.challenge == flow.challenge else { return }
+            secondStep?.emailSent(at: currentDate())
+        } catch {
+            guard secondStep?.challenge == flow.challenge else { return }
+            secondStepFailed(APIError.from(error))
+        }
+    }
+
+    /// Sends the code with the method in use; on 200 signs in like a password
+    /// sign-in, else `secondStep.errorMessage` says why (or, the challenge
+    /// gone, the password form does).
+    func submitSecondStep(code: String) async {
+        guard let flow = secondStep, serverURL == flow.server else { return }
+        let method = flow.method
+        do {
+            let response = try await APIClient(baseURL: flow.server, session: session)
+                .submitSecondStep(challenge: flow.challenge.challenge, method: method,
+                                  code: SecondStepFlow.normalize(code, for: method), device: device)
+            guard secondStep?.challenge == flow.challenge, serverURL == flow.server else { return }
+            completeSignIn(response, username: flow.username, url: flow.server)
+        } catch {
+            guard secondStep?.challenge == flow.challenge else { return }
+            secondStepFailed(APIError.from(error))
+        }
+    }
+
+    /// Back to the password form.
+    func cancelSecondStep() {
+        interruptedUsername = secondStep?.username
+        secondStep = nil
+    }
+
+    private func secondStepFailed(_ error: APIError) {
+        guard var flow = secondStep else { return }
+        switch flow.receive(error) {
+        case .retry:
+            secondStep = flow
+        case .restart(let message):
+            interruptedUsername = flow.username
+            secondStep = nil
+            signInError = message
+        }
+    }
+
+    // MARK: Link with a code
+
+    /// Shows a link code and polls it. Does nothing while one is already being
+    /// asked for or shown, so the screen appearing again never asks twice.
+    func startPairing() {
+        guard let url = serverURL else { return }
+        if let pairing, pairing.server == url, pairing.isActive { return }
+        newPairingCode()
+    }
+
+    /// "Get a new code" (after the last one ran out or failed), or the first one.
+    func newPairingCode() {
+        guard let url = serverURL else { return }
+        pairingTask?.cancel()
+        secondStep = nil
+        signInError = nil
+        pairing = PairingFlow(server: url)
+        pairingTask = Task { [weak self] in await self?.runPairing(url: url) }
+    }
+
+    /// Cancel: stops polling; nothing more is sent.
+    func cancelPairing() {
+        pairingTask?.cancel()
+        pairingTask = nil
+        pairing = nil
+    }
+
+    private func runPairing(url: URL) async {
+        let client = APIClient(baseURL: url, session: session)
+        var step: PairingFlow.Step
+        do {
+            let start = try await client.startPairing(device: device)
+            guard !Task.isCancelled, var flow = pairing, flow.server == url else { return }
+            step = flow.started(start, at: currentDate())
+            pairing = flow
+        } catch {
+            guard !Task.isCancelled, var flow = pairing, flow.server == url else { return }
+            _ = flow.startFailed(APIError.from(error))
+            pairing = flow
+            return
+        }
+        while case .poll(let delay) = step {
+            do { try await sleep(delay) } catch { return } // cancelled
+            guard !Task.isCancelled, var flow = pairing, flow.server == url, let secret = flow.secret else { return }
+            if flow.expireIfDue(at: currentDate()) {
+                pairing = flow
+                return
+            }
+            let answer: Result<PairingPoll, APIError>
+            do {
+                answer = .success(try await client.pollPairing(secret: secret))
+            } catch {
+                answer = .failure(APIError.from(error))
+            }
+            guard !Task.isCancelled, var current = pairing, current.server == url, serverURL == url else { return }
+            switch answer {
+            case .success(let poll):
+                step = current.received(poll, at: currentDate())
+                pairing = current
+                if case .linked(let response) = poll {
+                    completeSignIn(response, username: response.user.username, url: url)
+                    return
+                }
+            case .failure(let error):
+                step = current.pollFailed(error, at: currentDate())
+                pairing = current
+            }
+        }
+    }
+
+    private func resetSignInFlows() {
+        interruptedUsername = nil
+        secondStep = nil
+        signInError = nil
+        pairingTask?.cancel()
+        pairingTask = nil
+        pairing = nil
     }
 
     /// Revokes the token on the server (best effort: offline still signs out
