@@ -73,7 +73,7 @@ class InviteController extends Controller
         $data = $request->validate([
             'name' => 'required|string|max:80',
             'username' => AccountRules::username(),
-            'password' => AccountRules::password(confirmed: true),
+            'password' => AccountRules::password(confirmed: true, names: [$request->input('name'), $request->input('username'), $invite->email]),
         ], [
             'name.required' => 'Enter your name.',
             'username.required' => 'Choose a name to sign in with.',

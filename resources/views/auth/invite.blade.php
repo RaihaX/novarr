@@ -54,10 +54,10 @@
                     <div class="form-row">
                         <label for="invite-password" class="form-label">Password</label>
                         <input type="password" name="password" id="invite-password" class="form-control @error('password') is-invalid @enderror"
-                               autocomplete="new-password" minlength="8" required
+                               autocomplete="new-password" minlength="12" required
                                aria-describedby="invite-password-help @error('password') invite-password-error @enderror">
                         @error('password')<div class="invalid-feedback" id="invite-password-error">{{ $message }}</div>@enderror
-                        <div class="form-text" id="invite-password-help">At least 8 characters.</div>
+                        <div class="form-text" id="invite-password-help">At least 12 characters, and not your name or email.</div>
                     </div>
                     <div class="form-row">
                         <label for="invite-password2" class="form-label">Password again</label>

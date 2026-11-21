@@ -67,7 +67,7 @@ class AccountController extends Controller
         $user = $reader->user();
         $data = $request->validateWithBag('password', [
             'current_password' => 'required|string',
-            'password' => AccountRules::password(confirmed: true),
+            'password' => AccountRules::password(confirmed: true, names: [$user->name, $user->username, $user->email]),
         ], [
             'current_password.required' => 'Enter your current password.',
             'password.confirmed' => 'The two new passwords do not match.',

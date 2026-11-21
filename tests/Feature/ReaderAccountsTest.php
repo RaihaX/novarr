@@ -196,12 +196,12 @@ class ReaderAccountsTest extends TestCase
         // Sign-in off: the page works (accounts are prepared ahead).
         $this->post(route('settings.users.store'), ['name' => 'Kim', 'username' => 'Kim.Lee', 'password' => 'short'])
             ->assertSessionHasErrors(['password'], null, 'add');
-        $this->post(route('settings.users.store'), ['name' => 'Kim', 'username' => 'Kim.Lee', 'password' => 'kim-pass-1'])
+        $this->post(route('settings.users.store'), ['name' => 'Kim', 'username' => 'Kim.Lee', 'password' => 'kims-password-1'])
             ->assertRedirect(route('settings.users'));
         $kim = User::where('username', 'kim.lee')->sole();
         $this->assertSame(User::ROLE_READER, $kim->role);
         $this->assertNotNull($kim->password_set_at);
-        $this->post(route('settings.users.store'), ['name' => 'Kim 2', 'username' => 'KIM.LEE', 'password' => 'kim-pass-1'])
+        $this->post(route('settings.users.store'), ['name' => 'Kim 2', 'username' => 'KIM.LEE', 'password' => 'kims-password-1'])
             ->assertSessionHasErrors(['username'], null, 'add');
 
         // Rename, reset password.
@@ -300,7 +300,7 @@ class ReaderAccountsTest extends TestCase
         $token = $this->tokenFor($reader);
 
         $change = $this->withBrowser($here)->post(route('account.password'), [
-            'current_password' => self::READER_PASSWORD, 'password' => 'brand-new-2', 'password_confirmation' => 'brand-new-2',
+            'current_password' => self::READER_PASSWORD, 'password' => 'brand-new-pass-2', 'password_confirmation' => 'brand-new-pass-2',
         ])->assertRedirect(route('account'));
 
         $this->withBrowser($this->cookiesOf($change) + $here)->get(route('account'))->assertOk();
@@ -349,13 +349,13 @@ class ReaderAccountsTest extends TestCase
         $this->withBrowser($browser)->post(route('account.profile'), ['name' => 'Samantha'])->assertRedirect(route('account'));
         $this->assertSame('Samantha', $reader->fresh()->name);
 
-        $this->withBrowser($browser)->post(route('account.password'), ['current_password' => 'wrong', 'password' => 'brand-new-1', 'password_confirmation' => 'brand-new-1'])
+        $this->withBrowser($browser)->post(route('account.password'), ['current_password' => 'wrong', 'password' => 'brand-new-pass-1', 'password_confirmation' => 'brand-new-pass-1'])
             ->assertSessionHasErrors(['current_password'], null, 'password');
-        $changed = $this->withBrowser($browser)->post(route('account.password'), ['current_password' => self::READER_PASSWORD, 'password' => 'brand-new-1', 'password_confirmation' => 'brand-new-1'])
+        $changed = $this->withBrowser($browser)->post(route('account.password'), ['current_password' => self::READER_PASSWORD, 'password' => 'brand-new-pass-1', 'password_confirmation' => 'brand-new-pass-1'])
             ->assertRedirect(route('account'));
         // This browser carries on with the cookies the change handed it.
         $browser = $this->cookiesOf($changed) + $browser;
-        $this->asNobody()->post('/login', ['username' => 'sam', 'password' => 'brand-new-1'])->assertRedirect(route('home'));
+        $this->asNobody()->post('/login', ['username' => 'sam', 'password' => 'brand-new-pass-1'])->assertRedirect(route('home'));
 
         $token = ApiToken::where('user_id', $reader->id)->sole();
         $this->withBrowser($browser)->delete(route('account.tokens.revoke', $token->id))->assertRedirect(route('account'));

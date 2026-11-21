@@ -164,9 +164,9 @@
                                             <input type="text" name="username" value="{{ $u->username }}" autocomplete="username" hidden readonly>
                                             <div class="form-row">
                                                 <label class="form-label" for="password-{{ $u->id }}">New password</label>
-                                                <input type="password" name="password" id="password-{{ $u->id }}" class="form-control @if($passBag->has('password')) is-invalid @endif" autocomplete="new-password" minlength="8" required>
+                                                <input type="password" name="password" id="password-{{ $u->id }}" class="form-control @if($passBag->has('password')) is-invalid @endif" autocomplete="new-password" minlength="12" required>
                                                 @if($passBag->has('password'))<div class="invalid-feedback">{{ $passBag->first('password') }}</div>@endif
-                                                <div class="form-text">At least 8 characters.{{ $isOwner ? '' : ' Tell ' . $u->name . ' the new password; they can change it on their Account page.' }}</div>
+                                                <div class="form-text">At least 12 characters, and not their name or email.{{ $isOwner ? '' : ' Tell ' . $u->name . ' the new password; they can change it on their Account page.' }}</div>
                                             </div>
                                             <div class="acct-actions">
                                                 <button type="submit" class="btn btn-primary btn-sm">Save password</button>
@@ -290,9 +290,9 @@
                             </div>
                             <div class="form-row">
                                 <label class="form-label" for="add-password">First password</label>
-                                <input type="password" name="password" id="add-password" class="form-control @if($addBag->has('password')) is-invalid @endif" autocomplete="new-password" minlength="8" required>
+                                <input type="password" name="password" id="add-password" class="form-control @if($addBag->has('password')) is-invalid @endif" autocomplete="new-password" minlength="12" required>
                                 @if($addBag->has('password'))<div class="invalid-feedback">{{ $addBag->first('password') }}</div>@endif
-                                <div class="form-text">At least 8 characters. They can change it on their Account page.</div>
+                                <div class="form-text">At least 12 characters, and not their name. They can change it on their Account page.</div>
                             </div>
                             <div class="acct-actions">
                                 <button type="submit" class="btn btn-primary">Add reader</button>

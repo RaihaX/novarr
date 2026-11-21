@@ -48,7 +48,7 @@ class UserController extends Controller
         $data = $request->validateWithBag('add', [
             'name' => 'required|string|max:80',
             'username' => $this->usernameRules(),
-            'password' => AccountRules::password(),
+            'password' => AccountRules::password(names: [$request->input('name'), $request->input('username')]),
         ], $this->messages());
 
         $user = new User();
@@ -93,7 +93,7 @@ class UserController extends Controller
     {
         $user = User::findOrFail($id);
         $data = $request->validateWithBag('password' . $user->id, [
-            'password' => AccountRules::password(),
+            'password' => AccountRules::password(names: [$user->name, $user->username, $user->email]),
         ], ['password.required' => 'Type the new password.']);
 
         $user->setNewPassword($data['password']);

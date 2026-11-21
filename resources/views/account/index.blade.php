@@ -58,9 +58,9 @@
                         </div>
                         <div class="form-row">
                             <label for="new_password" class="form-label">New password</label>
-                            <input type="password" name="password" id="new_password" class="form-control @error('password', 'password') is-invalid @enderror" autocomplete="new-password" minlength="8" required aria-describedby="new_password_help">
+                            <input type="password" name="password" id="new_password" class="form-control @error('password', 'password') is-invalid @enderror" autocomplete="new-password" minlength="12" required aria-describedby="new_password_help">
                             @error('password', 'password')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                            <div class="form-text" id="new_password_help">At least 8 characters.</div>
+                            <div class="form-text" id="new_password_help">At least 12 characters, and not your name or email.</div>
                         </div>
                         <div class="form-row">
                             <label for="password_confirmation" class="form-label">New password again</label>
