@@ -23,7 +23,12 @@ import kotlinx.serialization.json.jsonObject
 @Serializable
 data class ServerAuth(
     val required: Boolean = false,
+    /** "password", and "pairing" when the server can link a device with a code. */
     val methods: List<String> = emptyList(),
+    /** This address asks for a sign-in code after the password; absent on older servers. */
+    @SerialName("second_step") val secondStep: Boolean = false,
+    /** False: sign-in is required but switched off at this address (nobody can sign in here). */
+    val available: Boolean = true,
 )
 
 @Serializable
@@ -44,6 +49,15 @@ data class ServerMeta(
 ) {
     /** Only an explicit `auth.required: true` turns sign-in on. */
     val requiresSignIn: Boolean get() = auth?.required == true
+
+    /** Sign-in is required but this address accepts none: say so instead of asking for credentials. */
+    val signInUnavailable: Boolean get() = auth?.required == true && auth.available == false
+
+    /** The server can link this device with a code typed on the website. */
+    val offersPairing: Boolean get() = auth?.methods.orEmpty().any { it.equals("pairing", ignoreCase = true) }
+
+    /** A sign-in code will be asked for after the password at this address. */
+    val asksForSecondStep: Boolean get() = auth?.required == true && auth.secondStep
 }
 
 /**

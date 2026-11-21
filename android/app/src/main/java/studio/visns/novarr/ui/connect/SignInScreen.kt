@@ -1,39 +1,22 @@
 package studio.visns.novarr.ui.connect
 
-import androidx.compose.material3.LocalTextStyle
-import studio.visns.novarr.ui.theme.BrandFonts
-import studio.visns.novarr.ui.components.BrandLockup
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,59 +31,95 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentType
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import studio.visns.novarr.api.ApiError
+import studio.visns.novarr.api.AuthCodes
 import studio.visns.novarr.app.Session
+import studio.visns.novarr.domain.SecondStepMessages
 import studio.visns.novarr.ui.components.LocalApp
-import studio.visns.novarr.ui.components.readableWidth
+import studio.visns.novarr.ui.theme.BrandFonts
 
 /** What the sign-in form says when a sign-in fails. */
 object SignInMessages {
+    const val UNAVAILABLE_HERE = "This server is not accepting sign-ins at this address."
+    const val UNAVAILABLE_ACCOUNT =
+        "This account needs a second sign-in step before it can be used here. Set one up from your home network, or ask the person who runs this Novarr."
+
     fun message(error: ApiError): String = when {
         error is ApiError.Http && error.status == 422 -> error.serverMessage?.takeIf { it.isNotBlank() } ?: "Wrong name or password."
         error is ApiError.Http && error.status == 429 ->
-            error.serverMessage?.takeIf { it.isNotBlank() } ?: "Too many sign-in attempts. Wait a minute and try again."
+            error.serverMessage?.takeIf { it.isNotBlank() } ?: SecondStepMessages.THROTTLED
+        isSecondStepUnavailable(error) -> (error as ApiError.Http).serverMessage?.takeIf { it.isNotBlank() } ?: UNAVAILABLE_ACCOUNT
         error is ApiError.Http && error.status == 404 -> "This server doesn't support signing in from the app yet. Update the server."
         error.isConnectivity -> "Couldn't reach the server. Check your connection and try again."
         else -> error.userMessage
     }
+
+    /** 403 `second_step_unavailable`: the password was right but no code can be entered here; offer the link code. */
+    fun isSecondStepUnavailable(error: ApiError): Boolean =
+        error is ApiError.Http && error.status == 403 && error.code == AuthCodes.SECOND_STEP_UNAVAILABLE
+
+    /** The form's intro; [asksForCode]: meta says this address asks for a sign-in code. */
+    fun intro(asksForCode: Boolean): String =
+        "This Novarr server has accounts. Sign in with the name or email and password you were given." +
+            if (asksForCode) " After your password, you'll be asked for a sign-in code." else " You may also be asked for a sign-in code."
 }
 
 /**
- * Name (or email) and password for a server with sign-in on. Shown after the
- * server step, and again whenever the session ends (401 or sign-out), with
- * the server and last name prefilled.
+ * Sign-in for a server with sign-in on: the password form, then (when the
+ * server asks) the sign-in code screen, or linking with a code instead.
+ * Shown after the server step, and again whenever the session ends (401 or
+ * sign-out), with the server and last name prefilled. The code and link-code
+ * steps live in the app model ([studio.visns.novarr.app.SignInFlow]), so
+ * rotating the device keeps them.
  */
 @Composable
 fun SignInScreen(session: Session.SignIn) {
     val app = LocalApp.current
-    val scope = rememberCoroutineScope()
+    val flow = app.signInFlow
+    val secondStep by flow.secondStep.collectAsStateWithLifecycle()
+    val pairing by flow.pairing.collectAsStateWithLifecycle()
     var changingServer by rememberSaveable { mutableStateOf(false) }
-    var username by rememberSaveable(session.server) { mutableStateOf(session.lastUsername.orEmpty()) }
+    // Never saved: the password goes with the screen, and is cleared after the call.
     var password by remember { mutableStateOf("") }
+
+    when {
+        changingServer -> {
+            BackHandler { changingServer = false }
+            ConnectScreen(initialSetup = false, onDone = { changingServer = false })
+        }
+        pairing != null -> LinkCodeScreen(pairing!!, session.server, flow)
+        secondStep != null -> SecondStepScreen(secondStep!!, flow)
+        else -> PasswordForm(session, password, { password = it }, onChangeServer = { changingServer = true })
+    }
+}
+
+@Composable
+private fun PasswordForm(session: Session.SignIn, password: String, setPassword: (String) -> Unit, onChangeServer: () -> Unit) {
+    val app = LocalApp.current
+    val flow = app.signInFlow
+    val scope = rememberCoroutineScope()
+    val meta by app.serverMeta.collectAsStateWithLifecycle()
+    val formMessage by flow.formMessage.collectAsStateWithLifecycle()
+    var username by rememberSaveable(session.server) { mutableStateOf(session.lastUsername.orEmpty()) }
     var showPassword by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // The server said this account can't pass the second step here: offer the link code even if meta didn't.
+    var suggestLink by rememberSaveable(session.server) { mutableStateOf(false) }
+    var retryingMeta by remember { mutableStateOf(false) }
     val passwordFocus = remember { FocusRequester() }
 
-    if (changingServer) {
-        BackHandler { changingServer = false }
-        ConnectScreen(initialSetup = false, onDone = { changingServer = false })
-        return
-    }
-
+    val unavailable = meta?.signInUnavailable == true
     val canSubmit = !busy && username.isNotBlank() && password.isNotEmpty()
     fun submit() {
         if (!canSubmit) return
@@ -109,10 +128,17 @@ fun SignInScreen(session: Session.SignIn) {
         scope.launch {
             try {
                 app.signIn(username.trim(), password)
-                password = ""
+                // Signed in, or the code screen is up: the password is not kept.
+                setPassword("")
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                error = SignInMessages.message(ApiError.from(e))
+                val apiError = ApiError.from(e)
+                error = SignInMessages.message(apiError)
+                if (SignInMessages.isSecondStepUnavailable(apiError)) {
+                    // The password was right but can't be used here: no reason to keep it.
+                    suggestLink = true
+                    setPassword("")
+                }
                 runCatching { passwordFocus.requestFocus() }
             } finally {
                 busy = false
@@ -120,104 +146,81 @@ fun SignInScreen(session: Session.SignIn) {
         }
     }
 
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .systemBarsPadding()
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Column(Modifier.readableWidth(520.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Spacer(Modifier.height(48.dp))
-                BrandLockup(32.dp)
-                Spacer(Modifier.height(28.dp))
-                Text("Sign in", style = MaterialTheme.typography.displaySmall, modifier = Modifier.semantics { heading() })
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "This Novarr server has accounts. Sign in with the name or email and password you were given.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
+    SignInFrame(title = "Sign in", intro = if (unavailable) null else SignInMessages.intro(meta?.asksForSecondStep == true)) {
+        session.notice?.takeIf { !unavailable }?.let { notice ->
+            Spacer(Modifier.height(20.dp))
+            NoticeCard(notice)
+        }
 
-                session.notice?.let { notice ->
-                    Spacer(Modifier.height(20.dp))
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                        modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
-                    ) {
-                        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Icon(Icons.Outlined.Info, contentDescription = null)
-                            Text(notice, style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(24.dp))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Server", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(session.server, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
-                    }
-                    TextButton(onClick = { changingServer = true }, enabled = !busy) { Text("Change") }
-                }
-
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text("Name or email") },
-                    textStyle = LocalTextStyle.current.copy(fontFamily = BrandFonts.GeistMono),
-                    singleLine = true,
-                    enabled = !busy,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next, autoCorrectEnabled = false),
-                    keyboardActions = KeyboardActions(onNext = { runCatching { passwordFocus.requestFocus() } }),
-                    modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.Username },
-                )
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Password") },
-                    singleLine = true,
-                    enabled = !busy,
-                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go, autoCorrectEnabled = false),
-                    keyboardActions = KeyboardActions(onGo = { submit() }),
-                    trailingIcon = {
-                        IconButton(onClick = { showPassword = !showPassword }) {
-                            Icon(
-                                if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                contentDescription = if (showPassword) "Hide password" else "Show password",
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().focusRequester(passwordFocus).semantics { contentType = ContentType.Password },
-                )
-                error?.let {
-                    Row(
-                        Modifier.fillMaxWidth().padding(top = 10.dp).semantics { liveRegion = LiveRegionMode.Polite },
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
-                Spacer(Modifier.height(20.dp))
-                Button(onClick = { submit() }, enabled = canSubmit, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                    if (busy) {
-                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(10.dp))
-                        Text("Signing in…")
-                    } else {
-                        Text("Sign in")
-                    }
-                }
-                Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(24.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Server", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(session.server, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
             }
+            TextButton(onClick = onChangeServer, enabled = !busy) { Text("Change") }
+        }
+
+        if (unavailable) {
+            // Sign-in is on but switched off at this address: no form, nothing to type.
+            Spacer(Modifier.height(20.dp))
+            NoticeCard(SignInMessages.UNAVAILABLE_HERE)
+            Spacer(Modifier.height(20.dp))
+            BusyButton("Try again", "Checking…", busy = retryingMeta, enabled = true) {
+                retryingMeta = true
+                scope.launch {
+                    try {
+                        app.refreshMeta()
+                    } finally {
+                        retryingMeta = false
+                    }
+                }
+            }
+            return@SignInFrame
+        }
+
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Name or email") },
+            textStyle = LocalTextStyle.current.copy(fontFamily = BrandFonts.GeistMono),
+            singleLine = true,
+            enabled = !busy,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next, autoCorrectEnabled = false),
+            keyboardActions = KeyboardActions(onNext = { runCatching { passwordFocus.requestFocus() } }),
+            modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.Username },
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = password,
+            onValueChange = setPassword,
+            label = { Text("Password") },
+            singleLine = true,
+            enabled = !busy,
+            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go, autoCorrectEnabled = false),
+            keyboardActions = KeyboardActions(onGo = { submit() }),
+            trailingIcon = {
+                IconButton(onClick = { showPassword = !showPassword }) {
+                    Icon(
+                        if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                        contentDescription = if (showPassword) "Hide password" else "Show password",
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth().focusRequester(passwordFocus).semantics { contentType = ContentType.Password },
+        )
+        (error ?: formMessage)?.let { ErrorLine(it) }
+        Spacer(Modifier.height(20.dp))
+        BusyButton("Sign in", "Signing in…", busy = busy, enabled = canSubmit) { submit() }
+        if (meta?.offersPairing == true || suggestLink) {
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = { flow.startPairing(session.server) },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) { Text("Link with a code instead") }
         }
     }
 }
