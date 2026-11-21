@@ -39,7 +39,13 @@ class RememberTokens
     {
         $selector = Str::random(32);
         $token = Str::random(64);
+        // Always after the account's last "sign out everywhere" (a row made in
+        // that same second must not look older than it): see BrowserGuard.
         $now = now();
+        $after = $user->sessions_valid_after;
+        if ($after !== null && $after->getTimestamp() >= $now->getTimestamp()) {
+            $now = Carbon::createFromTimestamp($after->getTimestamp() + 1);
+        }
         $id = (int) DB::table('remember_tokens')->insertGetId([
             'user_id' => (int) $user->id,
             'selector' => $selector,

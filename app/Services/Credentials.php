@@ -23,14 +23,15 @@ use Illuminate\Support\Facades\RateLimiter;
  * a success does not clear it (one good account must not reset a guesser).
  * Home-network requests keep only the per-name limit.
  *
- * Per account, whatever the address: ACCOUNT_MAX_FAILURES wrong passwords
- * (or wrong second-step codes, App\Services\SecondStep) for one account
- * within ACCOUNT_WINDOW_SECONDS (from anywhere) lock that account's password
- * sign-in ON THE PUBLIC ADDRESS for ACCOUNT_LOCK_SECONDS (429, every entry
- * point that takes a password). The home network is never locked out, and a
- * sign-in from it clears the lock. A name that matches no account gets the
- * very same lock (keyed by a hash of the normalised name) and the same work
- * (a password hash check), so the answers never tell whether it exists.
+ * The lock, whatever the address: ACCOUNT_MAX_FAILURES wrong passwords for
+ * one sign-in name as typed (normalised; a name, an email or a name nobody
+ * has alike) within ACCOUNT_WINDOW_SECONDS (from anywhere) lock password
+ * sign-in with that name ON THE PUBLIC ADDRESS for ACCOUNT_LOCK_SECONDS
+ * (429). Wrong second-step codes (App\Services\SecondStep) lock the account
+ * itself, under every name. The home network is never locked out, and a
+ * sign-in from it clears the locks. Known and unknown names get the same
+ * lock and the same work (a password hash check), so the answers never tell
+ * whether a name or email belongs to an account.
  *
  * With a second step to follow ($complete false), a right password records
  * nothing and clears no limit: the sign-in is not done until the second
@@ -95,14 +96,18 @@ class Credentials
         }
 
         $user = User::findForSignIn($username);
-        // The lock (public address only): the account's, or the name's when
-        // it matches none — the same answer either way.
-        $subject = $user ?? User::normaliseUsername($username);
-        if ($publicHost && ($seconds = static::accountLockRetryAfter($subject)) !== null) {
+        // The lock (public address only) is kept per name as typed (wrong
+        // passwords count there), whether or not it matches an account, so a
+        // name, an email and a name nobody has all behave the same way — the
+        // answers never tell that an email belongs to an account. Wrong
+        // second-step codes (the password was right) lock the account itself.
+        $name = User::normaliseUsername($username);
+        $lockedFor = $publicHost ? (static::accountLockRetryAfter($name) ?? ($user !== null ? static::accountLockRetryAfter($user) : null)) : null;
+        if ($lockedFor !== null) {
             static::hitPublicCap($ip);
-            static::recordLimited($request, $via, 'account', $username, static::accountLockKey($subject));
+            static::recordLimited($request, $via, 'account', $username, static::accountLockKey($name));
 
-            return static::tooMany($seconds) + ['account_lock' => true];
+            return static::tooMany($lockedFor) + ['account_lock' => true];
         }
 
         $ok = $user !== null && is_string($password) && $password !== '' && static::check($password, (string) $user->password);
@@ -113,7 +118,7 @@ class Credentials
             }
             static::recordFailure($username, $ip, $publicHost);
             static::recordFailed($request, $via, $user, $user === null ? 'unknown_name' : 'wrong');
-            static::countAccountFailure($subject, $request, $via);
+            static::countAccountFailure($name, $request, $via, $user);
 
             return ['error' => self::WRONG, 'status' => 422];
         }
@@ -148,27 +153,27 @@ class Credentials
     {
         if ($username !== null) {
             RateLimiter::clear(static::throttleKey($username, $ip));
+            RateLimiter::clear(static::accountFailuresKey(User::normaliseUsername($username)));
         }
         RateLimiter::clear(static::accountFailuresKey($user));
         if (!$publicHost) {
-            // The owner at home can always get back in, and that unlocks the account.
+            // The owner at home can always get back in, and that unlocks the
+            // account and the names it signs in with.
             RateLimiter::clear(static::accountLockKey($user));
+            foreach (array_filter([$user->username, $user->email, $username]) as $known) {
+                RateLimiter::clear(static::accountLockKey(User::normaliseUsername((string) $known)));
+                RateLimiter::clear(static::accountFailuresKey(User::normaliseUsername((string) $known)));
+            }
         }
         if ($request !== null) {
             AuthEvent::record(AuthEvent::SIGN_IN, $request, (int) $user->id, static::detail($via, $request) + $detail);
         }
     }
 
-    /**
-     * A wrong second-step code (or passkey) for $user: it counts toward the
-     * public address's per-IP cap and the account's lock, and is recorded.
-     */
+    /** History: a wrong second-step code (or passkey) for $user. */
     public static function secondStepFailed(User $user, Request $request, string $via, string $method, string $purpose = 'sign_in'): void
     {
-        if (PublicAddress::isPublicRequest($request)) {
-            static::hitPublicCap($request->ip());
-        }
-        static::countAccountFailure($user, $request, $via);
+        // (Counted toward the limits before the answer was checked: SecondStep::check.)
         AuthEvent::record(AuthEvent::SECOND_STEP_FAILED, $request, (int) $user->id, ['via' => $via, 'method' => $method] + ($purpose === 'confirm' ? ['purpose' => 'confirm'] : []));
     }
 
@@ -250,15 +255,21 @@ class Credentials
     }
 
     /** One wrong password or code for $subject (any address); the ACCOUNT_MAX_FAILURES-th locks it. */
-    public static function countAccountFailure(User|string $subject, ?Request $request, string $via): void
+    /**
+     * One wrong password (for a typed name) or code (for an account) for
+     * $subject, from any address; the ACCOUNT_MAX_FAILURES-th locks it.
+     * $user: the account a typed name matches, for the history only.
+     */
+    public static function countAccountFailure(User|string $subject, ?Request $request, string $via, ?User $user = null): void
     {
         $failures = static::accountFailuresKey($subject);
         RateLimiter::hit($failures, self::ACCOUNT_WINDOW_SECONDS);
         if (RateLimiter::attempts($failures) >= self::ACCOUNT_MAX_FAILURES && static::accountLockRetryAfter($subject) === null) {
             RateLimiter::hit(static::accountLockKey($subject), self::ACCOUNT_LOCK_SECONDS);
             $detail = ['via' => $via, 'seconds' => self::ACCOUNT_LOCK_SECONDS];
-            AuthEvent::record(AuthEvent::ACCOUNT_LOCKED, $request, $subject instanceof User ? (int) $subject->id : null,
-                $subject instanceof User ? $detail : $detail + ['unknown_name' => true]);
+            $account = $subject instanceof User ? $subject : $user;
+            AuthEvent::record(AuthEvent::ACCOUNT_LOCKED, $request, $account?->id !== null ? (int) $account->id : null,
+                $account !== null ? $detail : $detail + ['unknown_name' => true]);
         }
     }
 
@@ -276,6 +287,21 @@ class Credentials
     private static function subjectKey(User|string $subject): string
     {
         return $subject instanceof User ? (string) (int) $subject->id : 'name:' . sha1(User::normaliseUsername($subject));
+    }
+
+    /**
+     * Seconds to wait when the public address's per-IP cap or $user's lock
+     * there refuses $request now; null on the home network or when neither
+     * does. Every step that checks a password, code, passkey or recovery
+     * code for a known account asks this first.
+     */
+    public static function publicRefusal(Request $request, ?User $user): ?int
+    {
+        if (!PublicAddress::isPublicRequest($request)) {
+            return null;
+        }
+
+        return static::publicCapRetryAfter($request->ip()) ?? ($user === null ? null : static::accountLockRetryAfter($user));
     }
 
     /** The JSON of a 429 from the auth endpoints (contract v1.1), with its Retry-After header. */

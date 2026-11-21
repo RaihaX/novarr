@@ -43,7 +43,7 @@ class AccountController extends Controller
         $email = \App\Services\SecondStep::emailAddress($user);
         $publicHost = \App\Support\PublicAddress::isPublicRequest($request);
 
-        return view('account.index', [
+        return response()->view('account.index', [
             'user' => $user,
             'tokens' => ApiToken::where('user_id', $user->id)->where('kind', ApiToken::KIND_APP)->whereNull('revoked_at')
                 ->orderByRaw('last_used_at IS NULL')->orderByDesc('last_used_at')->orderByDesc('id')->get(),
@@ -75,7 +75,10 @@ class AccountController extends Controller
                 ->whereIn('event', [AuthEvent::SIGN_IN, AuthEvent::SIGN_IN_FAILED, AuthEvent::SECOND_STEP_FAILED])
                 ->orderByDesc('occurred_at')->orderByDesc('id')
                 ->limit(self::RECENT_SIGN_INS)->get(),
-        ]);
+        ])
+            // It can show an authenticator secret and QR code, new recovery
+            // codes or a new catalogue password: never kept in any cache.
+            ->header('Cache-Control', 'no-store, private');
     }
 
     public function updateProfile(Request $request, CurrentReader $reader)
@@ -215,7 +218,15 @@ class AccountController extends Controller
         // Giving a device a token for this account: a recent confirmation
         // (the device stays chosen meanwhile).
         if (!RecentConfirmation::fresh($request)) {
-            session()->now('pairing_id', (int) $request->input('pairing'));
+            // Kept across the confirmation only when the code typed is that
+            // pairing's (found by the code, server side): a bare id would show
+            // another device's pending code.
+            $pairing = DevicePairing::pendingByCode($request->input('code'));
+            if ($pairing !== null && (int) $pairing->id === (int) $request->input('pairing')) {
+                session()->now('pairing_id', (int) $pairing->id);
+            } else {
+                session()->forget('pairing_id');
+            }
 
             return AccountSecurityController::toConfirm();
         }

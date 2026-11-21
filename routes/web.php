@@ -62,9 +62,9 @@ Route::delete('/account/browsers/{id}', [\App\Http\Controllers\AccountController
 // Sign-in steps and catalogue passwords (App\Http\Controllers\AccountSecurityController);
 // changes need a recent "Confirm it's you" (App\Support\RecentConfirmation).
 Route::controller(\App\Http\Controllers\AccountSecurityController::class)->group(function () {
-    Route::post('/account/confirm', 'confirm')->name('account.confirm');
+    Route::post('/account/confirm', 'confirm')->middleware('throttle:novarr-second-step')->name('account.confirm');
     Route::post('/account/confirm/email', 'confirmEmail')->middleware('throttle:novarr-second-step')->name('account.confirm.email');
-    Route::post('/account/confirm/passkey', 'confirmPasskeyOptions')->name('account.confirm.passkey_options');
+    Route::post('/account/confirm/passkey', 'confirmPasskeyOptions')->middleware('throttle:novarr-second-step')->name('account.confirm.passkey_options');
     Route::post('/account/passkeys/options', 'passkeyOptions')->name('account.passkeys.options');
     Route::post('/account/passkeys', 'storePasskey')->name('account.passkeys.store');
     Route::delete('/account/passkeys/{id}', 'destroyPasskey')->whereNumber('id')->name('account.passkeys.destroy');

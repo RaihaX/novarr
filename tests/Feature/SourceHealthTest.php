@@ -390,14 +390,13 @@ class SourceHealthTest extends TestCase
     public function test_the_page_is_refused_to_a_reader_and_on_the_public_address(): void
     {
         $this->enableSignIn();
-        $token = $this->tokenFor($this->makeReader());
-        $this->asToken($token)->get(route('health.sources'))->assertStatus(403);
+        $this->asSignedIn($this->makeReader())->get(route('health.sources'))->assertStatus(403);
 
         // The admin, on the public address (as cloudflared forwards it).
         config(['novarr.public_hosts' => ['read.example.com'], 'novarr.public_url' => null]);
-        $this->asToken($this->tokenFor($this->owner()))
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.50'])
-            ->withHeaders(['X-Forwarded-Proto' => 'https', 'X-Forwarded-For' => '203.0.113.7'])
+        $tunnel = fn($t) => $t->withServerVariables(['REMOTE_ADDR' => '192.168.1.50'])
+            ->withHeaders(['X-Forwarded-Proto' => 'https', 'X-Forwarded-For' => '203.0.113.7']);
+        $this->asSignedIn($this->owner(), 'http://read.example.com', $tunnel)
             ->getJson('http://read.example.com/health/sources')
             ->assertStatus(403)
             ->assertExactJson(['message' => PublicAddress::ADMIN_MESSAGE, 'code' => 'forbidden']);

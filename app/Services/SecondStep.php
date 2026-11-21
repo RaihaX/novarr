@@ -86,6 +86,9 @@ class SecondStep
 
     public const EXPIRED = 'expired';
 
+    /** The account's lock or the public cap: not evaluated. */
+    public const LOCKED = 'locked';
+
     public function __construct(
         private Authenticator $authenticator,
         private RecoveryCodes $recoveryCodes,
@@ -285,35 +288,64 @@ class SecondStep
 
     /**
      * Check one answer ($code: the code typed, or for a passkey the
-     * browser's credential JSON). Returns [outcome, tries left]: OK (the
-     * challenge is used up now), WRONG (counted everywhere), DEAD (that was
-     * the last allowed wrong code: the challenge is gone) or EXPIRED.
+     * browser's credential JSON). Returns [outcome, n]:
+     *   OK      — right; the challenge is used up now (n: tries left);
+     *   WRONG   — counted everywhere (n: tries left, ≥ 1);
+     *   DEAD    — that was the MAX_WRONG-th wrong answer: the challenge is gone;
+     *   EXPIRED — no such live challenge (timed out, used, another request won);
+     *   LOCKED  — the account's lock or the public per-IP cap is reached:
+     *             nothing was evaluated (n: seconds to wait).
+     *
+     * Race-safe, in this order: (1) a try is reserved atomically
+     * (wrong_tries + 1 only while below MAX_WRONG and unexpired), so
+     * parallel requests never get more than MAX_WRONG evaluations;
+     * (2) the failure is counted toward the account's lock and the public
+     * cap BEFORE evaluating, so a burst cannot get past those limits
+     * either, and taken back on success; (3) the answer is checked without
+     * spending it; (4) the challenge is consumed (one request wins); (5)
+     * only the winner spends the code (the authenticator's time step, the
+     * recovery code). A request that loses the race spends nothing.
      *
      * @return array{0: string, 1: int}
      */
     public function check(object $challenge, User $user, string $method, mixed $code, Request $request): array
     {
-        $fresh = DB::table('second_step_challenges')->where('id', $challenge->id)->where('expires_at', '>', now())->first();
-        if ($fresh === null || (int) $fresh->user_id !== (int) $user->id) {
+        $reserved = DB::table('second_step_challenges')
+            ->where('id', $challenge->id)->where('user_id', $user->id)
+            ->where('wrong_tries', '<', self::MAX_WRONG)->where('expires_at', '>', now())
+            ->update(['wrong_tries' => DB::raw('wrong_tries + 1')]);
+        $fresh = $reserved === 1 ? DB::table('second_step_challenges')->where('id', $challenge->id)->first() : null;
+        if ($fresh === null) {
             return [self::EXPIRED, 0];
         }
 
-        $ok = in_array($method, self::ORDER, true) && $this->answerIsRight($fresh, $user, $method, $code, $request);
-        if ($ok) {
+        $publicHost = PublicAddress::isPublicRequest($request);
+        if (($locked = $this->countBeforeChecking($user, $request, (string) $fresh->via, $publicHost)) !== null) {
+            return [self::LOCKED, $locked];
+        }
+
+        $spend = in_array($method, self::ORDER, true) ? $this->answerIsRight($fresh, $user, $method, $code, $request) : null;
+        if ($spend !== null) {
+            // Taken back: a right answer is not a failure.
+            $this->uncount($user, $request, $publicHost);
             if (!$this->consume($fresh)) {
+                return [self::EXPIRED, 0];
+            }
+            if (!$spend()) {
+                // The code was used in that same instant by another sign-in.
+                Credentials::secondStepFailed($user, $request, (string) $fresh->via, $method, (string) $fresh->purpose);
+
                 return [self::EXPIRED, 0];
             }
             if ($method === self::RECOVERY) {
                 AuthEvent::record(AuthEvent::RECOVERY_CODE_USED, $request, (int) $user->id, ['via' => $fresh->via, 'left' => $this->recoveryCodes->remaining($user)]);
             }
 
-            return [self::OK, self::MAX_WRONG - (int) $fresh->wrong_tries];
+            return [self::OK, self::MAX_WRONG - (int) $fresh->wrong_tries + 1];
         }
 
         Credentials::secondStepFailed($user, $request, (string) $fresh->via, $method, (string) $fresh->purpose);
-        DB::table('second_step_challenges')->where('id', $fresh->id)->update(['wrong_tries' => DB::raw('wrong_tries + 1')]);
-        $tries = (int) DB::table('second_step_challenges')->where('id', $fresh->id)->value('wrong_tries');
-        $left = self::MAX_WRONG - $tries;
+        $left = self::MAX_WRONG - (int) $fresh->wrong_tries;
         if ($left <= 0) {
             $this->forget($fresh);
 
@@ -323,21 +355,68 @@ class SecondStep
         return [self::WRONG, $left];
     }
 
-    private function answerIsRight(object $challenge, User $user, string $method, mixed $code, Request $request): bool
+    /**
+     * Count one failure (the account's lock, the public per-IP cap) before
+     * the answer is looked at. Seconds to wait when that limit was already
+     * reached (the answer is then not evaluated), else null.
+     */
+    private function countBeforeChecking(User $user, Request $request, string $via, bool $publicHost): ?int
+    {
+        if ($publicHost) {
+            Credentials::hitPublicCap($request->ip());
+        }
+        Credentials::countAccountFailure($user, $request, $via);
+        $overAccount = RateLimiter::attempts(Credentials::accountFailuresKey($user)) > Credentials::ACCOUNT_MAX_FAILURES;
+        $overCap = $publicHost && RateLimiter::attempts(Credentials::publicCapKey($request->ip())) > Credentials::PUBLIC_MAX_ATTEMPTS;
+        if (!$overAccount && !$overCap) {
+            return null;
+        }
+        // (The reserved try stays used: the challenge is near its end anyway.)
+        return max(
+            $publicHost ? (int) (Credentials::accountLockRetryAfter($user) ?? 0) : 0,
+            $overCap ? (int) (Credentials::publicCapRetryAfter($request->ip()) ?? 0) : 0,
+            $overAccount ? max(1, RateLimiter::availableIn(Credentials::accountFailuresKey($user))) : 0,
+            1,
+        );
+    }
+
+    private function uncount(User $user, Request $request, bool $publicHost): void
+    {
+        RateLimiter::decrement(Credentials::accountFailuresKey($user), Credentials::ACCOUNT_WINDOW_SECONDS);
+        if ($publicHost) {
+            RateLimiter::decrement(Credentials::publicCapKey($request->ip()), Credentials::PUBLIC_DECAY_SECONDS);
+        }
+    }
+
+    /**
+     * Whether the answer is right, without using anything up: a closure that
+     * spends it (true when still unspent) when right, null when wrong.
+     */
+    private function answerIsRight(object $challenge, User $user, string $method, mixed $code, Request $request): ?\Closure
     {
         // Only a method the account can use here (never a recovery code
         // without a passkey or authenticator, never a turned-off email).
         if (!in_array($method, $this->methods($user, $request, $challenge->via === 'web'), true)) {
-            return false;
+            return null;
         }
 
-        return match ($method) {
-            self::TOTP => is_string($code) && $this->authenticator->verify($user, $code),
-            self::EMAIL => is_string($code) && $this->emailCodeIsRight($challenge, $code),
-            self::RECOVERY => is_string($code) && $this->recoveryCodes->use($user, $code),
-            self::PASSKEY => $this->passkeys->verify($request, $challenge->purpose === self::CONFIRM ? Passkeys::CONFIRM : Passkeys::SECOND_STEP, $code, $user) !== null,
-            default => false,
-        };
+        switch ($method) {
+            case self::TOTP:
+                $step = is_string($code) ? $this->authenticator->rightStep($user, $code) : null;
+
+                return $step === null ? null : fn() => $this->authenticator->useStep($user, $step);
+            case self::EMAIL:
+                return is_string($code) && $this->emailCodeIsRight($challenge, $code) ? fn() => true : null;
+            case self::RECOVERY:
+                return is_string($code) && $this->recoveryCodes->isUnused($user, $code) ? fn() => $this->recoveryCodes->use($user, $code) : null;
+            case self::PASSKEY:
+                // A passkey's own challenge is used by the check itself (and
+                // can be asked for again); nothing secret is spent.
+                return $this->passkeys->verify($request, $challenge->purpose === self::CONFIRM ? Passkeys::CONFIRM : Passkeys::SECOND_STEP, $code, $user) !== null
+                    ? fn() => true : null;
+        }
+
+        return null;
     }
 
     private function emailCodeIsRight(object $challenge, string $input): bool

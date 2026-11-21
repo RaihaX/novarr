@@ -7,6 +7,7 @@ use App\AuthEvent;
 use App\Http\Controllers\Auth\SecondStepController;
 use App\Passkey;
 use App\Services\Authenticator;
+use App\Services\Credentials;
 use App\Services\Passkeys;
 use App\Services\RecoveryCodes;
 use App\Services\SecondStep;
@@ -33,7 +34,10 @@ use Illuminate\Support\Facades\Crypt;
  *   - catalogue passwords: make one (shown once) and revoke.
  *
  * Every change but revoking a catalogue password needs a recent
- * confirmation. Removing the last passkey / authenticator turns emailed
+ * confirmation. Confirming is limited like signing in: the public
+ * address's per-IP cap and the account's lock are asked first, and every
+ * wrong code counts toward them (App\Services\SecondStep::check), so a
+ * code cannot be guessed here by making challenge after challenge. Removing the last passkey / authenticator turns emailed
  * codes back on, so nobody is left without a second step by accident.
  */
 class AccountSecurityController extends Controller
@@ -70,6 +74,10 @@ class AccountSecurityController extends Controller
         abort_unless(AuthMode::required(), 404);
         $user = $reader->user();
         $json = $request->expectsJson() || $request->isJson();
+        // The same limits as signing in, before anything is looked at.
+        if (($seconds = Credentials::publicRefusal($request, $user)) !== null) {
+            return $json ? Credentials::tooManyJson($seconds) : static::tooManyPage($seconds, Credentials::tooManyMessage($seconds));
+        }
 
         if (!RecentConfirmation::needsSecondStep($request)) {
             $result = RecentConfirmation::checkPassword($user, (string) $request->input('password', ''), $request);
@@ -98,6 +106,9 @@ class AccountSecurityController extends Controller
 
             return $json ? SecondStepController::jsonRedirect($redirect) : $redirect;
         }
+        if ($outcome === SecondStep::LOCKED) {
+            return $json ? Credentials::tooManyJson($left) : static::tooManyPage($left, Credentials::tooManyMessage($left));
+        }
         if ($outcome !== SecondStep::WRONG) {
             $request->session()->forget(self::SESSION_CONFIRM);
             $message = $outcome === SecondStep::DEAD ? 'Too many wrong codes. Try again.' : 'That took too long. Try again.';
@@ -115,6 +126,9 @@ class AccountSecurityController extends Controller
     {
         abort_unless(AuthMode::required(), 404);
         $user = $reader->user();
+        if (($seconds = Credentials::publicRefusal($request, $user)) !== null) {
+            return static::tooManyPage($seconds, Credentials::tooManyMessage($seconds));
+        }
         $challenge = $this->confirmChallenge($request, $user, create: true);
         $error = $this->steps->sendEmailCode($challenge, $user, $request);
         if ($error !== null) {
@@ -138,6 +152,9 @@ class AccountSecurityController extends Controller
             return response()->json(['message' => Passkeys::UNAVAILABLE_MESSAGE], 422);
         }
         $user = $reader->user();
+        if (($seconds = Credentials::publicRefusal($request, $user)) !== null) {
+            return Credentials::tooManyJson($seconds);
+        }
         $this->confirmChallenge($request, $user, create: true);
 
         return response()->json($this->passkeys->requestOptions($request, Passkeys::CONFIRM, $user));
@@ -387,10 +404,10 @@ class AccountSecurityController extends Controller
         ], 428);
     }
 
-    public static function tooManyPage(int $seconds)
+    public static function tooManyPage(int $seconds, ?string $message = null)
     {
         return response()->view('auth.forbidden', [
-            'message' => 'Too many wrong passwords. Try again in ' . $seconds . ' ' . ($seconds === 1 ? 'second.' : 'seconds.'),
+            'message' => $message ?? 'Too many wrong passwords. Try again in ' . $seconds . ' ' . ($seconds === 1 ? 'second.' : 'seconds.'),
             'title' => 'Too many attempts',
         ], 429)->header('Retry-After', (string) $seconds);
     }

@@ -75,9 +75,12 @@ class AccountLockoutTest extends TestCase
         $web->assertStatus(429)->assertSee('Too many sign-in attempts.');
         $this->assertNotNull($web->headers->get('Retry-After'));
 
-        // By email too: the lock is the account's, not the name's.
+        // The lock is the typed name's: the account's email is a name of its
+        // own (as for any unknown name), so the answers never tie the two.
         $reader->forceFill(['email' => 'sam@example.test'])->save();
-        $this->fromAddress('198.51.100.4')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam@example.test', 'password' => self::READER_PASSWORD])->assertStatus(429);
+        $this->fromAddress('198.51.100.4')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'sam@example.test', 'password' => self::READER_PASSWORD])
+            ->assertStatus(401)->assertJsonPath('code', 'second_step_required');
+        $this->fromAddress('198.51.100.6')->postJson(self::PUBLIC . '/api/v1/auth/token', ['username' => 'SAM', 'password' => self::READER_PASSWORD])->assertStatus(429);
 
         // OPDS on the public address never takes the account password at all
         // (a catalogue password only): the challenge, not the lock.

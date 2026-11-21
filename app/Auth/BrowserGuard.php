@@ -63,6 +63,14 @@ class BrowserGuard extends SessionGuard
         if ($user === null) {
             return null;
         }
+        // Made before the account was signed out everywhere (a row that
+        // slipped in while that ran): dead.
+        $after = $user->sessions_valid_after ?? null;
+        if ($after !== null && ($row->created_at === null || \Illuminate\Support\Carbon::parse($row->created_at)->getTimestamp() <= $after->getTimestamp())) {
+            app(RememberTokens::class)->delete((int) $row->id);
+
+            return null;
+        }
 
         $this->viaRemember = true;
         $this->recalledRow = $row;

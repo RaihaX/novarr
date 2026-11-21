@@ -93,15 +93,26 @@ class Authenticator
     /** Check $code against $user's authenticator, using its step up for good. */
     public function verify(User $user, ?string $code): bool
     {
+        $step = $this->rightStep($user, $code);
+
+        return $step !== null && $this->useStep($user, $step);
+    }
+
+    /** The unused time step $code is right for, without using it; null when wrong. */
+    public function rightStep(User $user, ?string $code): ?int
+    {
         $secret = $this->secretOf($user);
         if ($secret === null) {
-            return false;
+            return null;
         }
-        $step = $this->matchStep($secret, $code, $user->totp_last_step === null ? null : (int) $user->totp_last_step);
-        if ($step === null) {
-            return false;
-        }
+        $last = User::whereKey($user->id)->value('totp_last_step');
 
+        return $this->matchStep($secret, $code, $last === null ? null : (int) $last);
+    }
+
+    /** Use $step up for good; false when it (or a later one) was used already. */
+    public function useStep(User $user, int $step): bool
+    {
         // Atomic: of two requests with the same code only one moves the step.
         $moved = User::whereKey($user->id)
             ->where(fn($q) => $q->whereNull('totp_last_step')->orWhere('totp_last_step', '<', $step))

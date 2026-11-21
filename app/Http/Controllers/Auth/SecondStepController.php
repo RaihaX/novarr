@@ -58,6 +58,9 @@ class SecondStepController extends Controller
         if ($challenge === null) {
             return $this->startAgain(SecondStep::EXPIRED_MESSAGE);
         }
+        if (($refused = $this->refused($request, $user, false)) !== null) {
+            return $refused;
+        }
 
         $error = $this->steps->sendEmailCode($challenge, $user, $request);
         if ($error === null) {
@@ -91,6 +94,9 @@ class SecondStepController extends Controller
             $redirect = LoginController::finishSignIn($request, $user, true, 'web', $method, $pending['username'] ?? null);
 
             return $json ? static::jsonRedirect($redirect) : $redirect;
+        }
+        if ($outcome === SecondStep::LOCKED) {
+            return $this->refusedFor($request, $left, $json);
         }
         if ($outcome === SecondStep::DEAD || $outcome === SecondStep::EXPIRED) {
             return $this->startAgain($outcome === SecondStep::DEAD ? SecondStep::TOO_MANY_WRONG_MESSAGE : SecondStep::EXPIRED_MESSAGE, $json);
@@ -143,10 +149,13 @@ class SecondStepController extends Controller
     /** The public cap or the account's lock: 429 (the page, or JSON). */
     private function refused(Request $request, User $user, bool $json)
     {
-        $seconds = Credentials::publicCapRetryAfter($request->ip()) ?? Credentials::accountLockRetryAfter($user);
-        if ($seconds === null) {
-            return null;
-        }
+        $seconds = Credentials::publicRefusal($request, $user);
+
+        return $seconds === null ? null : $this->refusedFor($request, $seconds, $json);
+    }
+
+    private function refusedFor(Request $request, int $seconds, bool $json)
+    {
         $request->session()->forget(self::SESSION_PENDING);
         if ($json) {
             return Credentials::tooManyJson($seconds);

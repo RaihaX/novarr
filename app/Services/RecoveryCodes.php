@@ -58,6 +58,15 @@ class RecoveryCodes
             ->update(['used_at' => now()]) === 1;
     }
 
+    /** Whether $input is one of $user's unused codes (nothing is used). */
+    public function isUnused(User $user, ?string $input): bool
+    {
+        $code = static::normalise($input);
+
+        return $code !== null && DB::table('recovery_codes')->where('user_id', $user->id)
+            ->where('code_hash', static::hash($code))->whereNull('used_at')->exists();
+    }
+
     public function remaining(User $user): int
     {
         return DB::table('recovery_codes')->where('user_id', $user->id)->whereNull('used_at')->count();

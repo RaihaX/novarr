@@ -59,6 +59,9 @@ final class RecentConfirmation
      */
     public static function checkPassword(User $user, ?string $password, Request $request): bool|int
     {
+        if (($seconds = Credentials::publicRefusal($request, $user)) !== null) {
+            return $seconds;
+        }
         $key = static::passwordKey($user);
         if (RateLimiter::tooManyAttempts($key, self::PASSWORD_MAX_WRONG)) {
             return max(1, RateLimiter::availableIn($key));

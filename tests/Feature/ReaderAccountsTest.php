@@ -76,8 +76,10 @@ class ReaderAccountsTest extends TestCase
         $this->asToken($readerToken)->getJson("/api/v1/novels/{$novel->id}/chapters", ['If-None-Match' => $ownerRes->headers->get('ETag')])->assertOk();
         $this->asToken($readerToken)->getJson("/api/v1/novels/{$novel->id}/chapters", ['If-None-Match' => $readerRes->headers->get('ETag')])->assertStatus(304);
         // The web routes' conditional GET too.
-        $web = $this->asToken($readerToken)->getJson(route('novels.chapters_json', $novel->id))->assertOk();
-        $this->asToken($ownerToken)->getJson(route('novels.chapters_json', $novel->id), ['If-None-Match' => $web->headers->get('ETag')])->assertOk();
+        // (web routes: signed-in browsers; bearer tokens open the API only)
+        $userOf = fn(string $token) => \App\ApiToken::where('token_hash', hash('sha256', $token))->sole()->user;
+        $web = $this->asSignedIn($userOf($readerToken))->getJson(route('novels.chapters_json', $novel->id))->assertOk();
+        $this->asSignedIn($userOf($ownerToken))->getJson(route('novels.chapters_json', $novel->id), ['If-None-Match' => $web->headers->get('ETag')])->assertOk();
     }
 
     // ---- Signed asset URLs --------------------------------------------------
@@ -326,9 +328,10 @@ class ReaderAccountsTest extends TestCase
         $other = $this->makeReader('other', 'Other');
         $token = $this->tokenFor($this->makeReader());
 
-        $this->asToken($token)->get(route('settings.users'))->assertStatus(403);
-        $this->asToken($token)->delete(route('settings.users.destroy', $other->id))->assertStatus(403);
-        $this->asToken($token)->post(route('settings.users.auth'), ['required' => 0])->assertStatus(403);
+        $reader = \App\ApiToken::where('token_hash', hash('sha256', $token))->sole()->user;
+        $this->asSignedIn($reader)->get(route('settings.users'))->assertStatus(403);
+        $this->asSignedIn($reader)->delete(route('settings.users.destroy', $other->id))->assertStatus(403);
+        $this->asSignedIn($reader)->post(route('settings.users.auth'), ['required' => 0])->assertStatus(403);
         $this->assertNotNull($other->fresh());
         $this->assertTrue(AuthMode::required());
     }

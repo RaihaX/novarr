@@ -62,6 +62,37 @@ trait UsesAccounts
         return $this->withHeader('Authorization', 'Bearer ' . $token);
     }
 
+    /**
+     * Requests from here on are $user's signed-in browser on $host (signed
+     * in through the real form; on the public address with the second
+     * step). Web pages need this: bearer tokens open only the API and the
+     * Basic routes. $prepare adds headers / server variables to the sign-in
+     * requests too (the tunnel's).
+     */
+    protected function asSignedIn(User $user, string $host = '', ?callable $prepare = null): static
+    {
+        $password = collect([self::READER_PASSWORD, self::OWNER_PASSWORD])
+            ->first(fn($p) => Hash::check($p, (string) $user->fresh()->password));
+        if ($password === null) {
+            $password = 'signed-in-for-the-test';
+            $user->forceFill(['password' => Hash::make($password), 'password_set_at' => $user->password_set_at ?? now()])->save();
+        }
+        $public = $host !== '' && \App\Support\PublicAddress::isPublicRequest(\Illuminate\Http\Request::create($host . '/'));
+        if ($public) {
+            $cookies = $this->cookiesOf($this->publicWebSignIn((string) $user->username, $password, $host, $prepare));
+        } else {
+            $this->asNobody();
+            $prepare && $prepare($this);
+            $response = $this->post($host . '/login', ['username' => $user->username, 'password' => $password]);
+            $response->assertRedirect();
+            $cookies = $this->cookiesOf($response);
+        }
+        $this->withBrowser($cookies);
+        $prepare && $prepare($this);
+
+        return $this;
+    }
+
     /** Requests from here on carry no credentials. */
     protected function asNobody(): static
     {

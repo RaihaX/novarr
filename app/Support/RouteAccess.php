@@ -203,6 +203,18 @@ final class RouteAccess
     /** Routes that also accept HTTP Basic (username + password): ereader OPDS clients. */
     public const BASIC_ROUTES = ['opds.index', 'novels.download_epub'];
 
+    /**
+     * Public routes that, on the public address, answer only while sign-in
+     * is on (403 "only available once sign-in is turned on" otherwise):
+     * they make tokens or accounts that would work once it is.
+     */
+    public const SIGN_IN_ON_ROUTES = [
+        'api.v1.auth.token.store',
+        'api.v1.auth.token.email_code',
+        'api.v1.auth.token.second_step',
+        'invite.accept',
+    ];
+
     /** The key a route is listed under. */
     public static function key(?Route $route): ?string
     {
@@ -242,6 +254,17 @@ final class RouteAccess
     public static function acceptsSignature(?Route $route): bool
     {
         return $route !== null && in_array($route->getName(), self::SIGNED_ROUTES, true);
+    }
+
+    public static function needsSignInOn(?Route $route): bool
+    {
+        return $route !== null && in_array($route->getName(), self::SIGN_IN_ON_ROUTES, true);
+    }
+
+    /** Bearer tokens are read on the API and the Basic routes (the ePub download) only. */
+    public static function acceptsBearer(\Illuminate\Http\Request $request, ?Route $route): bool
+    {
+        return $request->is('api/*') || static::acceptsBasic($route);
     }
 
     public static function acceptsBasic(?Route $route): bool

@@ -59,7 +59,13 @@ class SecondStepApiTest extends TestCase
 
     private function step(string $challenge, string $method, string $code, array $extra = [])
     {
-        return $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/second-step', $extra + ['challenge' => $challenge, 'method' => $method, 'code' => $code]);
+        // The app sends its device_id with every step (the challenge is bound to it).
+        return $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/second-step', $extra + ['challenge' => $challenge, 'method' => $method, 'code' => $code, 'device_id' => 'phone-1']);
+    }
+
+    private function emailCode(string $challenge, array $extra = [])
+    {
+        return $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', $extra + ['challenge' => $challenge, 'device_id' => 'phone-1']);
     }
 
     private function emailedCode(): string
@@ -195,7 +201,7 @@ class SecondStepApiTest extends TestCase
         $this->travel(601)->seconds();
         $late = $this->step($challenge, 'totp', $this->totpCode($this->secret))->assertStatus(404);
         $this->assertSame('{"code":"challenge_expired","message":"That took too long. Sign in again."}', $late->getContent());
-        $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', ['challenge' => $challenge])->assertStatus(404)
+        $this->emailCode($challenge)->assertStatus(404)
             ->assertExactJson(['code' => 'challenge_expired', 'message' => 'That took too long. Sign in again.']);
     }
 
@@ -204,15 +210,25 @@ class SecondStepApiTest extends TestCase
         $this->sam();
         $challenge = $this->password()->json('challenge');
 
-        // Another device_id: not this sign-in.
+        // Another device_id, or none: not this sign-in (both endpoints).
         $this->step($challenge, 'totp', $this->totpCode($this->secret), ['device_id' => 'someone-else'])->assertStatus(404)->assertJsonPath('code', 'challenge_expired');
+        $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/second-step', ['challenge' => $challenge, 'method' => 'totp', 'code' => $this->totpCode($this->secret)])
+            ->assertStatus(404)->assertExactJson(['code' => 'challenge_expired', 'message' => SecondStep::EXPIRED_MESSAGE]);
+        $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', ['challenge' => $challenge])->assertStatus(404)->assertJsonPath('code', 'challenge_expired');
+        $this->emailCode($challenge, ['device_id' => 'someone-else'])->assertStatus(404);
+        // None of those used a try.
+        $this->assertSame(0, (int) DB::table('second_step_challenges')->value('wrong_tries'));
         // The challenge is no bearer token.
         $this->asToken($challenge)->getJson(self::PUBLIC . '/api/v1/auth/me')->assertStatus(401);
         // An unknown or malformed challenge: the same 404.
         $this->step(str_repeat('a', 64), 'totp', '123456')->assertStatus(404)->assertJsonPath('code', 'challenge_expired');
         $this->step('nope', 'totp', '123456')->assertStatus(404);
-        // The same device_id (or none) is fine.
-        $this->step($challenge, 'totp', $this->totpCode($this->secret), ['device_id' => 'phone-1'])->assertOk();
+        // The same device_id is fine.
+        $this->step($challenge, 'totp', $this->totpCode($this->secret))->assertOk();
+
+        // A password request without a device_id makes an unbound challenge: no device_id needed then.
+        $unbound = $this->password(['device_id' => null])->json('challenge');
+        $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/second-step', ['challenge' => $unbound, 'method' => 'totp', 'code' => $this->totpCode($this->secret, 1)])->assertOk();
     }
 
     public function test_authenticator_codes_are_accepted_one_step_either_side_and_never_twice(): void
@@ -246,7 +262,7 @@ class SecondStepApiTest extends TestCase
         $challenge = $this->password()->json('challenge');
         Mail::assertNotSent(SignInCode::class);
 
-        $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', ['challenge' => $challenge])->assertNoContent();
+        $this->emailCode($challenge)->assertNoContent();
         $code = $this->emailedCode();
         $this->assertMatchesRegularExpression('/^\d{6}$/', $code);
         Mail::assertSent(SignInCode::class, fn(SignInCode $m) => $m->hasTo('reyhan@atomic.com.au'));
@@ -264,10 +280,10 @@ class SecondStepApiTest extends TestCase
     {
         $this->sam(authenticator: false);
         $challenge = $this->password()->json('challenge');
-        $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', ['challenge' => $challenge])->assertNoContent();
+        $this->emailCode($challenge)->assertNoContent();
         $first = $this->emailedCode();
         Mail::fake();
-        $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', ['challenge' => $challenge])->assertNoContent();
+        $this->emailCode($challenge)->assertNoContent();
         $second = $this->emailedCode();
         if ($first !== $second) {
             $this->step($challenge, 'email', $first)->assertStatus(422);
@@ -283,9 +299,9 @@ class SecondStepApiTest extends TestCase
         $this->sam(authenticator: false);
         $challenge = $this->password()->json('challenge');
         for ($i = 0; $i < 3; $i++) {
-            $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', ['challenge' => $challenge])->assertNoContent();
+            $this->emailCode($challenge)->assertNoContent();
         }
-        $fourth = $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', ['challenge' => $challenge])->assertStatus(429);
+        $fourth = $this->emailCode($challenge)->assertStatus(429);
         $this->assertSame(['code', 'message', 'retry_after'], array_keys($fourth->json()));
         $this->assertSame('throttled', $fourth->json('code'));
         $this->assertSame((string) $fourth->json('retry_after'), $fourth->headers->get('Retry-After'));
@@ -294,10 +310,10 @@ class SecondStepApiTest extends TestCase
         // A new challenge: three more, then the hourly cap of six.
         $next = $this->password()->json('challenge');
         for ($i = 0; $i < 3; $i++) {
-            $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', ['challenge' => $next])->assertNoContent();
+            $this->emailCode($next)->assertNoContent();
         }
         $third = $this->password()->json('challenge');
-        $capped = $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', ['challenge' => $third])->assertStatus(429);
+        $capped = $this->emailCode($third)->assertStatus(429);
         $this->assertGreaterThan(3000, $capped->json('retry_after'));
         $this->assertMatchesRegularExpression('/^Too many codes asked for\. Try again in \d+ minutes\.$/', $capped->json('message'));
         Mail::assertSentCount(6);
@@ -307,7 +323,7 @@ class SecondStepApiTest extends TestCase
     {
         $this->sam(email: null);
         $challenge = $this->password()->json('challenge');
-        $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', ['challenge' => $challenge])
+        $this->emailCode($challenge)
             ->assertStatus(422)->assertExactJson(['code' => 'method_unavailable', 'message' => 'Emailed codes are not available for this account.']);
         // An email method the account cannot use is just a wrong code.
         $this->step($challenge, 'email', '123456')->assertStatus(422)->assertJsonPath('code', 'wrong_code');
@@ -381,9 +397,9 @@ class SecondStepApiTest extends TestCase
     {
         $this->sam();
         for ($i = 0; $i < 30; $i++) {
-            $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', ['challenge' => str_repeat('b', 64)]);
+            $this->emailCode(str_repeat('b', 64));
         }
-        $throttled = $this->asNobody()->postJson(self::PUBLIC . '/api/v1/auth/token/email-code', ['challenge' => str_repeat('b', 64)])->assertStatus(429);
+        $throttled = $this->emailCode(str_repeat('b', 64))->assertStatus(429);
         $this->assertSame(['code', 'message', 'retry_after'], array_keys($throttled->json()));
         $this->assertMatchesRegularExpression('/Try again in \d+ seconds?\./', $throttled->json('message'));
         $this->assertNotNull($throttled->headers->get('Retry-After'));

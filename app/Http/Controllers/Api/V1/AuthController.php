@@ -27,10 +27,12 @@ use Illuminate\Http\Response;
  *            (the public address, sign-in on: App\Services\SecondStep)
  *          | 403 {code: second_step_unavailable, message}
  *          | 422 {message} | 429 {code: throttled, message, retry_after}
- *   POST   /api/v1/auth/token/email-code   {challenge}
+ *   POST   /api/v1/auth/token/email-code   {challenge, device_id}
  *          → 204 | 404 {code: challenge_expired, message} | 422 {code: method_unavailable, message}
  *          | 429 {code: throttled, message, retry_after}
- *   POST   /api/v1/auth/token/second-step  {challenge, method: totp|email|recovery, code}
+ *   POST   /api/v1/auth/token/second-step  {challenge, method: totp|email|recovery, code, device_id}
+ *          (device_id required when the password request sent one: the
+ *          challenge is bound to it; missing or different → 404)
  *          → 200 {token, user} | 422 {code: wrong_code, message, tries_left ≥ 1}
  *          | 404 {code: challenge_expired, message} (timed out, used, or the 5th wrong code)
  *          | 429 {code: throttled, message, retry_after}
@@ -95,10 +97,13 @@ class AuthController extends Controller
     /** POST /auth/token/email-code {challenge}: email a code for the pending sign-in. */
     public function emailCode(Request $request, SecondStep $steps)
     {
-        $data = $request->validate(['challenge' => 'required|string|max:128']);
+        $data = $request->validate(['challenge' => 'required|string|max:128', 'device_id' => 'nullable|string|max:255']);
         [$challenge, $user] = $this->challenge($steps, $data['challenge']);
-        if ($challenge === null) {
+        if ($challenge === null || !static::sameDevice($challenge, $data['device_id'] ?? null)) {
             return static::expired(SecondStep::EXPIRED_MESSAGE);
+        }
+        if (($seconds = Credentials::publicRefusal($request, $user)) !== null) {
+            return Credentials::tooManyJson($seconds);
         }
 
         $error = $steps->sendEmailCode($challenge, $user, $request);
@@ -128,15 +133,19 @@ class AuthController extends Controller
             return Credentials::tooManyJson($seconds);
         }
         [$challenge, $user] = $this->challenge($steps, $data['challenge']);
-        // Bound to the device that typed the password: another device_id is not this sign-in.
-        if ($challenge === null || (isset($data['device_id']) && trim($data['device_id']) !== '' && trim($data['device_id']) !== (string) $challenge->device_id)) {
+        // Bound to the device that typed the password: without its device_id
+        // (or with another) it is not this sign-in.
+        if ($challenge === null || !static::sameDevice($challenge, $data['device_id'] ?? null)) {
             return static::expired(SecondStep::EXPIRED_MESSAGE);
         }
-        if (PublicAddress::isPublicRequest($request) && ($seconds = Credentials::accountLockRetryAfter($user)) !== null) {
+        if (($seconds = Credentials::publicRefusal($request, $user)) !== null) {
             return Credentials::tooManyJson($seconds);
         }
 
         [$outcome, $left] = $steps->check($challenge, $user, $data['method'], $data['code'], $request);
+        if ($outcome === SecondStep::LOCKED) {
+            return Credentials::tooManyJson($left);
+        }
         if ($outcome === SecondStep::WRONG) {
             return response()->json(['code' => 'wrong_code', 'message' => SecondStep::WRONG_CODE_MESSAGE, 'tries_left' => $left], 422);
         }
@@ -196,6 +205,16 @@ class AuthController extends Controller
         }
 
         return [$challenge, $user];
+    }
+
+    /** A challenge made with a device_id is answered only with that device_id. */
+    private static function sameDevice(object $challenge, ?string $deviceId): bool
+    {
+        if ($challenge->device_id === null) {
+            return true;
+        }
+
+        return is_string($deviceId) && hash_equals((string) $challenge->device_id, mb_substr(trim($deviceId), 0, 64));
     }
 
     private static function expired(string $message): JsonResponse

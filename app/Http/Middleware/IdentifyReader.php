@@ -29,7 +29,8 @@ use Symfony\Component\HttpFoundation\Response;
  * default), whatever credentials it carries.
  *
  * Sign-in on: identifies the user from, in order,
- *   1. a bearer token (Authorization: Bearer …) — the native clients; a
+ *   1. a bearer token (Authorization: Bearer …) — the native clients, on
+ *      api/* and RouteAccess::BASIC_ROUTES only (ignored elsewhere); a
  *      token that is present but not valid means "not signed in";
  *   2. a signed URL naming the reader — session-less assets only
  *      (RouteAccess::SIGNED_ROUTES);
@@ -76,7 +77,9 @@ class IdentifyReader
         $publicHost = PublicAddress::isPublicRequest($request);
 
         if (!AuthMode::required()) {
-            if ($publicHost && $access !== RouteAccess::PUBLIC) {
+            // Signing in and making accounts need sign-in on there too: a
+            // token or account made now would work the moment it is turned on.
+            if ($publicHost && ($access !== RouteAccess::PUBLIC || RouteAccess::needsSignInOn($route))) {
                 // Nobody is the owner here: the refusal page shows no one.
                 app()->instance(CurrentReader::class, CurrentReader::guest());
 
@@ -120,7 +123,11 @@ class IdentifyReader
     {
         $basicFailure = null;
 
-        $bearer = $request->bearerToken();
+        // Bearer tokens are the apps': the API, and the two routes HTTP Basic
+        // also opens (OPDS, the ePub download KOReader fetches). Anywhere
+        // else (the Account page, Confirm it's you) a bearer is ignored and
+        // only the browser's session counts.
+        $bearer = RouteAccess::acceptsBearer($request, $route) ? $request->bearerToken() : null;
         if ($bearer !== null) {
             $token = ApiToken::findActive($bearer);
             if ($token === null) {
