@@ -65,7 +65,9 @@ private let challengeBody = json("""
 private let unavailableMessage = "This account needs a second sign-in step before it can be used here. Set one up from your home network, or ask the person who runs this Novarr."
 private let wrongCodeBody = json(#"{"code":"wrong_code","message":"That code is not right. Check it and try again.","tries_left":3}"#)
 private let expiredBody = json(#"{"code":"challenge_expired","message":"That took too long. Sign in again."}"#)
-private let throttledBody = json(#"{"code":"throttled","message":"Too many attempts. Try again in 60 seconds."}"#)
+private let throttledBody = json(#"{"code":"throttled","message":"Too many attempts. Try again in 60 seconds.","retry_after":60}"#)
+private let tooManyWrongBody = json(#"{"code":"challenge_expired","message":"Too many wrong codes. Sign in again."}"#)
+private let passkeyOnlyMessage = "This account signs in with a passkey. Link this device with a code instead: on a phone or computer where you are signed in, open Account → Link a device."
 
 private func challenge(_ methods: [SecondStepMethod], hint: String? = nil) -> SecondStepChallenge {
     SecondStepChallenge(challenge: challengeHex, message: nil, expiresIn: 600, methods: methods, emailHint: hint)
@@ -228,12 +230,14 @@ struct SecondStepClientTests {
             switch status.next("n") {
             case 1: (204, Data())
             case 2: (404, json(#"{"code":"challenge_expired"}"#))
-            default: (429, json(#"{"code":"throttled"}"#))
+            default: (429, json(#"{"code":"throttled","message":"Too many codes. Try again in 120 seconds.","retry_after":120}"#))
             }
         }
         try await api.requestEmailCode(challenge: challengeHex)
-        await #expect(throws: APIError.challengeExpired) { try await api.requestEmailCode(challenge: challengeHex) }
-        await #expect(throws: APIError.http(status: 429, message: nil)) { try await api.requestEmailCode(challenge: challengeHex) }
+        await #expect(throws: APIError.challengeExpired(nil)) { try await api.requestEmailCode(challenge: challengeHex) }
+        await #expect(throws: APIError.http(status: 429, message: "Too many codes. Try again in 120 seconds.")) {
+            try await api.requestEmailCode(challenge: challengeHex)
+        }
 
         let first = try #require(log.requests.first)
         #expect(first.request.httpMethod == "POST")
@@ -258,7 +262,7 @@ struct SecondStepClientTests {
         await #expect(throws: APIError.wrongCode(message: "That code is not right. Check it and try again.", triesLeft: 3)) {
             _ = try await api.submitSecondStep(challenge: challengeHex, method: .email, code: "000000")
         }
-        await #expect(throws: APIError.challengeExpired) {
+        await #expect(throws: APIError.challengeExpired("That took too long. Sign in again.")) {
             _ = try await api.submitSecondStep(challenge: challengeHex, method: .recovery, code: "abcde-fghij")
         }
         await #expect(throws: APIError.http(status: 429, message: "Too many attempts. Try again in 60 seconds.")) {
@@ -385,7 +389,7 @@ struct SecondStepFlowTests {
         #expect(flow.errorMessage == "Too many attempts. Try again in 60 seconds.")
         _ = flow.receive(.http(status: 429, message: nil))
         #expect(flow.errorMessage == "Too many sign-in attempts. Wait a minute and try again.")
-        let r2 = flow.receive(.challengeExpired) == .restart("That took too long. Sign in again.")
+        let r2 = flow.receive(.challengeExpired(nil)) == .restart("That took too long. Sign in again.")
         #expect(r2)
         // Choosing another method clears the last error.
         var two = SecondStepFlow(server: server, username: "r", challenge: challenge([.totp, .recovery]))
@@ -397,7 +401,11 @@ struct SecondStepFlowTests {
     @Test func passwordFormWording() {
         #expect(SignInMessages.message(for: .secondStepUnavailable(unavailableMessage)) == unavailableMessage)
         #expect(SignInMessages.message(for: .secondStepUnavailable(nil)) == unavailableMessage)
-        #expect(SignInMessages.message(for: .challengeExpired) == "That took too long. Sign in again.")
+        #expect(SignInMessages.message(for: .challengeExpired(nil)) == "That took too long. Sign in again.")
+        #expect(SignInMessages.message(for: .challengeExpired("Too many wrong codes. Sign in again."))
+                == "Too many wrong codes. Sign in again.")
+        // A passkey-only account: the server's text, word for word.
+        #expect(SignInMessages.message(for: .secondStepUnavailable(passkeyOnlyMessage)) == passkeyOnlyMessage)
         #expect(APIError.secondStepUnavailable(nil).isRetryable == false)
     }
 }
@@ -591,6 +599,36 @@ struct SecondStepAppTests {
         app.currentDate = { @Sendable [clock] in clock }
         await app.requestEmailCode()
         #expect(counts.count("/api/v1/auth/token/email-code") == 2)
+    }
+
+    @Test func fifthWrongCodeShowsTheServersReason() async throws {
+        let answers = Counter()
+        let (app, _, _) = makeApp { request, _ in
+            if request.url?.path == "/api/v1/auth/token" { return (401, challengeBody) }
+            return answers.next("step") == 1 ? (429, throttledBody) : (404, tooManyWrongBody)
+        }
+        try await app.signIn(username: "reyhan", password: "pw")
+        await app.submitSecondStep(code: "000000")
+        // 429 with retry_after: the message as given, still on the code screen.
+        #expect(app.secondStep?.errorMessage == "Too many attempts. Try again in 60 seconds.")
+        await app.submitSecondStep(code: "000000")
+        #expect(app.secondStep == nil)
+        #expect(app.signInError == "Too many wrong codes. Sign in again.")
+    }
+
+    @Test func passkeyOnlyAccountGetsTheServersMessageVerbatim() async throws {
+        let (app, _, _) = makeApp { _, _ in
+            (403, json(#"{"code":"second_step_unavailable","message":"\#(passkeyOnlyMessage)"}"#))
+        }
+        do {
+            try await app.signIn(username: "reyhan", password: "pw")
+            Issue.record("expected a refusal")
+        } catch {
+            let apiError = APIError.from(error)
+            #expect(apiError == .secondStepUnavailable(passkeyOnlyMessage))
+            #expect(SignInMessages.message(for: apiError) == passkeyOnlyMessage)
+        }
+        #expect(app.secondStep == nil)
     }
 
     @Test func secondStepUnavailableIsThrownForTheForm() async throws {

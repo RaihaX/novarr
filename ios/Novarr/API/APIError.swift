@@ -18,8 +18,9 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
     /// `POST auth/token/second-step` → 422 `wrong_code`.
     case wrongCode(message: String?, triesLeft: Int?)
     /// 404 `challenge_expired`: the second step took too long (or had too
-    /// many wrong codes); sign in again from the password.
-    case challengeExpired
+    /// many wrong codes); sign in again from the password. Carries the
+    /// server's message, which says which.
+    case challengeExpired(String?)
 
     static func from(_ error: Error) -> APIError {
         if let api = error as? APIError { return api }
@@ -106,8 +107,9 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
                 ?? "This account needs a second sign-in step before it can be used here. Set one up from your home network, or ask the person who runs this Novarr."
         case .wrongCode(let message, _):
             message.flatMap { $0.isEmpty ? nil : $0 } ?? "That code is not right. Check it and try again."
-        case .challengeExpired:
-            "That took too long. Sign in again."
+        case .challengeExpired(let message):
+            message.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+                ?? "That took too long. Sign in again."
         }
     }
 }

@@ -174,7 +174,7 @@ struct APIClient: Sendable {
         let (status, data) = try await exchange("POST", "auth/token/email-code", body: ChallengeBody(challenge: challenge))
         if (200..<300).contains(status) { return }
         let error = Self.authError(data)
-        if status == 404 { throw APIError.challengeExpired }
+        if status == 404 { throw APIError.challengeExpired(error.message) }
         throw APIError.http(status: status, message: error.message)
     }
 
@@ -188,7 +188,7 @@ struct APIClient: Sendable {
         switch status {
         case 422 where error.code == AuthErrorBody.wrongCode:
             throw APIError.wrongCode(message: error.message, triesLeft: error.triesLeft)
-        case 404: throw APIError.challengeExpired
+        case 404: throw APIError.challengeExpired(error.message)
         default: throw APIError.http(status: status, message: error.message)
         }
     }

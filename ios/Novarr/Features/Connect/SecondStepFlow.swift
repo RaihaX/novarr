@@ -116,7 +116,8 @@ struct SecondStepFlow: Equatable, Sendable {
     mutating func receive(_ error: APIError) -> Outcome {
         switch error {
         case .challengeExpired:
-            return .restart(Self.expiredMessage)
+            // The server says why: too long, or too many wrong codes.
+            return .restart(error.localizedDescription)
         default:
             errorMessage = Self.message(for: error)
             return .retry
@@ -136,7 +137,7 @@ struct SecondStepFlow: Equatable, Sendable {
             default: return text + " \(triesLeft) tries left."
             }
         case .challengeExpired:
-            return expiredMessage
+            return error.localizedDescription
         case .unreachable, .timedOut:
             return offlineMessage
         default:
