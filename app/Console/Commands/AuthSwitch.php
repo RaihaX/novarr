@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\AuthEvent;
 use App\Support\AuthMode;
 use App\Support\CurrentReader;
 use App\Support\PublicAddress;
@@ -31,11 +32,19 @@ class AuthSwitch extends Command
 
                     return self::FAILURE;
                 }
+                $wasOn = AuthMode::setting();
                 AuthMode::store(true);
+                if (!$wasOn) {
+                    AuthEvent::record(AuthEvent::SIGN_IN_SWITCH, null, null, ['on' => true, 'via' => 'cli']);
+                }
                 $this->info('Sign-in is on.');
                 break;
             case 'off':
+                $wasOn = AuthMode::setting();
                 AuthMode::store(false);
+                if ($wasOn) {
+                    AuthEvent::record(AuthEvent::SIGN_IN_SWITCH, null, null, ['on' => false, 'via' => 'cli']);
+                }
                 $this->info('Sign-in is off: every request is the owner.');
                 break;
             case 'status':

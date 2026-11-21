@@ -166,6 +166,8 @@ Route::post('/settings/users/invites', [\App\Http\Controllers\UserInviteControll
 Route::post('/settings/users/invites/{id}/resend', [\App\Http\Controllers\UserInviteController::class, 'resend'])->whereNumber('id')->name('settings.users.invites.resend');
 Route::delete('/settings/users/invites/{id}', [\App\Http\Controllers\UserInviteController::class, 'destroy'])->whereNumber('id')->name('settings.users.invites.destroy');
 Route::post('/settings/sign-in', [\App\Http\Controllers\UserController::class, 'auth'])->name('settings.users.auth');
+// Settings → Users → Sign-in history (admin; App\AuthEvent)
+Route::get('/settings/users/history', [\App\Http\Controllers\AuthHistoryController::class, 'index'])->name('settings.users.history');
 
 // Tailscale panel (status + Serve/Funnel toggles)
 Route::get('/settings/tailscale', [TailscaleController::class, 'status'])->name('settings.tailscale_status');

@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\AuthEvent;
 use App\Support\CurrentReader;
 use App\User;
 use Illuminate\Console\Command;
@@ -49,6 +50,7 @@ class SetPassword extends Command
         }
 
         $user->setNewPassword((string) $password);
+        AuthEvent::record(AuthEvent::PASSWORD_SET, null, (int) $user->id, ['via' => 'cli']);
         // Browsers signed in with the old password are signed out; the
         // account's apps and devices (tokens) stay.
         $user->signOutEverywhere(keepTokens: true);

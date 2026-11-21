@@ -485,3 +485,19 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
     text-align: center;
 }
 
+
+// --- Sign-in history (Settings → Users) and Recent sign-ins (Account) --------
+.history-filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: $s-3 $s-4;
+    margin-bottom: $s-5;
+
+    .form-row { flex: 1 1 200px; margin: 0; }
+    .acct-actions { margin: 0; }
+}
+
+.history-row.is-failure .account-device-name { color: $warning; }
+
+.history-pages { margin-top: $s-5; }

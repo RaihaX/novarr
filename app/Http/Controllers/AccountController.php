@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\ApiToken;
+use App\AuthEvent;
 use App\DevicePairing;
 use App\Services\Credentials;
 use App\Support\AccountRules;
@@ -24,6 +25,9 @@ class AccountController extends Controller
     /** Code lookups per user per minute (wrong or right). */
     public const LINK_ATTEMPTS = 10;
 
+    /** Own sign-ins and failed attempts listed under "Recent sign-ins". */
+    public const RECENT_SIGN_INS = 20;
+
     public function show(CurrentReader $reader)
     {
         abort_unless(AuthMode::required(), 404);
@@ -34,6 +38,10 @@ class AccountController extends Controller
             'tokens' => ApiToken::where('user_id', $user->id)->whereNull('revoked_at')
                 ->orderByRaw('last_used_at IS NULL')->orderByDesc('last_used_at')->orderByDesc('id')->get(),
             'pairing' => session('pairing_id') ? DevicePairing::find(session('pairing_id')) : null,
+            'signIns' => AuthEvent::where('user_id', $user->id)
+                ->whereIn('event', [AuthEvent::SIGN_IN, AuthEvent::SIGN_IN_FAILED])
+                ->orderByDesc('occurred_at')->orderByDesc('id')
+                ->limit(self::RECENT_SIGN_INS)->get(),
         ]);
     }
 
@@ -44,7 +52,11 @@ class AccountController extends Controller
             'name' => 'required|string|max:80',
         ], ['name.required' => 'Enter a name.']);
 
-        $reader->user()->forceFill(['name' => trim($data['name'])])->save();
+        $user = $reader->user();
+        $user->forceFill(['name' => trim($data['name'])])->save();
+        if ($user->wasChanged('name')) {
+            AuthEvent::record(AuthEvent::ACCOUNT_EDITED, $request, (int) $user->id, ['changed' => ['display name']]);
+        }
 
         return redirect()->route('account')->with('status', 'Name saved.');
     }
@@ -66,6 +78,7 @@ class AccountController extends Controller
         }
 
         $user->setNewPassword($data['password']);
+        AuthEvent::record(AuthEvent::PASSWORD_CHANGED, $request, (int) $user->id);
         // Other browsers signed in with the old password are signed out;
         // this one stays, and so do the apps and devices listed below.
         $user->signOutEverywhere(keepTokens: true);
@@ -74,11 +87,14 @@ class AccountController extends Controller
         return redirect()->route('account')->with('status', 'Password changed. Other browsers are signed out; your apps and devices stay signed in.');
     }
 
-    public function revokeToken(CurrentReader $reader, $id)
+    public function revokeToken(Request $request, CurrentReader $reader, $id)
     {
         abort_unless(AuthMode::required(), 404);
         $token = ApiToken::where('user_id', $reader->id())->whereKey($id)->firstOrFail();
-        $token->revoke();
+        if ($token->revoked_at === null) {
+            $token->revoke();
+            AuthEvent::record(AuthEvent::TOKEN_REVOKED, $request, (int) $token->user_id, ['via' => 'account', 'token_id' => (int) $token->id, 'name' => $token->name]);
+        }
 
         return redirect()->route('account')->with('status', "Revoked “{$token->name}”: it is signed out.");
     }
@@ -124,10 +140,12 @@ class AccountController extends Controller
                 ->withErrors(['code' => 'That code has expired or was already used. Ask the device for a new one.'], 'link');
         }
 
-        if ($pairing->link($reader->user()) === null) {
+        $token = $pairing->link($reader->user());
+        if ($token === null) {
             return redirect()->route('account')->withFragment('link')
                 ->withErrors(['code' => 'That code has expired or was already used. Ask the device for a new one.'], 'link');
         }
+        AuthEvent::record(AuthEvent::TOKEN_ISSUED, $request, (int) $token->user_id, ['via' => 'pairing', 'token_id' => (int) $token->id, 'name' => $token->name]);
 
         return redirect()->route('account')->withFragment('link')
             ->with('status', "Linked “{$pairing->displayName()}”. It signs in on its own within a few seconds.");

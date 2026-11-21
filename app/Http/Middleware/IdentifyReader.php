@@ -128,7 +128,7 @@ class IdentifyReader
         }
 
         if (RouteAccess::acceptsBasic($route) && $request->getUser() !== null) {
-            $result = $this->credentials->attempt($request->getUser(), $request->getPassword(), $request->ip(), PublicAddress::isPublicRequest($request));
+            $result = $this->credentials->attempt($request->getUser(), $request->getPassword(), $request->ip(), PublicAddress::isPublicRequest($request), $request, 'basic');
             if ($result instanceof User) {
                 return $result;
             }

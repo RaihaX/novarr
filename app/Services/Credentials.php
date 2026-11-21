@@ -2,7 +2,10 @@
 
 namespace App\Services;
 
+use App\AuthEvent;
 use App\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 
@@ -18,6 +21,11 @@ use Illuminate\Support\Facades\RateLimiter;
  * PUBLIC_DECAY_SECONDS. Failed sign-ins and every invite acceptance count;
  * a success does not clear it (one good account must not reset a guesser).
  * Home-network requests keep only the per-name limit.
+ *
+ * Given the request, every outcome is written to the sign-in history
+ * (App\AuthEvent): successes, failures (the account only when the name
+ * matches one) and refusals by a limit (at most one line a minute per limit
+ * and name or address, so a flood does not fill the table).
  */
 class Credentials
 {
@@ -41,17 +49,23 @@ class Credentials
      *
      * $publicHost: the request came in on the public address (adds the
      * per-IP cap; 'public_cap' => true in the error when that cap refused it).
+     * $request / $via (web | api | basic): where the attempt came in, for
+     * the sign-in history; no request = nothing is recorded.
      *
      * @return User|array{error: string, status: int, retry_after?: int, public_cap?: bool}
      */
-    public function attempt(?string $username, ?string $password, ?string $ip, bool $publicHost = false): User|array
+    public function attempt(?string $username, ?string $password, ?string $ip, bool $publicHost = false, ?Request $request = null, string $via = 'web'): User|array
     {
         if ($publicHost && ($seconds = static::publicCapRetryAfter($ip)) !== null) {
+            static::recordLimited($request, $via, 'address', $username, static::publicCapKey($ip));
+
             return static::tooMany($seconds) + ['public_cap' => true];
         }
 
         $key = static::throttleKey($username, $ip);
         if (RateLimiter::tooManyAttempts($key, self::MAX_ATTEMPTS)) {
+            static::recordLimited($request, $via, 'name', $username, $key);
+
             return static::tooMany(RateLimiter::availableIn($key));
         }
 
@@ -62,25 +76,97 @@ class Credentials
             if ($user === null) {
                 static::check((string) $password, '$2y$12$' . str_repeat('a', 53));
             }
-            RateLimiter::hit($key, self::DECAY_SECONDS);
-            if ($publicHost) {
-                static::hitPublicCap($ip);
-            }
+            static::recordFailure($username, $ip, $publicHost);
+            static::recordFailed($request, $via, $user, $user === null ? 'unknown_name' : 'wrong');
 
             return ['error' => self::WRONG, 'status' => 422];
         }
 
         // The password is right: say why the account still cannot sign in.
         if ($user->password_set_at === null) {
+            static::recordFailed($request, $via, $user, 'no_password');
+
             return ['error' => self::NO_PASSWORD, 'status' => 422];
         }
         if ($user->isDisabled()) {
+            static::recordFailed($request, $via, $user, 'disabled');
+
             return ['error' => self::DISABLED, 'status' => 422];
         }
 
         RateLimiter::clear($key);
+        // Basic (OPDS) checks the password on every request: those
+        // successes are not history, only the failures are.
+        if ($request !== null && $via !== 'basic') {
+            AuthEvent::record(AuthEvent::SIGN_IN, $request, (int) $user->id, static::detail($via, $request));
+        }
 
         return $user;
+    }
+
+    /**
+     * The limit that refuses an attempt for $username from $ip right now
+     * (before any check), as attempt()'s 429 error; null when none does.
+     * For steps that come before the password check (the human check).
+     */
+    public static function refusal(?string $username, ?string $ip, bool $publicHost): ?array
+    {
+        if ($publicHost && ($seconds = static::publicCapRetryAfter($ip)) !== null) {
+            return static::tooMany($seconds) + ['public_cap' => true];
+        }
+        $key = static::throttleKey($username, $ip);
+        if (RateLimiter::tooManyAttempts($key, self::MAX_ATTEMPTS)) {
+            return static::tooMany(RateLimiter::availableIn($key));
+        }
+
+        return null;
+    }
+
+    /** Count one failed attempt in the per-name limit and, on the public address, the per-IP cap. */
+    public static function recordFailure(?string $username, ?string $ip, bool $publicHost): void
+    {
+        RateLimiter::hit(static::throttleKey($username, $ip), self::DECAY_SECONDS);
+        if ($publicHost) {
+            static::hitPublicCap($ip);
+        }
+    }
+
+    /** History: a failed attempt (the account only when the name matched one). */
+    public static function recordFailed(?Request $request, string $via, ?User $user, string $reason): void
+    {
+        if ($request === null) {
+            return;
+        }
+        $detail = ['via' => $via, 'reason' => $reason];
+        if ($user === null) {
+            $detail['unknown_name'] = true;
+        }
+        AuthEvent::record(AuthEvent::SIGN_IN_FAILED, $request, $user?->id, $detail);
+    }
+
+    /**
+     * History: an attempt refused by a limit ($limit: address | name |
+     * account), at most once a minute per limit key.
+     */
+    public static function recordLimited(?Request $request, string $via, string $limit, ?string $username, string $limitKey): void
+    {
+        if ($request === null || !Cache::add('novarr-authlog-limited:' . sha1($limit . '|' . $limitKey), 1, 60)) {
+            return;
+        }
+        $user = $username === null ? null : User::findForSignIn($username);
+        AuthEvent::record(AuthEvent::RATE_LIMITED, $request, $user?->id, ['via' => $via, 'limit' => $limit]);
+    }
+
+    /** History detail of a sign-in: how, and the app's device name when it gave one. */
+    private static function detail(string $via, Request $request): array
+    {
+        $detail = ['via' => $via];
+        $device = trim((string) $request->input('device_name', ''));
+        if ($via === 'api' && $device !== '') {
+            $detail['device'] = AuthEvent::truncate($device, 120);
+        }
+
+        return $detail;
     }
 
     /** The 429 error: the same sentence for both limits. */

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\ApiToken;
+use App\AuthEvent;
 use App\Http\Controllers\Auth\LoginController;
 use App\Support\AccountRules;
 use App\Support\AuthMode;
@@ -58,6 +59,7 @@ class UserController extends Controller
             'password' => $data['password'],
             'password_set_at' => now(),
         ])->save();
+        AuthEvent::record(AuthEvent::ACCOUNT_CREATED, $request, (int) $user->id, ['via' => 'admin'], app(CurrentReader::class)->id());
 
         return redirect()->route('settings.users')->with('status', "Added {$user->name}. They sign in as “{$user->username}”.");
     }
@@ -75,6 +77,13 @@ class UserController extends Controller
             'name' => trim($data['name']),
             'username' => User::normaliseUsername($data['username']),
         ])->save();
+        $changed = array_values(array_filter([
+            $user->wasChanged('name') ? 'display name' : null,
+            $user->wasChanged('username') ? 'sign-in name' : null,
+        ]));
+        if ($changed !== []) {
+            AuthEvent::record(AuthEvent::ACCOUNT_EDITED, $request, (int) $user->id, ['changed' => $changed], app(CurrentReader::class)->id());
+        }
 
         return redirect()->route('settings.users')->with('status', "Saved {$user->name}.");
     }
@@ -88,6 +97,7 @@ class UserController extends Controller
         ], ['password.required' => 'Type the new password.']);
 
         $user->setNewPassword($data['password']);
+        AuthEvent::record(AuthEvent::PASSWORD_SET, $request, (int) $user->id, [], app(CurrentReader::class)->id());
 
         // A reset ends the account's other sign-ins: someone who knew the
         // old password is out. Your own: this browser and your devices stay.
@@ -102,7 +112,7 @@ class UserController extends Controller
             : "New password set for {$user->name}. They are signed out everywhere.");
     }
 
-    public function toggleDisabled($id)
+    public function toggleDisabled(Request $request, $id)
     {
         $user = User::findOrFail($id);
         if ($user->isOwner()) {
@@ -114,13 +124,14 @@ class UserController extends Controller
             $user->signOutEverywhere();
         }
         $user->forceFill(['disabled_at' => $user->isDisabled() ? null : now()])->save();
+        AuthEvent::record($user->isDisabled() ? AuthEvent::ACCOUNT_DISABLED : AuthEvent::ACCOUNT_ENABLED, $request, (int) $user->id, [], app(CurrentReader::class)->id());
 
         return redirect()->route('settings.users')->with('status', $user->isDisabled()
             ? "Turned off {$user->name}: they are signed out everywhere and cannot sign in."
             : "Turned {$user->name} back on.");
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         $user = User::findOrFail($id);
         if ($user->isOwner()) {
@@ -129,6 +140,7 @@ class UserController extends Controller
 
         $name = $user->name;
         $user->delete();
+        AuthEvent::record(AuthEvent::ACCOUNT_DELETED, $request, (int) $user->id, ['name' => $name, 'username' => $user->username], app(CurrentReader::class)->id());
 
         return redirect()->route('settings.users')->with('status', "Deleted {$name} and their reading history.");
     }
@@ -148,6 +160,9 @@ class UserController extends Controller
 
         $wasOn = AuthMode::required();
         AuthMode::store($on);
+        if ($on !== $wasOn) {
+            AuthEvent::record(AuthEvent::SIGN_IN_SWITCH, $request, null, ['on' => $on, 'via' => 'ui'], app(CurrentReader::class)->id());
+        }
 
         if ($on && !$wasOn) {
             // Whoever turned it on is the owner (with sign-in off every

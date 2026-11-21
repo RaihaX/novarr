@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\AuthEvent;
 use App\Http\Controllers\Controller;
 use App\Services\Credentials;
 use App\Support\AuthMode;
@@ -49,7 +50,7 @@ class LoginController extends Controller
             'password.required' => 'Enter your password.',
         ]);
 
-        $result = $credentials->attempt($data['username'], $data['password'], $request->ip(), PublicAddress::isPublicRequest($request));
+        $result = $credentials->attempt($data['username'], $data['password'], $request->ip(), PublicAddress::isPublicRequest($request), $request, 'web');
         if (!$result instanceof User && !empty($result['public_cap'])) {
             // The public address's per-IP cap: a real 429 (with Retry-After),
             // the form shown again with the reason.
@@ -92,6 +93,11 @@ class LoginController extends Controller
 
     public function destroy(Request $request)
     {
+        $user = AuthMode::required() ? Auth::guard('web')->user() : null;
+        if ($user instanceof User) {
+            AuthEvent::record(AuthEvent::SIGN_OUT, $request, (int) $user->id);
+        }
+
         Auth::guard('web')->logout();
         if ($request->hasSession()) {
             $request->session()->invalidate();

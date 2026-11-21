@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\ApiToken;
+use App\AuthEvent;
 use App\Http\Controllers\Controller;
 use App\Http\Middleware\IdentifyReader;
 use App\Services\Credentials;
@@ -35,14 +36,15 @@ class AuthController extends Controller
             'device_name' => 'nullable|string|max:255',
         ]);
 
-        $result = $credentials->attempt($data['username'], $data['password'], $request->ip(), \App\Support\PublicAddress::isPublicRequest($request));
+        $result = $credentials->attempt($data['username'], $data['password'], $request->ip(), \App\Support\PublicAddress::isPublicRequest($request), $request, 'api');
         if (!$result instanceof User) {
             $headers = isset($result['retry_after']) ? ['Retry-After' => (string) $result['retry_after']] : [];
 
             return response()->json(['message' => $result['error']], $result['status'], $headers);
         }
 
-        [, $plain] = ApiToken::issue($result, $data['device_name'] ?? null, $data['device_id'] ?? null);
+        [$token, $plain] = ApiToken::issue($result, $data['device_name'] ?? null, $data['device_id'] ?? null);
+        AuthEvent::record(AuthEvent::TOKEN_ISSUED, $request, (int) $result->id, ['via' => 'password', 'token_id' => (int) $token->id, 'name' => $token->name]);
 
         return response()->json(['token' => $plain, 'user' => $result->toApi()]);
     }
@@ -64,7 +66,10 @@ class AuthController extends Controller
         // token presented (sign-in off: still forgotten on sign-out).
         $token = $request->attributes->get(IdentifyReader::TOKEN_ATTRIBUTE)
             ?? ApiToken::findActive($request->bearerToken());
-        $token?->revoke();
+        if ($token !== null && $token->revoked_at === null) {
+            $token->revoke();
+            AuthEvent::record(AuthEvent::TOKEN_REVOKED, $request, (int) $token->user_id, ['via' => 'api', 'token_id' => (int) $token->id, 'name' => $token->name]);
+        }
 
         return response()->noContent();
     }

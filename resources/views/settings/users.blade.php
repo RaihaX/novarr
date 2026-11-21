@@ -21,6 +21,7 @@
 <div class="acct-shell users-page">
     <header class="acct-head">
         <h1 class="page-title">Users</h1>
+        <p class="acct-text"><a href="{{ route('settings.users.history') }}" id="historyLink">Sign-in history</a>: sign-ins, failed attempts and changes to accounts.</p>
     </header>
 
     {{-- ================= Invite made / resent: the link, once ================= --}}

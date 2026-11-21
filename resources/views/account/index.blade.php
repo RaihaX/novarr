@@ -72,6 +72,34 @@
                     </form>
                 </div>
             </section>
+
+            {{-- Own sign-ins and failed attempts (App\AuthEvent): spot one that was not you. --}}
+            <section class="card form-panel acct-card" aria-labelledby="signInsTitle" id="sign-ins">
+                <div class="card-body">
+                    <h2 class="acct-card-title" id="signInsTitle">Recent sign-ins</h2>
+                    @if($signIns->isEmpty())
+                        <div class="acct-empty">
+                            <x-icon name="users" :size="18" />
+                            <p>No sign-ins recorded yet.</p>
+                        </div>
+                    @else
+                        <ul class="account-devices history-list" id="signInsList">
+                            @foreach($signIns as $event)
+                                <li class="account-device history-row {{ $event->isFailure() ? 'is-failure' : '' }}">
+                                    <span class="account-device-main">
+                                        <span class="account-device-name">{{ $event->event === \App\AuthEvent::SIGN_IN ? 'Signed in' : 'Failed attempt' }} · {{ $event->device() }}</span>
+                                        <span class="account-device-meta">
+                                            <time datetime="{{ $event->occurred_at->toIso8601String() }}">{{ $event->occurred_at->timezone(config('app.timezone'))->format('j M Y, H:i') }}</time>
+                                            · {{ $event->ip }} · {{ $event->public ? 'public address' : 'home network' }}
+                                        </span>
+                                    </span>
+                                </li>
+                            @endforeach
+                        </ul>
+                        <p class="form-text acct-footnote">If one of these was not you, change your password above.</p>
+                    @endif
+                </div>
+            </section>
         </div>
 
         {{-- ============ Right: devices ============ --}}

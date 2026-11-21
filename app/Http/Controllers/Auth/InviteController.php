@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\AuthEvent;
 use App\Http\Controllers\Controller;
 use App\Support\AccountRules;
 use App\Services\Credentials;
@@ -53,6 +54,8 @@ class InviteController extends Controller
         // on credential attempts (App\Services\Credentials).
         if (PublicAddress::isPublicRequest($request)) {
             if (($seconds = Credentials::publicCapRetryAfter($request->ip())) !== null) {
+                Credentials::recordLimited($request, 'invite', 'address', null, Credentials::publicCapKey($request->ip()));
+
                 return $this->tooMany($request, $seconds);
             }
             Credentials::hitPublicCap($request->ip());
@@ -108,6 +111,8 @@ class InviteController extends Controller
         if ($user === null) {
             return $this->unusable();
         }
+        AuthEvent::record(AuthEvent::ACCOUNT_CREATED, $request, (int) $user->id, ['via' => 'invite', 'invite_id' => (int) $invite->id]);
+        AuthEvent::record(AuthEvent::INVITE_ACCEPTED, $request, (int) $user->id, ['invite_id' => (int) $invite->id, 'email' => $invite->email]);
 
         if (!AuthMode::required()) {
             return $this->page('auth.invite-done', ['user' => $user]);

@@ -162,6 +162,18 @@ return [
         return $publicHosts === [] ? null : 'https://' . $publicHosts[0];
     })(),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Sign-in hardening
+    |--------------------------------------------------------------------------
+    |
+    | auth_log_days: days of sign-in history kept (App\AuthEvent, pruned
+    | daily by novarr:prune-auth-log). NOVARR_AUTH_LOG_DAYS, default 180;
+    | 0 = keep forever.
+    |
+    */
+    'auth_log_days' => (int) env('NOVARR_AUTH_LOG_DAYS', 180),
+
     'flaresolverr_url' => env('FLARESOLVERR_URL', 'http://192.168.1.41:8191/v1'),
     // Verify TLS certificates on every scraper request (App\Scraping\Fetcher).
     // Only turn off for a source with a broken certificate chain.

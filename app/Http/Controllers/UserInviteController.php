@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\AuthEvent;
 use App\Mail\ReaderInvite;
 use App\Support\CurrentReader;
 use App\User;
@@ -55,6 +56,7 @@ class UserInviteController extends Controller
         UserInvite::unaccepted()->forEmail($email)->delete();
 
         [$invite, $token] = UserInvite::issue($data['name'], $email, $reader->user());
+        AuthEvent::record(AuthEvent::INVITE_CREATED, $request, null, ['invite_id' => (int) $invite->id, 'name' => $invite->name, 'email' => $invite->email], $reader->id());
 
         return $this->sent($request, $invite, $token, 'Invite made for');
     }
@@ -64,14 +66,16 @@ class UserInviteController extends Controller
     {
         $invite = UserInvite::unaccepted()->findOrFail($id);
         $token = $invite->renew();
+        AuthEvent::record(AuthEvent::INVITE_RESENT, $request, null, ['invite_id' => (int) $invite->id, 'name' => $invite->name, 'email' => $invite->email], app(CurrentReader::class)->id());
 
         return $this->sent($request, $invite, $token, 'New invite made for');
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         $invite = UserInvite::unaccepted()->findOrFail($id);
         $invite->delete();
+        AuthEvent::record(AuthEvent::INVITE_CANCELLED, $request, null, ['invite_id' => (int) $invite->id, 'name' => $invite->name, 'email' => $invite->email], app(CurrentReader::class)->id());
 
         return redirect()->route('settings.users')->withFragment('invites')
             ->with('status', "Cancelled the invite for {$invite->name}. Its link no longer works.");
