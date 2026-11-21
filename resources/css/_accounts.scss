@@ -39,6 +39,11 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
 // has no sizing utilities).
 .auth-form > .btn-primary { width: 100%; }
 
+// Every button marked full-width on the sign-in, sign-in code and invite
+// cards spans the card too (the passkey button, the Continue buttons): the
+// trimmed build has no .w-100, so without this they sat narrow on the left.
+.auth-card .btn.w-100 { width: 100%; }
+
 .auth-note {
     margin-top: $s-4;
     text-align: center;
