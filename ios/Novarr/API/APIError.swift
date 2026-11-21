@@ -12,6 +12,14 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
     /// The text endpoint was asked for a manga chapter (422, `medium: manga`):
     /// it has page images, read in the manga reader.
     case mangaChapter
+    /// `POST auth/token` → 403 `second_step_unavailable`: the password was
+    /// right, but the account has no second step it can use at this address.
+    case secondStepUnavailable(String?)
+    /// `POST auth/token/second-step` → 422 `wrong_code`.
+    case wrongCode(message: String?, triesLeft: Int?)
+    /// 404 `challenge_expired`: the second step took too long (or had too
+    /// many wrong codes); sign in again from the password.
+    case challengeExpired
 
     static func from(_ error: Error) -> APIError {
         if let api = error as? APIError { return api }
@@ -54,7 +62,8 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
         switch self {
         case .unreachable, .timedOut: true
         case .http(let status, _): status >= 500 || status == 408 || status == 429
-        case .invalidServerURL, .decoding, .notNovarr, .apiTooOld, .mangaChapter: false
+        case .invalidServerURL, .decoding, .notNovarr, .apiTooOld, .mangaChapter,
+             .secondStepUnavailable, .wrongCode, .challengeExpired: false
         }
     }
 
@@ -64,6 +73,7 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
         case .unreachable, .timedOut, .invalidServerURL: "Can't reach your server"
         case .http(401, _): "You're signed out"
         case .http: "Server error"
+        case .secondStepUnavailable, .wrongCode, .challengeExpired: "Couldn't sign in"
         case .decoding, .notNovarr, .apiTooOld, .mangaChapter: "Unexpected response"
         }
     }
@@ -91,6 +101,13 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
             "This Novarr server speaks API v\(server); the app needs v\(required) or newer. Update the server."
         case .mangaChapter:
             "This is a manga chapter."
+        case .secondStepUnavailable(let message):
+            message.flatMap { $0.isEmpty ? nil : $0 }
+                ?? "This account needs a second sign-in step before it can be used here. Set one up from your home network, or ask the person who runs this Novarr."
+        case .wrongCode(let message, _):
+            message.flatMap { $0.isEmpty ? nil : $0 } ?? "That code is not right. Check it and try again."
+        case .challengeExpired:
+            "That took too long. Sign in again."
         }
     }
 }

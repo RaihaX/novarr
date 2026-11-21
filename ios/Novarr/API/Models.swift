@@ -13,6 +13,12 @@ struct ServerMeta: Codable, Sendable, Equatable {
 
     /// Only an explicit `auth.required: true` turns sign-in on.
     var requiresSignIn: Bool { auth?.required == true }
+
+    /// Sign-in is required here but this address doesn't take sign-ins
+    /// (the public address with sign-in off): no form to show.
+    var signInUnavailable: Bool { auth?.required == true && auth?.available == false }
+
+    var offersPairing: Bool { auth?.offersPairing == true }
 }
 
 extension ServerMeta {

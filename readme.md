@@ -540,7 +540,7 @@ With sign-in on, send `Authorization: Bearer <token>`; a missing or bad token an
 
 ### iPhone / iPad app (`ios/`)
 
-A native SwiftUI app (iOS 17+): connect to the server by address, sign in when the server has accounts, then Home, Library, novel pages with **Check for new chapters**, the reader, Highlights (per novel and across the library) and Settings. Like the Android app it reads only: Discover and library management stay on the website. The Xcode project is generated from `ios/project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen); open `ios/Novarr.xcodeproj` to build and run, and `NovarrTests` holds its tests.
+A native SwiftUI app (iOS 17+): connect to the server by address, sign in when the server has accounts (name and password, then a sign-in code when the address asks for a second step: authenticator app, emailed code or recovery code; or **Link with a code instead**, entered on the website under Account → Link a device), then Home, Library, novel pages with **Check for new chapters**, the reader, Highlights (per novel and across the library) and Settings. Like the Android app it reads only: Discover and library management stay on the website. The Xcode project is generated from `ios/project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen); open `ios/Novarr.xcodeproj` to build and run, and `NovarrTests` holds its tests.
 
 ### Android app (`android/`)
 
