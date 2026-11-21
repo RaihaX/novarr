@@ -131,8 +131,10 @@ class InviteController extends Controller
         }
 
         LoginController::signInHere($request, $user);
+        // The browser the account was made on is its first known device (no email).
+        $device = app(\App\Services\KnownDevices::class)->webSignIn($request, $user, notify: false);
 
-        return redirect()->route('home')->with(self::FLASH_WELCOME, $user->name);
+        return redirect()->route('home')->with(self::FLASH_WELCOME, $user->name)->withCookie($device);
     }
 
     /** The account signed in on this browser (only meaningful while sign-in is on). */

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\AuthEvent;
 use App\Http\Controllers\Controller;
 use App\Services\Credentials;
+use App\Services\KnownDevices;
 use App\Services\Turnstile;
 use App\Support\AuthMode;
 use App\Support\PublicAddress;
@@ -72,8 +73,11 @@ class LoginController extends Controller
         }
 
         static::signInHere($request, $result);
+        // A browser this account has not signed in on: the owner of the
+        // account gets an email (after the response).
+        $device = app(KnownDevices::class)->webSignIn($request, $result);
 
-        return redirect()->intended(route('home'));
+        return redirect()->intended(route('home'))->withCookie($device);
     }
 
     /** Null when the human check passed, else attempt()'s error shape (422). */

@@ -73,6 +73,7 @@ class User extends Authenticatable
             ReadingList::forgetUser((int) $user->id);
             ApiToken::where('user_id', $user->id)->delete();
             DevicePairing::where('user_id', $user->id)->delete();
+            \Illuminate\Support\Facades\DB::table('known_devices')->where('user_id', $user->id)->delete();
             UserInvite::where('user_id', $user->id)->delete();
             // Their requests (and the feed items about them) go too.
             $requestIds = NovelRequest::where('user_id', $user->id)->pluck('id');

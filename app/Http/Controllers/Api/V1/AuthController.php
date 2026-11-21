@@ -45,6 +45,8 @@ class AuthController extends Controller
 
         [$token, $plain] = ApiToken::issue($result, $data['device_name'] ?? null, $data['device_id'] ?? null);
         AuthEvent::record(AuthEvent::TOKEN_ISSUED, $request, (int) $result->id, ['via' => 'password', 'token_id' => (int) $token->id, 'name' => $token->name]);
+        // A device this account has not signed in on: an email (after the response).
+        app(\App\Services\KnownDevices::class)->appSignIn($request, $result, $data['device_id'] ?? null, $data['device_name'] ?? null);
 
         return response()->json(['token' => $plain, 'user' => $result->toApi()]);
     }
