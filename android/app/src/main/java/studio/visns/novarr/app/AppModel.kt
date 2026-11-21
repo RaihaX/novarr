@@ -29,6 +29,7 @@ import studio.visns.novarr.BuildConfig
 import studio.visns.novarr.api.AndroidRelease
 import studio.visns.novarr.api.ApiClient
 import studio.visns.novarr.api.ApiError
+import studio.visns.novarr.api.AuthTokenResponse
 import studio.visns.novarr.api.DeviceIdentity
 import studio.visns.novarr.api.ServerMeta
 import studio.visns.novarr.api.ServerUrl
@@ -175,6 +176,17 @@ class AppModel(private val context: Context) {
     private val _openSeries = MutableStateFlow<Int?>(null)
     val openSeriesRequest: StateFlow<Int?> = _openSeries.asStateFlow()
 
+    /**
+     * The sign-in code and link-code steps after the password form: in
+     * memory here, so rotation keeps them and process death drops them.
+     */
+    val signInFlow = SignInFlow(
+        scope = scope,
+        client = { server, token -> ApiClient(server, http, device, token) },
+        device = { device },
+        complete = { server, response, username -> completeSignIn(server, response, username) },
+    )
+
     /** The Requests screen's search, per session (Session.Active.id), so it survives leaving the screen. */
     var requestSearchMemory: Pair<String, Requests.SearchMemory>? = null
 
@@ -213,6 +225,8 @@ class AppModel(private val context: Context) {
     fun connect(server: String, meta: ServerMeta) = scope.launch {
         // Another server: its new-chapters cursor and pending series start over.
         if (prefs.serverUrl()?.let(ServerUrl::normalize) != ServerUrl.normalize(server)) chapterUpdates.reset()
+        // A code or link code belongs to the server it was asked from.
+        signInFlow.reset()
         prefs.setServerUrl(server)
         prefs.setAuthRequired(server, meta.requiresSignIn)
         _meta.value = meta
@@ -240,6 +254,8 @@ class AppModel(private val context: Context) {
     private suspend fun activate(server: String, credential: Credential?) {
         checks.cancelAll()
         downloads.cancelAll()
+        // Signed in (or sign-in is off): no code screen or link code is left running.
+        signInFlow.reset()
         val client = ApiClient(server, http, device, credential?.token) { rejected ->
             scope.launch { handleUnauthorized(rejected) }
         }
@@ -512,16 +528,29 @@ class AppModel(private val context: Context) {
 
     // Sign-in
 
-    /** Password sign-in. Throws ApiError (422 wrong name or password, 429 throttled, connectivity). */
+    /**
+     * Password sign-in. Signed in, or the code screen comes up
+     * ([signInFlow]'s second step). Throws ApiError (422 wrong name or
+     * password, 429 throttled, 403 `second_step_unavailable`, connectivity).
+     * The password is not kept anywhere.
+     */
     suspend fun signIn(username: String, password: String) {
         val server = currentServer ?: throw ApiError.InvalidServerUrl
-        val response = ApiClient(server, http, device).signIn(username, password, device)
+        signInFlow.signIn(server, username, password)
+    }
+
+    /**
+     * Every way of signing in ends here (password, sign-in code, link code):
+     * the credential is saved and the session starts. [username] prefills the
+     * next sign-in form.
+     */
+    private suspend fun completeSignIn(server: String, response: AuthTokenResponse, username: String) {
         if (currentServer != server) return
         val credential = Credential(response.token, response.user)
         // If saving fails the token still works until the app quits.
         credentials.save(credential, server)
         prefs.setAuthRequired(server, true)
-        prefs.setLastUsername(server, username)
+        if (username.isNotBlank()) prefs.setLastUsername(server, username)
         clearHttpCache()
         _reachable.value = true
         activate(server, credential)

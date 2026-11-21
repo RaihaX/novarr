@@ -266,18 +266,73 @@ class ApiClient(
 
     // Accounts
 
-    /** Password sign-in; `username` may also be the email. 422/429 throw Http with the server's message. */
-    suspend fun signIn(username: String, password: String, device: DeviceIdentity): AuthTokenResponse {
+    /**
+     * Password sign-in; `username` may also be the email. Signed, or (401
+     * `second_step_required`) a sign-in code is needed with the returned
+     * challenge. 422/429 and 403 `second_step_unavailable` throw Http with
+     * the server's message; a 401 here never ends a session.
+     */
+    suspend fun signIn(username: String, password: String, device: DeviceIdentity): SignInAnswer {
         val body = buildJsonObject {
             put("username", username)
             put("password", password)
             put("device_id", device.id)
             put("device_name", device.name)
         }
+        val answer = try {
+            execute(prepare("POST", "auth/token", body = body, authenticated = false), reportUnauthorized = false)
+        } catch (e: ApiError.Http) {
+            if (e.status == 401 && e.code == AuthCodes.SECOND_STEP_REQUIRED) {
+                val required = e.body?.let { runCatching { NovarrJson.decodeFromJsonElement(SecondStepRequired.serializer(), it) }.getOrNull() }
+                if (required == null || required.challenge.isBlank()) throw ApiError.Decoding("second_step_required without a challenge")
+                return SignInAnswer.SecondStep(required)
+            }
+            throw e
+        }
+        return SignInAnswer.Signed(decode(AuthTokenResponse.serializer(), answer))
+    }
+
+    /** Emails a sign-in code for [challenge]: 204; 404 `challenge_expired`, 429 `throttled` throw Http. */
+    suspend fun sendSignInCode(challenge: String) {
+        val body = buildJsonObject { put("challenge", challenge) }
+        execute(prepare("POST", "auth/token/email-code", body = body, authenticated = false), reportUnauthorized = false)
+    }
+
+    /**
+     * Finishes a sign-in with a code; [method] is "totp", "email" or
+     * "recovery". 422 `wrong_code` (with `tries_left`), 404
+     * `challenge_expired` and 429 throw Http.
+     */
+    suspend fun finishSignIn(challenge: String, method: String, code: String): AuthTokenResponse {
+        val body = buildJsonObject {
+            put("challenge", challenge)
+            put("method", method)
+            put("code", code)
+        }
         return decode(
             AuthTokenResponse.serializer(),
-            execute(prepare("POST", "auth/token", body = body, authenticated = false), reportUnauthorized = false),
+            execute(prepare("POST", "auth/token/second-step", body = body, authenticated = false), reportUnauthorized = false),
         )
+    }
+
+    /** Asks for a link code (201); limited by the server to 10 an hour per network address (429). */
+    suspend fun startPairing(device: DeviceIdentity): PairingStart {
+        val body = buildJsonObject {
+            put("device_id", device.id)
+            put("device_name", device.name)
+        }
+        return decode(
+            PairingStart.serializer(),
+            execute(prepare("POST", "auth/pairings", body = body, authenticated = false), reportUnauthorized = false),
+        )
+    }
+
+    /** One poll of a link code: pending or linked (the token is handed over once); 404 once it is gone. */
+    suspend fun pairingStatus(secret: String): PairingStatus {
+        // It goes into the path: only URL-safe characters (domain/Pairing checks this first).
+        if (!SAFE_PATH_SEGMENT.matches(secret)) throw ApiError.Decoding("unusable pairing secret")
+        val prepared = prepare("GET", "auth/pairings/$secret", fresh = true, authenticated = false)
+        return decode(PairingStatus.serializer(), execute(prepared, reportUnauthorized = false))
     }
 
     suspend fun me(): AuthUser = get("auth/me", AuthUserEnvelope.serializer(), fresh = true).user
@@ -371,6 +426,12 @@ class ApiClient(
         const val AUTHORIZATION = "Authorization"
         const val DEFAULT_TIMEOUT = 20L
         private val JSON = "application/json".toMediaType()
+
+        /**
+         * RFC 3986 unreserved characters only, so a server value can be put
+         * into a path as is; never starting with a dot (no "." or "..").
+         */
+        val SAFE_PATH_SEGMENT = Regex("^[A-Za-z0-9_~-][A-Za-z0-9._~-]{0,511}$")
 
         fun progressBody(write: WriteKind.Progress, age: Long): JsonObject = buildJsonObject {
             write.progress?.let { put("progress", it) }
