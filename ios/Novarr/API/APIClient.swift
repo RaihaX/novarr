@@ -170,8 +170,11 @@ struct APIClient: Sendable {
 
     /// Emails a sign-in code for the challenge (204). 404 throws
     /// `.challengeExpired`; 429 and the rest throw `.http`.
-    func requestEmailCode(challenge: String) async throws {
-        let (status, data) = try await exchange("POST", "auth/token/email-code", body: ChallengeBody(challenge: challenge))
+    /// `device` must be the one the password was sent with: the challenge is
+    /// bound to its id (another, or none, answers 404).
+    func requestEmailCode(challenge: String, device: DeviceIdentity) async throws {
+        let body = ChallengeBody(challenge: challenge, deviceId: device.id)
+        let (status, data) = try await exchange("POST", "auth/token/email-code", body: body)
         if (200..<300).contains(status) { return }
         let error = Self.authError(data)
         if status == 404 { throw APIError.challengeExpired(error.message) }
@@ -180,8 +183,9 @@ struct APIClient: Sendable {
 
     /// Finishes a sign-in with a code. 422 throws `.wrongCode` (with the tries
     /// left), 404 `.challengeExpired`, 429 and the rest `.http`.
-    func submitSecondStep(challenge: String, method: SecondStepMethod, code: String) async throws -> AuthTokenResponse {
-        let body = SecondStepBody(challenge: challenge, method: method.rawValue, code: code)
+    func submitSecondStep(challenge: String, method: SecondStepMethod, code: String,
+                          device: DeviceIdentity) async throws -> AuthTokenResponse {
+        let body = SecondStepBody(challenge: challenge, method: method.rawValue, code: code, deviceId: device.id)
         let (status, data) = try await exchange("POST", "auth/token/second-step", body: body)
         if (200..<300).contains(status) { return try decode(AuthTokenResponse.self, from: data) }
         let error = Self.authError(data)
@@ -361,12 +365,14 @@ struct APIClient: Sendable {
 
     private struct ChallengeBody: Encodable {
         var challenge: String
+        var deviceId: String
     }
 
     private struct SecondStepBody: Encodable {
         var challenge: String
         var method: String
         var code: String
+        var deviceId: String
     }
 
     private struct PairingBody: Encodable {

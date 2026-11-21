@@ -233,17 +233,17 @@ struct SecondStepClientTests {
             default: (429, json(#"{"code":"throttled","message":"Too many codes. Try again in 120 seconds.","retry_after":120}"#))
             }
         }
-        try await api.requestEmailCode(challenge: challengeHex)
-        await #expect(throws: APIError.challengeExpired(nil)) { try await api.requestEmailCode(challenge: challengeHex) }
+        try await api.requestEmailCode(challenge: challengeHex, device: device)
+        await #expect(throws: APIError.challengeExpired(nil)) { try await api.requestEmailCode(challenge: challengeHex, device: device) }
         await #expect(throws: APIError.http(status: 429, message: "Too many codes. Try again in 120 seconds.")) {
-            try await api.requestEmailCode(challenge: challengeHex)
+            try await api.requestEmailCode(challenge: challengeHex, device: device)
         }
 
         let first = try #require(log.requests.first)
         #expect(first.request.httpMethod == "POST")
         #expect(first.request.url?.path == "/api/v1/auth/token/email-code")
         #expect(first.request.value(forHTTPHeaderField: "Authorization") == nil)
-        #expect(try bodyJSON(first.body) == ["challenge": challengeHex])
+        #expect(try bodyJSON(first.body) == ["challenge": challengeHex, "device_id": "i_testdevice01"])
     }
 
     @Test func secondStep() async throws {
@@ -257,24 +257,26 @@ struct SecondStepClientTests {
             default: (429, throttledBody)
             }
         }
-        let response = try await api.submitSecondStep(challenge: challengeHex, method: .totp, code: "123456")
+        let response = try await api.submitSecondStep(challenge: challengeHex, method: .totp, code: "123456", device: device)
         #expect(response.token == "tok-new")
         await #expect(throws: APIError.wrongCode(message: "That code is not right. Check it and try again.", triesLeft: 3)) {
-            _ = try await api.submitSecondStep(challenge: challengeHex, method: .email, code: "000000")
+            _ = try await api.submitSecondStep(challenge: challengeHex, method: .email, code: "000000", device: device)
         }
         await #expect(throws: APIError.challengeExpired("That took too long. Sign in again.")) {
-            _ = try await api.submitSecondStep(challenge: challengeHex, method: .recovery, code: "abcde-fghij")
+            _ = try await api.submitSecondStep(challenge: challengeHex, method: .recovery, code: "abcde-fghij", device: device)
         }
         await #expect(throws: APIError.http(status: 429, message: "Too many attempts. Try again in 60 seconds.")) {
-            _ = try await api.submitSecondStep(challenge: challengeHex, method: .totp, code: "123456")
+            _ = try await api.submitSecondStep(challenge: challengeHex, method: .totp, code: "123456", device: device)
         }
         let requests = log.requests
         #expect(requests.allSatisfy { $0.request.url?.path == "/api/v1/auth/token/second-step" })
         #expect(requests.allSatisfy { $0.request.httpMethod == "POST" })
         #expect(requests.allSatisfy { $0.request.value(forHTTPHeaderField: "Authorization") == nil })
-        #expect(try bodyJSON(requests[0].body) == ["challenge": challengeHex, "method": "totp", "code": "123456"])
+        #expect(try bodyJSON(requests[0].body) == ["challenge": challengeHex, "method": "totp", "code": "123456",
+                                                   "device_id": "i_testdevice01"])
         #expect(try bodyJSON(requests[1].body)["method"] == "email")
-        #expect(try bodyJSON(requests[2].body) == ["challenge": challengeHex, "method": "recovery", "code": "abcde-fghij"])
+        #expect(try bodyJSON(requests[2].body) == ["challenge": challengeHex, "method": "recovery", "code": "abcde-fghij",
+                                                   "device_id": "i_testdevice01"])
     }
 
     @Test func pairing() async throws {
@@ -546,7 +548,11 @@ struct SecondStepAppTests {
 
         let step = try #require(log.requests.first { $0.request.url?.path == "/api/v1/auth/token/second-step" })
         let body = try bodyJSON(step.body)
-        #expect(body == ["challenge": challengeHex, "method": "totp", "code": "123456"])
+        let password = try #require(log.requests.first { $0.request.url?.path == "/api/v1/auth/token" })
+        let deviceId = try bodyJSON(password.body)["device_id"]
+        #expect(deviceId == app.device.id)
+        // The same device id as the password call: the challenge is bound to it.
+        #expect(body == ["challenge": challengeHex, "method": "totp", "code": "123456", "device_id": app.device.id])
         #expect(body["password"] == nil) // the password went out once
     }
 
@@ -578,11 +584,13 @@ struct SecondStepAppTests {
 
     @Test func emailedCodeIsSentOnlyWhenAskedAndNotAgainWithin30Seconds() async throws {
         let counts = Counter()
-        let (app, _, _) = makeApp { request, _ in
+        let log = RequestLog()
+        let (app, _, _) = makeApp { request, body in
             if request.url?.path == "/api/v1/auth/token" {
                 return (401, json(#"{"code":"second_step_required","challenge":"c1","expires_in":600,"methods":["email","recovery"],"email_hint":"r•••@a•••.com.au"}"#))
             }
             _ = counts.next(request.url?.path ?? "")
+            log.append(request, body)
             return (204, Data())
         }
         var clock = Date(timeIntervalSince1970: 1_800_000_000)
@@ -599,6 +607,9 @@ struct SecondStepAppTests {
         app.currentDate = { @Sendable [clock] in clock }
         await app.requestEmailCode()
         #expect(counts.count("/api/v1/auth/token/email-code") == 2)
+        for sent in log.requests {
+            #expect(try bodyJSON(sent.body) == ["challenge": "c1", "device_id": app.device.id])
+        }
     }
 
     @Test func fifthWrongCodeShowsTheServersReason() async throws {

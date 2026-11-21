@@ -281,7 +281,7 @@ final class AppModel {
         guard let flow = secondStep, serverURL == flow.server, flow.canSendEmail(at: currentDate()) else { return }
         do {
             try await APIClient(baseURL: flow.server, session: session)
-                .requestEmailCode(challenge: flow.challenge.challenge)
+                .requestEmailCode(challenge: flow.challenge.challenge, device: device)
             guard secondStep?.challenge == flow.challenge else { return }
             secondStep?.emailSent(at: currentDate())
         } catch {
@@ -299,7 +299,7 @@ final class AppModel {
         do {
             let response = try await APIClient(baseURL: flow.server, session: session)
                 .submitSecondStep(challenge: flow.challenge.challenge, method: method,
-                                  code: SecondStepFlow.normalize(code, for: method))
+                                  code: SecondStepFlow.normalize(code, for: method), device: device)
             guard secondStep?.challenge == flow.challenge, serverURL == flow.server else { return }
             completeSignIn(response, username: flow.username, url: flow.server)
         } catch {
