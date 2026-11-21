@@ -59,9 +59,9 @@ class LoginController extends Controller
             ? (Credentials::refusal($data['username'], $request->ip(), $publicHost) ?? $this->humanCheck($request, $turnstile, $data['username'], $publicHost))
             : null;
         $result ??= $credentials->attempt($data['username'], $data['password'], $request->ip(), $publicHost, $request, 'web');
-        if (!$result instanceof User && !empty($result['public_cap'])) {
-            // The public address's per-IP cap: a real 429 (with Retry-After),
-            // the form shown again with the reason.
+        if (!$result instanceof User && (!empty($result['public_cap']) || !empty($result['account_lock']))) {
+            // The public address's per-IP cap or the account's lock there: a
+            // real 429 (with Retry-After), the form shown again with the reason.
             return static::tooManyPage($result['error'], (int) $result['retry_after'], (string) $data['username']);
         }
         if (!$result instanceof User) {

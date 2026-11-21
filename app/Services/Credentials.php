@@ -22,6 +22,13 @@ use Illuminate\Support\Facades\RateLimiter;
  * a success does not clear it (one good account must not reset a guesser).
  * Home-network requests keep only the per-name limit.
  *
+ * Per account, whatever the address: ACCOUNT_MAX_FAILURES wrong passwords
+ * for one existing account within ACCOUNT_WINDOW_SECONDS (from anywhere)
+ * lock that account's password sign-in ON THE PUBLIC ADDRESS for
+ * ACCOUNT_LOCK_SECONDS (429, every entry point that takes a password). The
+ * home network is never locked out, and a sign-in from it clears the lock.
+ * Unknown names have no lock (they behave as before).
+ *
  * Given the request, every outcome is written to the sign-in history
  * (App\AuthEvent): successes, failures (the account only when the name
  * matches one) and refusals by a limit (at most one line a minute per limit
@@ -38,6 +45,14 @@ class Credentials
 
     public const PUBLIC_DECAY_SECONDS = 600;
 
+    /** Wrong passwords for one account (any address) before the public-address lock. */
+    public const ACCOUNT_MAX_FAILURES = 10;
+
+    public const ACCOUNT_WINDOW_SECONDS = 900;
+
+    /** How long the account's password sign-in stays refused on the public address. */
+    public const ACCOUNT_LOCK_SECONDS = 900;
+
     public const WRONG = 'Wrong name or password.';
 
     public const DISABLED = 'This account is turned off. Ask the person who runs this Novarr to turn it back on.';
@@ -52,7 +67,9 @@ class Credentials
      * $request / $via (web | api | basic): where the attempt came in, for
      * the sign-in history; no request = nothing is recorded.
      *
-     * @return User|array{error: string, status: int, retry_after?: int, public_cap?: bool}
+     * 'account_lock' => true in the error: the account's public-address lock refused it.
+     *
+     * @return User|array{error: string, status: int, retry_after?: int, public_cap?: bool, account_lock?: bool}
      */
     public function attempt(?string $username, ?string $password, ?string $ip, bool $publicHost = false, ?Request $request = null, string $via = 'web'): User|array
     {
@@ -70,6 +87,14 @@ class Credentials
         }
 
         $user = User::findForSignIn($username);
+        // The account's lock (public address only; unknown names have none).
+        if ($publicHost && $user !== null && ($seconds = static::accountLockRetryAfter($user)) !== null) {
+            static::hitPublicCap($ip);
+            static::recordLimited($request, $via, 'account', $username, static::accountLockKey($user));
+
+            return static::tooMany($seconds) + ['account_lock' => true];
+        }
+
         $ok = $user !== null && is_string($password) && $password !== '' && static::check($password, (string) $user->password);
         if (!$ok) {
             // Same work whether or not the name exists, so timing does not tell.
@@ -78,6 +103,9 @@ class Credentials
             }
             static::recordFailure($username, $ip, $publicHost);
             static::recordFailed($request, $via, $user, $user === null ? 'unknown_name' : 'wrong');
+            if ($user !== null) {
+                static::countAccountFailure($user, $request, $via);
+            }
 
             return ['error' => self::WRONG, 'status' => 422];
         }
@@ -95,6 +123,11 @@ class Credentials
         }
 
         RateLimiter::clear($key);
+        RateLimiter::clear(static::accountFailuresKey($user));
+        if (!$publicHost) {
+            // The owner at home can always get back in, and that unlocks the account.
+            RateLimiter::clear(static::accountLockKey($user));
+        }
         // Basic (OPDS) checks the password on every request: those
         // successes are not history, only the failures are.
         if ($request !== null && $via !== 'basic') {
@@ -169,7 +202,36 @@ class Credentials
         return $detail;
     }
 
-    /** The 429 error: the same sentence for both limits. */
+    /** Seconds the account's password sign-in stays refused on the public address, null when it is not locked. */
+    public static function accountLockRetryAfter(User $user): ?int
+    {
+        $key = static::accountLockKey($user);
+
+        return RateLimiter::tooManyAttempts($key, 1) ? max(1, RateLimiter::availableIn($key)) : null;
+    }
+
+    /** One wrong password for $user (any address); the ACCOUNT_MAX_FAILURES-th locks it. */
+    private static function countAccountFailure(User $user, ?Request $request, string $via): void
+    {
+        $failures = static::accountFailuresKey($user);
+        RateLimiter::hit($failures, self::ACCOUNT_WINDOW_SECONDS);
+        if (RateLimiter::attempts($failures) >= self::ACCOUNT_MAX_FAILURES && static::accountLockRetryAfter($user) === null) {
+            RateLimiter::hit(static::accountLockKey($user), self::ACCOUNT_LOCK_SECONDS);
+            AuthEvent::record(AuthEvent::ACCOUNT_LOCKED, $request, (int) $user->id, ['via' => $via, 'seconds' => self::ACCOUNT_LOCK_SECONDS]);
+        }
+    }
+
+    public static function accountFailuresKey(User $user): string
+    {
+        return 'novarr-account-failures:' . (int) $user->id;
+    }
+
+    public static function accountLockKey(User $user): string
+    {
+        return 'novarr-account-lock:' . (int) $user->id;
+    }
+
+    /** The 429 error: the same sentence for every limit. */
     public static function tooMany(int $seconds): array
     {
         $seconds = max(1, $seconds);

@@ -165,7 +165,7 @@ class AuthEvent extends Model
                 'check_unavailable' => 'Sign-in refused: the human check was not available' . $via,
                 default => 'Sign-in failed: wrong password' . $via,
             },
-            self::RATE_LIMITED => 'Too many attempts: refused' . match ($d['via'] ?? null) {
+            self::RATE_LIMITED => (($d['limit'] ?? null) === 'account' ? 'Refused: the account is locked on the public address' : 'Too many attempts: refused') . match ($d['via'] ?? null) {
                 'api' => ' (app)',
                 'basic' => ' (OPDS)',
                 'invite' => ' (invite)',
