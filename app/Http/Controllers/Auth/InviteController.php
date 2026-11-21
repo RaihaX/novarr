@@ -6,6 +6,7 @@ use App\AuthEvent;
 use App\Http\Controllers\Controller;
 use App\Support\AccountRules;
 use App\Services\Credentials;
+use App\Services\Turnstile;
 use App\Support\AuthMode;
 use App\Support\PublicAddress;
 use App\User;
@@ -68,6 +69,17 @@ class InviteController extends Controller
         // Signed in already: the page explains (never switch accounts silently).
         if ($this->signedInUser() !== null) {
             return redirect()->route('invite.show', ['token' => $token]);
+        }
+
+        // The human check (public address, when configured). Cloudflare
+        // unreachable refuses, as on the sign-in form.
+        if (Turnstile::requiredFor($request)) {
+            $outcome = app(Turnstile::class)->verify((string) $request->input(Turnstile::FIELD, ''), $request->ip());
+            if ($outcome !== Turnstile::OK) {
+                return back()
+                    ->withInput($request->except(['password', 'password_confirmation', Turnstile::FIELD]))
+                    ->withErrors(['turnstile' => $outcome === Turnstile::UNAVAILABLE ? Turnstile::UNAVAILABLE_MESSAGE : Turnstile::INVALID_MESSAGE]);
+            }
         }
 
         $data = $request->validate([

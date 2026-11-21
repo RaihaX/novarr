@@ -205,7 +205,14 @@ class PasswordRulesTest extends TestCase
     public function test_it_fails_open_and_warns_at_most_once_an_hour(): void
     {
         config(['novarr.password_breach_check' => true]);
-        Http::fake(fn() => throw new ConnectionException('Operation timed out after 3000 milliseconds'));
+        $down = true;
+        Http::fake(function () use (&$down) {
+            if ($down) {
+                throw new ConnectionException('Operation timed out after 3000 milliseconds');
+            }
+
+            return Http::response('', 503);
+        });
         Log::spy();
 
         $this->post(route('settings.users.store'), ['name' => 'Kim', 'username' => 'kim', 'password' => self::LEAKED])->assertSessionHasNoErrors();
@@ -215,7 +222,7 @@ class PasswordRulesTest extends TestCase
         Log::shouldHaveReceived('warning')->once()->withArgs(fn($message) => str_contains($message, 'could not reach Have I Been Pwned'));
 
         // A server error fails open too.
-        Http::fake(['api.pwnedpasswords.com/*' => Http::response('', 503)]);
+        $down = false;
         $this->assertFalse(app(BreachedPasswords::class)->appears(self::LEAKED));
     }
 

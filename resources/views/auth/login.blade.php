@@ -7,6 +7,18 @@
      are emptied before anyone signs in (layouts.app → novarr-signed). --}}
 @section('signed-out', '1')
 
+@php($turnstileKey = \App\Services\Turnstile::siteKeyFor(request()))
+
+@if($turnstileKey)
+    {{-- Full page loads here (Turbo would run the widget's script twice). --}}
+    @push('styles')
+        <meta name="turbo-visit-control" content="reload">
+    @endpush
+    @push('scripts')
+        <script src="{{ \App\Services\Turnstile::SCRIPT_URL }}" async defer></script>
+    @endpush
+@endif
+
 @section('content')
 <div class="auth-page">
     <div class="card auth-card">
@@ -38,6 +50,12 @@
                     <input type="password" name="password" id="password" class="form-control @error('password') is-invalid @enderror"
                            autocomplete="current-password" required>
                 </div>
+{{-- The human check: public address only, when configured (App\Services\Turnstile). --}}
+                @if($turnstileKey)
+                    <div class="form-row auth-check" id="humanCheck">
+                        <div class="cf-turnstile" data-sitekey="{{ $turnstileKey }}" data-theme="auto" data-response-field-name="{{ \App\Services\Turnstile::FIELD }}"></div>
+                    </div>
+                @endif
                 <button type="submit" class="btn btn-primary w-100">Sign in</button>
                 <p class="form-text auth-note">You stay signed in on this device until you sign out.</p>
                 <p class="form-text auth-note">Forgot your password? Ask the person who runs this server to set a new one.</p>

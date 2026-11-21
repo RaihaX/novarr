@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\AuthEvent;
 use App\Http\Controllers\Controller;
 use App\Services\Credentials;
+use App\Services\Turnstile;
 use App\Support\AuthMode;
 use App\Support\PublicAddress;
 use App\User;
@@ -35,7 +36,7 @@ class LoginController extends Controller
             ->header('Cache-Control', 'no-store, private');
     }
 
-    public function store(Request $request, Credentials $credentials)
+    public function store(Request $request, Credentials $credentials, Turnstile $turnstile)
     {
         if (!AuthMode::required()) {
             return redirect()->route('home');
@@ -50,7 +51,14 @@ class LoginController extends Controller
             'password.required' => 'Enter your password.',
         ]);
 
-        $result = $credentials->attempt($data['username'], $data['password'], $request->ip(), PublicAddress::isPublicRequest($request), $request, 'web');
+        $publicHost = PublicAddress::isPublicRequest($request);
+        // The human check (public address, when configured) comes after the
+        // limits and before the password: a missing or wrong answer counts
+        // as a failed attempt; Cloudflare unreachable refuses (fails closed).
+        $result = Turnstile::requiredFor($request)
+            ? (Credentials::refusal($data['username'], $request->ip(), $publicHost) ?? $this->humanCheck($request, $turnstile, $data['username'], $publicHost))
+            : null;
+        $result ??= $credentials->attempt($data['username'], $data['password'], $request->ip(), $publicHost, $request, 'web');
         if (!$result instanceof User && !empty($result['public_cap'])) {
             // The public address's per-IP cap: a real 429 (with Retry-After),
             // the form shown again with the reason.
@@ -66,6 +74,27 @@ class LoginController extends Controller
         static::signInHere($request, $result);
 
         return redirect()->intended(route('home'));
+    }
+
+    /** Null when the human check passed, else attempt()'s error shape (422). */
+    private function humanCheck(Request $request, Turnstile $turnstile, string $username, bool $publicHost): ?array
+    {
+        $outcome = $turnstile->verify((string) $request->input(Turnstile::FIELD, ''), $request->ip());
+        if ($outcome === Turnstile::OK) {
+            return null;
+        }
+
+        $user = User::findForSignIn($username);
+        if ($outcome === Turnstile::UNAVAILABLE) {
+            Credentials::recordFailed($request, 'web', $user, 'check_unavailable');
+
+            return ['error' => Turnstile::UNAVAILABLE_MESSAGE, 'status' => 422];
+        }
+
+        Credentials::recordFailure($username, $request->ip(), $publicHost);
+        Credentials::recordFailed($request, 'web', $user, 'check');
+
+        return ['error' => Turnstile::INVALID_MESSAGE, 'status' => 422];
     }
 
     /** The sign-in page at 429 with $message under the name field. */

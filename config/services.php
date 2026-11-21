@@ -24,6 +24,13 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // The human check on the public address's sign-in and invite forms
+    // (App\Services\Turnstile). Both empty (the default) = off.
+    'turnstile' => [
+        'site_key' => env('TURNSTILE_SITE_KEY'),
+        'secret_key' => env('TURNSTILE_SECRET_KEY'),
+    ],
+
     'resend' => [
         'key' => env('RESEND_KEY'),
     ],
