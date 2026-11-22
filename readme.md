@@ -136,6 +136,7 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 - **Sign-in history and alerts** — every sign-in, failed attempt and account change is logged (Settings → Users → Sign-in history); each reader sees their own recent sign-ins and signed-in browsers (each one can be signed out on its own), and gets an email when their account is signed in to from a new device.
 - **A second step on the public address** — after the password, a passkey, a code from an authenticator app, an emailed code or a recovery code; "Sign in with a passkey" does it in one step. The home network keeps the password alone.
 - **Catalogue passwords** — e-reader apps browse OPDS with a generated password of their own, never the account password, on the public address.
+- **A daily summary for each reader** — new chapters and completed series across the library, emailed once a day; each reader can turn it off.
 - See [Accounts and sign-in](#accounts-and-sign-in).
 
 ### Apps & API
@@ -378,6 +379,7 @@ Most operational settings are editable from the **Settings** page (stored in `ap
 | `notification_webhook_url` | Override the alert webhook |
 | `scrape_min_delay` / `scrape_max_delay` | Polite delay window between chapter fetches (seconds) |
 | `summary_time` | When the daily summary email is sent (e.g. `08:00`) |
+| `summary_readers` | Send each reader their own daily summary (default on; see [Accounts and sign-in](#accounts-and-sign-in)) |
 | `kindle_email` | Override the Kindle recipient |
 | `auto_kindle` | Auto-send the ePub to Kindle when a novel completes |
 | `min_chapter_words` | Word count below which a scraped chapter is treated as a stub and rejected (default `250`; special chapters and author notes are accepted from 50 words regardless) |
@@ -406,7 +408,7 @@ Novarr is **scheduler-driven**. Add the single Laravel cron entry and everything
 | Chapter download | every 10 min | `novel:chapter` — download newly-found pending chapters |
 | Completion verify | daily @ 06:00 | `novel:verify-completion` — mark fully-downloaded series complete |
 | Sign-in history prune | daily @ 04:35 | `novarr:prune-auth-log` — drop history older than `NOVARR_AUTH_LOG_DAYS` (180 days) |
-| Summary email | daily @ `summary_time` | `novel:email-summary` — recap since the previous summary (`summary_last_sent_at`): continue-reading block, headline figures, one row per updated novel, completed novels, and the attention list when it has changed (`summary_attention_hash`); a table-based brand email with a text part, built to survive Gmail/Outlook |
+| Summary email | daily @ `summary_time` | `novel:email-summary` — recap since the previous summary (`summary_last_sent_at`): continue-reading block, headline figures, one row per updated novel, completed novels, and the attention list when it has changed (`summary_attention_hash`); a table-based brand email with a text part, built to survive Gmail/Outlook. Then each reader's own summary of the same downloads (see [Readers' daily summary](#accounts-and-sign-in)) |
 
 Jobs queued from the web UI use the **database** queue (`jobs` table); failures land in `failed_jobs` and are inspectable/retryable from the **Health** page. For instant pickup, run a **persistent worker** alongside the cron (on bare metal use a systemd unit; the Docker stacks rely on the scheduler's every-minute drain):
 
@@ -436,7 +438,7 @@ Run `php artisan queue:restart` after each deploy so the worker reloads new code
 | `novel:epub {novel=0}` | Generate ePub(s) (0 = all not-yet-generated) |
 | `novel:send-to-kindle {novel} {--to=} {--generate}` | Email a novel's ePub to Kindle (`--generate` builds it first and aborts if that fails) |
 | `novel:verify-completion {novel=0} {--dry-run} {--force} {--no-kindle}` | Verify against NovelUpdates and mark complete |
-| `novel:email-summary {--hours=} {--to=} {--stalled-only}` | Send the daily summary; the window runs from the last summary sent (else 24 h) unless `--hours` is given. `--stalled-only` sends only the stalled-source alert (run hourly by the scheduler) |
+| `novel:email-summary {--hours=} {--to=} {--reader=} {--stalled-only}` | Send the daily summary; the window runs from the last summary sent (else 24 h) unless `--hours` is given. Then each reader's own summary (with sign-in on). `--to` sends only the owner's summary, to that address. `--reader=<sign-in name>` sends only that reader's summary (with `--to`, a preview to that address, sent even when nothing is new). `--stalled-only` sends only the stalled-source alert (run hourly by the scheduler) |
 | `novel:origin {novel=0} {--force} {--no-fetch} {--delay=2}` | Mark novels translated / original from NovelUpdates, else inference; `--force` re-evaluates inferred rows and re-fetches NovelUpdates ones, `--no-fetch` infers from stored data only. Manual choices are never overwritten |
 | `novel:normalize_labels {novel} {--dry-run} {--renumber} {--dedupe}` | Tidy labels; keeps stored numbers (decimals included) unless `--renumber`; duplicate removal only with `--dedupe` |
 | `novel:fix_chapters {novel=0}` | Resolve chapters with missing numbers by elimination against the sequence |
@@ -478,6 +480,12 @@ The rule is enforced on the server for every route; a route that is not explicit
 **Inviting a reader**
 
 Settings → Users → **Invite a reader**: enter a name and an email. Novarr emails a link (valid 7 days, shown once on screen as well) where the person picks a sign-in name and password. Pending invites can be resent (the old link stops working) or cancelled. Readers can sign in with their name or their email. Disabling an account stops its sessions and app tokens at once; deleting it removes its read state.
+
+**Readers' daily summary**
+
+With sign-in on, the daily summary run (`novel:email-summary`, at `summary_time`) also emails each reader a summary of their own, after the owner's. It goes to every reader who accepted their invite, is not turned off and has an email address (and only when mail is set up). Like the owner's, it lists everything downloaded and every series completed (with the ePub link), but with that reader's own progress, "Read from" link and Continue reading block. It has no attention list, stalled sources, queue figures or admin links. Links use the public address when one is set up. A reader's window runs from their last summary (24 hours the first time, never more than 7 days back), and nothing is sent when nothing new was downloaded or completed.
+
+A reader turns it off under Account → **Daily summary email**, or with **Stop these emails** at the bottom of the email (the link opens a page with a button; opening it alone changes nothing). The owner can turn all reader summaries off with Settings → **Send readers their daily summary**. To see what a reader would get, run `php artisan novel:email-summary --reader=<sign-in name> --to=you@example.com`: it is sent to that address even when nothing is new, and does not move the reader's window.
 
 **Passwords**
 

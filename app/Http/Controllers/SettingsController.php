@@ -43,6 +43,13 @@ class SettingsController extends Controller
                 'group' => 'Email & Kindle',
                 'default' => '08:00',
             ],
+            'summary_readers' => [
+                'label' => 'Send readers their daily summary',
+                'help' => 'Each reader with an email gets everything downloaded or completed since their last summary, with their own reading progress. Readers can turn it off in Account.',
+                'type' => 'checkbox',
+                'group' => 'Email & Kindle',
+                'default' => '1',
+            ],
             'auto_kindle' => [
                 'label' => 'Auto-send completed novels to Kindle',
                 'help' => 'When a novel is marked complete, email its ePub to your Kindle automatically.',
@@ -289,6 +296,7 @@ class SettingsController extends Controller
             'snapshots_days' => 'nullable|integer|min:1|max:90',
             'snapshots_enabled' => 'nullable',
             'auto_kindle' => 'nullable',
+            'summary_readers' => 'nullable',
             // "Sources when adding": every key offered on the form, and the ticked ones.
             'discover_offered' => 'nullable|array',
             'discover_offered.*' => 'string|max:' . self::SOURCE_KEY_MAX,

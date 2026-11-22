@@ -60,6 +60,8 @@ class User extends Authenticatable
         'sessions_valid_after' => 'datetime',
         'totp_enabled_at' => 'datetime',
         'email_codes_off_at' => 'datetime',
+        'summary_email_off_at' => 'datetime',
+        'summary_sent_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
