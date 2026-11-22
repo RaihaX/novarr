@@ -173,7 +173,10 @@ trait UsesAccounts
     {
         $cookies = [];
         foreach ($response->headers->getCookies() as $cookie) {
-            if ($cookie->getValue() !== null && $cookie->getExpiresTime() !== 1 && !$cookie->isCleared()) {
+            // Expiry by the app's clock: Cookie::isCleared() asks the real
+            // one, which drops every cookie of a test that travels back.
+            $expires = $cookie->getExpiresTime();
+            if ($cookie->getValue() !== null && ($expires === 0 || $expires > now()->getTimestamp())) {
                 $cookies[$cookie->getName()] = $cookie->getValue();
             }
         }
