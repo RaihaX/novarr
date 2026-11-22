@@ -47,6 +47,11 @@ Route::middleware('throttle:novarr-second-step')->group(function () {
 Route::get('/invite/{token}', [\App\Http\Controllers\Auth\InviteController::class, 'show'])->middleware('throttle:novarr-invite')->name('invite.show');
 Route::post('/invite/{token}', [\App\Http\Controllers\Auth\InviteController::class, 'accept'])->middleware('throttle:novarr-invite')->name('invite.accept');
 
+// "Stop these emails" from a reader's daily summary (public; the signed link
+// is the credential; App\Http\Controllers\SummaryUnsubscribeController).
+Route::get('/summary/stop/{id}', [\App\Http\Controllers\SummaryUnsubscribeController::class, 'show'])->whereNumber('id')->middleware('throttle:novarr-unsubscribe')->name('summary.unsubscribe');
+Route::post('/summary/stop/{id}', [\App\Http\Controllers\SummaryUnsubscribeController::class, 'stop'])->whereNumber('id')->middleware('throttle:novarr-unsubscribe')->name('summary.unsubscribe.stop');
+
 // The Android app's APK (public download; App\Support\AndroidApp)
 Route::get('/app/android', [\App\Http\Controllers\AndroidAppController::class, 'download'])->middleware('throttle:novarr-download')->name('app.android');
 
@@ -59,6 +64,7 @@ Route::post('/account/link', [\App\Http\Controllers\AccountController::class, 'l
 Route::post('/account/link/confirm', [\App\Http\Controllers\AccountController::class, 'linkConfirm'])->name('account.link.confirm');
 Route::post('/account/browsers/sign-out-others', [\App\Http\Controllers\AccountController::class, 'signOutOtherBrowsers'])->name('account.browsers.sign_out_others');
 Route::delete('/account/browsers/{id}', [\App\Http\Controllers\AccountController::class, 'signOutBrowser'])->whereNumber('id')->name('account.browsers.sign_out');
+Route::post('/account/summary-email', [\App\Http\Controllers\AccountController::class, 'summaryEmail'])->name('account.summary_email');
 // Sign-in steps and catalogue passwords (App\Http\Controllers\AccountSecurityController);
 // changes need a recent "Confirm it's you" (App\Support\RecentConfirmation).
 Route::controller(\App\Http\Controllers\AccountSecurityController::class)->group(function () {

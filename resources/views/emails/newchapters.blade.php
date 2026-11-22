@@ -34,6 +34,10 @@
     $attention = $v['attention'];
     $stalled = $v['stalled'] ?? [];
     $links = $v['links'];
+    // A reader's summary (NewChapters::viewData()): their series only, no
+    // admin figures, sections or links. Directives that wrap the owner's
+    // markup sit at the left margin, so the owner's email keeps its bytes.
+    $reader = $v['reader'] ?? null;
 
     // Brand tokens (design_handoff_novarr_brand). No web fonts, no classes in
     // the markup beyond the nv-* dark-mode hooks — every value is inlined.
@@ -67,19 +71,28 @@
     $tile = function (string $name, $value, string $tone) {
         return ['name' => $name, 'value' => $value, 'tone' => $tone];
     };
-    $tiles = [
-        [
+    if ($reader) {
+        // A reader: their new chapters, manga and completed series, one row.
+        $tiles = [array_values(array_filter([
             $tile('New chapters', $stats['new_chapters'], '#E8EBF0'),
-            $tile('Novels updated', $stats['novels_updated'], '#E8EBF0'),
+            (int) $stats['manga_updated'] > 0 ? $tile('Manga updated', $stats['manga_updated'], '#E8EBF0') : null,
             $tile('Completed', $stats['completed'], '#3FB950'),
-        ],
-        [
-            $tile('Queued', $stats['queued'], '#4CC4D1'),
-            $tile('Needs attention', $stats['attention'], '#F0B429'),
-        ],
-    ];
-    if ((int) $stats['manga_updated'] > 0) {
-        array_unshift($tiles[1], $tile('Manga updated', $stats['manga_updated'], '#E8EBF0'));
+        ]))];
+    } else {
+        $tiles = [
+            [
+                $tile('New chapters', $stats['new_chapters'], '#E8EBF0'),
+                $tile('Novels updated', $stats['novels_updated'], '#E8EBF0'),
+                $tile('Completed', $stats['completed'], '#3FB950'),
+            ],
+            [
+                $tile('Queued', $stats['queued'], '#4CC4D1'),
+                $tile('Needs attention', $stats['attention'], '#F0B429'),
+            ],
+        ];
+        if ((int) $stats['manga_updated'] > 0) {
+            array_unshift($tiles[1], $tile('Manga updated', $stats['manga_updated'], '#E8EBF0'));
+        }
     }
 @endphp
 <body class="nv-ground" style="margin: 0; padding: 0; width: 100%; background-color: #0F1216; color: #E8EBF0; font-family: {{ $sans }}; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%;">
@@ -269,8 +282,8 @@
                             </table>
                         @endif
 
-                        {{-- Sources not downloading (DownloadLanes::stalled()): same panel as Needs attention --}}
-                        @if (count($stalled) > 0)
+                        {{-- Sources not downloading (DownloadLanes::stalled()): same panel as Needs attention. Never for a reader. --}}
+                        @if (!$reader && count($stalled) > 0)
                             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                                 {!! $spacer(28) !!}
                                 <tr>
@@ -297,8 +310,8 @@
                             </table>
                         @endif
 
-                        {{-- Needs attention: panel with the 2px amber left rule --}}
-                        @if (count($attention) > 0)
+                        {{-- Needs attention: panel with the 2px amber left rule. Never for a reader. --}}
+                        @if (!$reader && count($attention) > 0)
                             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                                 {!! $spacer(28) !!}
                                 <tr>
@@ -348,12 +361,24 @@
                 {{-- ── Footer ── --}}
                 <tr>
                     <td bgcolor="#0F1216" class="nv-ground" style="background-color: #0F1216; padding: 16px 20px 20px; border-top: 1px solid #262D38;">
+@if ($reader)
+                        <div style="font-family: {{ $sans }}; font-size: 13px; line-height: 1.6; font-weight: 600;">
+                            <a class="nv-link" href="{{ $links['home'] }}" style="color: #8EA2FF; text-decoration: none;">Open Novarr</a><span style="color: #5B6472;"> &nbsp;·&nbsp; </span><a class="nv-link" href="{{ $links['account'] }}" style="color: #8EA2FF; text-decoration: none;">Account</a>
+                        </div>
+                        <div class="nv-muted" style="padding-top: 6px; font-family: {{ $mono }}; font-size: 11px; line-height: 1.6; color: #6B7684;">
+                            @if (!empty($reader['name']))For {{ $reader['name'] }} · @endif Daily at {{ $v['summary_time'] }} · turn off in Account
+                            @if (!empty($links['unsubscribe']))
+                                · <a class="nv-link" href="{{ $links['unsubscribe'] }}" style="color: #8EA2FF; text-decoration: none;">Stop these emails</a>
+                            @endif
+                        </div>
+@else
                         <div style="font-family: {{ $sans }}; font-size: 13px; line-height: 1.6; font-weight: 600;">
                             <a class="nv-link" href="{{ $links['home'] }}" style="color: #8EA2FF; text-decoration: none;">Open Novarr</a><span style="color: #5B6472;"> &nbsp;·&nbsp; </span><a class="nv-link" href="{{ $links['activity'] }}" style="color: #8EA2FF; text-decoration: none;">Activity</a><span style="color: #5B6472;"> &nbsp;·&nbsp; </span><a class="nv-link" href="{{ $links['settings'] }}" style="color: #8EA2FF; text-decoration: none;">Settings</a>
                         </div>
                         <div class="nv-muted" style="padding-top: 6px; font-family: {{ $mono }}; font-size: 11px; line-height: 1.6; color: #6B7684;">
                             Daily at {{ $v['summary_time'] }} · change in Settings
                         </div>
+@endif
                     </td>
                 </tr>
 

@@ -69,6 +69,14 @@ class AccountController extends Controller
                 'recoveryLeft' => app(\App\Services\RecoveryCodes::class)->remaining($user),
                 'publicHost' => $publicHost,
             ],
+            // The reader's daily summary email (novel:email-summary); the
+            // owner's own is set in Settings, so none for them here.
+            'summary' => (int) $user->id === CurrentReader::ownerId() ? null : (object) [
+                'email' => $email,
+                'serverOn' => setting(\App\Console\Commands\EmailSummary::READERS_SETTING, '1') === '1',
+                'on' => $user->summary_email_off_at === null,
+                'time' => setting('summary_time', '08:00'),
+            ],
             'pairing' => session('pairing_id') ? DevicePairing::find(session('pairing_id')) : null,
             'browsers' => app(BrowserSessions::class)->forUser($user, request()),
             'signIns' => AuthEvent::where('user_id', $user->id)
@@ -171,6 +179,26 @@ class AccountController extends Controller
         AuthEvent::record(AuthEvent::BROWSER_SIGNED_OUT, $request, (int) $user->id, ['device' => $row->device, 'ip' => $row->ip]);
 
         return redirect()->route('account')->withFragment('browsers')->with('status', "Signed out {$row->device}. Your other browsers stay signed in.");
+    }
+
+    /**
+     * "Daily summary email" on / off (users.summary_email_off_at). A reader
+     * setting about their own mail: no "Confirm it's you". The owner's
+     * summary is set in Settings.
+     */
+    public function summaryEmail(Request $request, CurrentReader $reader)
+    {
+        abort_unless(AuthMode::required(), 404);
+        $user = $reader->user();
+        if ((int) $user->id === CurrentReader::ownerId()) {
+            return redirect()->route('account')->with('error', 'Your daily summary is set in Settings.');
+        }
+
+        $on = $request->boolean('on');
+        $user->forceFill(['summary_email_off_at' => $on ? null : ($user->summary_email_off_at ?? now())])->save();
+
+        return redirect()->route('account')->withFragment('summary-email')
+            ->with('status', $on ? 'The daily summary email is on.' : 'The daily summary email is off.');
     }
 
     public function revokeToken(Request $request, CurrentReader $reader, $id)

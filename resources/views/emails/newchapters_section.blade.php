@@ -2,8 +2,8 @@
     One "New chapters"-style section of the daily summary (novels, manga):
     heading with a mono figure on the right, one row per series, and a
     "+N more … on Activity" footer. Included from emails.newchapters, so the
-    brand tokens ($sans, $serif, $mono, $h2, $chipNote, $spacer, $links)
-    come from there.
+    brand tokens ($sans, $serif, $mono, $h2, $chipNote, $spacer, $links,
+    $reader) come from there.
 
     $title   section heading
     $figure  right-hand figure ("120 IN 4 NOVELS")
@@ -12,6 +12,10 @@
     $one     the footer noun ("novel", "manga")
     $many    its plural
     $gap     space above the heading (optional, 20)
+
+    A reader ($reader) has no Activity page: "+N more" links to Novarr's
+    home instead. That branch's directives sit at the left margin so the
+    owner's markup keeps its exact bytes.
 --}}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
     {!! $spacer($gap ?? 20) !!}
@@ -90,7 +94,11 @@
     @if ($more > 0)
         <tr>
             <td bgcolor="#161A20" class="nv-surface" style="background-color: #161A20; padding: 12px 16px; border-top: 1px solid #262D38; font-family: {{ $sans }}; font-size: 13px;">
+@if (!empty($reader))
+                <a class="nv-link" href="{{ $links['home'] }}" style="color: #8EA2FF; text-decoration: none;">+{{ number_format($more) }} more {{ $more === 1 ? $one : $many }} in Novarr &rarr;</a>
+@else
                 <a class="nv-link" href="{{ $links['activity'] }}" style="color: #8EA2FF; text-decoration: none;">+{{ number_format($more) }} more {{ $more === 1 ? $one : $many }} on Activity &rarr;</a>
+@endif
             </td>
         </tr>
     @endif

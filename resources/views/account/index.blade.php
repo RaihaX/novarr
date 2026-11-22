@@ -248,6 +248,28 @@
                 </div>
             </section>
 
+            {{-- The reader's daily summary email (novel:email-summary); the owner's is in Settings. --}}
+            @if($summary)
+                <section class="card form-panel acct-card" aria-labelledby="summaryEmailTitle" id="summary-email">
+                    <div class="card-body">
+                        <h2 class="acct-card-title" id="summaryEmailTitle">Daily summary email</h2>
+                        <p class="acct-text">New chapters and completed series across the library, once a day.</p>
+                        @if(!$summary->email)
+                            <p class="form-text" id="summaryEmailState">Not available: your account has no email. Ask the person who runs this Novarr to add one.</p>
+                        @elseif(!$summary->serverOn)
+                            <p class="form-text" id="summaryEmailState">Switched off for this server by the person who runs this Novarr.</p>
+                        @else
+                            <p class="form-text" id="summaryEmailState">{{ $summary->on ? 'On: daily at ' . $summary->time . ' to ' . $summary->email . '.' : 'Off.' }}</p>
+                            <form method="POST" action="{{ route('account.summary_email') }}" class="acct-actions">
+                                @csrf
+                                <input type="hidden" name="on" value="{{ $summary->on ? '0' : '1' }}">
+                                <button type="submit" class="btn btn-secondary btn-sm">{{ $summary->on ? 'Turn the daily summary off' : 'Turn the daily summary on' }}</button>
+                            </form>
+                        @endif
+                    </div>
+                </section>
+            @endif
+
             {{-- Own sign-ins and failed attempts (App\AuthEvent): spot one that was not you. --}}
             <section class="card form-panel acct-card" aria-labelledby="signInsTitle" id="sign-ins">
                 <div class="card-body">

@@ -10,7 +10,8 @@ use Illuminate\Routing\Route;
  * tests/Feature/RouteAccessTest (which walks every registered route and fails
  * on any that is not listed here).
  *
- *   public — no credentials (sign-in itself, accepting an invite, health
+ *   public — no credentials (sign-in itself, accepting an invite, the
+ *            daily summary's signed "Stop these emails" link, health
  *            checks, discovery, the KOReader plugin's self-update, the
  *            Android app download, the offline shell)
  *   reader — any signed-in account
@@ -46,6 +47,9 @@ final class RouteAccess
         // Accepting an invite (the link is the credential; throttled)
         'invite.show',
         'invite.accept',
+        // "Stop these emails" in a reader's daily summary (the signed link is the credential; throttled)
+        'summary.unsubscribe',
+        'summary.unsubscribe.stop',
         // The Android app download (before or right after accepting an invite)
         'app.android',
         // The PWA's offline fallback page (no reader data on it)
@@ -111,6 +115,7 @@ final class RouteAccess
         'account.link.confirm',
         'account.browsers.sign_out_others',
         'account.browsers.sign_out',
+        'account.summary_email',
         // Own sign-in steps and catalogue passwords (each change needs a recent confirmation)
         'account.confirm',
         'account.confirm.email',

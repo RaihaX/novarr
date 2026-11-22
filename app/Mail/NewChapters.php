@@ -18,6 +18,11 @@ class NewChapters extends Mailable
      * daily summary, ['continue', 'stats', 'novels', 'summary_time',
      * 'stalled' (DownloadLanes::stalled() rows; missing = none)]. A flat
      * list of chapter rows (the legacy shape) is still accepted.
+     *
+     * A reader's summary adds 'reader' => ['name', 'home_url',
+     * 'account_url', 'unsubscribe_url']: the views then show no attention,
+     * stalled sources, Queued / Needs attention figures, or links to the
+     * admin pages (Activity, Settings, Health).
      */
     public $mailData;
 
@@ -47,11 +52,13 @@ class NewChapters extends Mailable
     {
         $data = is_array($this->mailData) ? $this->mailData : [];
         $legacy = $data !== [] && array_is_list($data);
+        $reader = $legacy || !is_array($data['reader'] ?? null) ? null : $data['reader'];
 
         $chapters = $legacy ? $data : ($data['chapters'] ?? []);
         $completed = $legacy ? [] : ($data['completed'] ?? []);
-        $attention = $legacy ? [] : ($data['attention'] ?? []);
-        $stalled = $legacy ? [] : array_values((array) ($data['stalled'] ?? []));
+        // Never in a reader's email, whatever the payload says.
+        $attention = $legacy || $reader ? [] : ($data['attention'] ?? []);
+        $stalled = $legacy || $reader ? [] : array_values((array) ($data['stalled'] ?? []));
         $novels = $legacy ? null : ($data['novels'] ?? null);
 
         // Older callers send only flat chapter rows: fold them into one row
@@ -84,7 +91,7 @@ class NewChapters extends Mailable
         $manga = array_values(array_filter($novels, fn($row) => ($row['medium'] ?? 'novel') === 'manga'));
         $novels = array_values(array_filter($novels, fn($row) => ($row['medium'] ?? 'novel') !== 'manga'));
 
-        $stats = ($data['stats'] ?? []) + [
+        $stats = ($reader ? ['queued' => null, 'attention' => 0, 'stalled' => 0] : []) + ($data['stats'] ?? []) + [
             'new_chapters' => $newChapters,
             'novels_updated' => count($novels),
             'manga_updated' => count($manga),
@@ -108,13 +115,29 @@ class NewChapters extends Mailable
             'stalled' => $stalled,
             'summary_time' => $legacy ? setting('summary_time', '08:00') : ($data['summary_time'] ?? setting('summary_time', '08:00')),
             'date' => now()->timezone(config('app.timezone')),
-            'links' => [
+            'reader' => $reader,
+            'links' => $reader ? [
+                'home' => $reader['home_url'] ?? static::readerUrl('home'),
+                'account' => $reader['account_url'] ?? static::readerUrl('account'),
+                'unsubscribe' => $reader['unsubscribe_url'] ?? null,
+            ] : [
                 'home' => route('home'),
                 'activity' => route('activity.index'),
                 'settings' => route('settings.index'),
                 'health' => route('health.index') . '#attentionPanel',
             ],
         ];
+    }
+
+    /**
+     * A link in a reader's email: on the public address when one is set up
+     * (readers are away from the home network), else the normal route().
+     */
+    public static function readerUrl(string $name, mixed $parameters = []): string
+    {
+        $base = \App\Support\PublicAddress::url();
+
+        return $base !== null ? $base . route($name, $parameters, false) : route($name, $parameters);
     }
 
     /** "Chapters 2,990 to 3,207" / "Chapter 12" — whole numbers without decimals. */

@@ -3,8 +3,10 @@
     $tz = config('app.timezone');
     $s = $v['stats'];
     $fig = fn ($n) => $n === null ? '-' : number_format((int) $n);
+    // A reader's summary: no admin figures, sections or links.
+    $reader = $v['reader'] ?? null;
 @endphp
-NOVARR. — Daily summary, {{ $v['date']->format('D d M Y') }}
+NOVARR. — Daily summary{!! $reader && !empty($reader['name']) ? ' for ' . $reader['name'] : '' !!}, {{ $v['date']->format('D d M Y') }}
 @if ($v['since'])
 Since {{ \Illuminate\Support\Carbon::parse($v['since'])->timezone($tz)->format('D d M, g:i A') }}
 @endif
@@ -16,7 +18,11 @@ Chapter {{ number_format($v['continue']['index']) }} of {{ number_format($v['con
 Resume: {!! $v['continue']['url'] ?? route('continue') !!}
 @endif
 
+@if ($reader)
+New chapters: {{ $fig($s['new_chapters']) }}{!! (int) $s['manga_updated'] > 0 ? ' · Manga updated: ' . $fig($s['manga_updated']) : '' !!} · Completed: {{ $fig($s['completed']) }}
+@else
 New chapters: {{ $fig($s['new_chapters']) }} · Novels updated: {{ $fig($s['novels_updated']) }}{!! (int) $s['manga_updated'] > 0 ? ' · Manga updated: ' . $fig($s['manga_updated']) : '' !!} · Completed: {{ $fig($s['completed']) }} · Queued: {{ $fig($s['queued']) }} · Needs attention: {{ $fig($s['attention']) }}
+@endif
 @foreach ([['NEW CHAPTERS', $v['novels'], $v['more_novels'], 'novel', 'novels'], ['MANGA', $v['manga'], $v['more_manga'], 'manga', 'manga']] as [$heading, $rows, $more, $one, $many])
 @if (count($rows) > 0)
 
@@ -36,7 +42,11 @@ New chapters: {{ $fig($s['new_chapters']) }} · Novels updated: {{ $fig($s['nove
 @endforeach
 @if ($more > 0)
 
+@if ($reader)
++{{ number_format($more) }} more {{ $more === 1 ? $one : $many }} in Novarr: {!! $v['links']['home'] !!}
+@else
 +{{ number_format($more) }} more {{ $more === 1 ? $one : $many }} on Activity: {!! $v['links']['activity'] !!}
+@endif
 @endif
 @endif
 @endforeach
@@ -55,7 +65,7 @@ COMPLETED
 @endif
 @endforeach
 @endif
-@if (count($v['stalled'] ?? []) > 0)
+@if (!$reader && count($v['stalled'] ?? []) > 0)
 
 SOURCES NOT DOWNLOADING
 @foreach ($v['stalled'] as $lane)
@@ -64,7 +74,7 @@ SOURCES NOT DOWNLOADING
 
 View activity: {!! $v['links']['activity'] !!}
 @endif
-@if (count($v['attention']) > 0)
+@if (!$reader && count($v['attention']) > 0)
 
 NEEDS ATTENTION
 @foreach ($v['attention'] as $item)
@@ -78,9 +88,22 @@ NEEDS ATTENTION
 
 Health: {!! $v['links']['health'] !!}
 @endif
+@if ($reader && count($v['novels']) === 0 && count($v['manga']) === 0 && count($v['completed']) === 0)
+
+Nothing new in this period.
+@endif
 
 --
+@if ($reader)
+Open Novarr: {!! $v['links']['home'] !!}
+Account: {!! $v['links']['account'] !!}
+Daily at {{ $v['summary_time'] }} · turn off in Account
+@if (!empty($v['links']['unsubscribe']))
+Stop these emails: {!! $v['links']['unsubscribe'] !!}
+@endif
+@else
 Open Novarr: {!! $v['links']['home'] !!}
 Activity: {!! $v['links']['activity'] !!}
 Settings: {!! $v['links']['settings'] !!}
 Daily at {{ $v['summary_time'] }} · change in Settings
+@endif

@@ -142,6 +142,8 @@ class AppServiceProvider extends ServiceProvider
         // Invite links (public): opening and accepting, per IP. A token is 64
         // hex characters, so this is about load, not guessing.
         RateLimiter::for('novarr-invite', fn(Request $request) => Limit::perMinute(30)->by('invite|' . $request->ip()));
+        // "Stop these emails" (public, signed link), per IP: about load.
+        RateLimiter::for('novarr-unsubscribe', fn(Request $request) => Limit::perMinute(30)->by('unsubscribe|' . $request->ip()));
         // Public file downloads (the Android app), per IP.
         RateLimiter::for('novarr-download', fn(Request $request) => Limit::perMinute(10)->by('download|' . $request->ip()));
         // Readers' "check for new chapters" / "build ePub": the admin is not limited.
