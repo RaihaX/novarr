@@ -278,9 +278,48 @@ function Settings:items()
     -- Takes effect the next time a chapter is opened.
     toggle("join_chapters", _("Join chapters for smooth page turns"))
     toggle("keep_style", _("Keep font and layout between chapters"))
-    toggle("show_reading_info", _("Reading info in the status bar"))
+    -- A Novarr chapter open in the reader shows the change at once (Reading.applyInfoPosition).
+    local function applyToReader()
+        local reader = s.reader
+        if reader and reader.reading then
+            Session.guard(require("novarr.reading").applyInfoPosition, reader)
+        end
+    end
+    table.insert(items, {
+        text = _("Reading info in the status bar"),
+        mandatory = onOff(s:get("show_reading_info")),
+        callback = function()
+            s:set("show_reading_info", not s:get("show_reading_info"))
+            applyToReader()
+            self:rebuild()
+        end,
+    })
+    local POSITION_NAMES = { bottom = _("Bottom"), top = _("Top"), both = _("Top and bottom") }
+    local position = s:get("info_position")
+    if not POSITION_NAMES[position] then position = "bottom" end
+    table.insert(items, {
+        text = _("Reading info position"),
+        mandatory = POSITION_NAMES[position],
+        callback = function()
+            local buttons = {}
+            for _i, key in ipairs(require("novarr.readinginfo").POSITIONS) do
+                local label = POSITION_NAMES[key]
+                if key == position then label = UI.MARK_READ .. " " .. label end
+                table.insert(buttons, { text = label, callback = function()
+                    s:set("info_position", key)
+                    applyToReader()
+                    self:rebuild()
+                end })
+            end
+            UI.choice(_("Reading info position"), buttons)
+        end,
+    })
+    if position ~= "bottom" then
+        note(_("Top uses KOReader's Alt status bar, switched on in Novarr chapters only"))
+    end
     toggle("show_clock", _("Show clock while reading"))
     toggle("show_sync_status", _("Sync status in the status bar"))
+    toggle("hold_menu", _("Hold the status bar for the Novarr menu"))
     -- Off: no question and no request for it (position.lua); the device is still named with every write.
     toggle("position_prompt", _("Offer the place read on another device"))
     toggle("show_covers", _("Show covers"))

@@ -171,6 +171,11 @@ function Reading.attach(plugin, novel_id, chapter_id, group)
         Session.guard(Reading.idleSync, plugin)
     end
     plugin.idle_scheduled = false
+
+    -- Reading info at the top: the alt status bar is switched on (or back
+    -- off) now, before ReaderUI reads the settings and lays the document
+    -- out, so it costs no second render.
+    Session.guard(Reading.prepareTopBar, plugin)
 end
 
 -- ---------------------------------------------------------------- progress
@@ -275,7 +280,11 @@ function Reading.onReady(plugin)
     r.timer = ReadingInfo.newTimer(os.time())
     if r.group then r.last_where = Reading.where(plugin) end
     Reading.timeStart(plugin)
+    -- Opened by KOReader itself: no Novarr screen to go back to (Session.origin_kind).
+    if by_koreader then Session.origin_kind = nil end
     Session.guard(Reading.addFooter, plugin)
+    Session.guard(Reading.scheduleTick, plugin)
+    Session.guard(Reading.setupHold, plugin)
     Session.guard(Reading.applyCover, plugin, false)
     Session.guard(Reading.offerSleepCover, plugin)
     if r.group then
@@ -597,12 +606,18 @@ end
 
 --- Chapters left, time per chapter and "ch N of M" for the current chapter; refreshes the status bar.
 function Reading.chapterInfo(plugin)
+    Reading.computeInfo(plugin)
+    Reading.refreshInfo(plugin)
+end
+
+--- Chapters left, time per chapter and "ch N of M" for the current chapter (no redraw).
+function Reading.computeInfo(plugin)
     local r = plugin.reading
     r.left = Session:novelEstimate(r.novel_id, r.chapter_id, 0)
     r.per_chapter = Session:secondsPerChapter(r.novel_id)
     local cl = Session:chapterList(r.novel_id)
     if cl then r.ordinal, r.ordinal_of = Model.ordinal(cl.list, r.chapter_id) end
-    Reading.refreshFooter(plugin)
+    r.info_done = true
 end
 
 --[[--
@@ -816,21 +831,93 @@ function footerOf(plugin)
     return view and view.footer, view
 end
 
+--- The "Reading info position" setting in effect: "bottom" when reading info is off.
+function Reading.infoMode()
+    if not Session:get("show_reading_info") then return "bottom" end
+    return Session:get("info_position") or "bottom"
+end
+
 --[[--
-Adds "14:12 · 2,385 ch left · 61 h left" to KOReader's status bar through
-ReaderFooter's plugin hook (KOReader 2024.11 and later; skipped silently
-on older versions). Chapters left and the time per chapter are computed
-once here; the footer redraws on page turns as usual (no timers).
+Whether the top bar (crengine's alt status bar) can carry the Novarr line:
+a crengine document in page mode whose ReaderCoptListener has the header
+hook. need_on: the bar must also be switched on already.
+]]
+function Reading.canTop(plugin, need_on)
+    local ui = plugin.ui
+    local cl = ui and ui.crelistener
+    if not ui or not ui.rolling or not ui.view or ui.view.view_mode ~= "page" then return false end
+    if not cl or not cl.addAdditionalHeaderContent then return false end
+    if need_on then
+        local conf = ui.document and ui.document.configurable
+        return conf ~= nil and conf.status_line == 0
+    end
+    return true
+end
+
+local function delSetting(ds, key)
+    if ds.delSetting then ds:delSetting(key) else ds:saveSetting(key, nil) end
+end
+
+--[[--
+Called from Reading.attach, before ReaderUI sends ReadSettings: switches the
+alt status bar on for this document when the setting puts reading info at
+the top (marked "novarr_top_bar"), or back off for a document Novarr had
+switched it on for when it is "bottom" again. A document without the mark
+is never switched off: an alt status bar the user chose stays. The view
+mode is not on ui.view yet: read from the document's settings, then
+KOReader's default (unknown counts as page mode).
+]]
+function Reading.prepareTopBar(plugin)
+    local ui = plugin.ui
+    local ds = ui and ui.doc_settings
+    if not ds or not ui.rolling or not ui.crelistener or not ui.crelistener.addAdditionalHeaderContent then return end
+    local view_mode = ds:readSetting("copt_view_mode")
+    if view_mode == nil then view_mode = G_reader_settings:readSetting("copt_view_mode") end
+    if view_mode == nil then
+        local ok, default = pcall(function() return rawget(_G, "G_defaults"):readSetting("DCREREADER_VIEW_MODE") end)
+        view_mode = (ok and default == "scroll") and 1 or 0
+    end
+    local page_mode = view_mode ~= 1 and view_mode ~= "scroll"
+    local places = ReadingInfo.infoPlaces(Reading.infoMode(), page_mode)
+    local marked = ds:readSetting("novarr_top_bar")
+    if places.top then
+        local current = ds:readSetting("copt_status_line")
+        if current == nil then current = G_reader_settings:readSetting("copt_status_line") end
+        -- Already on (the user's choice): left as it is, and not marked.
+        if marked or current ~= 0 then
+            ds:saveSetting("copt_status_line", 0)
+            ds:saveSetting("novarr_top_bar", true)
+        end
+    elseif marked then
+        ds:saveSetting("copt_status_line", 1)
+        delSetting(ds, "novarr_top_bar")
+    end
+end
+
+--[[--
+Adds the Novarr line ("ch 969 of 1,147 · 178 left · 9 h left") where the
+"Reading info position" setting puts it: KOReader's status bar at the
+bottom through ReaderFooter's plugin hook (KOReader 2024.11 and later;
+skipped silently on older versions), and/or the alt status bar at the top
+(Reading.addHeader). Chapters left and the time per chapter are computed
+once here; the bars redraw on page turns as usual, plus the minute tick
+for the clock (Reading.scheduleTick).
 ]]
 function Reading.addFooter(plugin)
     local r = plugin.reading
     if not r or not Session:get("show_reading_info") then return end
+    Reading.computeInfo(plugin)
+    local places = ReadingInfo.infoPlaces(Reading.infoMode(), Reading.canTop(plugin, true))
+    if places.top then Session.guard(Reading.addHeader, plugin) end
+    if places.bottom then Reading.addBottom(plugin) end
+end
+
+--- The Novarr line in KOReader's own status bar (see addFooter).
+function Reading.addBottom(plugin)
+    local r = plugin.reading
+    if not r or plugin.footer_func then return end
     local footer, view = footerOf(plugin)
     if not footer or not footer.addAdditionalFooterContent then return end
-    r.left = Session:novelEstimate(r.novel_id, r.chapter_id, 0)
-    r.per_chapter = Session:secondsPerChapter(r.novel_id)
-    local cl = Session:chapterList(r.novel_id)
-    if cl then r.ordinal, r.ordinal_of = Model.ordinal(cl.list, r.chapter_id) end
     plugin.footer_func = function()
         local ok, text = pcall(Reading.footerText, plugin)
         return ok and text or nil
@@ -856,16 +943,28 @@ function Reading.addFooter(plugin)
     end
 end
 
---- Redraws the status bar now (chapter info changed, a flush sent something). Not while asleep.
-function Reading.refreshFooter(plugin)
+--[[--
+Redraws the Novarr line now, in the status bar and in the top bar (chapter
+info changed, a flush sent something). Not while asleep. refreshFooter is
+the older name (session.lua).
+]]
+function Reading.refreshInfo(plugin)
     if Session.asleep then return end
     local footer = footerOf(plugin)
     if plugin.footer_func and footer and footer.onUpdateFooter then
         pcall(footer.onUpdateFooter, footer, true)
     end
+    Reading.refreshHeader(plugin)
+end
+Reading.refreshFooter = Reading.refreshInfo
+
+--- Removes the Novarr line from both bars (closing, or the setting changed).
+function Reading.removeFooter(plugin)
+    Reading.removeBottom(plugin)
+    Reading.removeHeader(plugin)
 end
 
-function Reading.removeFooter(plugin)
+function Reading.removeBottom(plugin)
     local footer = footerOf(plugin)
     if plugin.footer_func and footer and footer.removeAdditionalFooterContent then
         footer:removeAdditionalFooterContent(plugin.footer_func)
@@ -879,30 +978,297 @@ function Reading.removeFooter(plugin)
     plugin.footer_func = nil
 end
 
-function Reading.footerText(plugin)
-    local r = plugin.reading
-    if not r then return nil end
-    local footer = footerOf(plugin)
-    local clock
-    -- No clock when KOReader's own time item is already shown.
-    -- KOReader's own clock only shows next to this item in all-at-once mode.
-    local ko_clock = footer and footer.settings and footer.settings.time and footer.settings.all_at_once
-    if Session:get("show_clock") and not ko_clock then
-        local ok, datetime = pcall(require, "datetime")
-        if ok and datetime.secondsToHour then
-            clock = datetime.secondsToHour(os.time(), G_reader_settings:isTrue("twelve_hour_clock"))
-        else
-            clock = os.date("%H:%M")
-        end
+-- KOReader's own time item is shown next to the Novarr line (only in
+-- all-at-once mode): Novarr leaves its clock out.
+local function koClock(footer)
+    return (footer and footer.settings and footer.settings.time and footer.settings.all_at_once) and true or false
+end
+
+--- The time of day as KOReader shows it (12/24 h setting).
+function Reading.clockText()
+    local ok, datetime = pcall(require, "datetime")
+    if ok and type(datetime) == "table" and datetime.secondsToHour then
+        return datetime.secondsToHour(os.time(), G_reader_settings:isTrue("twelve_hour_clock"))
     end
+    return os.date("%H:%M")
+end
+
+--[[--
+The parts of the Novarr line for the open chapter (ReadingInfo.statusParts),
+with the clock when `clock` is true and the sync part when that setting is
+on. Shared by the status bar, the top bar and the quick menu's title.
+]]
+function Reading.statusParts(plugin, clock)
+    local r = plugin.reading
+    if not r then return {} end
     local secs = ReadingInfo.secondsLeft(r.per_chapter, r.left, r.percent)
     local sync_part
     if Session:get("show_sync_status") then
         sync_part = ReadingInfo.syncPart(Session:syncState(), os.time())
     end
-    local parts = ReadingInfo.statusParts(clock, r.ordinal, r.ordinal_of, r.left, secs, sync_part)
+    return ReadingInfo.statusParts(clock and Reading.clockText() or nil, r.ordinal, r.ordinal_of, r.left, secs, sync_part)
+end
+
+function Reading.footerText(plugin)
+    if not plugin.reading then return nil end
+    local clock = Session:get("show_clock") and not koClock(footerOf(plugin))
+    local parts = Reading.statusParts(plugin, clock)
     local measure, budget = Reading.footerMeasure(plugin)
     return ReadingInfo.fitStatus(parts, measure, budget)
+end
+
+--- The whole line, clock included, without fitting it to a width (the quick menu).
+function Reading.statusText(plugin)
+    local r = plugin.reading
+    if not r then return nil end
+    if not r.info_done then Reading.computeInfo(plugin) end
+    return ReadingInfo.joinParts(Reading.statusParts(plugin, true))
+end
+
+-- ---------------------------------------------------------------- top bar
+
+--[[--
+The Novarr line in crengine's alt status bar (ReaderCoptListener's header
+hook): crengine draws it before its own page number and count. Its clock
+is left out when crengine shows its own (cre_header_clock), and "synced …
+ago" is left out to keep it short (ReadingInfo.headerParts).
+]]
+function Reading.headerText(plugin)
+    local r = plugin.reading
+    if not r then return nil end
+    local cl = plugin.ui and plugin.ui.crelistener
+    local clock = Session:get("show_clock") and Reading.clockText() or nil
+    local secs = ReadingInfo.secondsLeft(r.per_chapter, r.left, r.percent)
+    local sync_part
+    if Session:get("show_sync_status") then
+        sync_part = ReadingInfo.syncPart(Session:syncState(), os.time())
+    end
+    local parts = ReadingInfo.headerParts(clock, cl ~= nil and cl.clock == 1, r.ordinal, r.ordinal_of, r.left, secs, sync_part)
+    return ReadingInfo.joinParts(parts)
+end
+
+function Reading.addHeader(plugin)
+    local r = plugin.reading
+    local cl = plugin.ui and plugin.ui.crelistener
+    if not r or plugin.header_func or not cl or not cl.addAdditionalHeaderContent then return end
+    plugin.header_func = function()
+        local ok, text = pcall(Reading.headerText, plugin)
+        -- What crengine was last given (Reading.refreshHeader redraws only when it changed).
+        plugin.header_shown = ok and text or nil
+        return plugin.header_shown
+    end
+    cl:addAdditionalHeaderContent(plugin.header_func)
+    Reading.refreshHeader(plugin)
+end
+
+--- Has crengine redraw the top bar (its text is built again from the header hook).
+function Reading.refreshHeader(plugin)
+    if Session.asleep or not plugin.header_func then return end
+    -- Only when the line changed: redrawing the top strip is a visible flash
+    -- on e-ink, and this runs after every flush (every 30 s of reading).
+    local ok, text = pcall(Reading.headerText, plugin)
+    if ok and text == plugin.header_shown then return end
+    local cl = plugin.ui and plugin.ui.crelistener
+    if cl and cl.onUpdateHeader then pcall(cl.onUpdateHeader, cl) end
+end
+
+function Reading.removeHeader(plugin)
+    local cl = plugin.ui and plugin.ui.crelistener
+    if plugin.header_func and cl and cl.removeAdditionalHeaderContent then
+        pcall(cl.removeAdditionalHeaderContent, cl, plugin.header_func)
+    end
+    plugin.header_func = nil
+    plugin.header_shown = nil
+end
+
+--[[--
+The "Reading info position" setting (or reading info) changed while this
+chapter is open: the Novarr line moves at once. Switching the alt status
+bar on or off re-lays the document out (SetStatusLine; KOReader then sends
+DocumentRerendered, see main.lua). It is only switched off when Novarr had
+switched it on (the "novarr_top_bar" mark).
+]]
+function Reading.applyInfoPosition(plugin)
+    local r = plugin.reading
+    if not r or not r.ready then return end
+    local ui = plugin.ui
+    local on = Session:get("show_reading_info") and true or false
+    local places = ReadingInfo.infoPlaces(Reading.infoMode(), Reading.canTop(plugin, false))
+    local conf = ui.document and ui.document.configurable
+    local ds = ui.doc_settings
+    if conf and ds then
+        local marked = ds:readSetting("novarr_top_bar")
+        if places.top and on and conf.status_line ~= 0 then
+            conf.status_line = 0
+            ds:saveSetting("novarr_top_bar", true)
+            ui:handleEvent(Event:new("SetStatusLine", 0))
+        elseif not (places.top and on) and marked then
+            if conf.status_line == 0 then
+                conf.status_line = 1
+                ui:handleEvent(Event:new("SetStatusLine", 1))
+            end
+            delSetting(ds, "novarr_top_bar")
+        end
+    end
+    if on and not r.info_done then Reading.computeInfo(plugin) end
+    if on and places.top and Reading.canTop(plugin, true) then
+        Reading.addHeader(plugin)
+    else
+        local had = plugin.header_func ~= nil
+        Reading.removeHeader(plugin)
+        -- Redraw the bar without the line (when it is still shown).
+        local cl = ui.crelistener
+        if had and not Session.asleep and cl and cl.onUpdateHeader then pcall(cl.onUpdateHeader, cl) end
+    end
+    if on and (places.bottom or not Reading.canTop(plugin, true)) then
+        Reading.addBottom(plugin)
+    else
+        Reading.removeBottom(plugin)
+        local footer = footerOf(plugin)
+        if footer and footer.onUpdateFooter and not Session.asleep then pcall(footer.onUpdateFooter, footer, true) end
+    end
+    Reading.refreshInfo(plugin)
+    Reading.scheduleTick(plugin)
+end
+
+-- ---------------------------------------------------------------- the clock between page turns
+
+--- Whether the minute tick is needed now (ReadingInfo.clockTickNeeded).
+function Reading.tickNeeded(plugin)
+    return ReadingInfo.clockTickNeeded({
+        open = plugin.reading ~= nil and plugin.footer_func ~= nil,
+        asleep = Session.asleep and true or false,
+        reading_info = Session:get("show_reading_info") and true or false,
+        clock = Session:get("show_clock") and true or false,
+        ko_clock = koClock(footerOf(plugin)),
+    })
+end
+
+--[[--
+Novarr's clock in the status bar is otherwise only redrawn on page turns:
+one task at the next minute boundary while it is shown (no timer when it is
+not). The top bar needs none: crengine refreshes its own clock.
+]]
+function Reading.scheduleTick(plugin)
+    if not plugin.tick_task then
+        plugin.tick_task = function() Session.guard(Reading.clockTick, plugin) end
+    end
+    UIManager:unschedule(plugin.tick_task)
+    if not Reading.tickNeeded(plugin) then return end
+    UIManager:scheduleIn(ReadingInfo.secondsToNextMinute(os.time()), plugin.tick_task)
+end
+
+function Reading.unscheduleTick(plugin)
+    if plugin.tick_task then UIManager:unschedule(plugin.tick_task) end
+end
+
+--[[--
+The minute tick: repaints the status bar when it shows the Novarr line and
+nothing covers it (ReaderFooter:shouldBeRepainted, as KOReader's own clock
+refresh does; without that function nothing is repainted), then waits for
+the next minute.
+]]
+function Reading.clockTick(plugin)
+    if not plugin.reading then return end
+    local footer = footerOf(plugin)
+    if not Session.asleep and plugin.footer_func and footer and footer.onUpdateFooter and footer.settings then
+        local shown = footer.settings.all_at_once
+            or (footer.mode_list ~= nil and footer.mode == footer.mode_list.additional_content)
+        if shown and footer.shouldBeRepainted then
+            local ok, force, full = pcall(footer.shouldBeRepainted, footer)
+            if ok and force then pcall(footer.onUpdateFooter, footer, force, full) end
+        end
+    end
+    Reading.scheduleTick(plugin)
+end
+
+-- ---------------------------------------------------------------- hold for the quick menu
+
+--- The quick menu for the open chapter (ui_quickmenu.lua).
+function Reading.showQuickMenu(plugin)
+    if not plugin.reading then return false end
+    require("novarr.ui_quickmenu").show(plugin)
+    return true
+end
+
+-- A position inside a widget's dimen (Geom), without relying on Geom:contains.
+local function inside(dimen, pos)
+    if not dimen or not pos or not dimen.x or not pos.x then return false end
+    return pos.x >= dimen.x and pos.x <= dimen.x + (dimen.w or 0)
+        and pos.y >= dimen.y and pos.y <= dimen.y + (dimen.h or 0)
+end
+
+--[[--
+Hold on the status bar: the quick menu, when all of these hold (else the
+hold goes on to KOReader: its skim dialog, a highlight): a Novarr chapter
+is open, the hold_menu setting is on, the status bar is visible, the user
+has not chosen KOReader's "skim on hold", and the hold is on the bar.
+Returns true when it was handled.
+]]
+function Reading.onFooterHold(plugin, ges)
+    if not plugin.reading or not Session:get("hold_menu") then return nil end
+    local footer, view = footerOf(plugin)
+    if not footer or not view or not view.footer_visible then return nil end
+    if footer.settings and footer.settings.skim_widget_on_hold then return nil end
+    local content = footer.footer_content
+    if not content or not inside(content.dimen, ges and ges.pos) then return nil end
+    Session.guard(Reading.showQuickMenu, plugin)
+    return true
+end
+
+--- Hold on the top bar while it carries the Novarr line: the quick menu too.
+function Reading.onHeaderHold(plugin, ges)
+    if not plugin.reading or not Session:get("hold_menu") or not plugin.header_func then return nil end
+    if not Reading.canTop(plugin, true) then return nil end
+    local doc = plugin.ui.document
+    if not doc or not doc.getHeaderHeight or not ges or not ges.pos then return nil end
+    local ok, h = pcall(doc.getHeaderHeight, doc)
+    if not ok or type(h) ~= "number" or h <= 0 or ges.pos.y >= h then return nil end
+    Session.guard(Reading.showQuickMenu, plugin)
+    return true
+end
+
+--[[--
+Registers the two hold zones on this ReaderUI, once per plugin instance
+(touch devices only). They stay with the ReaderUI, so each handler looks
+again whether a Novarr chapter is open. The status bar zone is ReaderFooter's
+own and goes before its hold (and the highlight hold).
+]]
+function Reading.setupHold(plugin)
+    if plugin.hold_zones then return end
+    plugin.hold_zones = true
+    local ui = plugin.ui
+    local ok_dev, Device = pcall(require, "device")
+    if not ok_dev or not Device.isTouchDevice or not Device:isTouchDevice() then return end
+    if not ui or not ui.registerTouchZones then return end
+    local ok, err = pcall(function()
+        -- KOReader's defaults (a global; read through _G so a build without it only skips this).
+        local zone = rawget(_G, "G_defaults"):readSetting("DTAP_ZONE_MINIBAR")
+        ui:registerTouchZones({
+            {
+                id = "novarr_footer_hold",
+                ges = "hold",
+                screen_zone = { ratio_x = zone.x, ratio_y = zone.y, ratio_w = zone.w, ratio_h = zone.h },
+                handler = function(ges)
+                    local okh, res = pcall(Reading.onFooterHold, plugin, ges)
+                    return okh and res or nil
+                end,
+                overrides = { "readerfooter_hold", "readerhighlight_hold" },
+            },
+            {
+                id = "novarr_header_hold",
+                ges = "hold",
+                -- The top strip; the handler checks the bar's real height.
+                screen_zone = { ratio_x = 0, ratio_y = 0, ratio_w = 1, ratio_h = 1 / 8 },
+                handler = function(ges)
+                    local okh, res = pcall(Reading.onHeaderHold, plugin, ges)
+                    return okh and res or nil
+                end,
+                overrides = { "readerhighlight_hold" },
+            },
+        })
+    end)
+    if not ok then logger.warn("Novarr: hold on the status bar not available:", err) end
 end
 
 --[[--
@@ -933,6 +1299,7 @@ end
 function Reading.pauseTimer(plugin)
     local r = plugin.reading
     if r and r.timer then ReadingInfo.pause(r.timer) end
+    Reading.unscheduleTick(plugin)
     Reading.timeTick(plugin, true)
 end
 
@@ -940,6 +1307,7 @@ function Reading.resumeTimer(plugin)
     local r = plugin.reading
     if r and r.timer then r.timer.last = os.time() end
     Reading.timeStart(plugin)
+    Session.guard(Reading.scheduleTick, plugin)
 end
 
 -- ---------------------------------------------------------------- reading time with Wi-Fi on
@@ -1399,6 +1767,7 @@ function Reading.unschedule(plugin)
     if plugin.background_task then UIManager:unschedule(plugin.background_task) end
     if plugin.prefetch_task then UIManager:unschedule(plugin.prefetch_task) end
     Reading.unscheduleIdle(plugin)
+    Reading.unscheduleTick(plugin)
 end
 
 function Reading.onClose(plugin)
@@ -1421,7 +1790,9 @@ function Reading.onClose(plugin)
         end
     end)
     if not Session.switching and Session.opened_from_novarr then
-        Session.return_to = { novel_id = r.novel_id }
+        -- Where the book was opened from (Session.origin_kind): main.lua shows that screen again.
+        -- (Kept until it is used: a reload of this file closes it too.)
+        Session.return_to = { novel_id = r.novel_id, origin_kind = Session.origin_kind }
     end
     -- Leaving the book (not the next Novarr file, not a reload of this one):
     -- Wi-Fi that Novarr switched off comes back on (wifi.lua).

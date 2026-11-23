@@ -22,7 +22,7 @@ pause after each (default 1.5 s; "wait MS" adds more):
     suspend / resume     simulated sleep (sleep screen) and wake
     open_file PATH       open any document in KOReader's reader
     text TEXT            type TEXT into the open input dialog and confirm
-    button TEXT          tap the button labelled TEXT in the topmost dialog
+    button TEXT          tap the button labelled TEXT in the topmost dialog (the quick menu's too)
     confirm / cancel     answer the topmost dialog (OK / Cancel; closes a message)
     main_menu N          open KOReader's main menu on tab N
     dispatch EVENT       send an event to the top widget (as a gesture/Dispatcher action does)
@@ -64,6 +64,9 @@ pause after each (default 1.5 s; "wait MS" adds more):
     reader_goto_chapter_end  last page of the current chapter (in a group file)
     reader_goto_chapter ID [PCT]   KOReader's own go-to (a jump) to a chapter in the open group file
     show_chapters        the chapter list of the novel open in the reader
+    quick_menu           open the quick menu for the open chapter (as the gesture does)
+    hold_footer          hold the middle of the status bar (Novarr's hold handler; the quick
+                         menu when the hold_menu setting allows it, else logged as passed on)
     check_timing POLL MAX   checks for new chapters: poll every POLL s, give up after MAX s
     checks_reset         forget every check for new chapters
     check NOVEL_ID       "Check for new chapters" for a novel (as the Novel screen's entry)
@@ -152,7 +155,7 @@ local function findButton(widget, text, depth)
         local found = findButton(child, text, depth + 1)
         if found then return found end
     end
-    for _i, key in ipairs({ "button_table", "buttons_table", "movable", "dialog_frame", "frame", "inner_frame", "cancel_button" }) do
+    for _i, key in ipairs({ "button_table", "buttons_table", "buttontable", "movable", "dialog_frame", "frame", "inner_frame", "cancel_button" }) do
         if type(widget[key]) == "table" then
             local found = findButton(widget[key], text, depth + 1)
             if found then return found end
@@ -678,6 +681,24 @@ function steps.show_chapters(session)
     local _c, r = readingState(session)
     if not r then error("no Novarr chapter open") end
     session:showChapters(r.novel_id)
+end
+
+-- quick_menu: the quick menu for the open chapter (Novarr menu gesture).
+function steps.quick_menu(session)
+    if not session.reader or not session.reader.reading then error("no Novarr chapter open") end
+    require("novarr.reading").showQuickMenu(session.reader)
+end
+
+-- hold_footer: a hold in the middle of the status bar, through Novarr's own hold handler.
+function steps.hold_footer(session)
+    local plugin = session.reader
+    if not plugin or not plugin.reading then error("no Novarr chapter open") end
+    local footer = plugin.ui.view and plugin.ui.view.footer
+    local d = footer and footer.footer_content and footer.footer_content.dimen
+    if not d or not d.x then error("the status bar has no position (not shown yet?)") end
+    local pos = { x = d.x + math.floor(d.w / 2), y = d.y + math.floor(d.h / 2) }
+    local handled = require("novarr.reading").onFooterHold(plugin, { ges = "hold", pos = pos })
+    say("hold on the status bar at", pos.x, pos.y, handled and "opened the quick menu" or "passed on to KOReader")
 end
 
 -- ---- discover and checks

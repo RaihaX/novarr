@@ -249,4 +249,53 @@ function ReadingInfo.fitStatus(parts, measure, budget)
     return ReadingInfo.joinParts(parts)
 end
 
+-- ---------------------------------------------------------------- where the line goes
+
+ReadingInfo.POSITIONS = { "bottom", "top", "both" }
+
+--[[--
+Where the Novarr line is shown: mode "bottom" | "top" | "both" (the
+setting; anything else counts as "bottom"), can_top: the top bar (crengine's
+alt status bar) can be used for this document (crengine, page mode).
+Without it, the line stays at the bottom. Returns {top = bool, bottom = bool}.
+]]
+function ReadingInfo.infoPlaces(mode, can_top)
+    if mode == "top" and can_top then return { top = true, bottom = false } end
+    if mode == "both" and can_top then return { top = true, bottom = true } end
+    return { top = false, bottom = true }
+end
+
+--[[--
+The parts of the top bar line: ch, of, left, time, and the sync part only
+when writes are waiting ("synced … ago" is left out to keep it short). No
+clock when crengine's own clock is shown there (cre_clock); otherwise the
+clock passed (nil when Novarr's clock is off) comes first. Not fitted to a
+width: crengine draws what fits.
+]]
+function ReadingInfo.headerParts(clock, cre_clock, n, m, chapters_left, seconds_left, sync_part)
+    if cre_clock then clock = nil end
+    if sync_part and sync_part.key ~= "unsynced" then sync_part = nil end
+    return ReadingInfo.statusParts(clock, n, m, chapters_left, seconds_left, sync_part)
+end
+
+-- ---------------------------------------------------------------- the clock between page turns
+
+--[[--
+Whether the status bar needs a redraw every minute for Novarr's clock.
+state = {open (a Novarr line is in the bottom status bar), asleep,
+reading_info (show_reading_info), clock (show_clock), ko_clock (KOReader's
+own time item is shown and Novarr leaves its clock out)}.
+]]
+function ReadingInfo.clockTickNeeded(state)
+    if type(state) ~= "table" then return false end
+    return state.open == true and not state.asleep and state.reading_info == true
+        and state.clock == true and not state.ko_clock
+end
+
+--- Seconds from `now` (os.time()) to just after the next minute starts (1 s of slack).
+function ReadingInfo.secondsToNextMinute(now)
+    now = math.floor(tonumber(now) or 0)
+    return 60 - now % 60 + 1
+end
+
 return ReadingInfo
