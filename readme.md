@@ -143,7 +143,7 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 - **JSON API** at `/api/v1` — library, chapters, reading progress, Discover, adding novels, on-demand checks for new chapters and ePub builds. See [Apps and JSON API](#apps-and-json-api).
 - **iPhone / iPad app** (`ios/`) — a native SwiftUI reader: sign-in, home, library, novel pages, reader and settings, with reading position shared with the website.
 - **Android app** (`android/`) — a native Compose reader for novels and manga: scroll or page-turn reading, offline downloads and the same shared reading position. The server can hand the APK out at `/app/android`.
-- **KOReader plugin** (`koreader/`) — read on a Kindle or any KOReader device straight from the server: a cover-shelf home, chapters joined into groups so chapter changes are plain page turns, 100 chapters saved ahead with Wi-Fi switched off in between, Discover and "check for new chapters" on the device, reading stats, a second server address for away from home, and plugin updates over Wi-Fi.
+- **KOReader plugin** (`koreader/`) — read on a Kindle or any KOReader device straight from the server: a cover-shelf home, chapters joined into groups so chapter changes are plain page turns, 100 chapters saved ahead with Wi-Fi switched off in between, a quick menu while reading (hold the status bar) and gestures for the chapter list, novel page and home, reading info at the bottom or the top of the page, Discover and "check for new chapters" on the device, reading stats, a second server address for away from home, and plugin updates over Wi-Fi.
 
 ### Operations
 - **Settings UI** — FlareSolverr URL, notification webhook, Kindle email, scrape delays, summary-email time, minimum chapter words, chapters per novel per run, run-time bound, NovelUpdates match threshold and snapshot retention — each with its default and effective value, plus one-click **test** buttons. The Tailscale **Funnel** switch is red, asks before enabling, and shows an app-wide banner while on.
@@ -606,6 +606,9 @@ For a Kindle (jailbroken, with KOReader) or any other KOReader device. Copy `kor
 - **Wi-Fi back on when you leave** — closing the book or exiting KOReader switches Wi-Fi on again when Novarr had switched it off; Settings shows how much of the reading time had Wi-Fi on.
 - **Discover** — browse or search the sources and add novels from the device; searches run in the background on the server, so the device stays usable.
 - **Check for new chapters** when you have caught up, and **reading stats** on the novel page.
+- **Reading info line** — chapters and time left, the clock (it moves on every minute) and the sync state, in the status bar at the bottom, at the top (KOReader's Alt status bar, switched on in Novarr chapters only), or both.
+- **Quick menu while reading** (1.11.0+) — hold the status bar for the chapter list, the novel's page, previous / next chapter, sync, check for new chapters and Novarr home. The same places are in KOReader's reader menu and can be given gestures (Novarr: home, chapter list, novel page, quick menu, sync now).
+- **Leaving a book** takes you back to the Novarr screen it was opened from.
 - **Highlights** — text highlighted in KOReader (with its note) is sent to the server and appears on the website's Highlights page and in the iPhone app; the novel page lists them.
 - **Accounts** — when the server requires sign-in, the plugin shows a 6-character code to enter on the website (Account → Link a device); from then on the Kindle reads as that reader.
 - **Two server addresses** (home and away, a Tailscale name for example), and `https://` through KOReader's HTTP proxy.
