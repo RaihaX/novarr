@@ -572,4 +572,24 @@ function Model.historyToPrune(paths, keep, is_chapter)
     return out
 end
 
+-- ---------------------------------------------------------------- leaving a book
+
+local RETURN_SCREENS = {
+    library = { "home", "library" },
+    novel = { "home", "novel" },
+    chapters = { "home", "chapters" },
+}
+
+--[[--
+The Novarr screens to show, bottom to top, when the reader closes after a
+chapter opened from Novarr: where the user came from (origin_kind: the
+kind of the screen on top when the book was opened) with Home underneath.
+Home, or an origin unknown or not recorded: Home alone.
+]]
+function Model.returnScreens(origin_kind)
+    local screens = RETURN_SCREENS[origin_kind]
+    if not screens then return { "home" } end
+    return { screens[1], screens[2] }
+end
+
 return Model

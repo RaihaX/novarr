@@ -148,3 +148,52 @@ T.it("status line fits the width: of, then synced, then the clock; 'not synced' 
     local unsynced = RI.statusParts("15:13", 969, 1147, 178, 9 * 3600, { key = "unsynced", text = "not synced" })
     T.eq(RI.fitStatus(unsynced, measure, 10), "ch 969 \194\183 178 left \194\183 9 h left \194\183 not synced")
 end)
+
+T.it("info places: bottom, top, both; no top bar means bottom", function()
+    T.eq(RI.infoPlaces("bottom", true), { top = false, bottom = true })
+    T.eq(RI.infoPlaces("bottom", false), { top = false, bottom = true })
+    T.eq(RI.infoPlaces("top", true), { top = true, bottom = false })
+    T.eq(RI.infoPlaces("top", false), { top = false, bottom = true }, "scroll mode or not crengine")
+    T.eq(RI.infoPlaces("both", true), { top = true, bottom = true })
+    T.eq(RI.infoPlaces("both", false), { top = false, bottom = true })
+    T.eq(RI.infoPlaces(nil, true), { top = false, bottom = true }, "not set")
+    T.eq(RI.infoPlaces("sideways", true), { top = false, bottom = true }, "unknown value")
+end)
+
+T.it("top bar line: ch, of, left, time; only 'not synced' of the sync part", function()
+    local unsynced = { key = "unsynced", text = "1 ch not synced" }
+    local synced = { key = "sync", text = "synced 5 min ago" }
+    T.eq(RI.joinParts(RI.headerParts(nil, false, 969, 1147, 178, 9 * 3600, synced)),
+        "ch 969 of 1,147 \194\183 178 left \194\183 9 h left")
+    T.eq(RI.joinParts(RI.headerParts(nil, false, 969, 1147, 178, 9 * 3600, unsynced)),
+        "ch 969 of 1,147 \194\183 178 left \194\183 9 h left \194\183 1 ch not synced")
+    T.eq(RI.joinParts(RI.headerParts("15:13", false, 969, 1147, 178, nil, nil)),
+        "15:13 \194\183 ch 969 of 1,147 \194\183 178 left", "Novarr's clock first")
+    T.eq(RI.joinParts(RI.headerParts("15:13", true, 969, 1147, 178, nil, nil)),
+        "ch 969 of 1,147 \194\183 178 left", "crengine's own clock is shown")
+    T.eq(RI.joinParts(RI.headerParts(nil, false, nil, nil, nil, nil, synced)), nil)
+end)
+
+T.it("clock tick: only for Novarr's clock in the bottom line, awake", function()
+    local base = { open = true, asleep = false, reading_info = true, clock = true, ko_clock = false }
+    T.truthy(RI.clockTickNeeded(base))
+    local function with(k, v)
+        local s = {}
+        for key, val in pairs(base) do s[key] = val end
+        s[k] = v
+        return s
+    end
+    T.falsy(RI.clockTickNeeded(with("open", false)), "no Novarr line at the bottom")
+    T.falsy(RI.clockTickNeeded(with("asleep", true)))
+    T.falsy(RI.clockTickNeeded(with("reading_info", false)))
+    T.falsy(RI.clockTickNeeded(with("clock", false)))
+    T.falsy(RI.clockTickNeeded(with("ko_clock", true)), "KOReader's own clock is the one shown")
+    T.falsy(RI.clockTickNeeded(nil))
+end)
+
+T.it("seconds to the next minute, with 1 s of slack", function()
+    T.eq(RI.secondsToNextMinute(1200), 61)
+    T.eq(RI.secondsToNextMinute(1259), 2)
+    T.eq(RI.secondsToNextMinute(1230), 31)
+    T.eq(RI.secondsToNextMinute(1230.7), 31)
+end)

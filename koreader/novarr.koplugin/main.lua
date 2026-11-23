@@ -20,7 +20,7 @@ local plugin_dir = (debug.getinfo(1, "S").source or ""):match("^@(.*)/[^/]*$") o
 local MODULES = {
     "address", "api", "auth", "autopilot", "chapterdoc", "checks", "checkstate", "covers", "discover", "epub", "epubflow",
     "groups", "highlights", "http_client", "json", "model", "queue", "reading", "readinginfo", "searchstate", "session",
-    "position", "stats", "store", "sync", "ui_highlights", "wifitime",
+    "position", "quickmenu", "stats", "store", "sync", "ui_highlights", "ui_quickmenu", "wifitime",
     "ui_caughtup", "ui_chapters", "ui_common", "ui_coverlist", "ui_discover", "ui_downloads", "ui_home", "ui_library",
     "ui_auth", "ui_novel", "ui_progress", "ui_settings", "ui_shelf", "ui_update", "updater", "wifi", "wifipolicy",
 }
@@ -94,17 +94,20 @@ function Novarr:init()
             else
                 -- Someone else's document: forget any "return to Novarr" intent.
                 Session.return_to = nil
+                Session.origin_kind = nil
                 Session.opened_from_novarr = false
                 Session.switching = false
                 -- Another book: no latest-position check is due any more.
                 require("novarr.position").leave()
             end
         elseif Session.return_to then
-            -- Back in the file manager after reading a chapter opened from Novarr.
+            -- Back in the file manager after reading a chapter opened from
+            -- Novarr: the screen it was opened from, with Home underneath.
             local target = Session.return_to
             Session.return_to = nil
+            Session.origin_kind = nil
             UIManager:nextTick(Session.wrap(function()
-                Session:showChapters(target.novel_id)
+                Novarr.showReturnScreens(target)
             end))
         elseif not file and not Session.started_once and Session:get("open_on_start")
                 and Session:serverUrl() then
@@ -128,6 +131,41 @@ function Novarr:onDispatcherRegisterActions()
         { category = "none", event = "NovarrNextChapter", title = _("Novarr: next chapter"), reader = true })
     Dispatcher:registerAction("novarr_prev_chapter",
         { category = "none", event = "NovarrPrevChapter", title = _("Novarr: previous chapter"), reader = true })
+    Dispatcher:registerAction("novarr_chapter_list",
+        { category = "none", event = "NovarrChapterList", title = _("Novarr: chapter list"), reader = true })
+    Dispatcher:registerAction("novarr_novel_page",
+        { category = "none", event = "NovarrNovelPage", title = _("Novarr: novel page"), reader = true })
+    Dispatcher:registerAction("novarr_quick_menu",
+        { category = "none", event = "NovarrQuickMenu", title = _("Novarr: quick menu"), reader = true })
+    Dispatcher:registerAction("novarr_sync",
+        { category = "none", event = "NovarrSync", title = _("Novarr: sync now"), general = true })
+end
+
+--[[--
+After leaving a book opened from Novarr: the screens of Model.returnScreens,
+bottom to top. Home underneath another screen opens quietly (no refresh, no
+"Loading…"); the screen on top refreshes as usual.
+]]
+function Novarr.showReturnScreens(target)
+    local screens = require("novarr.model").returnScreens(target.origin_kind)
+    -- A Novarr screen left open over the book that just closed: started afresh (one Home at a time).
+    Session:closeAllMenus()
+    for i, kind in ipairs(screens) do
+        local top = i == #screens
+        if kind == "home" then
+            if top then
+                Session:showHome()
+            elseif Session:serverUrl() then
+                require("novarr.ui_home").show(Session, { quiet = true })
+            end
+        elseif kind == "library" then
+            require("novarr.ui_library").show(Session)
+        elseif kind == "novel" then
+            Session:showNovel(target.novel_id)
+        elseif kind == "chapters" then
+            Session:showChapters(target.novel_id)
+        end
+    end
 end
 
 function Novarr:addToMainMenu(menu_items)
@@ -137,12 +175,16 @@ function Novarr:addToMainMenu(menu_items)
             text = _("Novarr"),
             sorting_hint = "tools",
             sub_item_table = {
-                { text = _("Next chapter"), callback = Session.wrap(function() Reading.goNext(self) end) },
-                { text = _("Previous chapter"), callback = Session.wrap(function() Reading.goPrev(self) end) },
                 { text = _("Chapter list"), callback = Session.wrap(function()
                     if self.reading then Session:showChapters(self.reading.novel_id) end
                 end) },
+                { text = _("Novel page"), callback = Session.wrap(function()
+                    if self.reading then Session:showNovel(self.reading.novel_id) end
+                end) },
                 { text = _("Novarr home"), callback = Session.wrap(function() Session:showHome() end) },
+                { text = _("Next chapter"), callback = Session.wrap(function() Reading.goNext(self) end) },
+                { text = _("Previous chapter"), callback = Session.wrap(function() Reading.goPrev(self) end) },
+                { text = _("Sync now"), callback = Session.wrap(function() Session:syncNow() end) },
             },
         }
     else
@@ -170,6 +212,33 @@ end
 function Novarr:onNovarrPrevChapter()
     if not self.reading then return end
     Session.guard(function() require("novarr.reading").goPrev(self) end)
+    return true
+end
+
+function Novarr:onNovarrChapterList()
+    if not self.reading then return end
+    local novel_id = self.reading.novel_id
+    Session.guard(function() Session:showChapters(novel_id) end)
+    return true
+end
+
+function Novarr:onNovarrNovelPage()
+    if not self.reading then return end
+    local novel_id = self.reading.novel_id
+    Session.guard(function() Session:showNovel(novel_id) end)
+    return true
+end
+
+function Novarr:onNovarrQuickMenu()
+    if not self.reading then return end
+    Session.guard(function() require("novarr.reading").showQuickMenu(self) end)
+    return true
+end
+
+-- Both plugin instances (file manager and reader) may see the event: only the most recent one syncs.
+function Novarr:onNovarrSync()
+    if Session.plugin ~= self then return end
+    Session.guard(function() Session:syncNow() end)
     return true
 end
 

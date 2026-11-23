@@ -236,7 +236,13 @@ function Home:onClose()
     if self.install_task then UIManager:unschedule(self.install_task) end
 end
 
-function Home.show(session)
+--[[--
+Opens Home. opts.quiet: Home goes underneath another screen (leaving a
+book, main.lua): no first refresh and no "Loading…", it shows the saved
+data; the screen on top refreshes as it always does.
+]]
+function Home.show(session, opts)
+    opts = opts or {}
     local self = setmetatable({ session = session, kind = "home" }, Home)
     self.menu = UI.showMenu(session, {
         title = _("Novarr"),
@@ -245,7 +251,9 @@ function Home.show(session)
         screen = self,
     })
     -- Let the cached screen paint first, then refresh.
-    UIManager:nextTick(Session.wrap(function() self:refresh() end))
+    if not opts.quiet then
+        UIManager:nextTick(Session.wrap(function() self:refresh() end))
+    end
     -- An update flagged earlier may be installed while Home is open (setting, off by default).
     self:scheduleAutoInstall(5)
     return self

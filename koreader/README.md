@@ -42,8 +42,10 @@ tells you in plain words if it can't reach the server or if it isn't Novarr. If 
 server needs sign-in, Novarr then offers to link this Kindle to your account (see below).
 
 Tip: you can also give Novarr a gesture (Settings ▸ Taps and gestures ▸ Gesture
-manager): look for **Novarr**, **Novarr: next chapter** and
-**Novarr: previous chapter** in the list of actions.
+manager): look for **Novarr**, **Novarr: next chapter**,
+**Novarr: previous chapter**, **Novarr: chapter list**, **Novarr: novel page**,
+**Novarr: quick menu** and **Novarr: sync now** in the list of actions (the last four
+since 1.11.0; *sync now* works in the file browser too).
 
 ## Using it
 
@@ -134,7 +136,8 @@ left out. KOReader's status bar normally shows one item at
 a time, so in Novarr chapters the plugin makes this line the item shown. Tap the
 bottom of the page to cycle to KOReader's other items; nothing is saved, so other
 books keep your own status bar choice. If you use *Show all selected items at once*,
-the Novarr line is added to the others. The time estimate starts
+the Novarr line is added to the others. Since 1.11.0 the time in the line moves on
+every minute, also when you don't turn a page. The time estimate starts
 from the length of the chapters (about 250 words a minute) and, once you have finished
 three chapters, uses how long you actually take (pauses longer than 5 minutes and
 time asleep don't count). Both items can be switched off in Novarr's settings.
@@ -146,6 +149,29 @@ changes to "synced just now" as soon as something is sent, without a page turn. 
 narrow screen "synced …" goes before the time does; "not synced" always stays. Switch
 it off with *Sync status in the status bar* in Settings.
 
+**Reading info at the top** (since 1.11.0): *Reading info position* in Novarr ▸
+Settings puts the line at the **Bottom** (the default), at the **Top**, or both
+(**Top and bottom**). The top uses KOReader's *Alt status bar*, which Novarr switches
+on in Novarr chapters only; your other books keep their own setting, and an Alt status
+bar you switched on yourself is never switched off by Novarr. With *Top*, the bottom
+status bar is left exactly as you have it. The top line is shorter: it shows where you
+are, the chapters left and the time left, and "not synced" when something is waiting
+("synced … ago" is left out). It shows Novarr's time only when the Alt status bar's
+own clock is off. Page number, page count, font size and the other items of the top
+bar are set in KOReader's top menu ▸ Status bar ▸ Alt status bar. The top bar only
+exists in page mode: in continuous (scroll) mode the line stays at the bottom. A
+change applies at once to the chapter you have open.
+
+**The quick menu** (since 1.11.0): hold your finger on the status bar at the bottom
+(or on the top bar when it shows the Novarr line) and a small menu opens, with the
+novel, the chapter and the whole reading info line at the top, and these buttons:
+*Chapter list*, *Novel page*, *Previous chapter*, *Next chapter*, *Sync now* (with
+the number of changes waiting, e.g. "Sync now (3)"), *Check for new chapters*,
+*Novarr home* and *Close*. It does nothing when the status bar is hidden, and if you
+chose KOReader's own *Skim on hold* for the status bar, holding it keeps opening the
+skim dialog. Switch it off with *Hold the status bar for the Novarr menu* in Settings.
+The *Novarr: quick menu* gesture opens it too.
+
 When the device sleeps, the screen shows the cover of the novel you are reading, the
 way a Kindle does with its own books. The plugin gives each chapter the novel's cover
 and, the first time, switches KOReader's sleep screen from the "Sleeping" message to
@@ -156,8 +182,17 @@ turning it off puts back your previous sleep screen settings). Turn it off with
 Novarr chapters don't fill KOReader's History: only the chapter you are reading is
 kept there (so *open last file* still works), the earlier ones are taken out.
 
-The menu (tools tab ▸ Novarr) also has *Next chapter*, *Previous chapter*,
-*Chapter list* and *Novarr home* while you read a Novarr chapter.
+The menu (tools tab ▸ Novarr) has, while you read a Novarr chapter: *Chapter list*,
+*Novel page*, *Novarr home*, *Next chapter*, *Previous chapter* and *Sync now*.
+
+**Leaving a book** (since 1.11.0): closing the reader takes you back to the Novarr
+screen you opened the book from, with Home underneath: the novel's page, its chapter
+list or the Library (closing that screen shows Home). A book opened from Home goes
+back to Home. A chapter KOReader opened by itself has no Novarr screen to go back
+to: the one it reopens when it starts goes to Home (with *Open Novarr when KOReader
+starts* on), one opened from KOReader's History or file browser goes back there.
+Going to the next or previous chapter, or picking one from the chapter list while you
+read, doesn't change where you go back to.
 
 ### Check for new chapters
 
@@ -475,8 +510,10 @@ The rows are grouped under four headings; a long row wraps onto a second line.
 - **Mark chapter read at its end** (on).
 - **Join chapters for smooth page turns** (on).
 - **Keep font and layout between chapters** (on).
-- **Reading info in the status bar** (on), **Show clock while reading** (on) and
+- **Reading info in the status bar** (on), **Reading info position** (Bottom, Top, or
+  Top and bottom; Bottom by default), **Show clock while reading** (on) and
   **Sync status in the status bar** (on; part of the reading info line).
+- **Hold the status bar for the Novarr menu** (on; the quick menu).
 - **Offer the place read on another device** (on).
 - **Show covers** (on).
 - **Open Novarr when KOReader starts** (on).
@@ -579,7 +616,8 @@ there too). To remove the plugin completely, delete `koreader/plugins/novarr.kop
   the website or in the Android app.
 - **The status bar doesn't show the reading info**: the status bar may be switched
   off (Settings ▸ Status bar), or you tapped it over to another item: keep tapping the
-  bottom of the page until the Novarr line comes round again.
+  bottom of the page until the Novarr line comes round again. With *Reading info
+  position* set to *Top*, the line is in the top bar instead.
 - **"linked from a development folder and can't update itself"**: the plugin folder on
   the device is a link to another folder (a developer setup). Copy the real folder instead.
 - **KOReader's log**: on a Kindle it is `koreader/crash.log`. Novarr's lines start

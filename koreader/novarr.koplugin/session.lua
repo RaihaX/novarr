@@ -35,6 +35,7 @@ local Session = {
     plugin = nil,        -- most recent plugin instance
     return_to = nil,     -- {novel_id} to show again when the reader closes to the file manager
     opened_from_novarr = false,
+    origin_kind = nil,   -- kind of the Novarr screen the open book was opened from (Model.returnScreens)
     switching = false,   -- a Novarr chapter is replacing another one in the reader
     chapter_lists = {},  -- novel_id -> {list=, by_id=, fetched_at=} memory cache
     last_errors = {},    -- screen key -> {time, kind} of the last failed refresh
@@ -64,6 +65,8 @@ local DEFAULTS = {
     join_chapters = true,
     group_size = Groups.DEFAULT_SIZE,
     position_prompt = true, -- ask to go to the latest place read on another device (position.lua)
+    info_position = "bottom", -- reading info: "bottom" | "top" | "both" (reading.lua)
+    hold_menu = true,         -- hold the status bar for the quick menu (ui_quickmenu.lua)
 }
 
 local purgeSidecar -- defined with the removal functions below
@@ -1136,12 +1139,20 @@ function Session:captureStyle()
     if inst.saveSettings then pcall(inst.saveSettings, inst) end
     local data = inst.doc_settings.data
     if type(data) ~= "table" then return end
+    -- The alt status bar Novarr switched on for "Reading info position: top"
+    -- (reading.lua) is not the user's choice: not carried to other chapters.
+    local forced_top = data.novarr_top_bar == true
     local style, n = {}, 0
     for k, v in pairs(data) do
-        if isStyleKey(k) then
+        if isStyleKey(k) and not (forced_top and k == "copt_status_line") then
             style[k] = v
             n = n + 1
         end
+    end
+    if forced_top then
+        -- The user's own value from before stays remembered.
+        local old = self:get("reading_style")
+        if type(old) == "table" then style.copt_status_line = old.copt_status_line end
     end
     if n > 0 then self:set("reading_style", style) end
 end
@@ -1187,6 +1198,13 @@ function Session:openFile(path, opts)
     self.group_target = opts.group_target
     self:captureStyle()
     self:applyStyle(path)
+    -- Opened from Novarr's screens with no Novarr chapter open yet: remember
+    -- the screen on top, where closing the book comes back to (Model.returnScreens).
+    -- Next/previous chapter and the like (a chapter is open) keep the first one.
+    if not self.reader then
+        local _menu, screen = self:topMenu()
+        self.origin_kind = screen and screen.kind or nil
+    end
     self:closeAllMenus()
     -- Never let the clean-up of the closing chapter remove the one being opened.
     self.opening_path = path
