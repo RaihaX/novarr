@@ -256,7 +256,9 @@ class ChapterList {
     rowHtml(c) {
         const current = c.id === this.continueId;
         const href = this.root.dataset.chapterUrl.replace('__ID__', c.id);
-        const cls = `chapter-row is-${c.state}${c.read ? ' is-read' : ''}${current ? ' is-current' : ''}`;
+        // Set aside by the manga fallback (no source has it): calm, not failed.
+        const unavailable = !c.downloaded && !!c.unavailable;
+        const cls = `chapter-row is-${unavailable ? 'unavailable' : c.state}${c.read ? ' is-read' : ''}${current ? ' is-current' : ''}`;
         const title = c.downloaded
             ? `<a href="${esc(href)}" class="chapter-link">${esc(limit(c.label))}</a>`
             : `<span class="chapter-label">${esc(limit(c.label))}</span>`;
@@ -264,11 +266,12 @@ class ChapterList {
         const pages = c.pages
             ? ` <span class="ch-pages text-muted small ms-1">${c.pages} ${c.pages === 1 ? 'page' : 'pages'}</span>`
             : '';
-        const reason = c.state === 'failed' && this.showReasons
+        const reason = c.state === 'failed' && this.showReasons && !unavailable
             ? `<span class="ch-reason">${esc(c.reason)}${c.attempts > 1 ? ` · ${c.attempts} attempts` : ''}</span>`
             : '';
         let status = current ? '<span class="ch-current">Up next</span>' : '';
-        if (c.review) status += this.badges.review || '';
+        if (unavailable) status += (this.badges.unavailable || '').replace('__DATE__', esc(c.unavailable));
+        else if (c.review) status += this.badges.review || '';
         else if (c.state === 'failed') status += this.badges.failed || '';
         else if (c.state === 'queued') status += this.badges.queued || '';
         if (c.read) status += this.readMark();

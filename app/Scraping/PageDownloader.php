@@ -22,7 +22,8 @@ use Illuminate\Support\Facades\Log;
  * failure anywhere leaves the previous download — files and rows — exactly
  * as it was.
  *
- * Failure categories (ChapterScraper's, so the usual backoff applies):
+ * Failure categories (ChapterScraper's, so the usual backoff applies; plus
+ * too_few_pages, only with $minPages, carrying the listed page count):
  *   rate_limited  — the page list or an image answered 429/503
  *   not_found     — the source has no such chapter (404 on the page list)
  *   no_content    — the source lists no pages for it
@@ -70,7 +71,7 @@ class PageDownloader
             return PageDownloadResult::failure($failure ?: 'no_content', 'the source gave no page list' . ($failure ? " ({$failure})" : ''));
         }
         if ($minPages > 0 && count($pages) < $minPages) {
-            return PageDownloadResult::failure('too_few_pages', 'the source lists ' . count($pages) . " page(s), fewer than the {$minPages} expected");
+            return PageDownloadResult::failure('too_few_pages', 'the source lists ' . count($pages) . " page(s), fewer than the {$minPages} expected", count($pages));
         }
 
         $disk = ChapterPage::disk();

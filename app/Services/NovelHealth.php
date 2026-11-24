@@ -58,6 +58,10 @@ class NovelHealth
         $notParked = fn($m) => $m->whereNotIn('novel_id', \Illuminate\Support\Facades\DB::table('novels')->select('id')->where('source_fail_streak', '>', 0))
             ->orWhereNull('last_failure_reason')
             ->orWhereNotIn('last_failure_reason', SourceUnavailable::CONTENT_REASONS);
+        // Manga chapters no source has right now (set aside by the manga
+        // fallback until unavailable_until) are a known state on the Health
+        // page too, not a stall.
+        $notSetAside = fn($m) => $m->whereNull('unavailable_until')->orWhere('unavailable_until', '<=', Carbon::now());
 
         $stalled = Novel::where('status', 0)
             ->whereNull('paused_at')
@@ -69,7 +73,8 @@ class NovelHealth
                 ->where('attempts', '<', NovelChapter::REVIEW_ATTEMPTS)
                 // Chapters the source no longer lists are parked, not stalled.
                 ->where(fn($m) => $m->whereNull('last_failure_reason')->orWhere('last_failure_reason', '!=', 'source_missing'))
-                ->where($notParked))
+                ->where($notParked)
+                ->where($notSetAside))
             ->orderBy('name')
             ->get(['id', 'name', 'translator_url', 'alternative_url', 'group_id', 'created_at', 'scrape_failures']);
 
@@ -88,6 +93,7 @@ class NovelHealth
             ->where('attempts', '<', NovelChapter::REVIEW_ATTEMPTS)
             ->where(fn($m) => $m->whereNull('last_failure_reason')->orWhere('last_failure_reason', '!=', 'source_missing'))
             ->where($notParked)
+            ->where($notSetAside)
             ->selectRaw('novel_id, COUNT(*) as pending')
             ->groupBy('novel_id')
             ->pluck('pending', 'novel_id');
