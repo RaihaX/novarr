@@ -21,9 +21,10 @@ use Illuminate\Validation\Rule;
  *       → 200 {medium, lists: [{id, name}], list, source_name, page,
  *              has_more, results: [...request-search results...]}
  *         (lists [] and list null when the shelf has nothing to show);
- *         `list` omitted = the first list; a library series stays in the
- *         list, flagged in_library. A result is requested with
- *         POST /api/v1/requests {list, page, key, note?}.
+ *         `list` omitted = the first list; a series already in the
+ *         library is left out, so a page can hold fewer results than the
+ *         source's page (even none, with has_more still true). A result
+ *         is requested with POST /api/v1/requests {list, page, key, note?}.
  *       → 422 a list the shelf doesn't offer
  *       → 502 {code: browse_unavailable} the source could not be reached
  *       → 503 {code: browse_busy} + Retry-After: another reader is loading the page
@@ -72,6 +73,14 @@ class RequestBrowseController extends Controller
             return response()->json(['message' => self::UNAVAILABLE, 'code' => 'browse_unavailable'], 502);
         }
 
+        // The shelf is for finding something new: what the library already
+        // has is dropped here, per request, because the cached page is
+        // shared and the library changes between its refreshes.
+        $results = array_values(array_filter(
+            RequestPresenter::results($result['groups'], app(CurrentReader::class)->user(), $discover),
+            static fn (array $shown): bool => !$shown['in_library'],
+        ));
+
         return response()->json([
             'medium' => $medium,
             'lists' => $lists,
@@ -79,7 +88,7 @@ class RequestBrowseController extends Controller
             'source_name' => $result['source_name'] !== '' ? $result['source_name'] : null,
             'page' => $page,
             'has_more' => (bool) $result['has_more'],
-            'results' => RequestPresenter::results($result['groups'], app(CurrentReader::class)->user(), $discover),
+            'results' => $results,
         ]);
     }
 }

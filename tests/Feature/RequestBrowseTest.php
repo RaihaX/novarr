@@ -105,7 +105,8 @@ class RequestBrowseTest extends TestCase
         $this->assertFalse($response->json('has_more'));
 
         $results = $response->json('results');
-        $this->assertSame(['Solo Leveling', 'Omniscient Reader', 'Tower of God'], array_column($results, 'title'));
+        // A series already in the library is left out of the shelf.
+        $this->assertSame(['Solo Leveling', 'Omniscient Reader'], array_column($results, 'title'));
         $this->assertSame(['key', 'title', 'author', 'cover_url', 'description', 'medium', 'sources', 'in_library', 'novel_id', 'requested'], array_keys($results[0]));
         $this->assertSame(self::key('Solo Leveling'), $results[0]['key']);
         $this->assertSame('Chugong', $results[0]['author']);
@@ -115,9 +116,9 @@ class RequestBrowseTest extends TestCase
         $this->assertFalse($results[0]['in_library']);
         $this->assertNull($results[0]['requested']);
         $this->assertSame(['status' => 'pending', 'by_me' => false], $results[1]['requested']);
-        // A library series stays in the list, flagged.
-        $this->assertTrue($results[2]['in_library']);
-        $this->assertSame($tower->id, $results[2]['novel_id']);
+        // Once it leaves the library it is back, without a new source call.
+        $tower->delete();
+        $this->assertSame(['Solo Leveling', 'Omniscient Reader', 'Tower of God'], array_column($this->browse()->assertOk()->json('results'), 'title'));
 
         // Another list; one the shelf doesn't offer is refused.
         $this->assertSame(['Berserk'], array_column($this->browse(['list' => 'top'])->assertOk()->json('results'), 'title'));
