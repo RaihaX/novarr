@@ -9,6 +9,9 @@
  *                  "Me too" (someone else asked): the same POST, no note
  *                  → 200 {joined: true}
  *                  free text:        POST /api/v1/requests {title, medium, link, note}
+ *   A2. shelf      GET /api/v1/requests/browse?list=&page= (Discover manga)
+ *                  request / "Me too": POST /api/v1/requests {list, page, key, note}
+ *                  (the page the card came from); 410 browse_expired → reload the list
  *   B. mine        GET /api/v1/requests?scope=mine&page= (own and joined);
  *                  cancel / leave: DELETE …/{id}
  *   C. review      (only when the list answers can_decide) GET ?scope=all&status=pending;
@@ -23,6 +26,7 @@ import {
     pendingUsedLine, orderCandidates, defaultCandidate, selectable, candidateDetail,
     rankingInProgress, retryAfterSeconds, relativeTime, oldestFirst, decidedOnly,
     isFollower, mineAction, alsoWantedLine, requestedAfterLeaving,
+    browseUrl, browseState, browseLoadingLine, shelfMetaLine, newResults, requestBody,
 } from './requests-logic';
 
 /** Ranking re-checks: every RANK_POLL_MS, for at most RANK_POLL_MAX tries. */
@@ -150,6 +154,7 @@ export function initRequestsPage() {
 
     const $ = (id) => document.getElementById(id);
     const resultTpl = $('reqResultTpl');
+    const shelfTpl = $('reqShelfTpl');
     const rowTpl = $('reqRowTpl');
 
     // ---- Dialogs ---------------------------------------------------------------
@@ -215,8 +220,34 @@ export function initRequestsPage() {
     let searching = false;
     let retryUntil = 0;
     let retryTimer = null;
-    let lastSearch = null;   // {id, query, medium}
-    const cards = new Map(); // result key → {card, result}
+
+    // ---- Card registry -----------------------------------------------------------
+    // A work can be in the search results and on the shelf (or on two shelf
+    // lists) at once, under the same key: every card of a key is updated
+    // together. An entry: {card, result, origin}; origin says what to post —
+    // {type: 'search', searchId} or {type: 'shelf', list, page}.
+    const cards = new Map(); // result key → Set of entries
+
+    function register(entry) {
+        if (!cards.has(entry.result.key)) cards.set(entry.result.key, new Set());
+        cards.get(entry.result.key).add(entry);
+        renderAction(entry);
+    }
+
+    function unregister(pred) {
+        for (const [key, set] of cards) {
+            for (const entry of set) if (pred(entry)) set.delete(entry);
+            if (!set.size) cards.delete(key);
+        }
+    }
+
+    /** Apply a change to every card of a key (the result objects differ per card) and redraw their actions. */
+    function updateKey(key, patch) {
+        for (const entry of cards.get(key) || []) {
+            Object.assign(entry.result, patch);
+            renderAction(entry);
+        }
+    }
 
     mediumBtns.forEach((btn) => btn.addEventListener('click', () => {
         medium = btn.dataset.medium;
@@ -273,7 +304,7 @@ export function initRequestsPage() {
         skippedEl.hidden = true;
         resultsEl.innerHTML = '';
         resultsEl.setAttribute('aria-busy', 'true');
-        cards.clear();
+        unregister((e) => e.origin.type === 'search');
         searching = true;
         syncSearchButton();
         const started = Date.now();
@@ -313,8 +344,7 @@ export function initRequestsPage() {
                 showSearchError(search.message || 'The search failed. Try again later.');
                 return;
             }
-            lastSearch = { id, query: search.query || q, medium: search.medium || searchMedium };
-            renderResults(search);
+            renderResults(search, id);
         } catch (err) {
             if (signal.aborted) return;
             setStatus(false, '');
@@ -329,7 +359,7 @@ export function initRequestsPage() {
         }
     }
 
-    function renderResults(search) {
+    function renderResults(search, searchId) {
         const results = Array.isArray(search.results) ? search.results : [];
         resultsEl.innerHTML = '';
         const skipped = skippedLine(search.skipped_sources);
@@ -351,10 +381,10 @@ export function initRequestsPage() {
             return;
         }
         setStatus(false, `${results.length} result${results.length === 1 ? '' : 's'}`);
-        results.forEach(renderResult);
+        results.forEach((result) => renderResult(result, searchId));
     }
 
-    function renderResult(result) {
+    function renderResult(result, searchId) {
         const card = resultTpl.content.firstElementChild.cloneNode(true);
         fillCover(card.querySelector('.cover'), { title: result.title, author: result.author, coverUrl: result.cover_url });
         const title = card.querySelector('.req-card-title');
@@ -364,17 +394,16 @@ export function initRequestsPage() {
         card.querySelector('.req-sources').textContent = sourceLine(result.sources);
         clampSynopsis(card.querySelector('.disc-synopsis'), result.description, null);
         resultsEl.append(card);
-        cards.set(result.key, { card, result });
-        renderAction(result.key);
+        register({ card, result, origin: { type: 'search', searchId } });
     }
 
-    function renderAction(key) {
-        const entry = cards.get(key);
-        if (!entry) return;
+    function renderAction(entry) {
         const { card, result } = entry;
         const slot = card.querySelector('.req-card-action');
         slot.innerHTML = '';
         const action = resultAction(result);
+        // A shelf card's cover does what its action does, for request / open.
+        card.dataset.action = action.kind;
         if (action.kind === 'open') {
             const a = el('a', 'btn btn-sm btn-secondary req-action', action.label);
             a.href = action.href;
@@ -392,44 +421,48 @@ export function initRequestsPage() {
         }
         if (action.kind === 'request') {
             btn.setAttribute('aria-label', `Request ${result.title}`);
-            btn.addEventListener('click', () => openNote(key, btn), { signal });
+            btn.addEventListener('click', () => openNote(entry, btn), { signal });
         }
         if (action.kind === 'join') {
             btn.setAttribute('aria-label', `Me too: join the request for ${result.title}`);
             btn.title = 'Someone already asked for this. Join their request to hear when it’s ready.';
-            btn.addEventListener('click', () => joinResult(key, btn), { signal });
+            btn.addEventListener('click', () => joinResult(entry, btn), { signal });
         }
         slot.append(btn);
     }
 
-    /** A refusal of POST /api/v1/requests for a result card: update the card, say why. True when handled. */
-    function applyRefusal(entry, key, r) {
+    /**
+     * A refusal of POST /api/v1/requests for a card: update every card of the
+     * work, say why. A shelf list that changed (410) is reloaded. True when handled.
+     */
+    function applyRefusal(entry, r) {
         const code = r.data && r.data.code;
+        const key = entry.result.key;
         if (code === 'in_library') {
-            entry.result.in_library = true;
-            entry.result.novel_id = r.data.novel_id || entry.result.novel_id;
+            updateKey(key, { in_library: true, novel_id: r.data.novel_id || entry.result.novel_id });
         } else if (code === 'already_requested') {
-            entry.result.requested = { status: r.data.status || 'pending', by_me: Boolean(r.data.by_me) };
+            updateKey(key, { requested: { status: r.data.status || 'pending', by_me: Boolean(r.data.by_me) } });
+        } else if (code === 'browse_expired' && entry.origin.type === 'shelf') {
+            toast(messageOf(r, 'This list has changed. Reload it and try again'), 'warning');
+            reloadShelfList(entry.origin.list);
+            return true;
         } else {
             return false;
         }
-        renderAction(key);
         toast(messageOf(r, code === 'in_library' ? 'Already in the library' : 'Already requested'), 'warning');
         return true;
     }
 
     /** "Me too": join someone else's request for a result (no note: the owner already has the request). */
-    async function joinResult(key, btn) {
-        const entry = cards.get(key);
-        if (!entry || !lastSearch || btn.getAttribute('aria-busy') === 'true') return;
+    async function joinResult(entry, btn) {
+        if (btn.getAttribute('aria-busy') === 'true') return;
         btn.setAttribute('aria-busy', 'true');
         btn.disabled = true;
         try {
-            const r = await api('POST', '/api/v1/requests', { search_id: lastSearch.id, key }, signal);
+            const r = await api('POST', '/api/v1/requests', requestBody(entry.origin, entry.result.key), signal);
             if (r.ok) {
                 const status = (r.data.request && r.data.request.status) || (entry.result.requested && entry.result.requested.status) || 'pending';
-                entry.result.requested = { status, by_me: true };
-                renderAction(key);
+                updateKey(entry.result.key, { requested: { status, by_me: true } });
                 entry.card.querySelector('.req-action')?.focus({ preventScroll: true });
                 toast(r.data.joined
                     ? `You joined the request for “${entry.result.title}”. You’ll hear when it’s ready.`
@@ -437,7 +470,7 @@ export function initRequestsPage() {
                 refreshAfterChange();
                 return;
             }
-            if (applyRefusal(entry, key, r)) return;
+            if (applyRefusal(entry, r)) return;
             toast(messageOf(r, 'Could not join the request'), 'danger');
         } catch (err) {
             if (!signal.aborted) toast(networkMessage(err, 'Could not join the request'), 'danger');
@@ -450,12 +483,30 @@ export function initRequestsPage() {
     }
 
     // ---- Request a result (note dialog) ----------------------------------------
-    let noteKey = null;
-    function openNote(key, opener) {
-        const entry = cards.get(key);
-        if (!entry) return;
-        noteKey = key;
-        $('reqNoteSubject').textContent = `${entry.result.title}${entry.result.author ? ` — ${entry.result.author}` : ''}`;
+    let noteEntry = null;
+    const noteMeta = $('reqNoteMeta');
+    const noteSynopsis = $('reqNoteSynopsis');
+    function openNote(entry, opener) {
+        noteEntry = entry;
+        const { result } = entry;
+        $('reqNoteSubject').textContent = `${result.title}${result.author ? ` — ${result.author}` : ''}`;
+        // A search card shows its synopsis and sources itself; a shelf card
+        // has no room for them, so the dialog does.
+        const shelf = entry.origin.type === 'shelf';
+        const meta = shelf ? [shelfMetaLine(result), sourceLine(result.sources)].filter(Boolean).join(' · ') : '';
+        noteMeta.textContent = meta;
+        noteMeta.hidden = meta === '';
+        const synopsis = shelf ? String(result.description || '').trim() : '';
+        noteSynopsis.textContent = synopsis;
+        noteSynopsis.hidden = synopsis === '';
+        noteSynopsis.scrollTop = 0;
+        noteSynopsis.removeAttribute('tabindex');
+        if (synopsis) {
+            // A long synopsis scrolls: make it reachable from the keyboard then.
+            noteDlg.node.addEventListener('shown.bs.modal', () => {
+                if (noteSynopsis.scrollHeight > noteSynopsis.clientHeight + 1) noteSynopsis.tabIndex = 0;
+            }, { once: true, signal });
+        }
         $('reqNoteText').value = '';
         noteCount();
         noteDlg.open('#reqNoteText');
@@ -464,16 +515,15 @@ export function initRequestsPage() {
 
     noteDlg.form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const entry = cards.get(noteKey);
-        if (!entry || !lastSearch) return;
+        const entry = noteEntry;
+        if (!entry) return;
         noteDlg.busy(true);
         noteDlg.error('');
         const note = $('reqNoteText').value.trim();
         try {
-            const r = await api('POST', '/api/v1/requests', { search_id: lastSearch.id, key: noteKey, ...(note ? { note } : {}) }, signal);
+            const r = await api('POST', '/api/v1/requests', requestBody(entry.origin, entry.result.key, note), signal);
             if (r.ok) {
-                entry.result.requested = { status: (r.data.request && r.data.request.status) || 'pending', by_me: true };
-                renderAction(noteKey);
+                updateKey(entry.result.key, { requested: { status: (r.data.request && r.data.request.status) || 'pending', by_me: true } });
                 noteDlg.setOpener(entry.card.querySelector('.req-action'));
                 noteDlg.close();
                 toast(r.data.joined
@@ -482,8 +532,10 @@ export function initRequestsPage() {
                 refreshAfterChange();
                 return;
             }
-            if (applyRefusal(entry, noteKey, r)) {
-                noteDlg.setOpener(entry.card.querySelector('.req-action'));
+            if (applyRefusal(entry, r)) {
+                // A reloaded shelf list replaces the card: focus lands on the
+                // list's first card when it is back (reloadShelfList).
+                noteDlg.setOpener(entry.card.isConnected ? entry.card.querySelector('.req-action') : null);
                 noteDlg.close();
                 return;
             }
@@ -541,6 +593,363 @@ export function initRequestsPage() {
         } finally {
             if (!signal.aborted) freeDlg.busy(false);
         }
+    }, { signal });
+
+    // ============================================================================
+    // A2. Discover manga (the shelf)
+    // ============================================================================
+    const shelfSec = $('reqDiscover');
+    const shelfTabs = $('reqDiscoverTabs');
+    const shelfStatus = $('reqDiscoverStatus');
+    const shelfError = $('reqDiscoverError');
+    const shelfErrorText = shelfError.querySelector('.req-discover-error-text');
+    const shelfRetry = $('reqDiscoverRetry');
+    const rail = $('reqRail');
+    const railNav = $('reqRailNav');
+    const railPrev = $('reqRailPrev');
+    const railNext = $('reqRailNext');
+
+    /** Cover silhouettes shown while a list loads (about a phone screen and a half). */
+    const SKELETONS = 8;
+
+    let shelfLists = [];      // [{id, name}] from the first answer
+    let shelfList = null;     // the list on screen
+    let shelfRetryFn = null;  // what Retry does: the load that failed
+    let shelfRetryTimer = null;
+    // Per list: {items: [li], entries: [entry], keys: Set, page, hasMore, loading: Promise|null}.
+    // Kept for the visit, so switching back to a list is instant and its
+    // cards keep their state (they stay in the registry while off screen).
+    const shelf = new Map();
+
+    const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+    function shelfLoading(on, started = Date.now()) {
+        clearInterval(shelfLoading.ticker);
+        rail.setAttribute('aria-busy', on ? 'true' : 'false');
+        if (!on) { shelfStatus.textContent = ''; return; }
+        const paint = () => {
+            shelfStatus.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>';
+            shelfStatus.append(el('span', null, browseLoadingLine(Date.now() - started)));
+        };
+        paint();
+        // The line only changes once (after BROWSE_SLOW_AFTER_MS): a slow
+        // tick is enough, and repainting the same text is not re-announced.
+        let last = browseLoadingLine(0);
+        shelfLoading.ticker = setInterval(() => {
+            const line = browseLoadingLine(Date.now() - started);
+            if (line !== last) { last = line; paint(); }
+        }, 500);
+    }
+    signal.addEventListener('abort', () => { clearInterval(shelfLoading.ticker); clearTimeout(shelfRetryTimer); }, { once: true });
+
+    function showSkeletons() {
+        const items = [];
+        for (let i = 0; i < SKELETONS; i++) {
+            const li = el('li', 'req-shelf-card disc-skeleton');
+            li.setAttribute('aria-hidden', 'true');
+            li.append(el('div', 'skeleton-cover'), el('div', 'skeleton-line'), el('div', 'skeleton-line short'));
+            items.push(li);
+        }
+        rail.replaceChildren(...items);
+        rail.scrollLeft = 0;
+        syncArrows();
+    }
+
+    /** A failed load: the API's message and a Retry that runs the same load again (after Retry-After). */
+    function shelfFail(r, err, retry) {
+        shelfLoading(false);
+        shelfErrorText.textContent = r ? messageOf(r, 'The list could not be loaded') : networkMessage(err, 'The list could not be loaded');
+        shelfRetryFn = retry;
+        clearTimeout(shelfRetryTimer);
+        shelfRetry.disabled = false;
+        if (r && (r.status === 429 || r.status === 503)) {
+            shelfRetry.disabled = true;
+            shelfRetryTimer = setTimeout(() => { shelfRetry.disabled = false; }, retryAfterSeconds(r.headers.get('Retry-After')) * 1000);
+        }
+        shelfError.hidden = false;
+        shelfSec.hidden = false;
+    }
+
+    function clearShelfError() {
+        shelfError.hidden = true;
+        shelfRetryFn = null;
+        clearTimeout(shelfRetryTimer);
+    }
+
+    shelfRetry.addEventListener('click', () => { const fn = shelfRetryFn; clearShelfError(); fn?.(); }, { signal });
+
+    /** The feature is off or there is nothing to show: the section goes away. */
+    function hideShelf() {
+        shelfLoading(false);
+        shelfSec.hidden = true;
+    }
+
+    /** One GET of the browse endpoint: {state, r}. Throws on network errors / abort. */
+    async function fetchBrowse(list, page) {
+        const r = await api('GET', browseUrl({ list, page }), undefined, signal);
+        return { state: browseState(r.status, r.data), r };
+    }
+
+    function buildTabs() {
+        shelfTabs.innerHTML = '';
+        shelfTabs.hidden = shelfLists.length < 2;
+        if (shelfLists.length < 2) return;
+        for (const l of shelfLists) {
+            const btn = el('button', 'btn btn-secondary', l.name || l.id);
+            btn.type = 'button';
+            btn.dataset.list = l.id;
+            btn.addEventListener('click', () => showList(l.id), { signal });
+            shelfTabs.append(btn);
+        }
+        syncTabs();
+    }
+
+    function syncTabs() {
+        shelfTabs.querySelectorAll('[data-list]').forEach((b) => {
+            const on = b.dataset.list === shelfList;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        const name = (shelfLists.find((l) => l.id === shelfList) || {}).name;
+        rail.setAttribute('aria-label', name ? `${name} manga` : 'Manga to request');
+    }
+
+    /** Start the shelf: no parameters, the server picks the first list. */
+    async function startShelf() {
+        clearShelfError();
+        // Skeletons straight away, unless the library has no manga source:
+        // then the answer is all but sure to be "nothing to show", and the
+        // section would flash in and out on every visit.
+        if (sourceCounts.manga !== 0) {
+            shelfSec.hidden = false;
+            showSkeletons();
+            shelfLoading(true);
+        }
+        try {
+            const { state, r } = await fetchBrowse(null, null);
+            if (state === 'hide') { hideShelf(); return; }
+            if (state === 'error') { rail.replaceChildren(); syncArrows(); shelfFail(r, null, startShelf); return; }
+            shelfLists = r.data.lists.filter((l) => l && l.id);
+            shelfList = r.data.list || shelfLists[0].id;
+            buildTabs();
+            addPage(cacheFor(shelfList), r.data, shelfList);
+            shelfSec.hidden = false;
+            shelfLoading(false);
+            renderList(shelfList);
+        } catch (err) {
+            if (signal.aborted) return;
+            rail.replaceChildren();
+            syncArrows();
+            shelfFail(null, err, startShelf);
+        }
+    }
+
+    function cacheFor(list) {
+        if (!shelf.has(list)) shelf.set(list, { items: [], entries: [], keys: new Set(), page: 0, hasMore: false, loading: null, more: false });
+        return shelf.get(list);
+    }
+
+    /** Add an answer's page to a list: new cards only (a title can move between pages). Returns the new cards. */
+    function addPage(cache, data, list) {
+        const page = Number(data.page) || cache.page + 1;
+        const fresh = newResults(Array.isArray(data.results) ? data.results : [], cache.keys);
+        const added = [];
+        for (const result of fresh) {
+            cache.keys.add(result.key);
+            const entry = shelfCard(result, { type: 'shelf', list, page });
+            cache.entries.push(entry);
+            cache.items.push(entry.card);
+            added.push(entry);
+        }
+        cache.page = Math.max(cache.page, page);
+        cache.hasMore = Boolean(data.has_more);
+        return added;
+    }
+
+    function shelfCard(result, origin) {
+        const card = shelfTpl.content.firstElementChild.cloneNode(true);
+        fillCover(card.querySelector('.cover'), { title: result.title, author: result.author, coverUrl: result.cover_url });
+        const title = card.querySelector('.req-card-title');
+        title.textContent = result.title;
+        title.title = result.title;
+        card.querySelector('.disc-author').textContent = result.author || 'Unknown author';
+        card.querySelector('.req-shelf-meta').textContent = shelfMetaLine(result);
+        // The cover is a second way to the action for Request / Open, not a
+        // second tab stop: a click on it clicks the action.
+        card.querySelector('.req-shelf-cover').addEventListener('click', () => {
+            if (card.dataset.action === 'request' || card.dataset.action === 'open') card.querySelector('.req-action')?.click();
+        }, { signal });
+        const entry = { card, result, origin };
+        register(entry);
+        return entry;
+    }
+
+    /** The "More" tile at the end of the rail: a real button. */
+    function moreTile(list) {
+        const li = el('li', 'req-shelf-card req-shelf-more');
+        const btn = el('button', 'req-more-tile', 'More');
+        btn.type = 'button';
+        btn.setAttribute('aria-label', 'Show more manga');
+        btn.addEventListener('click', () => loadMore(list, btn), { signal });
+        li.append(btn);
+        return li;
+    }
+
+    function renderList(list) {
+        const cache = shelf.get(list);
+        if (!cache || list !== shelfList) return;
+        const items = [...cache.items];
+        if (cache.hasMore) items.push(moreTile(list));
+        rail.replaceChildren(...items);
+        rail.scrollLeft = 0;
+        if (!cache.items.length && !cache.hasMore) shelfStatus.textContent = 'Nothing in this list right now.';
+        syncArrows();
+    }
+
+    /** A list's page 1, from memory when it was loaded this visit. */
+    async function showList(list) {
+        const cache = shelf.get(list);
+        // Already on screen, or on its way.
+        if (list === shelfList && cache && (cache.loading || (cache.page > 0 && shelfError.hidden))) return;
+        shelfList = list;
+        syncTabs();
+        clearShelfError();
+        if (cache && cache.page > 0 && !cache.loading) {
+            shelfLoading(false);
+            renderList(list);
+            return;
+        }
+        showSkeletons();
+        shelfLoading(true);
+        await loadFirst(list);
+    }
+
+    /**
+     * Load a list's page 1 into memory, then draw it if the reader is still
+     * on that list (an answer for a list they left is kept, not drawn).
+     * One load per list at a time: switching back waits for the same one.
+     */
+    async function loadFirst(list) {
+        const cache = cacheFor(list);
+        if (!cache.loading) {
+            cache.loading = (async () => {
+                try {
+                    const { state, r } = await fetchBrowse(list, 1);
+                    if (state === 'ready') addPage(cache, r.data, list);
+                    return { state, r };
+                } catch (err) {
+                    return { state: 'network', err };
+                } finally {
+                    cache.loading = null;
+                }
+            })();
+        }
+        const { state, r, err } = await cache.loading;
+        if (signal.aborted || list !== shelfList) return;
+        if (state === 'hide') { hideShelf(); return; }
+        if (state === 'ready') { shelfLoading(false); renderList(list); return; }
+        rail.replaceChildren();
+        syncArrows();
+        shelfFail(r || null, err, () => showList(list));
+    }
+
+    async function loadMore(list, btn) {
+        const cache = shelf.get(list);
+        if (!cache || cache.more || btn.getAttribute('aria-busy') === 'true') return;
+        cache.more = true;
+        btn.setAttribute('aria-busy', 'true');
+        btn.disabled = true;
+        btn.textContent = 'Loading…';
+        clearShelfError();
+        const restore = () => {
+            if (!btn.isConnected) return;
+            btn.disabled = false;
+            btn.setAttribute('aria-busy', 'false');
+            btn.textContent = 'More';
+        };
+        try {
+            const { state, r } = await fetchBrowse(list, cache.page + 1);
+            if (signal.aborted) return;
+            if (state === 'hide') { hideShelf(); return; }
+            if (state === 'error') { restore(); shelfFail(r, null, () => btn.isConnected && loadMore(list, btn)); return; }
+            const added = addPage(cache, r.data, list);
+            if (list !== shelfList) return;
+            // The reader left the list and came back meanwhile: the rail was
+            // redrawn from memory without this tile; draw it again.
+            if (!btn.isConnected) { renderList(list); return; }
+            const tile = btn.closest('li');
+            tile.before(...added.map((e) => e.card));
+            if (cache.hasMore) {
+                restore();
+            } else {
+                tile.remove();
+            }
+            syncArrows();
+            // Keyboard and screen-reader users carry on from the first new card;
+            // with nothing new, from the tile (or the last card when it went).
+            const target = added[0]?.card.querySelector('.req-action')
+                || (btn.isConnected ? btn : rail.querySelector('li:last-child .req-action'));
+            target?.focus();
+        } catch (err) {
+            if (signal.aborted) return;
+            restore();
+            shelfFail(null, err, () => btn.isConnected && loadMore(list, btn));
+        } finally {
+            cache.more = false;
+        }
+    }
+
+    /**
+     * A list changed under the reader (410 browse_expired): forget what was
+     * loaded and load page 1 again; on screen, focus its first card after.
+     */
+    async function reloadShelfList(list) {
+        const cache = shelf.get(list);
+        if (cache) {
+            const gone = new Set(cache.entries);
+            unregister((e) => gone.has(e));
+            shelf.delete(list);
+        }
+        if (list !== shelfList) return;
+        clearShelfError();
+        showSkeletons();
+        shelfLoading(true);
+        await loadFirst(list);
+        if (list === shelfList && !signal.aborted) rail.querySelector('.req-action')?.focus({ preventScroll: true });
+    }
+
+    // ---- The rail's arrows (mouse / trackpad; CSS hides them elsewhere) ----------
+    function syncArrows() {
+        const overflow = rail.scrollWidth > rail.clientWidth + 1;
+        railNav.hidden = !overflow;
+        railPrev.disabled = rail.scrollLeft <= 1;
+        railNext.disabled = rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 1;
+    }
+
+    const scrollRail = (dir) => rail.scrollBy({ left: dir * rail.clientWidth * 0.9, behavior: reducedMotion() ? 'auto' : 'smooth' });
+    railPrev.addEventListener('click', () => scrollRail(-1), { signal });
+    railNext.addEventListener('click', () => scrollRail(1), { signal });
+
+    let arrowFrame = 0;
+    rail.addEventListener('scroll', () => {
+        cancelAnimationFrame(arrowFrame);
+        arrowFrame = requestAnimationFrame(syncArrows);
+    }, { passive: true, signal });
+    signal.addEventListener('abort', () => cancelAnimationFrame(arrowFrame), { once: true });
+
+    if (typeof ResizeObserver === 'function') {
+        const ro = new ResizeObserver(() => syncArrows());
+        ro.observe(rail);
+        signal.addEventListener('abort', () => ro.disconnect(), { once: true });
+    } else {
+        window.addEventListener('resize', syncArrows, { signal });
+    }
+
+    // Tabbing along the rail brings each card fully into view (the browser
+    // alone may leave it half under the edge with snapping).
+    rail.addEventListener('focusin', (e) => {
+        const li = e.target.closest('li');
+        if (li) li.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' });
     }, { signal });
 
     // ============================================================================
@@ -728,12 +1137,15 @@ export function initRequestsPage() {
             }
             mine = mine.filter((x) => x.id !== req.id);
             renderMine();
-            // A result card of the same work: requestable again, or "Me too" when others still want it.
-            for (const [key, entry] of cards) {
-                if (entry.result.requested && entry.result.requested.by_me
-                    && entry.result.medium === req.medium && entry.result.title.toLowerCase() === req.title.toLowerCase()) {
-                    entry.result.requested = requestedAfterLeaving(req);
-                    renderAction(key);
+            // Every card of the same work (search results and the shelf):
+            // requestable again, or "Me too" when others still want it.
+            for (const set of cards.values()) {
+                for (const entry of set) {
+                    if (entry.result.requested && entry.result.requested.by_me
+                        && entry.result.medium === req.medium && String(entry.result.title).toLowerCase() === String(req.title).toLowerCase()) {
+                        entry.result.requested = requestedAfterLeaving(req);
+                        renderAction(entry);
+                    }
                 }
             }
             toast(leaving ? `You left the request for “${req.title}”.` : `Cancelled your request for “${req.title}”.`, 'success');
@@ -1259,4 +1671,5 @@ export function initRequestsPage() {
     // ---- Start ---------------------------------------------------------------------
     syncSearchButton();
     loadMine(1);
+    startShelf();
 }

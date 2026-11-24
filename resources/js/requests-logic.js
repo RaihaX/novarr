@@ -245,6 +245,86 @@ export function relativeTime(iso, now = Date.now()) {
     return '';
 }
 
+// ---- Discover shelf (GET /api/v1/requests/browse) ----------------------------
+
+/** How long before the shelf's loading line says a first load is slow (a cold list takes ~10 s). */
+export const BROWSE_SLOW_AFTER_MS = 6000;
+
+/** The browse endpoint's URL; list and page are left out when not given (the server's defaults). */
+export function browseUrl({ list = null, page = null } = {}) {
+    const params = new URLSearchParams();
+    if (list !== null && list !== undefined && String(list) !== '') params.set('list', String(list));
+    const n = Number(page);
+    if (page !== null && page !== undefined && Number.isInteger(n) && n > 0) params.set('page', String(n));
+    const qs = params.toString();
+    return `/api/v1/requests/browse${qs ? `?${qs}` : ''}`;
+}
+
+/**
+ * What a browse answer means for the shelf: 'hide' (feature off, or nothing
+ * to show: no lists), 'ready' (render it), 'error' (show the message and a
+ * Retry: 502 / 503 / 429 / anything else unexpected).
+ */
+export function browseState(status, data) {
+    if (status === 404) return 'hide';
+    if (status >= 200 && status < 300) {
+        const lists = data && Array.isArray(data.lists) ? data.lists : [];
+        return lists.length ? 'ready' : 'hide';
+    }
+    return 'error';
+}
+
+/** The shelf's loading line: "Loading…", then the slow note after BROWSE_SLOW_AFTER_MS. */
+export function browseLoadingLine(elapsedMs) {
+    return elapsedMs >= BROWSE_SLOW_AFTER_MS ? 'Still loading — the first load can take a few seconds' : 'Loading…';
+}
+
+/**
+ * A shelf card's muted line from its first source: "Ongoing · 212 ch",
+ * either part alone when the other is missing, '' when neither.
+ */
+export function shelfMetaLine(result) {
+    const s = result && Array.isArray(result.sources) ? result.sources[0] : null;
+    if (!s || typeof s !== 'object') return '';
+    const parts = [];
+    const status = String(s.status || '').trim().replace(/_/g, ' ');
+    if (status) parts.push(status.charAt(0).toUpperCase() + status.slice(1));
+    const n = Number(s.chapters);
+    if (s.chapters !== null && s.chapters !== undefined && s.chapters !== '' && Number.isFinite(n) && n > 0) {
+        parts.push(`${Math.floor(n).toLocaleString('en')} ch`);
+    }
+    return parts.join(' · ');
+}
+
+/**
+ * A page of the shelf without the works already shown (a title can move
+ * between pages while the reader pages through), nor repeats within it.
+ */
+export function newResults(results, shownKeys) {
+    const seen = new Set(shownKeys || []);
+    const out = [];
+    for (const r of results || []) {
+        if (!r || r.key === null || r.key === undefined || seen.has(r.key)) continue;
+        seen.add(r.key);
+        out.push(r);
+    }
+    return out;
+}
+
+/**
+ * POST /api/v1/requests body for a card, by where it came from:
+ *   {type: 'search', searchId}  → {search_id, key}
+ *   {type: 'shelf', list, page} → {list, page, key}
+ * plus the note when there is one.
+ */
+export function requestBody(origin, key, note = '') {
+    const base = origin && origin.type === 'shelf'
+        ? { list: origin.list, page: Number(origin.page) || 1, key }
+        : { search_id: origin ? origin.searchId : null, key };
+    const text = String(note || '').trim();
+    return text ? { ...base, note: text } : base;
+}
+
 /** Review list: pending requests oldest first (the API answers newest first). */
 export function oldestFirst(requests) {
     return [...(requests || [])].sort((a, b) => {

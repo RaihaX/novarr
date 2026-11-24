@@ -4,7 +4,9 @@
     Reader requests (RequestsPageController). The page is a frame: every list
     and action goes through the JSON API (/api/v1/requests…) from
     resources/js/requests.js, with the session cookie. Three areas:
-      A. find something to request (a search across every source of a medium)
+      A. find something to request (a search across every source of a medium),
+         and under it the Discover manga shelf (popular / new / top-rated
+         lists, hidden until the browse call answers with lists)
       B. my requests
       C. requests to review — only when the list call answers can_decide
          (the admin, at home); the admin on the public address gets an
@@ -49,6 +51,35 @@
     <div id="reqSearchError" class="alert alert-warning req-search-error" role="alert" hidden></div>
     <ul id="reqResults" class="disc-grid req-grid" role="list" aria-label="Search results"></ul>
     <p id="reqSkipped" class="req-muted-line" hidden></p>
+</section>
+
+{{-- A2. Discover manga: a shelf of popular lists (GET /api/v1/requests/browse).
+     Hidden until the call answers with at least one list. --}}
+<section class="req-section req-discover" id="reqDiscover" aria-labelledby="reqDiscoverTitle" hidden>
+    <div class="req-section-head">
+        <h2 class="req-section-title" id="reqDiscoverTitle">Discover manga</h2>
+        {{-- One button per list, built from the answer's `lists`; left out with one list. --}}
+        <div class="btn-group segmented req-discover-tabs" role="group" aria-label="Lists" id="reqDiscoverTabs" hidden></div>
+    </div>
+    <div class="req-discover-sub">
+        <p class="req-muted-line">Request anything that isn’t in the library yet.</p>
+        {{-- Mouse and trackpad only (CSS); touch and keyboard scroll the rail itself. --}}
+        <div class="req-rail-nav" id="reqRailNav" hidden>
+            <button type="button" class="btn btn-sm btn-secondary req-rail-arrow" id="reqRailPrev" aria-label="Scroll left" aria-controls="reqRail">
+                <x-icon name="chevron-left" :size="16" />
+            </button>
+            <button type="button" class="btn btn-sm btn-secondary req-rail-arrow" id="reqRailNext" aria-label="Scroll right" aria-controls="reqRail">
+                <x-icon name="chevron-right" :size="16" />
+            </button>
+        </div>
+    </div>
+    <p id="reqDiscoverStatus" class="library-status req-status" role="status" aria-live="polite"></p>
+    {{-- A failed load: the API's message, verbatim, and a Retry. --}}
+    <div id="reqDiscoverError" class="alert alert-warning req-discover-error" role="alert" hidden>
+        <span class="req-discover-error-text"></span>
+        <button type="button" class="btn btn-sm btn-secondary" id="reqDiscoverRetry">Retry</button>
+    </div>
+    <ul id="reqRail" class="req-rail" role="list" aria-label="Manga to request"></ul>
 </section>
 
 {{-- B. My requests --}}
@@ -106,6 +137,20 @@
     </li>
 </template>
 
+{{-- A shelf card: cover, title, author, one muted line, the action. No synopsis
+     (the request dialog shows it). --}}
+<template id="reqShelfTpl">
+    <li class="disc-card req-card req-shelf-card">
+        <div class="disc-cover-wrap req-shelf-cover">
+            <x-cover :novel="['name' => 'Title', 'author' => 'Author']" decorative />
+        </div>
+        <span class="disc-title req-card-title"></span>
+        <div class="disc-meta"><span class="disc-author"></span></div>
+        <p class="req-shelf-meta"></p>
+        <div class="req-card-action"></div>
+    </li>
+</template>
+
 {{-- A request row (my requests, review, decided). --}}
 <template id="reqRowTpl">
     <li class="req-row">
@@ -134,7 +179,8 @@
 
 {{-- ---- Dialogs (Bootstrap modals: focus trapped, Esc closes) ---- --}}
 
-{{-- Request a search result: an optional note. --}}
+{{-- Request a search result or a shelf card: an optional note. A shelf card
+     also shows its synopsis and meta line (the card has no room for them). --}}
 <div class="modal fade" id="reqNoteDialog" tabindex="-1" aria-hidden="true" aria-labelledby="reqNoteTitle">
     <div class="modal-dialog modal-dialog-centered">
         <form class="modal-content" id="reqNoteForm" novalidate>
@@ -144,6 +190,8 @@
             </div>
             <div class="modal-body">
                 <p class="req-dialog-subject" id="reqNoteSubject"></p>
+                <p class="req-dialog-meta" id="reqNoteMeta" hidden></p>
+                <p class="req-dialog-synopsis" id="reqNoteSynopsis" hidden></p>
                 <label class="form-label" for="reqNoteText">Note for the owner <span class="text-muted">(optional)</span></label>
                 <textarea class="form-control" id="reqNoteText" name="note" rows="3" maxlength="500" aria-describedby="reqNoteCount"></textarea>
                 <div class="form-text" id="reqNoteCount">0 / 500</div>

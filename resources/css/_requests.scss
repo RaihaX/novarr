@@ -137,6 +137,125 @@
     color: $text-muted;
 }
 
+// --- A2. Discover manga (the shelf) ----------------------------------------------
+.req-discover-tabs .btn { height: 34px; display: inline-flex; align-items: center; }
+
+// The note on the left, the rail's arrows on the right.
+.req-discover-sub {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $s-4;
+    min-width: 0;
+    margin-top: -$s-2; // the note belongs to the heading above it
+}
+
+.req-discover-error {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: $s-2 $s-4;
+    margin: 0;
+
+    .req-discover-error-text { min-width: 0; overflow-wrap: anywhere; }
+}
+
+// Arrows only where there is a fine, hovering pointer (mouse, trackpad):
+// touch scrolls the rail with a swipe, the keyboard by tabbing along it.
+.req-rail-nav {
+    display: none;
+    flex: none;
+    gap: $s-1;
+
+    .req-rail-arrow {
+        width: 32px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    @media (hover: hover) and (pointer: fine) { display: inline-flex; }
+}
+
+// One row that scrolls sideways and snaps to a card. The padding keeps the
+// focus rings of the first / last card's buttons inside the scroll box.
+.req-rail {
+    display: flex;
+    gap: $s-4;
+    margin: 0 (-$s-1);
+    padding: $s-1 $s-1 $s-2;
+    list-style: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: $s-1;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+
+    // Scroll behaviour is chosen per scroll in JS (smooth unless reduced motion).
+    &:empty { display: none; }
+}
+
+// Phones: a library cover's width (three across, as the Library grid), the
+// next card just peeking in; wider screens a fixed tile.
+.req-shelf-card {
+    flex: 0 0 calc((100% - 2 * #{$s-5}) / 3);
+    min-width: 0;
+    scroll-snap-align: start;
+
+    @media (min-width: 576px) { flex-basis: 140px; }
+    @media (min-width: 992px) { flex-basis: 156px; }
+}
+
+.req-shelf-card.req-card {
+    // Cover clicks do what the action does (request / open); the action
+    // stays the one tab stop.
+    &[data-action="request"] .req-shelf-cover,
+    &[data-action="open"] .req-shelf-cover { cursor: pointer; }
+
+    // Room for two lines whatever the label ("Request" ↔ "Requested by
+    // you"), so a card never grows its row when the action changes.
+    .req-card-action .req-action { min-height: calc(2.5em + 10px); }
+}
+
+.req-shelf-meta {
+    margin: 0;
+    min-height: 1.5em; // kept when empty: the actions stay level across the row
+    font-size: $fs-caption;
+    line-height: 1.5;
+    color: $text-muted;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+// "More": a cover-shaped tile at the end of the rail.
+.req-shelf-more { display: flex; }
+
+.req-more-tile {
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: $s-2;
+    font-size: 13px;
+    font-weight: 500;
+    color: $link;
+    background-color: $surface;
+    border: $hairline dashed $btn-secondary-border;
+    border-radius: $radius;
+    transition: background-color $transition, color $transition;
+
+    &:hover { color: $link-hover; background-color: $surface-alt; }
+    &:disabled { color: $text-muted; cursor: default; }
+    @include focus-ring;
+}
+
 // --- B / C. Request rows ---------------------------------------------------------
 .req-list {
     display: flex;
@@ -384,6 +503,26 @@
     overflow-wrap: anywhere;
 }
 
+// A shelf card's line and synopsis (a search card shows its own).
+.req-dialog-meta {
+    margin: (-$s-3) 0 $s-3;
+    font-size: $fs-caption;
+    color: $text-muted;
+    overflow-wrap: anywhere;
+}
+
+.req-dialog-synopsis {
+    margin: 0 0 $s-4;
+    max-height: 9.5em; // about six lines; a long one scrolls
+    overflow-y: auto;
+    font-size: 13px;
+    line-height: 1.55;
+    color: $text-muted;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    @include focus-ring;
+}
+
 #reqFreeDialog legend.form-label { float: none; }
 
 // The pending count next to "Requests" in the desktop nav.
@@ -398,4 +537,6 @@
     .req-search .req-query { height: 44px; }
     .req-cand-label { padding: $s-3; }
     .req-card-action .req-action { min-height: 44px; }
+    .req-discover-tabs .btn { height: 44px; }
+    .req-shelf-card.req-card .req-card-action .req-action { min-height: max(44px, calc(2.5em + 10px)); }
 }

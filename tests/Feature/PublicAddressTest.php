@@ -52,6 +52,9 @@ class PublicAddressTest extends TestCase
         \Illuminate\Support\Facades\Queue::fake();
         \Illuminate\Support\Facades\Http::preventStrayRequests();
         $this->app->instance(\App\Scraping\Fetcher::class, new \Tests\Support\UnexpectedFetch());
+        // The Requests page's Discover shelf would ask MangaDex (refused
+        // above: a 502); off, it answers an empty shelf (RequestBrowseTest).
+        config(['novarr.requests.browse' => false]);
     }
 
     protected function tearDown(): void

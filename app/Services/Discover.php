@@ -15,7 +15,7 @@ use App\Sources\SourceResolver;
 class Discover
 {
     /** The lists a source may offer (Source::discoverLists()). */
-    public const TYPES = ['search', 'popular', 'new', 'random', 'completed'];
+    public const TYPES = ['search', 'popular', 'new', 'random', 'completed', 'trending', 'top'];
 
     /**
      * Setting: JSON array of source keys left off Discover ("Sources when
