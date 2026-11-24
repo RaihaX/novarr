@@ -331,7 +331,7 @@ class MangaDexSourceTest extends GoldenTestCase
     public function testDiscoverPopularAndSearch(): void
     {
         $source = new MangaDexSource();
-        $this->assertSame(['search', 'popular'], $source->discoverLists());
+        $this->assertSame(['search', 'popular', 'trending', 'top'], $source->discoverLists());
 
         $popular = self::API . '/manga?limit=40&order[followedCount]=desc&includes[]=cover_art&includes[]=author&contentRating[]=safe&contentRating[]=suggestive&availableTranslatedLanguage[]=en&hasAvailableChapters=true';
         $search = self::API . '/manga?limit=40&title=tabun%20kanojo&order[relevance]=desc&includes[]=cover_art&includes[]=author&contentRating[]=safe&contentRating[]=suggestive&availableTranslatedLanguage[]=en&hasAvailableChapters=true';
@@ -389,6 +389,34 @@ class MangaDexSourceTest extends GoldenTestCase
         \Illuminate\Support\Facades\Cache::flush();
         $this->routeReadable($fetcher, ['32d76d19-8a05-4db0-9fc2-e0b0648fe9d0' => \Tests\Support\FakeFetcher::fail('http_503', 503)]);
         $this->assertSame(['Solo Leveling', 'My Dress-Up Darling'], array_column((new MangaDexSource())->discover('popular'), 'name'));
+    }
+
+    public function testDiscoverTopRatedAndTrendingAskForTheirOrders(): void
+    {
+        // Trending: the most followed of the series added in the last 30
+        // days, from the start of that day (the URL, and its cache key, stay
+        // the same all day). Top: by rating.
+        \Carbon\Carbon::setTestNow('2026-11-24 15:30:00');
+        $tail = '&includes[]=cover_art&includes[]=author&contentRating[]=safe&contentRating[]=suggestive&availableTranslatedLanguage[]=en&hasAvailableChapters=true';
+        $trending = self::API . '/manga?limit=40&order[followedCount]=desc&createdAtSince=2026-10-25T00%3A00%3A00' . $tail;
+        $top = self::API . '/manga?limit=40&order[rating]=desc' . $tail;
+        $topPage2 = self::API . '/manga?limit=40&offset=40&order[rating]=desc' . $tail;
+        $fetcher = $this->fake([$trending => 'mangadex/discover-popular.json', $top => 'mangadex/discover-popular.json', $topPage2 => 'mangadex/discover-popular.json']);
+        $this->routeReadable($fetcher, ['32d76d19-8a05-4db0-9fc2-e0b0648fe9d0' => 200, 'aa6c76f7-5f5f-46b6-a800-911145f81b9b' => 110]);
+
+        try {
+            $source = new MangaDexSource();
+            $this->assertSame(['Solo Leveling', 'My Dress-Up Darling'], array_column($source->discover('trending'), 'name'));
+            $this->assertSame(['Solo Leveling', 'My Dress-Up Darling'], array_column($source->discover('top'), 'name'));
+            $this->assertNotNull($source->discoverPage('top', null, 2));
+
+            // Later (within the hour's cache): the same trending URL, so a cache hit.
+            \Carbon\Carbon::setTestNow('2026-11-24 16:20:00');
+            $source->discover('trending');
+            $this->assertSame([$trending, $top, $topPage2], array_values(array_filter($fetcher->urls(), fn($u) => str_contains($u, '/manga?'))));
+        } finally {
+            \Carbon\Carbon::setTestNow();
+        }
     }
 
     public function testDiscoverCoversAreProxiedAndMangaNeverMatchesANovelOfTheSameName(): void

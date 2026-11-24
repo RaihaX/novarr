@@ -105,6 +105,8 @@ Route::prefix('v1')
         // the admin's (home network only).
         Route::post('/requests/searches', [ApiV1\RequestSearchController::class, 'store'])->name('requests.searches.store');
         Route::get('/requests/searches/{id}', [ApiV1\RequestSearchController::class, 'show'])->name('requests.searches.show');
+        // The Discover shelf: popular / new & popular / top-rated charts to request from.
+        Route::get('/requests/browse', [ApiV1\RequestBrowseController::class, 'index'])->middleware('throttle:novarr-request-browse')->name('requests.browse');
         Route::get('/requests', [ApiV1\RequestController::class, 'index'])->name('requests');
         Route::post('/requests', [ApiV1\RequestController::class, 'store'])->middleware('throttle:novarr-reader-actions')->name('requests.store');
         Route::get('/requests/{id}', [ApiV1\RequestController::class, 'show'])->whereNumber('id')->name('requests.show');

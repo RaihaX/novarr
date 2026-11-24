@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\ChapterPage;
+use App\Console\Commands\ChapterScraper;
 use App\Console\Commands\FillMissingMangaChapters;
 use App\Group;
 use App\MangaAlternate;
@@ -11,8 +12,11 @@ use App\Novel;
 use App\NovelChapter;
 use App\Scraping\Fetcher;
 use App\Scraping\MangaFallback;
+use App\Scraping\PageDownloader;
+use App\Scraping\PageDownloadResult;
 use App\Scraping\SourceUnavailable;
 use App\Services\DownloadLanes;
+use App\Services\NovelHealth;
 use App\Sources\SuwayomiSource;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -198,6 +202,46 @@ class MangaFallbackTest extends TestCase
     private function ids($query): array
     {
         return $query->pluck('id')->map(fn($id) => (int) $id)->sort()->values()->all();
+    }
+
+    /**
+     * Alternates already known from a search cycle that started now (complete
+     * unless $complete is false): [[sourceId, name, mangaId], …] in preference order.
+     */
+    private function known(Novel $novel, array $alternates, bool $complete = true): MangaAlternateSearch
+    {
+        foreach ($alternates as $rank => [$sourceId, $name, $mangaId]) {
+            (new MangaAlternate())->forceFill([
+                'novel_id' => $novel->id,
+                'source_key' => 'suwayomi:' . $sourceId,
+                'source_name' => $name,
+                'series_url' => self::BASE . "/manga/{$mangaId}",
+                'title' => $novel->name,
+                'rank' => $rank,
+                'chapter_count' => 10,
+                'found_at' => now(),
+                'checked_at' => now(),
+                'failures' => 0,
+            ])->save();
+        }
+        $state = new MangaAlternateSearch();
+        $state->forceFill([
+            'novel_id' => $novel->id,
+            'source_titles' => [$novel->name],
+            'cursor' => $complete ? 4 : 1,
+            'sources_total' => 4,
+            'cycle_started_at' => now(),
+            'cycle_completed_at' => $complete ? now() : null,
+            'searched_at' => now(),
+        ])->save();
+
+        return $state;
+    }
+
+    /** Is the chapter set aside now? */
+    private function setAside(NovelChapter $chapter): bool
+    {
+        return $chapter->fresh()->isSetAside();
     }
 
     // ---- Qualifying -------------------------------------------------------------------
@@ -429,11 +473,26 @@ class MangaFallbackTest extends TestCase
         $stats = $this->fill();
         $this->assertSame(0, $stats['filled']);
         $this->assertSame(0, MangaAlternate::count());
+        // Every source was searched and none has it: the chapters are set
+        // aside until the cycle's week is over, and the panel says so.
+        $this->assertSame(3, $stats['set_aside']);
         $this->get(route('health.index'))->assertOk()
-            ->assertSee('No other source has it (checked ' . now()->format('j M Y') . ')');
+            ->assertSee('no source has these chapters')
+            ->assertSee('3 chapters on no source (looks again ' . now()->addDays(7)->format('j M Y') . ')');
 
-        // The week is not over: the next run does not search again.
+        // The week is not over: the next run does not search again (nothing qualifies).
         $this->assertSame(0, $this->fill()['searched']);
+    }
+
+    public function testTheSearchNoteStaysWhileChaptersStillWaitOnDroppedAlternates(): void
+    {
+        $novel = $this->series('The Last Human', 7, self::PILL);
+        $this->stuck($novel, 1, 'no_content', 1);
+        SourceUnavailable::park($novel);
+        $this->known($novel, [[self::WEEB, 'Weeb Central', 21]]);
+        MangaAlternate::query()->update(['failures' => MangaFallback::MAX_FAILURES]);
+
+        $this->assertSame([$novel->id => 'No other source has it (checked ' . now()->format('j M Y') . ')'], MangaFallback::healthNotes([$novel->id]));
     }
 
     // ---- Filling ----------------------------------------------------------------------------
@@ -560,7 +619,9 @@ class MangaFallbackTest extends TestCase
         $this->assertSame('MangaPill', $chapter->filled_from);
         $this->assertSame(44, $chapter->page_count);
         $this->assertSame([], array_filter($this->fetcher->urls('download'), fn($u) => str_contains($u, '/manga/21/')), 'the short one was refused before any image');
-        $this->assertSame(1, MangaAlternate::where('source_key', 'suwayomi:' . self::WEEB)->sole()->failures);
+        // A refusal is our caution, not the alternate's fault: never counted.
+        $this->assertSame(0, MangaAlternate::where('source_key', 'suwayomi:' . self::WEEB)->sole()->failures);
+        $this->assertSame(0, (int) DB::table('source_stats')->where('source', 'suwayomi:' . self::WEEB)->where('kind', 'chapter')->sum('failed'));
     }
 
     public function testDecimalNumbersAndDuplicateEntriesOfANumber(): void
@@ -723,5 +784,387 @@ class MangaFallbackTest extends TestCase
 
         $this->assertSame([$novel->id => 'Filled 1 from MangaDex · Looking on other sources'], MangaFallback::healthNotes([$novel->id]));
         $this->get(route('health.index'))->assertOk()->assertSee('data-fallback-note', false)->assertSee('Filled 1 from MangaDex');
+    }
+
+    // ---- Short chapters two sources agree on ------------------------------------------------
+
+    public function testTwoAlternatesAgreeingOnAShortPageCountFillTheChapter(): void
+    {
+        $novel = $this->series('Spy x Family', 2, self::FOX);
+        foreach ([1, 2, 3] as $n) {
+            $this->chapter($novel, $n, ['status' => 1, 'page_count' => 21]);   // minPages 7
+        }
+        $chapter = $this->stuck($novel, 58.5);
+        $this->known($novel, [[self::WEEB, 'Weeb Central', 21], [self::PILL, 'MangaPill', 41]]);
+        $this->server['chapters'][21] = [[58.5, 5]];
+        $this->server['chapters'][41] = [[58.5, 5]];
+        $this->server['pages'][21][5] = 5;
+        $this->server['pages'][41][5] = 5;
+
+        $this->artisan('manga:fill-missing')
+            ->expectsOutputToContain('5 pages on both Weeb Central and MangaPill')
+            ->expectsOutputToContain('Chapter 58.5: 5 pages from Weeb Central')
+            ->assertExitCode(0);
+
+        $chapter->refresh();
+        $this->assertSame('Weeb Central', $chapter->filled_from);
+        $this->assertSame(5, $chapter->page_count);
+        $this->assertSame([0, 0], MangaAlternate::orderBy('rank')->pluck('failures')->all(), 'neither refusal counted');
+        $this->assertSame([], array_filter($this->fetcher->urls('download'), fn($u) => str_contains($u, '/manga/41/')), 'pages from the first only');
+        $this->assertSame(0, (int) DB::table('source_stats')->where('kind', 'chapter')->sum('failed'));
+    }
+
+    public function testOneAlternateAloneBelowTheFloorStaysRefused(): void
+    {
+        $novel = $this->series('Spy x Family', 2, self::FOX);
+        foreach ([1, 2, 3] as $n) {
+            $this->chapter($novel, $n, ['status' => 1, 'page_count' => 21]);
+        }
+        $chapter = $this->stuck($novel, 58.5);
+        $this->known($novel, [[self::WEEB, 'Weeb Central', 21], [self::PILL, 'MangaPill', 41]]);
+        $this->server['chapters'][21] = [[58.5, 5]];
+        $this->server['chapters'][41] = [[58.5, 5]];
+        $this->server['pages'][21][5] = 5;
+        $this->server['pages'][41][5] = 6;              // they do not agree
+
+        $this->fill();
+
+        $chapter->refresh();
+        $this->assertNull($chapter->filled_from);
+        $this->assertSame(0, $chapter->page_count ?? 0);
+        $this->assertSame([], $this->fetcher->urls('download'), 'no image fetched');
+        $this->assertSame([0, 0], MangaAlternate::orderBy('rank')->pluck('failures')->all());
+        // Both listed it and neither delivered it, every source searched: set aside.
+        $this->assertTrue($chapter->isSetAside());
+    }
+
+    public function testAgreedShortCountIsPure(): void
+    {
+        $a = fn(string $name) => (new MangaAlternate())->forceFill(['source_name' => $name]);
+        $this->assertNull(MangaFallback::agreedShortCount([['alternate' => $a('A'), 'pages' => 5]]), 'one alone');
+        $this->assertNull(MangaFallback::agreedShortCount([['alternate' => $a('A'), 'pages' => 0], ['alternate' => $a('B'), 'pages' => 0]]), 'nothing listed is no agreement');
+        $agreed = MangaFallback::agreedShortCount([
+            ['alternate' => $a('A'), 'pages' => 4],
+            ['alternate' => $a('B'), 'pages' => 5],
+            ['alternate' => $a('C'), 'pages' => 5],
+            ['alternate' => $a('D'), 'pages' => 4],
+        ]);
+        $this->assertSame(4, $agreed[0], 'the count whose first refusal comes first');
+        $this->assertSame('A', $agreed[1]['alternate']->source_name);
+        $this->assertSame(['A', 'D'], $agreed[2]);
+    }
+
+    // ---- Setting aside chapters no source can provide ---------------------------------------------
+
+    public function testAChapterNoSourceListsIsSetAsideOnlyOnceTheCycleIsComplete(): void
+    {
+        Carbon::setTestNow('2026-11-24 10:00:00');
+        config(['novarr.manga.fallback_max_sources' => 2]);
+        $novel = $this->series('Kingdom', 2, self::FOX, ['scrape_failures' => 5, 'last_scrape_issue' => 'the page list or an image could not be fetched']);
+        $chapter = $this->stuck($novel, 5, 'fetch_failed', 1);
+        $this->server['search'][self::WEEB] = [[21, 'Kingdom']];
+        $this->server['chapters'][21] = [[1, 1]];              // not chapter 5
+
+        $this->assertContains($novel->id, array_column(app(NovelHealth::class)->needingAttention(), 'id'));
+
+        // First run: two of four sources searched — nothing is concluded.
+        $first = $this->fill();
+        $this->assertSame(0, $first['set_aside']);
+        $this->assertNull($chapter->fresh()->unavailable_until);
+        $this->assertSame(5, $novel->fresh()->scrape_failures);
+
+        // Second run completes the cycle: no source lists it.
+        Carbon::setTestNow('2026-11-24 11:00:00');
+        $second = $this->fill();
+        $this->assertSame(1, $second['set_aside']);
+
+        $chapter->refresh();
+        // The later of a day from now and the cycle's start + 7 days.
+        $this->assertSame('2026-12-01 10:00:00', $chapter->unavailable_until->toDateTimeString());
+        $this->assertSame('2026-12-01 10:00:00', $chapter->next_attempt_at->toDateTimeString());
+        $this->assertSame(MangaFallback::attemptsThreshold(), $chapter->attempts, 'raised so it qualifies on its return');
+        $this->assertSame('fetch_failed', $chapter->last_failure_reason, 'untouched');
+
+        $novel->refresh();
+        $this->assertSame(0, $novel->scrape_failures);
+        $this->assertSame('1 chapter is not available from any source right now (5). Novarr looks again on 1 Dec 2026.', $novel->last_scrape_issue);
+        $this->assertNotContains($novel->id, array_column(app(NovelHealth::class)->needingAttention(), 'id'));
+
+        // A day's floor when the cycle is old.
+        $state = MangaAlternateSearch::where('novel_id', $novel->id)->sole();
+        $state->cycle_started_at = now()->subDays(10);
+        $this->assertSame('2026-11-25 11:00:00', MangaFallback::setAsideUntil($state)->toDateTimeString());
+        Carbon::setTestNow();
+    }
+
+    public function testListedButUndeliverableChaptersAreSetAsideAndNamedInTheLog(): void
+    {
+        $novel = $this->series('Tales of Demons and Gods', 2, self::FOX);
+        $chapter = $this->stuck($novel, 344.6);
+        $this->known($novel, [[self::WEEB, 'Weeb Central', 21], [self::PILL, 'MangaPill', 41]]);
+        $this->server['chapters'][21] = [[344.6, 3]];
+        $this->server['chapters'][41] = [[344.6, 3]];
+        $this->fetcher->route(self::BASE . '/api/v1/manga/21/chapter/3/page/0', FakeFetcher::fail('http_5xx', 502));
+        $this->fetcher->route(self::BASE . '/api/v1/manga/41/chapter/3/page/0', FakeFetcher::fail('http_5xx', 502));
+
+        $this->artisan('manga:fill-missing')
+            ->expectsOutputToContain('listed on Weeb Central, MangaPill, but none of them could deliver it.')
+            ->expectsOutputToContain('Chapter 344.6: no source can provide it; set aside until')
+            ->assertExitCode(0);
+
+        $this->assertTrue($this->setAside($chapter));
+        $this->assertSame([1, 1], MangaAlternate::orderBy('rank')->pluck('failures')->all());
+
+        // Next hour: the chapter is not tried again, so it cannot use up the alternates.
+        $this->fill();
+        $this->assertSame([1, 1], MangaAlternate::orderBy('rank')->pluck('failures')->all());
+    }
+
+    public function testUnnumberedChaptersAreSetAsideOnceTheCycleIsComplete(): void
+    {
+        $novel = $this->series('Kingdom', 2, self::FOX);
+        $chapter = $this->stuck($novel, 0);
+        $this->known($novel, [[self::WEEB, 'Weeb Central', 21]]);
+        $this->server['chapters'][21] = [[1, 1]];
+
+        $this->fill();
+
+        $this->assertTrue($this->setAside($chapter));
+    }
+
+    public function testASetAsideChapterIsLeftAloneUntilItsDateAndALaterDownloadClearsIt(): void
+    {
+        Carbon::setTestNow('2026-11-24 10:00:00');
+        $novel = $this->series('JoJo Stone Ocean', 2, self::FOX);
+        $chapter = $this->stuck($novel, 45.5);
+        $this->known($novel, [[self::WEEB, 'Weeb Central', 21]]);
+        $this->server['chapters'][21] = [[45, 1], [46, 2]];
+
+        $this->fill();
+        $this->assertTrue($this->setAside($chapter));
+
+        // The next hourly run does not look at it, nor ask anything.
+        $calls = count($this->fetcher->calls);
+        $this->assertTrue(MangaFallback::candidateNovels()->isEmpty());
+        $this->assertSame([], MangaFallback::qualifyingQuery($novel->fresh())->get()->all());
+        $this->artisan('manga:fill-missing')->expectsOutputToContain('no manga chapter qualifies')->assertExitCode(0);
+        $this->assertSame($calls, count($this->fetcher->calls));
+
+        // Nor does the chapter sweep — even after something resets next_attempt_at
+        // (SourceUnavailable::release() does).
+        NovelChapter::whereKey($chapter->id)->update(['next_attempt_at' => null]);
+        $this->assertSame(0, NovelChapter::whereKey($chapter->id)->due()->count());
+        $this->assertSame(0, ChapterScraper::whereDue(NovelChapter::whereKey($chapter->id))->count());
+
+        // After the date it is due and qualifies again at once.
+        Carbon::setTestNow('2026-12-01 10:01:00');
+        $this->assertSame(1, NovelChapter::whereKey($chapter->id)->due()->count());
+        $this->assertSame([$chapter->id], $this->ids(MangaFallback::qualifyingQuery($novel->fresh())));
+
+        // A source has it now (the week is over, so the series is searched again): filled, and the column cleared.
+        $this->server['search'][self::WEEB] = [[21, 'JoJo Stone Ocean']];
+        $this->server['chapters'][21][] = [45.5, 3];
+        $this->fill();
+        $chapter->refresh();
+        $this->assertSame('Weeb Central', $chapter->filled_from);
+        $this->assertNull($chapter->unavailable_until);
+
+        // The own source's download (ChapterScraper) clears it the same way.
+        $other = $this->stuck($novel, 146.5);
+        $other->forceFill(['unavailable_until' => now()->addDays(3)])->save();
+        ChapterScraper::updateMangaChapter($other, 4);
+        $this->assertNull($other->fresh()->unavailable_until);
+        Carbon::setTestNow();
+    }
+
+    public function testTheCalmLineListsAtMostFiveNumbers(): void
+    {
+        Carbon::setTestNow('2026-11-24 10:00:00');
+        $rows = collect([121.1, 286.2, 289.95, 300, 301, 302, 303])->map(fn($n, $i) => (new NovelChapter())->forceFill([
+            'chapter' => $n, 'label' => "Chapter {$n}", 'unavailable_until' => now()->addDays(7 - $i),
+        ]));
+
+        $this->assertSame('7 chapters are not available from any source right now (121.1, 286.2, 289.95, 300, 301 and 2 more). Novarr looks again on 25 Nov 2026.', MangaFallback::setAsideMessage($rows));
+        Carbon::setTestNow();
+    }
+
+    // ---- Inconclusive runs ---------------------------------------------------------------------
+
+    public function testABusyLaneDoesNotSetAside(): void
+    {
+        $novel = $this->series('Kingdom', 2, self::FOX);
+        $chapter = $this->stuck($novel, 5);
+        $this->known($novel, [[self::WEEB, 'Weeb Central', 21]]);
+        $this->server['chapters'][21] = [[5, 5]];
+
+        $lock = DownloadLanes::lock('suwayomi:' . self::WEEB);
+        $this->assertTrue($lock->get());
+        try {
+            $this->fill();
+        } finally {
+            $lock->release();
+        }
+
+        $this->assertNull($chapter->fresh()->unavailable_until);
+    }
+
+    public function testARateLimitDoesNotSetAside(): void
+    {
+        $novel = $this->series('Kingdom', 2, self::FOX);
+        $chapter = $this->stuck($novel, 5);
+        $this->known($novel, [[self::WEEB, 'Weeb Central', 21]]);
+        $this->server['chapters'][21] = [[5, 5]];
+        $this->fetcher->route(self::BASE . '/api/v1/manga/21/chapter/5/page/0', FakeFetcher::fail('rate_limited', 429));
+
+        $this->fill();
+
+        $this->assertNull($chapter->fresh()->unavailable_until);
+    }
+
+    public function testAnUnreadableChapterListDoesNotSetAside(): void
+    {
+        $novel = $this->series('Kingdom', 2, self::FOX);
+        $chapter = $this->stuck($novel, 5);
+        $this->known($novel, [[self::WEEB, 'Weeb Central', 21]]);
+        $this->server['chapters'][21] = 'fail';
+
+        $this->artisan('manga:fill-missing')
+            ->expectsOutputToContain('some could not be asked')
+            ->assertExitCode(0);
+
+        $this->assertNull($chapter->fresh()->unavailable_until);
+    }
+
+    public function testTheDeadlineDoesNotSetAside(): void
+    {
+        $novel = $this->series('Kingdom', 2, self::FOX);
+        $chapter = $this->stuck($novel, 5);
+        $this->known($novel, [[self::WEEB, 'Weeb Central', 21], [self::PILL, 'MangaPill', 41]]);
+        $this->server['chapters'][21] = [[5, 5]];
+        $this->server['chapters'][41] = [[5, 5]];
+
+        // The first download fails and takes two hours: MangaPill is never asked.
+        $fallback = new class extends MangaFallback {
+            public float $now = 1000.0;
+
+            protected function clock(): float
+            {
+                return $this->now;
+            }
+
+            protected function pause(int $seconds): void
+            {
+            }
+
+            protected function downloader(): PageDownloader
+            {
+                $owner = $this;
+                return new class($owner) extends PageDownloader {
+                    public function __construct(private $owner)
+                    {
+                    }
+
+                    public function download(NovelChapter $chapter, ?\App\Sources\Source $source = null, ?string $url = null, int $minPages = 0): PageDownloadResult
+                    {
+                        $this->owner->now += 7200;
+                        return PageDownloadResult::failure('fetch_failed', 'slow and broken');
+                    }
+                };
+            }
+        };
+        $fallback->run();
+
+        $this->assertNull($chapter->fresh()->unavailable_until);
+        $this->assertSame([1, 0], MangaAlternate::orderBy('rank')->pluck('failures')->all());
+    }
+
+    public function testAnIncompleteCycleDoesNotSetAside(): void
+    {
+        $novel = $this->series('Kingdom', 2, self::FOX);
+        $chapter = $this->stuck($novel, 5);
+        $this->known($novel, [[self::WEEB, 'Weeb Central', 21]], complete: false);
+        $this->server['chapters'][21] = [[1, 1]];
+        config(['novarr.manga.fallback_max_sources' => 1]);
+
+        $this->fill();
+
+        $this->assertNull($chapter->fresh()->unavailable_until);
+    }
+
+    public function testDryRunSetsNothingAside(): void
+    {
+        $novel = $this->series('Kingdom', 2, self::FOX, ['scrape_failures' => 7]);
+        $chapter = $this->stuck($novel, 5);
+        $this->known($novel, [[self::WEEB, 'Weeb Central', 21]]);
+        $this->server['chapters'][21] = [[1, 1]];
+        $before = $chapter->toArray();
+
+        $this->artisan('manga:fill-missing', ['--dry-run' => true])
+            ->expectsOutputToContain('would set Chapter 5 aside until')
+            ->assertExitCode(0);
+
+        $this->assertSame($before, $chapter->fresh()->toArray());
+        $this->assertNull($chapter->fresh()->unavailable_until);
+        $this->assertSame(7, $novel->fresh()->scrape_failures);
+    }
+
+    // ---- Showing it ---------------------------------------------------------------------------
+
+    public function testTheHealthPanelListsSetAsideSeriesBesideParkedOnesInOneRow(): void
+    {
+        Carbon::setTestNow('2026-11-24 10:00:00');
+        $both = $this->series('The Last Human', 7, self::PILL);
+        $a = $this->stuck($both, 1, 'no_content', 1);
+        $this->stuck($both, 2, 'no_content', 1);
+        $c = $this->stuck($both, 3, 'partial_pages', 3);
+        SourceUnavailable::park($both);                                  // re-check in 6 hours
+        foreach ([$a, $c] as $chapter) {
+            $chapter->forceFill(['unavailable_until' => now()->addDays(3), 'next_attempt_at' => now()->addDays(3)])->save();
+        }
+        $only = $this->series('JoJo Stone Ocean', 8, self::FOX);
+        $this->stuck($only, 723)->forceFill(['unavailable_until' => now()->addDays(5), 'next_attempt_at' => now()->addDays(5)])->save();
+
+        $rows = MangaFallback::unavailableNovels(SourceUnavailable::parkedNovels())->keyBy('id');
+        $this->assertCount(2, $rows);
+        $this->assertSame(3, $rows[$both->id]->parked_count, 'chapters 1, 2 and 3, chapter 1 once');
+        $this->assertSame('empty; no source has 2 of them', $rows[$both->id]->panel_reason);
+        $this->assertSame('2026-11-24 16:00:00', $rows[$both->id]->panel_recheck_at->toDateTimeString(), 'the earlier of the two');
+        $this->assertSame(1, $rows[$only->id]->parked_count);
+        $this->assertSame('no source has this chapter', $rows[$only->id]->panel_reason);
+        $this->assertSame('2026-11-29 10:00:00', $rows[$only->id]->panel_recheck_at->toDateTimeString());
+
+        $html = $this->get(route('health.index'))->assertOk()
+            ->assertSee('Not available on the source')
+            ->assertSee('no source has this chapter')
+            ->assertSee('29 Nov 2026 10:00')
+            ->assertSee('1 chapter on no source (looks again 29 Nov 2026)')
+            ->getContent();
+        $this->assertSame(1, substr_count($html, '>The Last Human</a>'), 'one row for a series both parked and set aside');
+        Carbon::setTestNow();
+    }
+
+    public function testTheSeriesPageShowsASetAsideChapterAsUnavailable(): void
+    {
+        Carbon::setTestNow('2026-11-24 10:00:00');
+        $novel = $this->series('JoJo Stone Ocean', 8, self::FOX);
+        $chapter = $this->stuck($novel, 723, 'partial_pages', 9);    // would be "Needs review"
+        $chapter->forceFill(['unavailable_until' => now()->addDays(7), 'next_attempt_at' => now()->addDays(7)])->save();
+
+        $this->get(route('novels.show', $novel->id))->assertOk()
+            ->assertSee('chapter-row is-unavailable', false)
+            ->assertSee('Its source keeps failing on this chapter and no other source has it. Checked again on 1 Dec 2026.')
+            ->assertSee('>Unavailable</span>', false)
+            ->assertDontSee('Download failed 9 times');
+
+        $row = collect($this->getJson(route('novels.chapters_json', $novel->id))->assertOk()->json('chapters'))->firstWhere('id', $chapter->id);
+        $this->assertSame('1 Dec 2026', $row['unavailable']);
+        $this->assertFalse($row['review']);
+
+        // After the date it is an ordinary failed chapter again.
+        Carbon::setTestNow('2026-12-02 10:00:00');
+        $row = collect($this->getJson(route('novels.chapters_json', $novel->id))->json('chapters'))->firstWhere('id', $chapter->id);
+        $this->assertNull($row['unavailable']);
+        $this->assertTrue($row['review']);
+        Carbon::setTestNow();
     }
 }

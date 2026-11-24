@@ -15,6 +15,15 @@ use App\Sources\ProvidesChapterStats;
  *   FakeRequestSource::$search[FakeMangaA::class] = [['name' => 'Solo', 'url' => 'https://manga-a.test/solo']];
  *   FakeRequestSource::$search[FakeMangaB::class] = null;   // the source fails
  *   FakeRequestSource::$stats['https://manga-a.test/solo'] = ['numbers' => ['1', '2'], ...];
+ *
+ * Browse lists (the Requests page's Discover shelf): a class offers the
+ * lists in $lists (besides 'search'), answering $browse[class][list][page]
+ * (an item list, null = the source fails, or a Closure($page)). A paged
+ * class (FakePagedManga, PagedDiscover) answers {items, has_more}-shaped
+ * entries; a plain one answers page 1 only, through discover().
+ *
+ *   FakeRequestSource::$lists[FakeMangaA::class] = ['popular', 'top'];
+ *   FakeRequestSource::$browse[FakeMangaA::class]['popular'][1] = [['name' => 'Solo', 'url' => '…']];
  */
 abstract class FakeRequestSource extends AbstractSource implements ProvidesChapterStats
 {
@@ -24,7 +33,13 @@ abstract class FakeRequestSource extends AbstractSource implements ProvidesChapt
     /** @var array<string, array|null|\Closure> */
     public static array $stats = [];
 
-    /** @var array<int, array{source: string, kind: string, arg: string}> */
+    /** @var array<class-string, string[]> lists offered besides 'search' */
+    public static array $lists = [];
+
+    /** @var array<class-string, array<string, array<int, array|null|\Closure>>> */
+    public static array $browse = [];
+
+    /** @var array<int, array{source: string, kind: string, arg: string}> kind: search | stats | browse (arg "list:page") */
     public static array $calls = [];
 
     public const KEYS = [
@@ -33,15 +48,14 @@ abstract class FakeRequestSource extends AbstractSource implements ProvidesChapt
         'fakemanga_c' => FakeMangaC::class,
         'fakenovel_a' => FakeNovelA::class,
         'fakenovel_b' => FakeNovelB::class,
+        'fakepaged_manga' => FakePagedManga::class,
     ];
 
     abstract public function host(): string;
 
     public static function register(): void
     {
-        static::$search = [];
-        static::$stats = [];
-        static::$calls = [];
+        static::reset();
         config(['novarr.sources' => self::KEYS]);
     }
 
@@ -50,6 +64,8 @@ abstract class FakeRequestSource extends AbstractSource implements ProvidesChapt
         static::$search = [];
         static::$stats = [];
         static::$calls = [];
+        static::$lists = [];
+        static::$browse = [];
     }
 
     public function hosts(): array
@@ -69,15 +85,28 @@ abstract class FakeRequestSource extends AbstractSource implements ProvidesChapt
 
     public function discoverLists(): array
     {
-        return ['search'];
+        return array_values(array_unique(array_merge(['search'], static::$lists[static::class] ?? [])));
     }
 
     public function discover(string $type, ?string $query = null): ?array
     {
+        if ($type !== 'search') {
+            return $this->browseAnswer($type, 1);
+        }
         static::$calls[] = ['source' => $this->name(), 'kind' => 'search', 'arg' => (string) $query];
         $answer = array_key_exists(static::class, static::$search) ? static::$search[static::class] : [];
 
         return $answer instanceof \Closure ? $answer($query) : $answer;
+    }
+
+    /** The $browse answer for one page of a list (recorded in $calls); [] when none is set. */
+    protected function browseAnswer(string $list, int $page): mixed
+    {
+        static::$calls[] = ['source' => $this->name(), 'kind' => 'browse', 'arg' => "{$list}:{$page}"];
+        $answers = static::$browse[static::class][$list] ?? [];
+        $answer = array_key_exists($page, $answers) ? $answers[$page] : [];
+
+        return $answer instanceof \Closure ? $answer($page) : $answer;
     }
 
     public function chapterStats(string $url, array $languages): ?array
@@ -130,4 +159,35 @@ class FakeNovelB extends FakeRequestSource
 {
     public function host(): string { return 'novel-b.test'; }
     public function medium(): string { return Novel::MEDIUM_NOVEL; }
+}
+
+/**
+ * A manga source that pages its lists (PagedDiscover): $browse entries are
+ * {items, has_more} (or a plain item list: no more pages). Off Discover
+ * (no lists, so never searched) until a test sets its $lists.
+ */
+class FakePagedManga extends FakeRequestSource implements \App\Sources\PagedDiscover
+{
+    public function host(): string { return 'paged-manga.test'; }
+    public function medium(): string { return Novel::MEDIUM_MANGA; }
+
+    public function discoverLists(): array
+    {
+        return array_key_exists(static::class, static::$lists) ? parent::discoverLists() : [];
+    }
+
+    public function discoverPage(string $type, ?string $query, int $page): ?array
+    {
+        if ($type === 'search') {
+            $items = $this->discover($type, $query);
+
+            return $items === null ? null : ['items' => $items, 'has_more' => false];
+        }
+        $answer = $this->browseAnswer($type, $page);
+        if ($answer === null) {
+            return null;
+        }
+
+        return isset($answer['items']) ? $answer : ['items' => $answer, 'has_more' => false];
+    }
 }

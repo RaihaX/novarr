@@ -222,6 +222,26 @@ class RetryStateTest extends TestCase
         $this->assertStringContainsString('needs review', Artisan::output());
     }
 
+    public function testAChapterTheFallbackSetAsideBeforeDoesNotFlagTheNovelWhenItComesBack(): void
+    {
+        // Set aside earlier (no source had it); the date has passed, so its
+        // own source is tried again and fails again.
+        $novel = $this->novelWith([1 => ['attempts' => 3, 'next_attempt_at' => now()->subMinute(), 'unavailable_until' => now()->subMinute()]]);
+        $novel->forceFill(['scrape_failures' => 2])->saveQuietly();
+        $this->respondWith('<p>too short</p>');
+
+        Artisan::call('novel:chapter', ['novel' => $novel->id]);
+
+        $chapter = $this->chapter($novel, 1);
+        $this->assertSame(4, (int) $chapter->attempts);
+        $this->assertSame(0, (int) $novel->fresh()->scrape_failures);
+
+        // A chapter that was never set aside still counts as a failed run.
+        $other = $this->novelWith([1 => ['attempts' => 3, 'next_attempt_at' => now()->subMinute()]]);
+        Artisan::call('novel:chapter', ['novel' => $other->id]);
+        $this->assertSame(1, (int) $other->fresh()->scrape_failures);
+    }
+
     public function testOrdinaryFailuresStillFlagTheNovelAlongsideNeedsReview(): void
     {
         $novel = $this->novelWith([

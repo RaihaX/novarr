@@ -1151,9 +1151,14 @@ class ChapterScraper extends Command
         $this->hostPace()->record($lane, $category);
         SourceHealth::record(SourceHealth::keyForNovel($run->novel), SourceHealth::KIND_CHAPTER, false, $category, "{$item->label}: " . self::failureHint($category, $run->novel->isManga()));
 
-        if (self::isNeedsReview($attempts)) {
+        if (self::isNeedsReview($attempts) || $item->unavailable_until !== null) {
             // A long-dead chapter: retried on the slow cadence but kept out
-            // of the failure streak and the issue summary.
+            // of the failure streak and the issue summary. So is a manga
+            // chapter the fallback set aside before (no source had it) whose
+            // own source fails again when it comes back: the fallback looks
+            // on the other sources again within the hour, and its new search
+            // may take a few runs — without this the series would be flagged
+            // as failing (and the webhook pinged) every week meanwhile.
             $stats["needs_review"]++;
         } else {
             $run->failed++;
@@ -1502,13 +1507,22 @@ class ChapterScraper extends Command
 
     /**
      * Constrain a novel_chapters query to chapters that are due: never
-     * failed, or past their backoff.
+     * failed, or past their backoff — and not set aside by the manga
+     * fallback (unavailable_until in the future: no source can provide the
+     * chapter), even when something else reset next_attempt_at
+     * (SourceUnavailable::release() does).
      */
     public static function whereDue($query)
     {
-        return $query->where(function ($q) {
-            $q->whereNull("next_attempt_at")->orWhere("next_attempt_at", "<=", Carbon::now());
-        });
+        $now = Carbon::now();
+
+        return $query
+            ->where(function ($q) use ($now) {
+                $q->whereNull("next_attempt_at")->orWhere("next_attempt_at", "<=", $now);
+            })
+            ->where(function ($q) use ($now) {
+                $q->whereNull("unavailable_until")->orWhere("unavailable_until", "<=", $now);
+            });
     }
 
     /**
@@ -2038,7 +2052,8 @@ class ChapterScraper extends Command
 
     /**
      * A manga chapter whose pages are all on disk: downloaded, its page
-     * count, retry state cleared. No body text (no chapter_texts row).
+     * count, retry state (and any set-aside date) cleared. No body text (no
+     * chapter_texts row).
      * Public static: App\Scraping\MangaFallback marks a chapter it filled
      * from another source exactly the same way.
      */
@@ -2051,6 +2066,8 @@ class ChapterScraper extends Command
             "next_attempt_at" => null,
             "last_failure_reason" => null,
             "page_count" => $pages,
+            // Set aside as unavailable everywhere (MangaFallback): it came after all.
+            "unavailable_until" => null,
         ]);
         $chapter->status = 1;
         $chapter->download_date = Carbon::now();

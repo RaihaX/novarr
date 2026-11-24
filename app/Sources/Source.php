@@ -98,7 +98,10 @@ interface Source
 
     /**
      * Discover: the lists this source offers, any of 'search', 'popular',
-     * 'completed'. [] keeps the source off the Discover page.
+     * 'completed' (and the others in Discover::TYPES; 'trending' — new and
+     * popular — and 'top' — top rated — are offered to readers by the
+     * Requests page's Discover shelf, RequestBrowse). [] keeps the source
+     * off the Discover page.
      *
      * @return string[]
      */

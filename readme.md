@@ -137,13 +137,14 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 - **A second step on the public address** — after the password, a passkey, a code from an authenticator app, an emailed code or a recovery code; "Sign in with a passkey" does it in one step. The home network keeps the password alone.
 - **Catalogue passwords** — e-reader apps browse OPDS with a generated password of their own, never the account password, on the public address.
 - **A daily summary for each reader** — new chapters and completed series across the library, emailed once a day; each reader can turn it off.
+- **Reader requests** — readers search every source for a novel or manga and request it (or tap **Me too** on someone else's request); the owner approves or declines. The Requests page also has a **Discover manga** shelf: MangaDex's Popular, New & popular (most followed of the last 30 days) and Top rated lists, ten pages each, every series requestable unless it is already in the library (those are marked). A request made from the shelf then looks the title up on every other manga source for its shortlist.
 - See [Accounts and sign-in](#accounts-and-sign-in).
 
 ### Apps & API
 - **JSON API** at `/api/v1` — library, chapters, reading progress, Discover, adding novels, on-demand checks for new chapters and ePub builds. See [Apps and JSON API](#apps-and-json-api).
 - **iPhone / iPad app** (`ios/`) — a native SwiftUI reader: sign-in, home, library, novel pages, reader and settings, with reading position shared with the website.
 - **Android app** (`android/`) — a native Compose reader for novels and manga: scroll or page-turn reading, offline downloads and the same shared reading position. The server can hand the APK out at `/app/android`.
-- **KOReader plugin** (`koreader/`) — read on a Kindle or any KOReader device straight from the server: a cover-shelf home, chapters joined into groups so chapter changes are plain page turns, 100 chapters saved ahead with Wi-Fi switched off in between, Discover and "check for new chapters" on the device, reading stats, a second server address for away from home, and plugin updates over Wi-Fi.
+- **KOReader plugin** (`koreader/`) — read on a Kindle or any KOReader device straight from the server: a cover-shelf home, chapters joined into groups so chapter changes are plain page turns, 100 chapters saved ahead with Wi-Fi switched off in between, a quick menu while reading (hold the status bar) and gestures for the chapter list, novel page and home, reading info at the bottom or the top of the page, Discover and "check for new chapters" on the device, reading stats, a second server address for away from home, and plugin updates over Wi-Fi.
 
 ### Operations
 - **Settings UI** — FlareSolverr URL, notification webhook, Kindle email, scrape delays, summary-email time, minimum chapter words, chapters per novel per run, run-time bound, NovelUpdates match threshold and snapshot retention — each with its default and effective value, plus one-click **test** buttons. The Tailscale **Funnel** switch is red, asks before enabling, and shows an app-wide banner while on.
@@ -213,6 +214,8 @@ Metadata for all sources is enriched from **NovelUpdates** (description, genres,
 | `NOVARR_SUWAYOMI_EXCLUDE_SOURCES` | Comma list of Suwayomi source names left off Discover (case-insensitive) — Novarr has its own MangaDex source | `MangaDex,Local source` |
 
 Optional: `NOVARR_SUWAYOMI_TIMEOUT` (seconds per API call, default `90` — a chapter list makes Suwayomi fetch from the site and can take a minute). On Discover every remaining Suwayomi source is its own entry ("Suwayomi · MangaPill", key `suwayomi:{source id}`) with Search and Popular; covers are served through Novarr (`/discover/cover`), so the browser never needs to reach the server. All Suwayomi series share the server's host, so the sweep's per-host pace and cooldowns apply to them together.
+
+**Chapters a manga's source keeps failing on** are downloaded from the same series on another installed source (`manga:fill-missing`, hourly; `NOVARR_MANGA_FALLBACK_ENABLED=false` turns it off). The series is matched by exact title and the chapter by number; a chapter much shorter than the series' usual length is refused unless two sources list the same page count for it (a short extra). A chapter no source can provide (none lists its number, or none could deliver it) is set aside until the next weekly search: nothing retries it meanwhile, the series is no longer counted as failing, and it shows as **Unavailable** on the series page and under *Not available on the source* on the Health page. `php artisan manga:fill-missing --novel=<id> --refresh` searches the other sources again now; `--dry-run` only lists what it would do.
 
 ### Adding a source
 
@@ -362,6 +365,7 @@ Most operational settings are editable from the **Settings** page (stored in `ap
 | `NOVARR_TLS_VERIFY` | TLS verification for every scraper/FlareSolverr request (keep on) | `true` |
 | `NOVARR_NOVELARROW_HOST` | Canonical host for the NovelPing (ex-novelarrow) source; API, chapter and cover URLs are built on it | `novelping.com` |
 | `NOVARR_SUWAYOMI_URL` / `_LANGUAGES` / `_EXCLUDE_SOURCES` | Manga through your own Suwayomi-Server (see [Suwayomi (manga)](#suwayomi-manga)); empty URL = off | — / `en` / `MangaDex,Local source` |
+| `NOVARR_REQUESTS_BROWSE` / `_BROWSE_CACHE_MINUTES` | The Requests page's Discover manga shelf (`false` = off), and how long each page of its lists is kept | `true` / `360` |
 | `NOVARR_KOREADER_PLUGIN_PATH` | Folder served to KOReader devices as the plugin update (see [Apps and JSON API](#apps-and-json-api)) | `koreader/novarr.koplugin` |
 | `TRUSTED_PROXIES` | Proxies whose `X-Forwarded-*` headers are trusted (nginx / Tailscale / the Cloudflare Tunnel connector in front) | `*` |
 | `NOVARR_AUTH` | Force sign-in `on` or `off`, overriding the switch in Settings → Users (which is then shown locked); see [Accounts and sign-in](#accounts-and-sign-in) | — (use the switch) |
@@ -407,6 +411,7 @@ Novarr is **scheduler-driven**. Add the single Laravel cron entry and everything
 | Priority TOC refresh | hourly | `novel:toc --frequent-only` — novels flagged "hourly checks" |
 | Chapter download | every 10 min | `novel:chapter` — download newly-found pending chapters |
 | Completion verify | daily @ 06:00 | `novel:verify-completion` — mark fully-downloaded series complete |
+| Requests shelf warm-up | every 3 hours | `requests:browse-warm` — refetch page 1 of each Discover shelf list on the Requests page, so no reader waits for a cold list |
 | Sign-in history prune | daily @ 04:35 | `novarr:prune-auth-log` — drop history older than `NOVARR_AUTH_LOG_DAYS` (180 days) |
 | Summary email | daily @ `summary_time` | `novel:email-summary` — recap since the previous summary (`summary_last_sent_at`): continue-reading block, headline figures, one row per updated novel, completed novels, and the attention list when it has changed (`summary_attention_hash`); a table-based brand email with a text part, built to survive Gmail/Outlook. Then each reader's own summary of the same downloads (see [Readers' daily summary](#accounts-and-sign-in)) |
 
@@ -448,6 +453,7 @@ Run `php artisan queue:restart` after each deploy so the worker reloads new code
 | `queue:health-check` | Report queue system health |
 | `novarr:auth {on\|off\|status}` | Turn "Require sign-in" on or off, or show its state, the public address and emails two accounts share |
 | `novarr:password {username?} {--password=}` | Set an account's password (prompts when `--password` is not given; same rules as the website); the way back in if you are locked out |
+| `requests:browse-warm` | Refresh page 1 of the Requests page's Discover shelf lists (every three hours); a list that can't be fetched keeps its cached page |
 | `novarr:prune-auth-log` | Delete sign-in history older than `NOVARR_AUTH_LOG_DAYS`, forget signed-in browsers and remember-me rows past their lifetime, and unfinished second steps (daily at 04:35) |
 
 Any of these can also be run from the **Commands** page in the UI with live job-status polling, or from the command palette ("scrape toc <novel>"). The destructive ones (normalize, fix, clean, cleaner) run as a **dry run first** from the novel page and ask before applying.
@@ -569,6 +575,8 @@ Three readers besides the website live in this repository: the iPhone / iPad app
 | `POST /novels` | Add a novel from a Discover result (`title`, `url`); 409 with the existing series when it is already in the library, unless `force=1` |
 | `POST /novels/{id}/check`, `GET /novels/{id}/check` | Ask the server to check a novel's source for new chapters, and follow that check |
 | `POST /novels/{id}/epub`, `GET /novels/{id}/epub` | Build a novel's ePub and download it |
+| `GET /requests/browse` | The Requests page's Discover shelf: `medium` (`manga`), `list` (default the first; `popular`, `trending`, `top` as the source offers them), `page` (1–10). Answers `{medium, lists: [{id, name}], list, source_name, page, has_more, results}` with results shaped as a request search's (`in_library`, `requested` included); an empty `lists` when the shelf is off. 502 `browse_unavailable` when the source can't be reached, 503 `browse_busy` (`Retry-After`) while another reader loads the same page; 30 calls a minute per reader |
+| `POST /requests` | Request a series: `{search_id, key, note?}` from a request search, `{list, page?, key, note?, medium?}` from the Discover shelf (410 `browse_expired` when that result is no longer on the list), or `{title, medium, link?, note?}` as free text. 201 a new request, 200 `joined` when someone else already asked for it, 409 `in_library` / `already_requested`, 429 `pending_limit` |
 | `GET /highlights`, `POST /highlights`, `DELETE /highlights/{id}` | Highlights (the website's bookmarks: an excerpt with an optional note), newest first, per novel with `novel_id` |
 | `GET /koreader/plugin`, `GET /koreader/plugin/files/{path}` | The KOReader plugin's update manifest and files |
 
@@ -606,6 +614,9 @@ For a Kindle (jailbroken, with KOReader) or any other KOReader device. Copy `kor
 - **Wi-Fi back on when you leave** — closing the book or exiting KOReader switches Wi-Fi on again when Novarr had switched it off; Settings shows how much of the reading time had Wi-Fi on.
 - **Discover** — browse or search the sources and add novels from the device; searches run in the background on the server, so the device stays usable.
 - **Check for new chapters** when you have caught up, and **reading stats** on the novel page.
+- **Reading info line** — chapters and time left, the clock (it moves on every minute) and the sync state, in the status bar at the bottom, at the top (KOReader's Alt status bar, switched on in Novarr chapters only), or both.
+- **Quick menu while reading** (1.11.0+) — hold the status bar for the chapter list, the novel's page, previous / next chapter, sync, check for new chapters and Novarr home. The same places are in KOReader's reader menu and can be given gestures (Novarr: home, chapter list, novel page, quick menu, sync now).
+- **Leaving a book** takes you back to the Novarr screen it was opened from.
 - **Highlights** — text highlighted in KOReader (with its note) is sent to the server and appears on the website's Highlights page and in the iPhone app; the novel page lists them.
 - **Accounts** — when the server requires sign-in, the plugin shows a 6-character code to enter on the website (Account → Link a device); from then on the Kindle reads as that reader.
 - **Two server addresses** (home and away, a Tailscale name for example), and `https://` through KOReader's HTTP proxy.

@@ -6,7 +6,8 @@ import {
     orderCandidates, defaultCandidate, selectable, candidateDetail, rankingInProgress,
     retryAfterSeconds, relativeTime, oldestFirst, decidedOnly,
     isFollower, mineAction, alsoWantedLine, requestedAfterLeaving,
-    SLOW_AFTER_MS, DEFAULT_RETRY_SECONDS, MAX_RETRY_SECONDS,
+    browseUrl, browseState, browseLoadingLine, shelfMetaLine, newResults, requestBody,
+    SLOW_AFTER_MS, DEFAULT_RETRY_SECONDS, MAX_RETRY_SECONDS, BROWSE_SLOW_AFTER_MS,
 } from '../../resources/js/requests-logic.js';
 
 const NOW = Date.parse('2026-11-19T12:00:00Z');
@@ -184,4 +185,58 @@ test('after leaving or cancelling, the result card is joinable again only when o
         'handed to the oldest follower');
     assert.equal(requestedAfterLeaving({ mine: 'requester', status: 'pending', also_wanted_by: 0 }), null);
     assert.equal(requestedAfterLeaving(null), null);
+});
+
+test('the browse URL leaves out what is not given', () => {
+    assert.equal(browseUrl(), '/api/v1/requests/browse');
+    assert.equal(browseUrl({ list: 'trending' }), '/api/v1/requests/browse?list=trending');
+    assert.equal(browseUrl({ list: 'top', page: 3 }), '/api/v1/requests/browse?list=top&page=3');
+    assert.equal(browseUrl({ list: 'a b&c', page: 2 }), '/api/v1/requests/browse?list=a+b%26c&page=2', 'encoded');
+    assert.equal(browseUrl({ list: '', page: 0 }), '/api/v1/requests/browse', 'empty list, no page 0');
+    assert.equal(browseUrl({ list: null, page: 'x' }), '/api/v1/requests/browse');
+});
+
+test('a browse answer shows, hides or errors', () => {
+    assert.equal(browseState(200, { lists: [{ id: 'popular', name: 'Popular' }], results: [] }), 'ready');
+    assert.equal(browseState(200, { lists: [], list: null, results: [] }), 'hide', 'nothing to show');
+    assert.equal(browseState(200, {}), 'hide');
+    assert.equal(browseState(404, { code: 'requests_disabled' }), 'hide');
+    assert.equal(browseState(502, { code: 'browse_unavailable' }), 'error');
+    assert.equal(browseState(503, { code: 'browse_busy' }), 'error');
+    assert.equal(browseState(429, { code: 'throttled' }), 'error');
+    assert.equal(browseState(500, null), 'error');
+});
+
+test('the shelf loading line turns slow after six seconds', () => {
+    assert.equal(BROWSE_SLOW_AFTER_MS, 6000);
+    assert.equal(browseLoadingLine(0), 'Loading…');
+    assert.equal(browseLoadingLine(BROWSE_SLOW_AFTER_MS - 1), 'Loading…');
+    assert.equal(browseLoadingLine(BROWSE_SLOW_AFTER_MS), 'Still loading — the first load can take a few seconds');
+});
+
+test('a shelf card\'s meta line: status and chapters of the first source', () => {
+    assert.equal(shelfMetaLine({ sources: [{ status: 'ongoing', chapters: 212 }, { status: 'completed', chapters: 3 }] }), 'Ongoing · 212 ch');
+    assert.equal(shelfMetaLine({ sources: [{ status: 'completed', chapters: null }] }), 'Completed');
+    assert.equal(shelfMetaLine({ sources: [{ status: null, chapters: 1200 }] }), '1,200 ch');
+    assert.equal(shelfMetaLine({ sources: [{ status: 'on_hiatus', chapters: 0 }] }), 'On hiatus', 'no chapters counted');
+    assert.equal(shelfMetaLine({ sources: [{ status: '', chapters: '' }] }), '');
+    assert.equal(shelfMetaLine({ sources: [] }), '');
+    assert.equal(shelfMetaLine({}), '');
+    assert.equal(shelfMetaLine(null), '');
+});
+
+test('a new shelf page drops works already shown and repeats', () => {
+    const page = [{ key: 'a' }, { key: 'b' }, { key: 'c' }, { key: 'b' }, null, { key: null }];
+    assert.deepEqual(newResults(page, new Set(['a'])).map((r) => r.key), ['b', 'c']);
+    assert.deepEqual(newResults(page, ['a', 'b', 'c']), []);
+    assert.deepEqual(newResults(page, null).map((r) => r.key), ['a', 'b', 'c']);
+    assert.deepEqual(newResults(undefined, []), []);
+});
+
+test('the request body follows where the card came from', () => {
+    assert.deepEqual(requestBody({ type: 'search', searchId: 's1' }, 'k1'), { search_id: 's1', key: 'k1' });
+    assert.deepEqual(requestBody({ type: 'search', searchId: 's1' }, 'k1', '  please  '), { search_id: 's1', key: 'k1', note: 'please' });
+    assert.deepEqual(requestBody({ type: 'shelf', list: 'top', page: 2 }, 'k2'), { list: 'top', page: 2, key: 'k2' });
+    assert.deepEqual(requestBody({ type: 'shelf', list: 'top', page: 3 }, 'k2', 'hi'), { list: 'top', page: 3, key: 'k2', note: 'hi' });
+    assert.deepEqual(requestBody({ type: 'shelf', list: 'popular' }, 'k3', '   '), { list: 'popular', page: 1, key: 'k3' }, 'blank note left out');
 });

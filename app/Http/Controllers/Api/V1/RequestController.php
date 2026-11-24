@@ -6,12 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Novel;
 use App\NovelRequest;
 use App\NovelRequestFollower;
+use App\Services\Requests\RequestBrowse;
 use App\Services\Requests\RequestRefused;
 use App\Services\Requests\Requests;
 use App\Support\CurrentReader;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 
 /**
  * Reader requests (App\Services\Requests\Requests).
@@ -109,9 +111,16 @@ class RequestController extends Controller
     }
 
     /**
-     * POST /api/v1/requests — from a search result {search_id, key, note?}
-     * (any other field is ignored: the candidates come from the server's
-     * search record), or free text {title, medium, link?, note?}.
+     * POST /api/v1/requests — one of three bodies:
+     *   - a search result {search_id, key, note?} (any other field is
+     *     ignored: the candidates come from the server's search record);
+     *   - a Discover shelf result {list, page?, key, note?, medium?} (when
+     *     search_id is absent and list is given; page defaults to 1, medium
+     *     to manga): the candidate comes from the server's own page of that
+     *     list (GET /api/v1/requests/browse), the shortlist is then filled
+     *     from the other sources in the background; 410 browse_expired when
+     *     the result is no longer on the list;
+     *   - free text {title, medium, link?, note?}.
      * 201 {request, joined: false} — a new request;
      * 200 {request, joined: true}  — someone else already asked for this
      *     work (pending, or approved and not yet available): the caller now
@@ -123,24 +132,35 @@ class RequestController extends Controller
             return $off;
         }
         $fromSearch = $request->filled('search_id');
-        $data = $request->validate($fromSearch
-            ? [
+        $fromBrowse = !$fromSearch && $request->filled('list');
+        $data = $request->validate(match (true) {
+            $fromSearch => [
                 'search_id' => 'required|string|max:64',
                 'key' => 'required|string|max:64',
                 'note' => 'nullable|string|max:500',
-            ]
-            : [
+            ],
+            $fromBrowse => [
+                'list' => ['required', 'string', Rule::in(array_keys(RequestBrowse::LISTS))],
+                'page' => 'nullable|integer|min:1|max:' . RequestBrowse::MAX_PAGE,
+                'key' => 'required|string|max:64',
+                'note' => 'nullable|string|max:500',
+                'medium' => ['nullable', Rule::in(RequestBrowse::MEDIA)],
+            ],
+            default => [
                 'title' => 'required|string|max:255',
                 'medium' => 'required|in:novel,manga',
                 'link' => 'nullable|url:http,https|max:2048',
                 'note' => 'nullable|string|max:500',
-            ]);
+            ],
+        });
         $user = app(CurrentReader::class)->user();
 
         try {
-            $made = $fromSearch
-                ? $requests->createFromSearch($user, $data['search_id'], $data['key'], $data['note'] ?? null)
-                : $requests->createFreeText($user, $data['title'], $data['medium'], $data['link'] ?? null, $data['note'] ?? null);
+            $made = match (true) {
+                $fromSearch => $requests->createFromSearch($user, $data['search_id'], $data['key'], $data['note'] ?? null),
+                $fromBrowse => $requests->createFromBrowse($user, (string) ($data['medium'] ?? Novel::MEDIUM_MANGA), $data['list'], (int) ($data['page'] ?? 1), $data['key'], $data['note'] ?? null),
+                default => $requests->createFreeText($user, $data['title'], $data['medium'], $data['link'] ?? null, $data['note'] ?? null),
+            };
         } catch (RequestRefused $refused) {
             return $refused->toResponse();
         }

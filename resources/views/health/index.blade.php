@@ -154,7 +154,8 @@
     @endif
 </div>
 
-{{-- Chapters parked because the source lists them but does not serve them. --}}
+{{-- Chapters parked because the source lists them but does not serve them,
+     and manga chapters set aside because no source has them (MangaFallback::unavailableNovels()). --}}
 @if(($parked_novels ?? collect())->isNotEmpty())
     {{-- Per series: what the manga fallback (manga:fill-missing) is doing about it. --}}
     @php $fallbackNotes = \App\Scraping\MangaFallback::healthNotes($parked_novels->modelKeys()); @endphp
@@ -167,7 +168,7 @@
         </div>
         <div class="table-responsive">
             <table class="table align-middle table-responsive-cards">
-                <caption class="visually-hidden">Novels with chapters the source lists but does not serve</caption>
+                <caption class="visually-hidden">Novels with chapters the source lists but does not serve, or no source has</caption>
                 <thead>
                     <tr>
                         <th>Novel</th>
@@ -186,8 +187,9 @@
                                 @endif
                             </td>
                             <td class="mono-figure" data-label="Chapters">{{ number_format($parked->parked_count) }}</td>
-                            <td data-label="Source answers">{{ \App\Scraping\SourceUnavailable::reasonWords($parked->parked_reasons) }}</td>
-                            <td class="mono-muted" data-label="Next re-check">{{ $parked->source_recheck_at ? $parked->source_recheck_at->format('j M Y H:i') : 'next run' }}</td>
+                            @php $recheckAt = $parked->panel_recheck_at ?? $parked->source_recheck_at; @endphp
+                            <td data-label="Source answers">{{ $parked->panel_reason ?? \App\Scraping\SourceUnavailable::reasonWords($parked->parked_reasons) }}</td>
+                            <td class="mono-muted" data-label="Next re-check">{{ $recheckAt ? $recheckAt->format('j M Y H:i') : 'next run' }}</td>
                         </tr>
                     @endforeach
                 </tbody>

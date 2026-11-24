@@ -440,6 +440,9 @@ return [
     |                            Discover order.
     | page_url                 — the web Requests page linked from the
     |                            owner's email (default APP_URL/requests).
+    | browse                   — the Requests page's Discover shelf (manga
+    |                            charts readers request from; RequestBrowse).
+    | browse_cache_minutes     — how long one page of a chart is kept.
     |
     */
     'requests' => [
@@ -478,6 +481,8 @@ return [
             explode(';', (string) env('NOVARR_REQUESTS_SOURCE_FAMILIES', 'Mangakakalot|Manganato|Mangabat;MangaFox|Mangahere|Mangatown'))
         ), fn($family) => count($family) > 1)),
         'page_url' => env('NOVARR_REQUESTS_URL'),
+        'browse' => (bool) env('NOVARR_REQUESTS_BROWSE', true),
+        'browse_cache_minutes' => (int) env('NOVARR_REQUESTS_BROWSE_CACHE_MINUTES', 360),
     ],
 
     /*

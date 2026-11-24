@@ -118,7 +118,7 @@ class NovelController extends Controller
         $chapters = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
             ->ordered()
-            ->get(['id', 'chapter', 'book', 'label', 'status', 'kind', 'download_date', 'attempts', 'last_failure_reason', 'page_count']);
+            ->get(['id', 'chapter', 'book', 'label', 'status', 'kind', 'download_date', 'attempts', 'last_failure_reason', 'page_count', 'unavailable_until']);
         $this->readState->load($chapters, null, (int) $id);
 
         $chapters = $chapters->map(fn($c) => [
@@ -131,7 +131,9 @@ class NovelController extends Controller
                 'note' => $c->isNote(),
                 'state' => static::chapterState($c),
                 'reason' => static::chapterState($c) === 'failed' ? static::failureReasonText($c->last_failure_reason) : null,
-                'review' => !$c->status && (int) $c->attempts >= NovelChapter::REVIEW_ATTEMPTS,
+                'review' => !$c->status && !$c->isSetAside() && (int) $c->attempts >= NovelChapter::REVIEW_ATTEMPTS,
+                // Set aside by the manga fallback (no source has it): when it is checked again.
+                'unavailable' => $c->isSetAside() ? \App\Scraping\MangaFallback::dateText($c->unavailable_until) : null,
                 'attempts' => $c->status ? 0 : (int) $c->attempts,
                 'date' => $c->download_date?->format('Y-m-d H:i'),
                 // Manga: pages of a downloaded chapter (null for text).
@@ -999,7 +1001,7 @@ class NovelController extends Controller
         $chapters = NovelChapter::where('novel_id', $id)
             ->where('blacklist', 0)
             ->ordered()
-            ->paginate(self::CHAPTERS_PER_PAGE, ['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'download_date', 'kind', 'attempts', 'last_failure_reason', 'page_count']);
+            ->paginate(self::CHAPTERS_PER_PAGE, ['id', 'novel_id', 'chapter', 'book', 'label', 'status', 'download_date', 'kind', 'attempts', 'last_failure_reason', 'page_count', 'unavailable_until']);
         $this->readState->load($chapters->getCollection());
 
         // Manga: a chapter is only marked read at its last page, so the one

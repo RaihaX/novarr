@@ -2,6 +2,7 @@
 
 namespace App\Services\Requests;
 
+use App\Jobs\FindRequestCandidates;
 use App\Jobs\RankRequestCandidates;
 use App\Novel;
 use App\NovelRequest;
@@ -24,8 +25,12 @@ use Illuminate\Support\Facades\Log;
  *
  * A request made from a search names the server's own search record and a
  * result key: its candidates are copied from that record, never from the
- * client. A free-text request keeps a title, an optional link and note as
- * plain text; the link is never fetched.
+ * client. A request made from the Discover shelf (RequestBrowse) names a
+ * list, a page and a group key the same way: its one candidate (the chart's
+ * source) is copied from the server's cached page, and FindRequestCandidates
+ * then looks the title up on every other source to fill the shortlist
+ * before ranking. A free-text request keeps a title, an optional link and
+ * note as plain text; the link is never fetched.
  *
  * Approving adds the series through AddSeries (as POST /api/v1/novels
  * does), then starts the chapter check (NovelCheck) so chapters download.
@@ -44,6 +49,10 @@ class Requests
     public const CREATE_LOCK = 'novel_requests_create_lock';
 
     public const SEARCH_EXPIRED = 'This search has expired. Search again.';
+
+    public const BROWSE_EXPIRED = 'This list has changed. Reload it and try again.';
+
+    public const BUSY = 'Another request is being made right now. Try again in a moment.';
 
     /** The admin's "N pending" nav badge (pendingCount()); forgotten on every change. */
     public const PENDING_COUNT_CACHE = 'requests_pending_count';
@@ -118,9 +127,60 @@ class Requests
             throw new RequestRefused(422, 'That result is not part of this search.', 'unknown_result');
         }
 
-        // The server's own hits, one per source, in search order.
+        return $this->create($user, $this->fieldsFromGroup((string) $search['medium'], $group, $note));
+    }
+
+    /**
+     * A request for one result of a Discover shelf list (RequestBrowse), as
+     * createFromSearch() is for a search result: the group is looked up on
+     * the server's own page of the list (or another cached page of it),
+     * never taken from the client. A new request's shortlist is then filled
+     * from the other sources (FindRequestCandidates).
+     *
+     * @return array{request: NovelRequest, joined: bool}
+     *
+     * @throws RequestRefused 410 browse_expired, 503 busy, or as create()
+     */
+    public function createFromBrowse(User $user, string $medium, string $list, int $page, string $key, ?string $note): array
+    {
+        try {
+            $group = app(RequestBrowse::class)->find($medium, $list, $page, $key);
+        } catch (LockTimeoutException) {
+            throw new RequestRefused(503, self::BUSY, 'busy');
+        }
+        if ($group === null) {
+            throw new RequestRefused(410, self::BROWSE_EXPIRED, 'browse_expired');
+        }
+
+        return $this->create($user, $this->fieldsFromGroup($medium, $group, $note) + [
+            'from_browse' => true,
+            'alt_titles' => array_values(array_filter((array) ($group['alt_titles'] ?? []), 'is_string')),
+        ]);
+    }
+
+    /** create()'s fields for a result group: the server's own hits, one per source, in search order. */
+    private function fieldsFromGroup(string $medium, array $group, ?string $note): array
+    {
+        return [
+            'medium' => $medium,
+            'title' => (string) $group['title'],
+            'author' => $group['author'] ?? null,
+            'cover_url' => $group['cover_url'] ?? null,
+            'description' => $group['description'] ?? null,
+            'note' => $note,
+            'link' => null,
+            'candidates' => static::candidatesFromHits((array) ($group['hits'] ?? []), static::maxCandidates()),
+        ];
+    }
+
+    /**
+     * Result hits (RequestSearch::group()) → request candidates, at most
+     * $limit. Also used by FindRequestCandidates for the other sources' hits.
+     */
+    public static function candidatesFromHits(array $hits, int $limit): array
+    {
         $candidates = [];
-        foreach (array_slice((array) $group['hits'], 0, static::maxCandidates()) as $hit) {
+        foreach (array_slice(array_values($hits), 0, max(0, $limit)) as $hit) {
             $candidates[] = [
                 'source' => (string) $hit['source'],
                 'source_name' => (string) $hit['source_name'],
@@ -132,16 +192,7 @@ class Requests
             ];
         }
 
-        return $this->create($user, [
-            'medium' => (string) $search['medium'],
-            'title' => (string) $group['title'],
-            'author' => $group['author'] ?? null,
-            'cover_url' => $group['cover_url'] ?? null,
-            'description' => $group['description'] ?? null,
-            'note' => $note,
-            'link' => null,
-            'candidates' => $candidates,
-        ]);
+        return $candidates;
     }
 
     /**
@@ -219,7 +270,7 @@ class Requests
                 ])];
             });
         } catch (LockTimeoutException) {
-            throw new RequestRefused(503, 'Another request is being made right now. Try again in a moment.', 'busy');
+            throw new RequestRefused(503, self::BUSY, 'busy');
         }
 
         if ($made['joined']) {
@@ -231,7 +282,10 @@ class Requests
         static::forgetPendingCount();
         $this->notify(fn() => $this->notifier->created($request), $request);
 
-        if ($request->medium === Novel::MEDIUM_MANGA && $request->candidateList() !== []) {
+        if (!empty($fields['from_browse'])) {
+            // One candidate so far: the other sources first, then the ranking.
+            $this->queueFindCandidates($request, (array) ($fields['alt_titles'] ?? []));
+        } elseif ($request->medium === Novel::MEDIUM_MANGA && $request->candidateList() !== []) {
             $this->queueRanking($request);
         }
 
@@ -336,7 +390,7 @@ class Requests
                 return true;
             });
         } catch (LockTimeoutException) {
-            throw new RequestRefused(503, 'Another request is being made right now. Try again in a moment.', 'busy');
+            throw new RequestRefused(503, self::BUSY, 'busy');
         }
 
         if (!$handedOver) {
@@ -472,6 +526,27 @@ class Requests
             Bus::dispatch((new RankRequestCandidates((int) $request->id))->onQueue('commands'));
         } catch (\Throwable $e) {
             Log::warning("Request {$request->id}: ranking not queued: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Fill a request made from the Discover shelf with the other sources'
+     * hits for its title, then rank it (FindRequestCandidates), on the
+     * `commands` queue. Asking every source takes up to a minute, so on the
+     * sync queue (local development) it runs after the response rather than
+     * holding the reader's POST. Nothing it throws fails the request.
+     */
+    public function queueFindCandidates(NovelRequest $request, array $altTitles = []): void
+    {
+        try {
+            $job = new FindRequestCandidates((int) $request->id, array_values($altTitles));
+            if (config('queue.default') === 'sync') {
+                Bus::dispatchAfterResponse($job);
+            } else {
+                Bus::dispatch($job->onQueue('commands'));
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Request {$request->id}: finding candidates not queued: " . $e->getMessage());
         }
     }
 

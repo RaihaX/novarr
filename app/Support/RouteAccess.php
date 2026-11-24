@@ -161,6 +161,7 @@ final class RouteAccess
         'requests.index',
         'api.v1.requests.searches.store',
         'api.v1.requests.searches.show',
+        'api.v1.requests.browse',
         'api.v1.requests',
         'api.v1.requests.show',
         'api.v1.requests.store',

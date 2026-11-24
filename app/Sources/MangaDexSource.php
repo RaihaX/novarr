@@ -769,12 +769,13 @@ class MangaDexSource extends AbstractSource implements ProvidesChapterStats, Rep
 
     public function discoverLists(): array
     {
-        return ['search', 'popular'];
+        return ['search', 'popular', 'trending', 'top'];
     }
 
     /**
-     * Search by title (relevance) or the most-followed series, in the
-     * configured languages; only series with a downloadable chapter are
+     * Search by title (relevance), the most-followed series (popular), the
+     * most-followed series added in the last 30 days (trending) or the
+     * best-rated series (top), in the configured languages; only series with a downloadable chapter are
      * listed. Page 1 of discoverPage(). Null when the API could not be reached.
      */
     public function discover(string $type, ?string $query = null): ?array
@@ -787,7 +788,9 @@ class MangaDexSource extends AbstractSource implements ProvidesChapterStats, Rep
      * `has_more` comes from the API's `total` (capped at MAX_WINDOW and
      * PagedDiscover::MAX_PAGE), not from the readable-filtered count, so a
      * page that lost every item to the filter can still have more. Each
-     * page is cached on its own: popular an hour, searches ten minutes.
+     * page is cached on its own: the charts an hour, searches ten minutes.
+     * trending's createdAtSince is the start of the day 30 days ago, so its
+     * cache key stays the same all day.
      */
     public function discoverPage(string $type, ?string $query, int $page): ?array
     {
@@ -808,6 +811,13 @@ class MangaDexSource extends AbstractSource implements ProvidesChapterStats, Rep
             $params += ['title' => $query, 'order' => ['relevance' => 'desc']];
         } elseif ($type === 'popular') {
             $params += ['order' => ['followedCount' => 'desc']];
+        } elseif ($type === 'trending') {
+            $params += [
+                'order' => ['followedCount' => 'desc'],
+                'createdAtSince' => now()->subDays(30)->startOfDay()->format('Y-m-d\TH:i:s'),
+            ];
+        } elseif ($type === 'top') {
+            $params += ['order' => ['rating' => 'desc']];
         } else {
             return $none;
         }

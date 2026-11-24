@@ -499,9 +499,11 @@
                         $state = \App\Http\Controllers\NovelController::chapterState($chapter);
                         $isRead = $chapter->isRead();
                         $isCurrent = (int) $chapter->id === (int) $continue_chapter_id;
-                        $review = $state !== 'downloaded' && (int) ($chapter->attempts ?? 0) >= \App\NovelChapter::REVIEW_ATTEMPTS;
+                        // Set aside by the manga fallback: no source has it right now (a calm state, not a failure).
+                        $unavailable = $state !== 'downloaded' && $chapter->isSetAside();
+                        $review = !$unavailable && $state !== 'downloaded' && (int) ($chapter->attempts ?? 0) >= \App\NovelChapter::REVIEW_ATTEMPTS;
                     @endphp
-                    <tr class="chapter-row is-{{ $state }}{{ $isRead ? ' is-read' : '' }}{{ $isCurrent ? ' is-current' : '' }}" id="ch-{{ $chapter->id }}">
+                    <tr class="chapter-row is-{{ $unavailable ? 'unavailable' : $state }}{{ $isRead ? ' is-read' : '' }}{{ $isCurrent ? ' is-current' : '' }}" id="ch-{{ $chapter->id }}">
                         <td class="ch-select"><input type="checkbox" class="form-check-input ch-check" value="{{ $chapter->id }}" aria-label="Select chapter {{ $chapter->chapter }}"></td>
                         <td class="ch-num"><span class="ch-num-prefix">Ch. </span>{{ $chapter->chapter }}</td>
                         @if($showBookCol)
@@ -519,7 +521,7 @@
                             @if($chapter->isNote())
                                 <x-status state="paused" class="ms-1" title="Author's note — a message from the author or translator, not a story chapter">Note</x-status>
                             @endif
-                            @if($state === 'failed' && $isAdmin)
+                            @if($state === 'failed' && $isAdmin && !$unavailable)
                                 <span class="ch-reason">{{ \App\Http\Controllers\NovelController::failureReasonText($chapter->last_failure_reason) . ((int) $chapter->attempts > 1 ? ' · ' . (int) $chapter->attempts . ' attempts' : '') }}</span>
                             @endif
                         </td>
@@ -529,6 +531,8 @@
                             @endif
                             @if($state !== 'downloaded' && !$isAdmin)
                                 <x-status state="queued">Not downloaded yet</x-status>
+                            @elseif($unavailable)
+                                <x-status state="paused" data-unavailable title="Its source keeps failing on this chapter and no other source has it. Checked again on {{ \App\Scraping\MangaFallback::dateText($chapter->unavailable_until) }}.">Unavailable</x-status>
                             @elseif($review)
                                 <x-status state="attention" title="Download failed {{ (int) $chapter->attempts }} times — still retried every 3 days, but it needs a look">Needs review</x-status>
                             @elseif($state === 'failed')
@@ -569,10 +573,13 @@
     <x-status state="failed" data-tpl="failed" />
     <x-status state="queued" data-tpl="queued" />
     <x-status state="attention" data-tpl="review">Needs review</x-status>
+    {{-- __DATE__ is replaced per row (resources/js/novel.js). --}}
+    <x-status state="paused" data-tpl="unavailable" data-unavailable title="Its source keeps failing on this chapter and no other source has it. Checked again on __DATE__.">Unavailable</x-status>
     @else
     <x-status state="queued" data-tpl="failed">Not downloaded yet</x-status>
     <x-status state="queued" data-tpl="queued">Not downloaded yet</x-status>
     <x-status state="queued" data-tpl="review">Not downloaded yet</x-status>
+    <x-status state="queued" data-tpl="unavailable">Not downloaded yet</x-status>
     @endif
     <x-status state="paused" class="ms-1" data-tpl="note" title="Author's note — a message from the author or translator, not a story chapter">Note</x-status>
 </template>

@@ -173,6 +173,14 @@ $oneServer(Schedule::command('requests:availability')
     ->name('request_availability')
     ->withoutOverlapping(10));
 
+// Reader requests: page 1 of each Discover shelf list (the Requests page's
+// popular / new & popular / top-rated manga) is refreshed before its cache
+// runs out, so no reader waits for a cold page.
+$oneServer(Schedule::command('requests:browse-warm')
+    ->everyThreeHours()
+    ->name('request_browse_warm')
+    ->withoutOverlapping(30));
+
 // Self-heal cover thumbnails (covers/sm, covers/md): generates any that are
 // missing, e.g. after a restore or a cover written by an older release.
 Schedule::command('covers:thumbs')

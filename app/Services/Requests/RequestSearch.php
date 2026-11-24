@@ -476,6 +476,42 @@ class RequestSearch
 
         $medium = (string) $record['medium'];
         $query = (string) $record['query'];
+        $outcome = $this->askSources($medium, $query, $discover);
+
+        $this->finish($id, ['status' => 'done', 'message' => null] + $outcome);
+        $this->remember($medium, $query, $outcome);
+    }
+
+    /**
+     * A search's outcome without a record: the remembered results when there
+     * are any, else every searchable source of the medium asked now (within
+     * budgetSeconds()) and the outcome remembered, as run() does. Takes no
+     * slot and no rate-limit hit: for the server's own lookups (the shortlist
+     * of a request made from the Discover shelf, FindRequestCandidates).
+     *
+     * @return array{groups: array, skipped_sources: array, sources_asked: array}
+     */
+    public function collect(string $medium, string $query, Discover $discover): array
+    {
+        $remembered = $this->remembered($medium, $query);
+        if ($remembered !== null) {
+            return $remembered;
+        }
+
+        $outcome = $this->askSources($medium, $query, $discover);
+        $this->remember($medium, $query, $outcome);
+
+        return $outcome;
+    }
+
+    /**
+     * Ask the sources and build the outcome: hits filtered for relevance and
+     * grouped into works, the sources skipped and those asked.
+     *
+     * @return array{groups: array, skipped_sources: array, sources_asked: array}
+     */
+    private function askSources(string $medium, string $query, Discover $discover): array
+    {
         $deadline = (int) now()->getPreciseTimestamp(3) + static::budgetSeconds() * 1000;
         $sources = $this->sources($discover, $medium);
         $answers = $this->runner()->run($medium, $query, static::lanes($sources), $sources, $deadline);
@@ -497,10 +533,10 @@ class RequestSearch
                 if ($answer['reason'] === 'timeout' && !empty($answer['asked'])) {
                     \App\Services\SourceHealth::record($key, \App\Services\SourceHealth::KIND_SEARCH, false, 'timeout', 'Request search: no answer within the time limit.');
                 }
-                $skipped[] =['source' => $key, 'source_name' => $this->label($source, $key), 'reason' => $answer['reason'] === 'timeout' ? 'timeout' : 'failed'];
+                $skipped[] = ['source' => $key, 'source_name' => static::label($source, $key), 'reason' => $answer['reason'] === 'timeout' ? 'timeout' : 'failed'];
                 continue;
             }
-            $name = $this->label($source, $key);
+            $name = static::label($source, $key);
             // Hits that don't resemble the query go (SearchRelevance).
             foreach (SearchRelevance::filter($answer['items'], $query) as $item) {
                 if (is_array($item)) {
@@ -509,15 +545,11 @@ class RequestSearch
             }
         }
 
-        $outcome = [
-            'status' => 'done',
-            'message' => null,
+        return [
             'groups' => static::group($hits, $medium, $query),
             'skipped_sources' => $skipped,
             'sources_asked' => $asked,
         ];
-        $this->finish($id, $outcome);
-        $this->remember($medium, $query, $outcome);
     }
 
     /** The runner the container gives (ProcessSearchRunner, or InlineSearchRunner). */
@@ -680,7 +712,8 @@ class RequestSearch
         }
     }
 
-    private function label(Source $source, string $key): string
+    /** A source's name on a hit (its Discover label; the key when that throws). */
+    public static function label(Source $source, string $key): string
     {
         try {
             return $source->discoverLabel();

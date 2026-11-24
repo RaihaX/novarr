@@ -81,6 +81,8 @@ class NovelChapter extends Model
         'page_count' => 'integer',
         // Pages taken from another source (App\Scraping\MangaFallback).
         'filled_at' => 'datetime',
+        // No source can provide it right now; not tried before this (MangaFallback).
+        'unavailable_until' => 'datetime',
     ];
 
     public function novel(): BelongsTo
@@ -402,12 +404,18 @@ class NovelChapter extends Model
     }
 
     /**
-     * Pending rows the sweep may fetch now (retry backoff elapsed).
+     * Pending rows the sweep may fetch now (retry backoff elapsed, not set
+     * aside as unavailable everywhere — ChapterScraper::whereDue()).
      */
     public function scopeDue($query)
     {
-        return $query->where('status', 0)->where('blacklist', 0)
-            ->where(fn($q) => $q->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now()));
+        return \App\Console\Commands\ChapterScraper::whereDue($query->where('status', 0)->where('blacklist', 0));
+    }
+
+    /** Set aside by the manga fallback: no source can provide it before unavailable_until. */
+    public function isSetAside(): bool
+    {
+        return !$this->status && $this->unavailable_until !== null && $this->unavailable_until->isFuture();
     }
 
     /**

@@ -156,6 +156,18 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(6)->by('reader-actions|' . ($reader->isGuest() ? $request->ip() : $reader->id()))
                 ->response(fn() => response()->json(['message' => 'Too many requests. Wait a minute and try again.', 'code' => 'throttled'], 429));
         });
+
+        // The Requests page's Discover shelf (GET /api/v1/requests/browse):
+        // cheap when cached, but a cold page asks the source ~40 times.
+        RateLimiter::for('novarr-request-browse', function (Request $request) {
+            $reader = app(CurrentReader::class);
+            if (Gate::allows('admin')) {
+                return Limit::none();
+            }
+
+            return Limit::perMinute(30)->by('request-browse|' . ($reader->isGuest() ? $request->ip() : $reader->id()))
+                ->response(fn() => response()->json(['message' => 'Too many requests. Wait a minute and try again.', 'code' => 'throttled'], 429));
+        });
     }
 
     /**

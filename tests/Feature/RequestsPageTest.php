@@ -82,6 +82,44 @@ class RequestsPageTest extends TestCase
         $this->assertStringContainsString('"title":"Requests"', $page->getContent());
     }
 
+    public function test_the_page_renders_the_discover_shelf_hidden_until_the_script_shows_it(): void
+    {
+        $html = $this->asSignedIn($this->reader)->get('/requests')->assertOk()
+            ->assertSee('Discover manga')
+            ->assertSee('Request anything that isn’t in the library yet.')
+            ->getContent();
+
+        // The section is hidden until the browse call answers with lists.
+        $this->assertMatchesRegularExpression('/<section class="req-section req-discover" id="reqDiscover"[^>]*\shidden>/', $html);
+        // Between "Find something to request" and "My requests".
+        $find = strpos($html, 'id="reqFindTitle"');
+        $shelf = strpos($html, 'id="reqDiscover"');
+        $mine = strpos($html, 'id="reqMineTitle"');
+        $this->assertTrue($find < $shelf && $shelf < $mine, 'the shelf sits between the search and My requests');
+
+        // The rail, its status line, arrows, error/Retry and the tabs' slot (built by JS).
+        $this->assertStringContainsString('<ul id="reqRail" class="req-rail" role="list"', $html);
+        $this->assertMatchesRegularExpression('/id="reqDiscoverStatus"[^>]*role="status" aria-live="polite"/', $html);
+        $this->assertStringContainsString('id="reqDiscoverTabs" hidden', $html);
+        $this->assertMatchesRegularExpression('/id="reqRailPrev" aria-label="Scroll left"/', $html);
+        $this->assertMatchesRegularExpression('/id="reqRailNext" aria-label="Scroll right"/', $html);
+        $this->assertStringContainsString('id="reqDiscoverRetry"', $html);
+
+        // The shelf card template: the shared cover, title, author, meta line, action slot; no synopsis.
+        $this->assertMatchesRegularExpression('/<template id="reqShelfTpl">(.*?)<\/template>/s', $html);
+        preg_match('/<template id="reqShelfTpl">(.*?)<\/template>/s', $html, $tpl);
+        $this->assertStringContainsString('class="cover cover-md', $tpl[1]);
+        $this->assertStringContainsString('req-card-title', $tpl[1]);
+        $this->assertStringContainsString('disc-author', $tpl[1]);
+        $this->assertStringContainsString('req-shelf-meta', $tpl[1]);
+        $this->assertStringContainsString('req-card-action', $tpl[1]);
+        $this->assertStringNotContainsString('disc-synopsis', $tpl[1]);
+
+        // The request dialog's synopsis and meta line for shelf cards, hidden by default.
+        $this->assertStringContainsString('id="reqNoteSynopsis" hidden', $html);
+        $this->assertStringContainsString('id="reqNoteMeta" hidden', $html);
+    }
+
     public function test_the_page_renders_for_the_admin_with_the_pending_badge_everywhere(): void
     {
         $this->pending($this->reader, 'One');

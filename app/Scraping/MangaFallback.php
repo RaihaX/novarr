@@ -39,7 +39,8 @@ use Illuminate\Support\Facades\Log;
  *        (novels.source_fail_streak > 0) and the chapter's last failure is a
  *        content reason (not_found / no_content) — SourceUnavailable's group
  *        (groupQuery()), whatever its attempts.
- *    Never rate_limited (pace, not a broken chapter).
+ *    Never rate_limited (pace, not a broken chapter), never a chapter set
+ *    aside (unavailable_until in the future, see 4.).
  *
  * 2. Alternates (refresh()): the other installed manga sources, in the
  *    reader-request search order (RequestSearch::sources(): source_order,
@@ -54,18 +55,54 @@ use Illuminate\Support\Facades\Log;
  *    several exact hits on one source the one whose chapter count is
  *    closest to the series' own is kept.
  *
- * 3. Filling (fillNovel()): lowest chapter first, at most
+ * 3. Filling (processNovel(), fillChapter()): lowest chapter first, at most
  *    fallback_chapters_per_run per series, within the run's time budget;
  *    each chapter from the first alternate (preference order) that lists
  *    the same chapter number, through PageDownloader with the alternate's
- *    source and chapter URL (the row's url never changes), refused below a
- *    sane page count. Success marks the row as ChapterScraper does and sets
- *    filled_from / filled_at. A failed alternate is counted and dropped at
- *    MAX_FAILURES consecutive failures until a refresh finds it again.
- *    Each download holds the alternate's download lane (DownloadLanes: a
- *    busy lane is skipped this run) and waits the lane's pace (HostPace)
- *    between chapters. A series with nothing stuck left has its failure
- *    state cleared.
+ *    source and chapter URL (the row's url never changes). Success marks
+ *    the row as ChapterScraper does and sets filled_from / filled_at. A
+ *    failed alternate is counted and dropped at MAX_FAILURES consecutive
+ *    failures until a refresh finds it again. Each download holds the
+ *    alternate's download lane (DownloadLanes: a busy lane is skipped this
+ *    run) and waits the lane's pace (HostPace) between chapters.
+ *    A page list below minPages() is refused ('too_few_pages') before any
+ *    image; that is our caution, not the alternate's fault, so it is never
+ *    counted against it (no failure, no SourceHealth failure). When no
+ *    alternate filled the chapter and at least two refused it with the SAME
+ *    page count (>= 1), that is taken as the chapter's real length (a short
+ *    extra) and it is downloaded from the first of them with the floor
+ *    lowered to that count. One alternate alone below the floor stays
+ *    refused.
+ *
+ * 4. Setting aside (setAside()): a chapter's attempt is conclusive when
+ *    every alternate was considered and each one does not list the number,
+ *    failed to deliver it now, or is dropped — and none was skipped for a
+ *    passing reason (the run's deadline, a busy / rate-limited /
+ *    cooling-down lane, a lane wait past the deadline, an unreadable chapter
+ *    list, a rate_limited download). An unnumbered chapter is conclusively
+ *    missing; so is every chapter of a series no source has at all once the
+ *    cycle is complete. After a conclusive "missing" or "failed", and only
+ *    once the series' search cycle is complete (every source searched), the
+ *    chapter is set aside: novel_chapters.unavailable_until = the later of
+ *    now + 1 day and cycle_started_at + fallback_search_days;
+ *    next_attempt_at at least that; attempts raised to the threshold so it
+ *    qualifies again at once when the date passes (last_failure_reason is
+ *    kept). Nothing retries it before then: this class's queries leave it
+ *    out, and so does ChapterScraper::whereDue() (whatever resets
+ *    next_attempt_at). So one failing chapter cannot use up an alternate's
+ *    failures run after run. A download of it (own source or a fill,
+ *    ChapterScraper::updateMangaChapter()) clears the column. Never in a dry
+ *    run (it says what it would do).
+ *
+ * 5. Recovery: a series with nothing stuck left after a run that filled or
+ *    set aside a chapter has its failure state cleared (scrape_failures,
+ *    the park streak); last_scrape_issue becomes null, or one calm line when
+ *    set-aside chapters remain (setAsideMessage(): "3 chapters are not
+ *    available from any source right now (…). Novarr looks again on …"), so
+ *    it leaves Needs attention. The Health page's "Not available on the
+ *    source" panel lists those series beside the parked ones
+ *    (unavailableNovels()), and the series page shows such a chapter as
+ *    "Unavailable".
  */
 class MangaFallback
 {
@@ -159,9 +196,9 @@ class MangaFallback
             return $query->whereRaw('1 = 0');
         }
 
-        return $query
+        return self::notSetAside($query
             ->where('status', 0)
-            ->where('blacklist', 0)
+            ->where('blacklist', 0))
             ->where(function ($q) use ($threshold, $failedRuns, $parked) {
                 $q->where(fn($r) => $r->whereIn('last_failure_reason', ['partial_pages', 'no_content', 'not_found'])
                     ->where('attempts', '>=', $threshold));
@@ -184,9 +221,9 @@ class MangaFallback
      */
     public static function candidateNovels(?int $novelId = null): Collection
     {
-        $ids = NovelChapter::query()
+        $ids = self::notSetAside(NovelChapter::query()
             ->where('status', 0)
-            ->where('blacklist', 0)
+            ->where('blacklist', 0))
             ->whereIn('last_failure_reason', self::REASONS)
             ->when($novelId !== null, fn($q) => $q->where('novel_id', $novelId))
             ->distinct()
@@ -201,15 +238,21 @@ class MangaFallback
             ->values();
     }
 
-    /** Pending chapters still failing for one of REASONS (any attempts). */
+    /** Pending chapters still failing for one of REASONS (any attempts), set-aside ones left out. */
     private static function stillFailing(Novel $novel): bool
     {
-        return NovelChapter::query()
+        return self::notSetAside(NovelChapter::query()
             ->where('novel_id', $novel->id)
             ->where('status', 0)
-            ->where('blacklist', 0)
+            ->where('blacklist', 0))
             ->whereIn('last_failure_reason', self::REASONS)
             ->exists();
+    }
+
+    /** Leave out chapters set aside as unavailable everywhere (unavailable_until in the future). */
+    public static function notSetAside($query)
+    {
+        return $query->where(fn($q) => $q->whereNull('unavailable_until')->orWhere('unavailable_until', '<=', Carbon::now()));
     }
 
     // ---- Titles ----------------------------------------------------------------
@@ -285,7 +328,7 @@ class MangaFallback
      * One run over every candidate series (or $novelId). Returns counts.
      *
      * @param  \Closure(string): void|null  $output  a line for the console
-     * @return array{novels: int, filled: int, failed: int, searched: int, planned: int}
+     * @return array{novels: int, filled: int, failed: int, searched: int, planned: int, set_aside: int}
      */
     public function run(?int $novelId = null, bool $dryRun = false, bool $refresh = false, ?int $maxMinutes = null, ?\Closure $output = null): array
     {
@@ -295,7 +338,7 @@ class MangaFallback
         $this->tocs = [];
         $this->nextAllowedAt = [];
         $this->blockedLanes = [];
-        $stats = ['novels' => 0, 'filled' => 0, 'failed' => 0, 'searched' => 0, 'planned' => 0];
+        $stats = ['novels' => 0, 'filled' => 0, 'failed' => 0, 'searched' => 0, 'planned' => 0, 'set_aside' => 0];
 
         $novels = self::candidateNovels($novelId);
         if ($novels->isEmpty()) {
@@ -331,31 +374,42 @@ class MangaFallback
         return $stats;
     }
 
-    /** @return array{filled: int, failed: int, searched: int, planned: int} */
+    /** @return array{filled: int, failed: int, searched: int, planned: int, set_aside: int} */
     private function processNovel(Novel $novel, bool $refresh): array
     {
-        $stats = ['filled' => 0, 'failed' => 0, 'searched' => 0, 'planned' => 0];
+        $stats = ['filled' => 0, 'failed' => 0, 'searched' => 0, 'planned' => 0, 'set_aside' => 0];
         $stuck = self::qualifyingQuery($novel)->count();
         $this->note("{$novel->name}: {$stuck} chapter(s) its source keeps failing on.");
 
-        [$alternates, $searched] = $this->alternates($novel, $refresh);
+        [$alternates, $searched, $state] = $this->alternates($novel, $refresh);
         $stats['searched'] = $searched;
+        // Every source searched in this cycle: a chapter none of them can
+        // provide may be set aside (setAside()). Mid-cycle it may not.
+        $cycleComplete = $state !== null && $state->cycleComplete();
         $usable = $alternates->filter(fn(MangaAlternate $a) => $a->failures < self::MAX_FAILURES)->values();
-        if ($usable->isEmpty()) {
+        if ($usable->isEmpty() && ($alternates->isNotEmpty() || !$cycleComplete)) {
+            // Still searching, or everything it found went unusable (a new
+            // search comes next run): nothing is concluded about the chapters.
             $this->note("{$novel->name}: no other source has it (yet).");
             return $stats;
         }
-        $this->note("{$novel->name}: other sources: " . $usable->map(fn($a) => "{$a->source_name} ({$a->chapter_count} ch.)")->implode(', '));
+        if ($usable->isEmpty()) {
+            $this->note("{$novel->name}: no other source has it (every source searched).");
+        } else {
+            $this->note("{$novel->name}: other sources: " . $usable->map(fn($a) => "{$a->source_name} ({$a->chapter_count} ch.)")->implode(', '));
+        }
 
         $minPages = self::minPages($novel);
         $chapters = self::qualifyingQuery($novel)->limit(self::chaptersPerRun())->get();
+        $hadUsable = $usable->isNotEmpty();
 
         foreach ($chapters as $chapter) {
             if ($this->pastDeadline()) {
                 $this->note("Time budget used up; the rest waits for the next run.");
                 break;
             }
-            $outcome = $this->fillChapter($novel, $chapter, $usable, $minPages);
+            $result = $this->fillChapter($novel, $chapter, $usable, $minPages);
+            $outcome = $result['outcome'];
             if ($outcome === 'filled') {
                 $stats['filled']++;
             } elseif ($outcome === 'planned') {
@@ -363,14 +417,27 @@ class MangaFallback
             } elseif ($outcome === 'failed') {
                 $stats['failed']++;
             }
+            if (in_array($outcome, ['missing', 'failed'], true) && $result['conclusive'] && $cycleComplete) {
+                if ($this->setAside($novel, $chapter, $state)) {
+                    $stats['set_aside']++;
+                }
+            }
             $usable = $usable->filter(fn(MangaAlternate $a) => $a->failures < self::MAX_FAILURES)->values();
-            if ($usable->isEmpty()) {
+            if ($hadUsable && $usable->isEmpty()) {
+                // Every alternate went unusable during this run: the chapters
+                // after this one were never tried on them, so nothing is
+                // concluded about them (a new search comes next run).
                 break;
             }
         }
 
-        if (!$this->dryRun && $stats['filled'] > 0 && !self::stillFailing($novel)) {
-            $this->clearFailureState($novel);
+        if (!$this->dryRun && ($stats['filled'] > 0 || $stats['set_aside'] > 0) && !self::stillFailing($novel)) {
+            $aside = self::setAsideChapters((int) $novel->id);
+            if ($aside->isEmpty()) {
+                $this->clearFailureState($novel);
+            } else {
+                $this->clearFailureState($novel, self::setAsideMessage($aside));
+            }
         }
 
         return $stats;
@@ -378,30 +445,47 @@ class MangaFallback
 
     /**
      * Fill one chapter from the first alternate that has its number.
-     * Returns 'filled', 'planned' (dry run), 'failed' (an alternate had it
-     * but every try failed), 'missing' (no alternate lists the number) or
-     * 'deferred' (out of time).
+     *
+     * 'outcome': 'filled', 'planned' (dry run), 'failed' (an alternate listed
+     * it but none delivered it), 'missing' (no alternate asked lists the
+     * number) or 'deferred' (out of time). 'conclusive': every alternate was
+     * considered and each either does not list the number, failed to deliver
+     * it now or is dropped (failures >= MAX_FAILURES) — none was skipped for a
+     * passing reason (the run's deadline, a busy / rate-limited / cooling-down
+     * lane, a lane wait past the deadline, an unreadable chapter list, a
+     * rate_limited download).
+     *
+     * A page list below $minPages is refused ('too_few_pages'), which is not
+     * the alternate's fault and not counted against it. When at least two
+     * alternates refused it with the same page count, that count is taken as
+     * the chapter's real length and it is downloaded from the first of them.
+     *
+     * @return array{outcome: string, conclusive: bool}
      */
-    private function fillChapter(Novel $novel, NovelChapter $chapter, Collection $alternates, int $minPages): string
+    private function fillChapter(Novel $novel, NovelChapter $chapter, Collection $alternates, int $minPages): array
     {
         $number = (float) $chapter->chapter;
         $label = $chapter->label ?: "Chapter {$chapter->chapter}";
         if ($number <= 0) {
             // Unnumbered (oneshot / special): nothing safe to match on.
             $this->note("  {$label}: no chapter number to match on; skipped.");
-            return 'missing';
+            return ['outcome' => 'missing', 'conclusive' => true];
         }
 
-        $tried = false;
+        $conclusive = true;
+        $listedBy = [];   // source names that list the number but did not deliver it
+        $refusals = [];   // too_few_pages refusals, in preference order
         foreach ($alternates as $alternate) {
             if ($alternate->failures >= self::MAX_FAILURES) {
                 continue;
             }
             if ($this->pastDeadline()) {
+                $conclusive = false;
                 break;
             }
             $lane = self::laneOf($alternate);
             if (isset($this->blockedLanes[$lane]) || ChapterScraper::hostCoolingDown($lane)) {
+                $conclusive = false;
                 continue;
             }
 
@@ -413,6 +497,7 @@ class MangaFallback
                 if ($fresh) {
                     $this->countFailure($alternate, 'fetch_failed', "{$novel->name}: the chapter list on {$alternate->source_name} could not be read");
                 }
+                $conclusive = false;
                 continue;
             }
             $row = self::findNumber($rows, $number);
@@ -420,60 +505,224 @@ class MangaFallback
                 continue;
             }
 
-            $tried = true;
             if ($this->dryRun) {
                 $this->say("  would fetch {$label} from {$alternate->source_name}: {$row['url']}");
-                return 'planned';
+                return ['outcome' => 'planned', 'conclusive' => false];
             }
 
-            if (!$this->waitForLane($lane)) {
-                // The lane's pace would run past the time budget: next run.
-                return 'deferred';
+            $result = $this->downloadFrom($novel, $chapter, $alternate, $source, $lane, (string) $row['url'], $minPages, $label);
+            if ($result === 'filled') {
+                return ['outcome' => 'filled', 'conclusive' => true];
             }
-            $lock = DownloadLanes::lock($lane);
-            if (!$lock->get()) {
-                $this->note("  {$alternate->source_name} is downloading for another series; not used this run.");
-                $this->blockedLanes[$lane] = true;
-                continue;
+            if ($result === 'deferred') {
+                return ['outcome' => 'deferred', 'conclusive' => false];
             }
-            try {
-                $result = $this->downloader()->download($chapter, $source, (string) $row['url'], $minPages);
-            } finally {
-                $lock->release();
+            $listedBy[] = $alternate->source_name;
+            if ($result instanceof PageDownloadResult) {
+                // too_few_pages: remembered for the agreement below.
+                $refusals[] = ['alternate' => $alternate, 'source' => $source, 'lane' => $lane, 'url' => (string) $row['url'], 'pages' => $result->listedPages];
+            } elseif ($result === 'passing') {
+                $conclusive = false;
             }
-            $this->nextAllowedAt[$lane] = $this->clock() + $this->hostPace()->delay($lane);
-            $this->hostPace()->record($lane, $result->ok ? null : $result->category);
-
-            if ($result->ok) {
-                $this->markFilled($chapter, $alternate, $result->pages);
-                $alternate->forceFill(['failures' => 0])->save();
-                SourceHealth::record($alternate->source_key, SourceHealth::KIND_CHAPTER, true);
-                $line = "Manga fallback: {$novel->name} {$label} filled from {$alternate->source_name} ({$result->pages} pages, {$row['url']}).";
-                Log::info($line);
-                $this->say("  ✓ {$label}: {$result->pages} pages from {$alternate->source_name}");
-
-                return 'filled';
-            }
-
-            $category = $result->category ?: 'fetch_failed';
-            $why = "{$novel->name} {$label} from {$alternate->source_name}: {$category}" . ($result->message ? " — {$result->message}" : '');
-            if ($category === 'rate_limited') {
-                // Pace, not a broken alternate: leave the lane alone this run.
-                $this->blockedLanes[$lane] = true;
-                SourceHealth::record($alternate->source_key, SourceHealth::KIND_CHAPTER, false, $category, $why);
-                Log::info("Manga fallback: {$why}; not using that source again this run.");
-                $this->say("  ✗ {$why}");
-                continue;
-            }
-            $this->countFailure($alternate, $category, $why);
         }
 
-        if (!$tried) {
-            $this->note("  {$label}: no other source lists chapter " . self::numberText($number) . '.');
-            return 'missing';
+        // A short chapter two sources agree on is the chapter.
+        $agreed = $this->pastDeadline() ? null : self::agreedShortCount($refusals);
+        if ($agreed !== null) {
+            [$count, $first, $names] = $agreed;
+            $this->note("  {$label}: {$count} pages on both " . implode(' and ', $names) . "; taking it from {$first['alternate']->source_name} as a short chapter.");
+            $result = $this->downloadFrom($novel, $chapter, $first['alternate'], $first['source'], $first['lane'], $first['url'], $count, $label);
+            if ($result === 'filled') {
+                return ['outcome' => 'filled', 'conclusive' => true];
+            }
+            if ($result === 'deferred') {
+                return ['outcome' => 'deferred', 'conclusive' => false];
+            }
+            if ($result === 'passing') {
+                $conclusive = false;
+            }
         }
+
+        $numberText = self::numberText($number);
+        if ($listedBy === []) {
+            $this->note($conclusive
+                ? "  {$label}: no other source lists chapter {$numberText}."
+                : "  {$label}: none of the other sources asked this run lists chapter {$numberText}; some could not be asked, so it is tried again next run.");
+
+            return ['outcome' => 'missing', 'conclusive' => $conclusive];
+        }
+
+        $names = implode(', ', array_unique($listedBy));
+        $this->note("  {$label}: listed on {$names}, but " . (count(array_unique($listedBy)) === 1 ? 'it' : 'none of them') . ' could deliver it'
+            . ($conclusive ? '.' : ' this run; tried again next run.'));
+
+        return ['outcome' => 'failed', 'conclusive' => $conclusive];
+    }
+
+    /**
+     * One download from an alternate inside its lane. Returns 'filled',
+     * 'deferred' (the lane's pace would pass the deadline), 'passing' (busy
+     * lane or rate limit: not this run), 'failed' (counted against the
+     * alternate) or, for a too_few_pages refusal (not counted), the result.
+     */
+    private function downloadFrom(Novel $novel, NovelChapter $chapter, MangaAlternate $alternate, Source $source, string $lane, string $url, int $minPages, string $label): string|PageDownloadResult
+    {
+        if (!$this->waitForLane($lane)) {
+            // The lane's pace would run past the time budget: next run.
+            return 'deferred';
+        }
+        $lock = DownloadLanes::lock($lane);
+        if (!$lock->get()) {
+            $this->note("  {$alternate->source_name} is downloading for another series; not used this run.");
+            $this->blockedLanes[$lane] = true;
+            return 'passing';
+        }
+        try {
+            $result = $this->downloader()->download($chapter, $source, $url, $minPages);
+        } finally {
+            $lock->release();
+        }
+        $this->nextAllowedAt[$lane] = $this->clock() + $this->hostPace()->delay($lane);
+        $this->hostPace()->record($lane, $result->ok ? null : $result->category);
+
+        if ($result->ok) {
+            $this->markFilled($chapter, $alternate, $result->pages);
+            $alternate->forceFill(['failures' => 0])->save();
+            SourceHealth::record($alternate->source_key, SourceHealth::KIND_CHAPTER, true);
+            Log::info("Manga fallback: {$novel->name} {$label} filled from {$alternate->source_name} ({$result->pages} pages, {$url}).");
+            $this->say("  ✓ {$label}: {$result->pages} pages from {$alternate->source_name}");
+
+            return 'filled';
+        }
+
+        $category = $result->category ?: 'fetch_failed';
+        $why = "{$novel->name} {$label} from {$alternate->source_name}: {$category}" . ($result->message ? " — {$result->message}" : '');
+        if ($category === 'too_few_pages') {
+            // A refusal on our side, not a broken alternate: never counted.
+            Log::info("Manga fallback: {$why}; refused, not counted against the source.");
+            $this->say("  – {$why}");
+
+            return $result;
+        }
+        if ($category === 'rate_limited') {
+            // Pace, not a broken alternate: leave the lane alone this run.
+            $this->blockedLanes[$lane] = true;
+            SourceHealth::record($alternate->source_key, SourceHealth::KIND_CHAPTER, false, $category, $why);
+            Log::info("Manga fallback: {$why}; not using that source again this run.");
+            $this->say("  ✗ {$why}");
+
+            return 'passing';
+        }
+        $this->countFailure($alternate, $category, $why);
 
         return 'failed';
+    }
+
+    /**
+     * Of too_few_pages refusals (preference order), the page count at least
+     * two of them listed (>= 1), the first of those and the names of all of
+     * them — the count whose first refusal comes earliest. Null when no two
+     * agree. Pure.
+     *
+     * @param  array<int, array{alternate: MangaAlternate, pages: ?int}>  $refusals
+     * @return array{0: int, 1: array, 2: string[]}|null
+     */
+    public static function agreedShortCount(array $refusals): ?array
+    {
+        $groups = [];
+        foreach ($refusals as $refusal) {
+            $pages = (int) ($refusal['pages'] ?? 0);
+            if ($pages >= 1) {
+                $groups[$pages][] = $refusal;
+            }
+        }
+        foreach ($groups as $pages => $group) {
+            if (count($group) >= 2) {
+                // Groups keep the order of their first refusal: the earliest wins.
+                $names = array_values(array_unique(array_map(fn($r) => $r['alternate']->source_name, $group)));
+
+                return [(int) $pages, $group[0], $names];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Set a chapter no source can provide aside: unavailable_until = the
+     * later of a day from now and the end of the current search cycle;
+     * next_attempt_at at least that; attempts raised to the threshold so it
+     * qualifies at once when it comes back. last_failure_reason untouched.
+     * Dry run: only says so. Returns whether it was set aside.
+     */
+    private function setAside(Novel $novel, NovelChapter $chapter, MangaAlternateSearch $state): bool
+    {
+        $until = self::setAsideUntil($state);
+        $label = $chapter->label ?: "Chapter {$chapter->chapter}";
+        $date = self::dateText($until);
+        if ($this->dryRun) {
+            $this->say("  would set {$label} aside until {$date}: no source can provide it");
+            return false;
+        }
+
+        $next = $chapter->next_attempt_at;
+        $chapter->forceFill([
+            'unavailable_until' => $until,
+            'next_attempt_at' => $next !== null && $next->gt($until) ? $next : $until,
+            'attempts' => max((int) $chapter->attempts, self::attemptsThreshold()),
+        ])->saveQuietly();
+        $this->note("  {$label}: no source can provide it; set aside until {$date}.");
+        Log::info("Manga fallback: {$novel->name} {$label} set aside until {$until->toDateTimeString()} (no source can provide it).");
+
+        return true;
+    }
+
+    /** The later of a day from now and the cycle's start + fallback_search_days. */
+    public static function setAsideUntil(?MangaAlternateSearch $state): Carbon
+    {
+        $until = Carbon::now()->addDay();
+        $cycleEnd = $state?->cycle_started_at?->copy()->addDays(self::searchDays());
+        if ($cycleEnd !== null && $cycleEnd->gt($until)) {
+            $until = Carbon::instance($cycleEnd);
+        }
+
+        return $until;
+    }
+
+    /** The series' chapters set aside now (pending, unavailable_until in the future), lowest first. */
+    public static function setAsideChapters(int $novelId): Collection
+    {
+        return NovelChapter::query()
+            ->where('novel_id', $novelId)
+            ->where('status', 0)
+            ->where('blacklist', 0)
+            ->where('unavailable_until', '>', Carbon::now())
+            ->orderBy('chapter')
+            ->orderBy('id')
+            ->get(['id', 'chapter', 'label', 'unavailable_until']);
+    }
+
+    /**
+     * The calm issue line of a series whose only stuck chapters are set
+     * aside: "3 chapters are not available from any source right now (45.5,
+     * 146.5, 723). Novarr looks again on 1 Dec 2026." At most five numbers.
+     * Pure but for the app timezone.
+     */
+    public static function setAsideMessage(Collection $chapters): string
+    {
+        $n = $chapters->count();
+        $names = $chapters->take(5)->map(fn($c) => (float) $c->chapter > 0 ? self::numberText((float) $c->chapter) : ($c->label ?: '?'))->all();
+        $list = implode(', ', $names) . ($n > 5 ? ' and ' . ($n - 5) . ' more' : '');
+        $earliest = $chapters->min(fn($c) => $c->unavailable_until?->getTimestamp() ?? PHP_INT_MAX);
+        $when = $earliest !== null && $earliest !== PHP_INT_MAX ? self::dateText(Carbon::createFromTimestamp($earliest)) : 'later';
+
+        return ($n === 1 ? '1 chapter is' : "{$n} chapters are") . " not available from any source right now ({$list}). Novarr looks again on {$when}.";
+    }
+
+    /** "1 Dec 2026" in the app timezone. */
+    public static function dateText(Carbon $time): string
+    {
+        return $time->copy()->setTimezone(config('app.timezone'))->format('j M Y');
     }
 
     /** Mark the row downloaded as ChapterScraper does, plus where the pages came from. url untouched. */
@@ -501,19 +750,27 @@ class MangaFallback
         $this->say("  ✗ {$why}");
     }
 
-    /** The manual fix's last step: scrape_failures, last_scrape_issue, the park streak. */
-    private function clearFailureState(Novel $novel): void
+    /**
+     * The manual fix's last step: scrape_failures, last_scrape_issue, the
+     * park streak. $issue: the calm line when set-aside chapters remain.
+     */
+    private function clearFailureState(Novel $novel, ?string $issue = null): void
     {
         $novel->refresh();
         SourceUnavailable::release($novel);
         $novel->forceFill([
             'scrape_failures' => 0,
-            'last_scrape_issue' => null,
+            'last_scrape_issue' => $issue,
             'source_fail_streak' => 0,
             'source_recheck_at' => null,
         ])->saveQuietly();
-        Log::info("Manga fallback: {$novel->name} has no stuck chapters left; its failure state is cleared.");
-        $this->say("  {$novel->name}: nothing stuck left; failure state cleared.");
+        if ($issue === null) {
+            Log::info("Manga fallback: {$novel->name} has no stuck chapters left; its failure state is cleared.");
+            $this->say("  {$novel->name}: nothing stuck left; failure state cleared.");
+        } else {
+            Log::info("Manga fallback: {$novel->name}: {$issue} Its failure state is cleared.");
+            $this->say("  {$novel->name}: {$issue} Failure state cleared.");
+        }
     }
 
     /**
@@ -595,7 +852,7 @@ class MangaFallback
      * The series' alternates in preference order (refreshed when due) and
      * how many sources were searched for it this run.
      *
-     * @return array{0: Collection<int, MangaAlternate>, 1: int}
+     * @return array{0: Collection<int, MangaAlternate>, 1: int, 2: ?MangaAlternateSearch}
      */
     private function alternates(Novel $novel, bool $force): array
     {
@@ -603,7 +860,7 @@ class MangaFallback
         $alternates = MangaAlternate::where('novel_id', $novel->id)->orderBy('rank')->orderBy('id')->get();
 
         if (!self::refreshDue($state, $alternates, $force)) {
-            return [$alternates, 0];
+            return [$alternates, 0, $state];
         }
 
         return $this->refresh($novel, $state, $alternates, $force);
@@ -637,7 +894,7 @@ class MangaFallback
         return false;
     }
 
-    /** @return array{0: Collection<int, MangaAlternate>, 1: int} */
+    /** @return array{0: Collection<int, MangaAlternate>, 1: int, 2: MangaAlternateSearch} */
     private function refresh(Novel $novel, ?MangaAlternateSearch $state, Collection $alternates, bool $force): array
     {
         $now = Carbon::now();
@@ -742,7 +999,7 @@ class MangaFallback
         $list = $byKey->values()->sortBy([['rank', 'asc'], ['id', 'asc']])->values();
         Log::info("Manga fallback: searched {$searched} source(s) for {$novel->name}; " . ($list->isEmpty() ? 'no other source has it so far' : 'alternates: ' . $list->pluck('source_name')->implode(', ')) . '.');
 
-        return [$list, $searched];
+        return [$list, $searched, $state];
     }
 
     /**
@@ -994,9 +1251,101 @@ class MangaFallback
     }
 
     /**
+     * Set-aside chapters per series (pending, not blacklisted, unavailable_until
+     * in the future): how many, the earliest unavailable_until, and how many
+     * of them SourceUnavailable counts as parked too (content reason, waiting
+     * for a future next_attempt_at). One grouped query.
+     *
+     * @param  int[]|null  $novelIds  null = every series
+     * @return array<int, array{count: int, until: Carbon, parked_too: int}>
+     */
+    public static function setAsideCounts(?array $novelIds = null): array
+    {
+        if ($novelIds === []) {
+            return [];
+        }
+        $now = Carbon::now();
+        $reasons = SourceUnavailable::CONTENT_REASONS;
+        $marks = implode(', ', array_fill(0, count($reasons), '?'));
+        $rows = NovelChapter::query()
+            ->when($novelIds !== null, fn($q) => $q->whereIn('novel_id', $novelIds))
+            ->where('status', 0)
+            ->where('blacklist', 0)
+            ->where('unavailable_until', '>', $now)
+            ->selectRaw(
+                "novel_id, COUNT(*) as n, MIN(unavailable_until) as until, "
+                . "SUM(CASE WHEN last_failure_reason IN ({$marks}) AND next_attempt_at > ? THEN 1 ELSE 0 END) as parked_too",
+                [...$reasons, $now->format('Y-m-d H:i:s')]
+            )
+            ->groupBy('novel_id')
+            ->toBase()
+            ->get();
+
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(int) $row->novel_id] = [
+                'count' => (int) $row->n,
+                'until' => Carbon::parse($row->until),
+                'parked_too' => (int) $row->parked_too,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * The Health page's "Not available on the source" rows: the parked series
+     * (SourceUnavailable::parkedNovels()) and the series with set-aside
+     * chapters, one row per series, soonest re-check first. Each row has
+     * `parked_count` (chapters, a chapter both parked and set aside counted
+     * once), `panel_reason` (plain words) and `panel_recheck_at` (Carbon or
+     * null = next run).
+     *
+     * @param  Collection<int, Novel>  $parked
+     * @return Collection<int, Novel>
+     */
+    public static function unavailableNovels(Collection $parked): Collection
+    {
+        $aside = self::setAsideCounts();
+        $rows = $parked->keyBy('id');
+        $missing = array_diff(array_keys($aside), $rows->keys()->map(fn($id) => (int) $id)->all());
+        if ($missing !== []) {
+            foreach (Novel::whereIn('id', $missing)->get(['id', 'name', 'source_fail_streak', 'source_recheck_at']) as $novel) {
+                $novel->parked_count = 0;
+                $novel->parked_reasons = [];
+                $rows->put($novel->id, $novel);
+            }
+        }
+
+        return $rows->each(function (Novel $novel) use ($aside) {
+            $set = $aside[(int) $novel->id] ?? null;
+            $parkedCount = (int) ($novel->parked_count ?? 0);
+            $reasons = [];
+            $recheck = $parkedCount > 0 ? $novel->source_recheck_at : null;
+            if ($parkedCount > 0) {
+                $reasons[] = SourceUnavailable::reasonWords((array) ($novel->parked_reasons ?? []));
+            }
+            if ($set !== null) {
+                $overlap = $parkedCount > 0 ? min($set['parked_too'], $parkedCount) : 0;
+                $novel->parked_count = $parkedCount + $set['count'] - $overlap;
+                $reasons[] = $parkedCount > 0
+                    ? 'no source has ' . ($set['count'] === 1 ? '1 of them' : "{$set['count']} of them")
+                    : 'no source has ' . ($set['count'] === 1 ? 'this chapter' : 'these chapters');
+                $recheck = $recheck === null || $set['until']->lt($recheck) ? $set['until'] : $recheck;
+            }
+            $novel->panel_reason = implode('; ', $reasons);
+            $novel->panel_recheck_at = $recheck;
+        })
+            ->sortBy(fn(Novel $n) => $n->panel_recheck_at?->getTimestamp() ?? 0)
+            ->values();
+    }
+
+    /**
      * One short note per series for the Health page's "Not available on the
-     * source" panel: "Filled N from X" when any were, then "Looking on other
-     * sources" or "No other source has it (checked <date>)".
+     * source" panel: "Filled N from X" when any were; "N chapters on no
+     * source (looks again <date>)" when some are set aside; then "Looking on
+     * other sources" or "No other source has it (checked <date>)" while
+     * chapters still wait for the fallback.
      *
      * @return array<int, string> novel id => note
      */
@@ -1007,6 +1356,7 @@ class MangaFallback
             return [];
         }
         $filled = self::filledByNovel($novelIds);
+        $aside = self::setAsideCounts($novelIds);
         $states = MangaAlternateSearch::whereIn('novel_id', $novelIds)->get()->keyBy('novel_id');
         $usable = MangaAlternate::whereIn('novel_id', $novelIds)
             ->where('failures', '<', self::MAX_FAILURES)
@@ -1014,7 +1364,7 @@ class MangaFallback
             ->groupBy('novel_id')
             ->pluck('n', 'novel_id')
             ->all();
-        $manga = Novel::whereIn('id', $novelIds)->manga()->pluck('id')->all();
+        $manga = Novel::whereIn('id', $novelIds)->manga()->get()->keyBy('id');
 
         $notes = [];
         foreach ($novelIds as $id) {
@@ -1022,12 +1372,20 @@ class MangaFallback
             foreach ($filled[$id] ?? [] as $name => $n) {
                 $parts[] = "Filled {$n} from {$name}";
             }
-            if (in_array($id, $manga, true) && self::enabled()) {
-                $state = $states->get($id);
-                if ($state !== null && $state->cycleComplete() && (int) ($usable[$id] ?? 0) === 0) {
-                    $parts[] = 'No other source has it (checked ' . $state->cycle_completed_at->format('j M Y') . ')';
-                } else {
-                    $parts[] = 'Looking on other sources';
+            $novel = $manga->get($id);
+            if ($novel !== null && self::enabled()) {
+                $set = $aside[$id] ?? null;
+                if ($set !== null) {
+                    $parts[] = ($set['count'] === 1 ? '1 chapter' : "{$set['count']} chapters") . ' on no source (looks again ' . self::dateText($set['until']) . ')';
+                }
+                // With set-aside chapters, the search note only while others still wait.
+                if ($set === null || self::qualifyingQuery($novel)->exists()) {
+                    $state = $states->get($id);
+                    if ($state !== null && $state->cycleComplete() && (int) ($usable[$id] ?? 0) === 0) {
+                        $parts[] = 'No other source has it (checked ' . $state->cycle_completed_at->format('j M Y') . ')';
+                    } else {
+                        $parts[] = 'Looking on other sources';
+                    }
                 }
             }
             if ($parts !== []) {
