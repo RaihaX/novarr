@@ -35,6 +35,7 @@
     }
     $systemLinks = $tabAdmin ? [
         ['route' => 'activity.index', 'match' => 'activity.*', 'label' => 'Activity', 'icon' => 'activity'],
+        ['route' => 'readers.index', 'match' => 'readers.*', 'label' => 'Readers', 'icon' => 'users'],
         ['route' => 'commands.index', 'match' => 'commands.*', 'label' => 'Commands', 'icon' => 'terminal'],
         ['route' => 'logs.index', 'match' => 'logs.*', 'label' => 'Logs', 'icon' => 'scroll-text'],
         ['route' => 'health.index', 'match' => 'health.*', 'label' => 'Health', 'icon' => 'heart-pulse'],

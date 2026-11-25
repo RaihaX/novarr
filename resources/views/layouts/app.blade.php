@@ -140,11 +140,11 @@
                     </li>
                     @endif
                     @can('admin')
-                    @php $systemActive = request()->routeIs('commands.*') || request()->routeIs('logs.*') || request()->routeIs('health.*') || request()->routeIs('activity.*'); @endphp
+                    @php $systemActive = request()->routeIs('commands.*') || request()->routeIs('logs.*') || request()->routeIs('health.*') || request()->routeIs('activity.*') || request()->routeIs('readers.*'); @endphp
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle {{ $systemActive ? 'active' : '' }}" href="#" id="systemDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" @if($systemActive) aria-current="true" @endif>System</a>
                         <ul class="dropdown-menu" aria-labelledby="systemDropdown">
-                            @foreach(['activity' => 'Activity', 'commands' => 'Commands', 'logs' => 'Logs', 'health' => 'Health'] as $sysRoute => $sysLabel)
+                            @foreach(['activity' => 'Activity', 'readers' => 'Readers', 'commands' => 'Commands', 'logs' => 'Logs', 'health' => 'Health'] as $sysRoute => $sysLabel)
                                 @php $sysOn = request()->routeIs($sysRoute . '.*'); @endphp
                                 <li><a class="dropdown-item {{ $sysOn ? 'active' : '' }}" @if($sysOn) aria-current="page" @endif href="{{ route($sysRoute . '.index') }}">{{ $sysLabel }}</a></li>
                             @endforeach
