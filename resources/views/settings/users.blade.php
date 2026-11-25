@@ -147,6 +147,9 @@
                                     <span class="users-meta users-steps" id="user-steps-{{ $u->id }}">
                                         Second step: {{ $steps === [] ? 'none set up (cannot sign in on the public address)' : implode(', ', $steps) }}
                                     </span>
+                                    <span class="users-meta">
+                                        <a href="{{ route('readers.show', $u->id) }}" class="users-activity-link" id="user-activity-{{ $u->id }}">Reading activity</a>
+                                    </span>
                                 </div>
 
                                 <div class="users-actions">

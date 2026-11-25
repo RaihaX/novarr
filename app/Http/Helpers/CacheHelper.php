@@ -61,6 +61,16 @@ class CacheHelper
         return "reading_stats_v2_u{$userId}";
     }
 
+    /**
+     * The admin's Readers dashboard aggregates for all accounts (tiles,
+     * chart, per-reader figures, most popular — App\Services\ReaderActivity::
+     * overview()). Global; expires only (60 s), so it is never stale for long.
+     */
+    public static function readerActivityKey(): string
+    {
+        return 'reader_activity_v1';
+    }
+
     /** Cache key for NovelController::novelStats(), per reader. */
     public static function novelStatsKey(int $novelId, int $userId): string
     {

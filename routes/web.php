@@ -88,6 +88,11 @@ Route::get('/', [HomeController::class, 'index'])->name('home');
 Route::get('/continue', [HomeController::class, 'continue'])->name('continue');
 Route::get('/activity', [\App\Http\Controllers\ActivityController::class, 'index'])->name('activity.index');
 Route::get('/activity/downloads', [\App\Http\Controllers\ActivityController::class, 'downloads'])->name('activity.downloads');
+// Readers: what every account reads (admin; App\Services\ReaderActivity)
+Route::get('/readers', [\App\Http\Controllers\ReaderActivityController::class, 'index'])->name('readers.index');
+Route::get('/readers/now', [\App\Http\Controllers\ReaderActivityController::class, 'now'])->name('readers.now');
+Route::get('/readers/history', [\App\Http\Controllers\ReaderActivityController::class, 'history'])->name('readers.history');
+Route::get('/readers/{id}', [\App\Http\Controllers\ReaderActivityController::class, 'show'])->whereNumber('id')->name('readers.show');
 Route::view('/offline', 'offline')->name('offline');
 Route::view('/library', 'library')->name('library');
 

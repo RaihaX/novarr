@@ -483,9 +483,7 @@ class MangaReaderApiTest extends TestCase
         $this->markRead($this->chapters[1]);
         $html = $this->get(route('stats.index'))->assertOk();
         // Read chapters count; a manga chapter adds no words (it has no text row).
-        $stats = (function () {
-            return $this->build(app(\App\Services\ReadState::class), \App\Support\CurrentReader::ownerId());
-        })->call(new \App\Http\Controllers\StatsController());
+        $stats = app(\App\Services\ReadingStats::class)->fresh(\App\Support\CurrentReader::ownerId());
         $this->assertSame(1, $stats['read_total']);
         $this->assertSame(0, $stats['words_total']);
     }

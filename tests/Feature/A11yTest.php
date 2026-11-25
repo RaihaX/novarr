@@ -63,6 +63,7 @@ class A11yTest extends TestCase
             route('logs.show', basename($this->logFile)), route('commands.index'),
             route('settings.index'), route('search.index', ['q' => 'sword']),
             route('bookmarks.index'), route('chapters.show', $chapters[1]->id),
+            route('readers.index'), route('readers.history'), route('readers.show', \App\Support\CurrentReader::ownerId()),
         ];
 
         foreach ($urls as $url) {
@@ -135,6 +136,9 @@ class A11yTest extends TestCase
             route('health.index') => ['Failed queue jobs', 'data-label="Queue"', 'data-label="Error"'],
             route('logs.index') => ['Log files', 'data-label="Size"', 'data-label="Modified"'],
             route('logs.show', basename($this->logFile)) => ['Entries in', 'data-label="Timestamp"', 'data-label="Level"'],
+            route('readers.index') => ['Every account', 'data-label="Last read"', 'data-label="Streak"', 'Most popular series', 'Recent reading sessions', 'aria-label="Stacked bar chart'],
+            route('readers.history') => ['Reading sessions, newest first', 'data-label="When"', '<time datetime='],
+            route('readers.show', \App\Support\CurrentReader::ownerId()) => ['Most-read novels', 'reading positions', 'recent reading sessions'],
         ];
 
         foreach ($pages as $url => $needles) {
@@ -164,7 +168,9 @@ class A11yTest extends TestCase
             [
                 'chapters/show.blade.php', 'logs/show.blade.php', 'logs/index.blade.php',
                 'stats/index.blade.php', 'health/index.blade.php', 'settings/index.blade.php',
-                'search/index.blade.php', 'bookmarks/index.blade.php',
+                'search/index.blade.php', 'bookmarks/index.blade.php', 'stats/_body.blade.php',
+                'readers/index.blade.php', 'readers/history.blade.php', 'readers/show.blade.php',
+                'readers/_now.blade.php', 'readers/_sessions.blade.php',
             ],
             array_map(fn ($f) => 'commands/' . basename($f), glob(resource_path('views/commands/*.blade.php'))),
         );

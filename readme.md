@@ -131,6 +131,7 @@ No `.env` and nothing to install besides Docker. Use `NOVARR_PORT=8080 docker co
 - **Optional sign-in** — off by default (everyone on your network is the owner). Turn it on and every page and API call needs an account.
 - **One admin, invited readers** — the owner manages the library; readers can read everything, check a series for new chapters, download ePubs and see their own stats, and nothing else.
 - **Each reader has their own progress** — read marks, reading position, highlights and stats are kept per account.
+- **See what your readers read** — System → **Readers** (admin, home network only) shows who is reading right now, each account's chapters today, this week and this month, their streak and last read, the most popular series, a stacked chart of chapters per day by reader, and the full reading history. Highlights stay private.
 - **Invite by email** — type a name and an email; the person opens the link, picks a password and is signed in. The email also links to the Android app when one is published.
 - **Link a Kindle with a code** — the KOReader plugin shows a 6-character code that you enter on the website; no typing passwords on an e-reader.
 - **Sign-in history and alerts** — every sign-in, failed attempt and account change is logged (Settings → Users → Sign-in history); each reader sees their own recent sign-ins and signed-in browsers (each one can be signed out on its own), and gets an email when their account is signed in to from a new device.
@@ -480,6 +481,7 @@ Novarr starts with **sign-in off**: there is one account, the owner, and every r
 | Check one series for new chapters, build and download its ePub, OPDS | ✓ | ✓ |
 | Add, edit, pause or delete series; Discover; tags; bulk actions | ✓ | — |
 | Settings, sources, commands, logs, health, Send to Kindle, users | ✓ | — |
+| Readers: what every account reads and when | ✓ | — |
 
 The rule is enforced on the server for every route; a route that is not explicitly listed as public or reader is admin-only, and a test walks the route list to keep it that way. There is one admin.
 
@@ -502,6 +504,18 @@ Every new or changed password (accepting an invite, the Account page, Settings �
 Settings → Users → **Sign-in history** (admin, home network only) lists, newest first, every sign-in and sign-out, failed attempt, refusal by a limit, account lock, second step passed or failed, sign-in code emailed, recovery code used, passkey or authenticator added or removed, recovery codes made, emailed codes turned on or off, catalogue password made or revoked, browser signed out, second step reset by the admin, password change or reset, account created / edited / turned off / deleted, invite sent / resent / cancelled / accepted, app or device signed in or out, and the sign-in switch (also when changed with `novarr:auth`). Each line shows the account, the address (the visitor's, through `TRUSTED_PROXIES`), whether it came in on the public address, and the browser or app. Filter by account or by sign-ins / failures / admin actions. A failed attempt names the account only when the name matches one. Passwords, tokens and invite links are never stored. History older than 180 days is dropped daily (`NOVARR_AUTH_LOG_DAYS`, `0` = keep forever).
 
 Each reader's **Account** page shows their own **Recent sign-ins** (the last 20, failed ones and failed second steps included) and their **Signed-in browsers** (device, address, public address or home network, when it signed in and was last active, "This browser"). **Sign out** on a row ends that browser's session at once and forgets its remember-me; every other browser stays signed in. **Sign out all other browsers** does it for all but this one; apps stay. Signing out of a browser never signs out another. Settings → Users shows "N browsers" next to "N devices" for each account.
+
+**Readers (reading activity)**
+
+System → **Readers** (`/readers`; admin, so home network only, like every admin page) is the owner's view of what every account reads, sign-in on or off (with it off it is usually just the owner). It shows what each reader reads and when, but never their highlights, which stay private to each reader.
+
+- **Reading now**: a reader whose reading position (the one the apps, the Kindle plugin and the web reader write) moved in the last 10 minutes, with the series, chapter, how far in, the device and how long ago. One per reader, their newest. The panel refreshes every 30 seconds while the page is open.
+- **Figures**: readers active today, chapters today, this week (7 days) and in the last 30 days, a 30-day chart of chapters per day stacked by reader (also as a table), and one row per account with last seen, last read, today, 7 days, 30 days, all-time and streak. Days follow the server's timezone, as on Stats. These figures are cached for a minute.
+- **Most popular**: the series with the most different readers in the last 30 days, then the most chapters.
+- **History** (`/readers/history`): every read, newest first, filtered by reader and series, 100 reads a page. Reads are grouped into **sessions**: one reader's chapters of one series read no more than 30 minutes apart ("Chapters 12–31 (20 chapters)"), grouped within a page. "Marked by hand" shows chapters ticked as read rather than opened.
+- **One reader** (`/readers/{id}`, also "Reading activity" on Settings → Users): their stats as on their own Stats page, their reading positions, their signed-in apps and browsers (read-only, no addresses) and their recent sessions, with links to their sign-in history and account settings.
+
+Activity is a chapter read, ticked or finished. Chapters **marked read in bulk** (catching up on a series) are not reading: they count in the all-time totals only, and the history leaves them out unless you tick **Include chapters marked read in bulk**. Chapters that were deleted are left out everywhere. Nothing new is stored for this page: it reads the read marks and reading positions Novarr already keeps.
 
 **Remember-me**
 

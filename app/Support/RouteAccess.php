@@ -178,6 +178,7 @@ final class RouteAccess
      */
     public const ADMIN_ROUTES = [
         'activity.index', 'activity.downloads',
+        'readers.index', 'readers.now', 'readers.history', 'readers.show',
         'commands.index', 'commands.execute', 'commands.execute-async', 'commands.status', 'commands.form',
         'discover.cover',
         'health.index', 'health.job', 'health.retry', 'health.retry_all', 'health.forget', 'health.flush',

@@ -16,6 +16,7 @@
         ['title' => 'Highlights', 'url' => route('bookmarks.index'), 'icon' => 'highlighter', 'keywords' => 'bookmarks notes quotes'],
         ['title' => 'Stats', 'url' => route('stats.index'), 'icon' => 'chart-column', 'keywords' => 'statistics reading streak charts'],
         ['title' => 'Activity', 'url' => route('activity.index'), 'icon' => 'activity', 'meta' => 'System', 'keywords' => 'recent downloads queued queue chapters'],
+        ['title' => 'Readers', 'url' => route('readers.index'), 'icon' => 'users', 'meta' => 'System', 'keywords' => 'readers users activity who is reading history tautulli'],
         ['title' => 'Commands', 'url' => route('commands.index'), 'icon' => 'terminal', 'meta' => 'System', 'keywords' => 'artisan run scrape jobs'],
         ['title' => 'Logs', 'url' => route('logs.index'), 'icon' => 'scroll-text', 'meta' => 'System', 'keywords' => 'errors log viewer'],
         ['title' => 'Health', 'url' => route('health.index'), 'icon' => 'heart-pulse', 'meta' => 'System', 'keywords' => 'status sources failing attention'],
@@ -27,7 +28,7 @@
     $paletteAdmin = Gate::allows('admin');
     if (!$paletteAdmin) {
         $paletteAdminUrls = [route('novels.discover'), route('novels.create', ['medium' => 'novel']), route('novels.create', ['medium' => 'manga']),
-            route('activity.index'), route('commands.index'), route('logs.index'), route('health.index'), route('settings.index')];
+            route('activity.index'), route('readers.index'), route('commands.index'), route('logs.index'), route('health.index'), route('settings.index')];
         $paletteNav = array_values(array_filter($paletteNav, fn($n) => !in_array($n['url'], $paletteAdminUrls, true)));
     }
     // Reader requests: everyone, while the feature is on.
@@ -39,7 +40,7 @@
         $paletteNav[] = ['title' => 'Account', 'url' => route('account'), 'icon' => 'user', 'keywords' => 'account password devices link kindle sign out profile'];
     }
     $paletteIcons = ['book-open', 'file-text', 'arrow-right', 'search', 'refresh-cw', 'download', 'sun', 'moon', 'sun-moon',
-        'house', 'library', 'compass', 'plus', 'highlighter', 'chart-column', 'activity', 'terminal', 'scroll-text', 'heart-pulse', 'settings', 'wifi-off', 'user', 'inbox'];
+        'house', 'library', 'compass', 'plus', 'highlighter', 'chart-column', 'activity', 'terminal', 'scroll-text', 'heart-pulse', 'settings', 'wifi-off', 'user', 'inbox', 'users'];
 @endphp
 <div class="nv-sheet palette" id="palette" role="dialog" aria-modal="true" aria-label="Command palette" hidden>
     <div class="nv-sheet-backdrop" data-sheet-close></div>

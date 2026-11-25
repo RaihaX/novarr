@@ -1,0 +1,178 @@
+// ===========================================================================
+// Readers (admin): /readers, /readers/history, /readers/{id}
+// resources/views/readers/*. Reuses .dash-panel, .dash-stat, .bar-chart and
+// the responsive tables; only what is new lives here.
+// ===========================================================================
+
+// --- Series colours ----------------------------------------------------------
+// One colour per reader in the stacked chart (App\Services\ReaderActivity::
+// seriesClass(), cycled). Restrained hues that are not the status triad's
+// meanings: amber first (the owner — amber is the reading colour), then
+// indigo, cyan, violet, rose, slate. Each theme gets its own values so the
+// marks keep contrast on both grounds; names in the legend and the bar
+// titles carry the meaning, never the colour alone.
+:root,
+[data-bs-theme="dark"] {
+    --nv-series-1: #F0B429;
+    --nv-series-2: #8EA2FF;
+    --nv-series-3: #4CC4D1;
+    --nv-series-4: #B48CFF;
+    --nv-series-5: #E77FA1;
+    --nv-series-6: #9AA4B2;
+}
+
+[data-bs-theme="light"] {
+    --nv-series-1: #C98A00;
+    --nv-series-2: #4A58E8;
+    --nv-series-3: #0D7683;
+    --nv-series-4: #7A4FD6;
+    --nv-series-5: #B8456B;
+    --nv-series-6: #646E7B;
+}
+
+@for $i from 1 through 6 {
+    .reader-series-#{$i} { background-color: var(--nv-series-#{$i}); }
+}
+
+// --- Stacked bars ------------------------------------------------------------
+// The column is the bar; each reader is a segment, bottom up, as a share of
+// the day's total. Hover lifts the whole column instead of recolouring it.
+.bar-chart-stacked {
+    .bar-chart-bar {
+        display: flex;
+        flex-direction: column-reverse;
+        background: transparent;
+    }
+
+    .bar-chart-seg {
+        display: block;
+        width: 100%;
+        flex: 0 0 auto;
+        transition: filter $transition;
+    }
+
+    .bar-chart-col:hover .bar-chart-bar { background: transparent; }
+    .bar-chart-col:hover .bar-chart-seg { filter: brightness(1.15); }
+}
+
+.reader-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-2 $s-5;
+    margin: 0 0 $s-2;
+    padding: 0;
+    list-style: none;
+    font-size: $fs-caption;
+    color: $text-muted;
+
+    li {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+}
+
+.reader-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+}
+
+// --- Reading now -------------------------------------------------------------
+.reader-now-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: $s-5;
+    margin: 0;
+    padding: $s-5 $s-6;
+    list-style: none;
+}
+
+.reader-now {
+    display: flex;
+    gap: $s-4;
+    min-width: 0;
+}
+
+.reader-now-cover {
+    flex: 0 0 48px;
+    width: 48px;
+}
+
+.reader-now-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.reader-now-who {
+    font-size: $fs-caption;
+    font-weight: 600;
+    color: $text;
+}
+
+.reader-now-series {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.reader-now-chapter {
+    font-size: 13px;
+    color: $text;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.reader-now-progress {
+    height: $progress-track;
+    margin: 4px 0 2px;
+}
+
+.reader-now-meta { font-size: $fs-micro; }
+
+// --- Tables ------------------------------------------------------------------
+.reader-table {
+    .badge { margin-left: 4px; vertical-align: middle; }
+    tr.is-disabled .cell-primary > a { color: $text-muted; }
+}
+
+// Last seen stays on one line; Last read is the series, then chapter and time under it.
+.reader-seen,
+.reader-streak { white-space: nowrap; }
+
+.reader-last {
+    display: inline-block;
+    min-width: 0;
+}
+
+.reader-last-meta {
+    display: block;
+    font-size: $fs-micro;
+}
+
+.reader-username {
+    display: block;
+    font-size: $fs-micro;
+}
+
+.reader-chip { margin-left: 6px; white-space: nowrap; }
+
+.reader-when-rel {
+    display: block;
+    font-size: $fs-micro;
+}
+
+.reader-head-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2;
+    margin-top: $s-1;
+}
+
+.users-activity-link { font-size: $fs-caption; }
