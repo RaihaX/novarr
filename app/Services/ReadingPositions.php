@@ -5,6 +5,7 @@ namespace App\Services;
 use App\NovelChapter;
 use App\ReadingPosition;
 use App\Support\CurrentReader;
+use App\Support\ReadingClient;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -86,9 +87,14 @@ class ReadingPositions
      * offline queue never moves the series back. Never throws: losing a
      * position must not fail the progress write that triggered it.
      *
+     * $client (App\Support\ReadingClient) stores the address, client
+     * description and public flag with the position, under the same rule
+     * (an offline replay carries the address of the request that delivered
+     * it). Without one they are stored empty.
+     *
      * @param array{id: ?string, name: ?string} $device
      */
-    public function record(NovelChapter $chapter, ?int $progress, Carbon $at, array $device, ?int $userId = null): void
+    public function record(NovelChapter $chapter, ?int $progress, Carbon $at, array $device, ?int $userId = null, ?ReadingClient $client = null): void
     {
         try {
             $userId = $userId ?? app(CurrentReader::class)->id();
@@ -100,6 +106,9 @@ class ReadingPositions
                 'device_name' => ($device['id'] ?? null) === null ? null : ($device['name'] ?? null),
                 // Stored to the second, like chapter_reads.progress_at.
                 'recorded_at' => $at->copy()->startOfSecond(),
+                'ip' => $client?->ip,
+                'client' => $client?->client,
+                'public' => $client?->public ?? false,
             ];
 
             // Conditional update first: the age check and the write are one

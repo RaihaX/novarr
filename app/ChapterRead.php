@@ -32,5 +32,7 @@ class ChapterRead extends Model
         'manual' => 'boolean',
         'progress' => 'integer',
         'progress_at' => 'datetime',
+        // Where it was marked read from (App\Support\ReadingClient): ip, device, client, public.
+        'public' => 'boolean',
     ];
 }

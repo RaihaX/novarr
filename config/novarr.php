@@ -168,8 +168,9 @@ return [
     |--------------------------------------------------------------------------
     |
     | auth_log_days: days of sign-in history kept (App\AuthEvent, pruned
-    | daily by novarr:prune-auth-log). NOVARR_AUTH_LOG_DAYS, default 180;
-    | 0 = keep forever.
+    | daily by novarr:prune-auth-log), and of the addresses recorded with
+    | reads (chapter_reads.ip / reading_positions.ip, cleared after it).
+    | NOVARR_AUTH_LOG_DAYS, default 180; 0 = keep forever.
     | password_breach_check: refuse new passwords found in a data leak.
     |
     */

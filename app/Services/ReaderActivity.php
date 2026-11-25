@@ -30,8 +30,13 @@ use Illuminate\Support\Facades\DB;
  *  - "reading now" = a reading_positions row written in the last
  *    NOW_MINUTES (a little in the future counts too: clocks drift), whose
  *    chapter still exists; one per reader, their newest;
- *  - a "session" = a reader's consecutive reads of one series with gaps of
- *    at most SESSION_GAP_MINUTES (sessions()).
+ *  - a "session" = a reader's consecutive reads of one series on one device
+ *    with gaps of at most SESSION_GAP_MINUTES (sessions());
+ *  - where a read came from: chapter_reads.ip / device / client / public,
+ *    stamped when the chapter is marked read (App\Support\ReadingClient;
+ *    empty on reads from before they were recorded), and the same on the
+ *    reading position (device_name for the device). The address is cleared
+ *    after novarr.auth_log_days by novarr:prune-auth-log.
  *
  * Every chapter_reads query is constrained by user_id (whereIn over the
  * accounts) plus a read_at range or IS NOT NULL, so the (user_id, read_at)
@@ -75,6 +80,7 @@ class ReaderActivity
     private const ROW_COLUMNS = [
         'cr.user_id', 'cr.novel_id', 'cr.novel_chapter_id as chapter_id', 'cr.read_at', 'cr.bulk', 'cr.manual',
         'c.chapter', 'c.book', 'c.number', 'c.part', 'c.label', 'n.name as novel_name',
+        'cr.ip', 'cr.device', 'cr.client', 'cr.public',
     ];
 
     /**
@@ -108,7 +114,8 @@ class ReaderActivity
      *   user_id, user (User|null when $users is given), novel (Novel, cover
      *   relation loaded), chapter (NovelChapter), number (display chapter
      *   number, '' when none), progress (?int 0–100), device_name (?string),
-     *   at (Carbon), minutes (int, never negative).
+     *   client (?string), ip (?string), public (bool), at (Carbon), minutes
+     *   (int, never negative).
      * Three queries (positions, novels, chapters).
      *
      * @param  int[]|null  $userIds  limit to these readers (null = everyone)
@@ -158,6 +165,9 @@ class ReaderActivity
                 'number' => $chapter->displayNumber(),
                 'progress' => $p->progress === null ? null : (int) $p->progress,
                 'device_name' => $p->device_name,
+                'client' => $p->client,
+                'ip' => $p->ip,
+                'public' => (bool) $p->public,
                 'at' => $at,
                 // A position written slightly in the future is "now".
                 'minutes' => max(0, (int) floor($at->diffInSeconds(now(), false) / 60)),
@@ -177,7 +187,7 @@ class ReaderActivity
      *   window_days  int
      *   tiles        {active_today, accounts, today, week, month}
      *   daily        list of {date 'Y-m-d', label 'j M', total, by: [user_id => chapters]} oldest first
-     *   readers      [user_id => {today, week, month, total, streak, last: ?{novel_id, novel_name, chapter_id, number, label, at 'Y-m-d H:i:s'}}]
+     *   readers      [user_id => {today, week, month, total, streak, last: ?{novel_id, novel_name, chapter_id, number, label, at 'Y-m-d H:i:s', device ?string}}]
      *   popular      list of {novel_id, name, readers, chapters, last_read 'Y-m-d H:i:s'} (top POPULAR_LIMIT)
      *
      * Five grouped queries whatever the number of readers.
@@ -285,7 +295,7 @@ class ReaderActivity
                 ->join('novels as n', 'n.id', '=', 'cr.novel_id')
                 ->whereNull('n.deleted_at')
                 ->orderBy('c.id')
-                ->get(['cr.user_id', 'cr.novel_id', 'cr.read_at', 'c.id as chapter_id', 'c.chapter', 'c.book', 'c.number', 'c.part', 'c.label', 'n.name as novel_name']);
+                ->get(['cr.user_id', 'cr.novel_id', 'cr.read_at', 'c.id as chapter_id', 'c.chapter', 'c.book', 'c.number', 'c.part', 'c.label', 'n.name as novel_name', 'cr.device', 'cr.client']);
             foreach ($lastRows as $row) {
                 $uid = (int) $row->user_id;
                 if (!isset($readers[$uid]) || $readers[$uid]['last'] !== null) {
@@ -298,6 +308,7 @@ class ReaderActivity
                     'number' => self::chapterNumber($row),
                     'label' => (string) $row->label,
                     'at' => Carbon::parse($row->read_at)->format('Y-m-d H:i:s'),
+                    'device' => self::deviceLabel($row),
                 ];
             }
         }
@@ -362,13 +373,15 @@ class ReaderActivity
     /**
      * One page of raw history rows (HISTORY_PER_PAGE, newest first), for
      * /readers/history; the caller collapses the page with sessions().
-     * $bulk = true also includes chapters marked read in bulk.
+     * $bulk = true also includes chapters marked read in bulk; $ip keeps
+     * the reads stamped with exactly that address.
      *
      * @param  int[]  $userIds
      */
-    public function historyPage(array $userIds, ?int $novelId, bool $bulk): Paginator
+    public function historyPage(array $userIds, ?int $novelId, bool $bulk, ?string $ip = null): Paginator
     {
         return $this->historyQuery($userIds, $novelId, $bulk)
+            ->when($ip !== null, fn($q) => $q->where('cr.ip', $ip))
             ->simplePaginate(self::HISTORY_PER_PAGE)
             ->withQueryString();
     }
@@ -398,15 +411,20 @@ class ReaderActivity
      * within that reader's own reads: another reader's reads in between
      * (two people reading at once) do not split it; the reader's read of
      * another series, a longer gap, or a change of how the rows were
-     * marked (bulk / by hand) does.
+     * marked (bulk / by hand) does, and so does a change of device (label
+     * = device ?? client: the phone, then the Kindle, is two sessions).
      *
      * Each row (array or object): user_id, novel_id, chapter_id, read_at
      * (Carbon or string) and optionally novel_name, label, display_number
      * (else derived from the chapter / book / number / part columns), bulk,
-     * manual. Each session, newest first:
+     * manual, ip, device, client, public. Each session, newest first:
      *   user_id, novel_id, novel_name, chapters (count),
      *   first {id, number, label} (the earliest read), last {…} (the newest),
-     *   started_at, ended_at (Carbon), bulk, manual (bool)
+     *   started_at, ended_at (Carbon), bulk, manual (bool),
+     *   label (device ?? client), device, client (?string, the newest
+     *   read's), public (bool: any read on the public address), ip (the
+     *   newest read's address that has one), ips (distinct addresses,
+     *   newest first)
      *
      * @param  iterable<array|object>  $rows
      * @return list<array>
@@ -428,6 +446,9 @@ class ReaderActivity
             ];
             $bulk = (bool) ($row->bulk ?? false);
             $manual = (bool) ($row->manual ?? false);
+            $label = self::deviceLabel($row);
+            $ip = isset($row->ip) && $row->ip !== '' ? (string) $row->ip : null;
+            $public = (bool) ($row->public ?? false);
 
             $i = $open[$uid] ?? null;
             if ($i !== null) {
@@ -435,10 +456,16 @@ class ReaderActivity
                 if ($s['novel_id'] === (int) $row->novel_id
                     && $s['bulk'] === $bulk
                     && $s['manual'] === $manual
+                    && $s['label'] === $label
                     && $s['started_at']->getTimestamp() - $at->getTimestamp() <= $gap) {
                     $s['chapters']++;
                     $s['first'] = $chapter;
                     $s['started_at'] = $at;
+                    $s['public'] = $s['public'] || $public;
+                    if ($ip !== null && !in_array($ip, $s['ips'], true)) {
+                        $s['ips'][] = $ip;
+                    }
+                    $s['ip'] ??= $ip;
                     unset($s);
                     continue;
                 }
@@ -456,6 +483,12 @@ class ReaderActivity
                 'ended_at' => $at,
                 'bulk' => $bulk,
                 'manual' => $manual,
+                'label' => $label,
+                'device' => isset($row->device) && $row->device !== '' ? (string) $row->device : null,
+                'client' => isset($row->client) && $row->client !== '' ? (string) $row->client : null,
+                'public' => $public,
+                'ip' => $ip,
+                'ips' => $ip === null ? [] : [$ip],
             ];
             $open[$uid] = count($sessions) - 1;
         }
@@ -481,7 +514,8 @@ class ReaderActivity
 
     /**
      * $userId's newest $limit reading positions whose chapter still exists:
-     * {novel_id, novel_name, chapter_id, number, label, progress, device_name, at}.
+     * {novel_id, novel_name, chapter_id, number, label, progress, device_name,
+     * client, ip, public, at}.
      *
      * @return Collection<int, object>
      */
@@ -500,6 +534,7 @@ class ReaderActivity
             ->get([
                 'reading_positions.novel_id', 'n.name as novel_name', 'c.id as chapter_id', 'c.chapter', 'c.book', 'c.number', 'c.part', 'c.label',
                 'reading_positions.progress', 'reading_positions.device_name', 'reading_positions.recorded_at', 'reading_positions.updated_at',
+                'reading_positions.client', 'reading_positions.ip', 'reading_positions.public',
             ])
             ->map(fn($r) => (object) [
                 'novel_id' => (int) $r->novel_id,
@@ -509,13 +544,18 @@ class ReaderActivity
                 'label' => (string) $r->label,
                 'progress' => $r->progress === null ? null : (int) $r->progress,
                 'device_name' => $r->device_name,
+                'client' => $r->client,
+                'ip' => $r->ip,
+                'public' => (bool) $r->public,
                 'at' => ($r->recorded_at ?? $r->updated_at) ? Carbon::parse($r->recorded_at ?? $r->updated_at) : null,
             ]);
     }
 
     /**
-     * $user's devices, read-only and without addresses: live app tokens
-     * {name, last_used_at} and live browsers {device, last_active_at, public}.
+     * $user's devices, read-only: live app tokens {name, last_used_at} and
+     * live browsers {device, ip, last_active_at, public}. The admin sees the
+     * browsers' addresses here (as on the sign-in history); apps have none
+     * stored.
      *
      * @return array{apps: Collection, browsers: Collection}
      */
@@ -531,9 +571,10 @@ class ReaderActivity
             ->where('user_id', $user->id)
             ->where('last_active_at', '>=', BrowserSessions::liveSince())
             ->orderByDesc('last_active_at')->orderByDesc('id')
-            ->get(['user_agent', 'public', 'last_active_at'])
+            ->get(['user_agent', 'ip', 'public', 'last_active_at'])
             ->map(fn($row) => (object) [
                 'device' => DeviceDescription::from($row->user_agent),
+                'ip' => $row->ip,
                 'last_active_at' => $row->last_active_at ? Carbon::parse($row->last_active_at) : null,
                 'public' => (bool) $row->public,
             ]);
@@ -541,9 +582,48 @@ class ReaderActivity
         return ['apps' => $apps, 'browsers' => $browsers];
     }
 
+    /**
+     * The addresses $userId read from in the last WINDOW_DAYS, newest first:
+     * {ip, public, chapters, last_at (Carbon)} per (address, public), over
+     * their read rows that carry one (bulk marks included: they came from
+     * somewhere too). One grouped query on (user_id, read_at).
+     *
+     * @return Collection<int, object>
+     */
+    public function addresses(int $userId, int $limit = 10): Collection
+    {
+        return $this->readRows([$userId], now()->subDays(self::WINDOW_DAYS - 1)->startOfDay())
+            ->whereNotNull('cr.ip')
+            ->groupBy('cr.ip', 'cr.public')
+            ->selectRaw('cr.ip, cr.public, COUNT(*) as chapters, MAX(cr.read_at) as last_at')
+            ->orderByDesc('last_at')
+            ->orderBy('cr.ip')
+            ->limit($limit)
+            ->get()
+            ->map(fn($r) => (object) [
+                'ip' => (string) $r->ip,
+                'public' => (bool) $r->public,
+                'chapters' => (int) $r->chapters,
+                'last_at' => Carbon::parse($r->last_at),
+            ]);
+    }
+
     // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
+
+    /** The device a read or position is shown as: its declared device, else the client description; null when neither. */
+    public static function deviceLabel(object|array $row): ?string
+    {
+        $row = (object) $row;
+        foreach (['device', 'device_name', 'client'] as $key) {
+            if (isset($row->{$key}) && trim((string) $row->{$key}) !== '') {
+                return (string) $row->{$key};
+            }
+        }
+
+        return null;
+    }
 
     /** Display chapter number ("12", "Vol 2 · 3") of a row with chapter / book / number / part; '' when none. */
     public static function chapterNumber(object|array $row): string

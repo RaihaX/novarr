@@ -6,6 +6,7 @@ use App\Bookmark;
 use App\NovelChapter;
 use App\Services\ReadingPositions;
 use App\Services\ReadState;
+use App\Support\ReadingClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -64,8 +65,11 @@ class NovelChapterController extends Controller
         $latestPosition = $this->positions->latestForWeb((int) $chapter->novel_id);
         $readerId = $this->readState->userId();
 
+        // Where this read comes from (address, device), for the admin's
+        // Readers pages; built from this request, never kept.
+        $client = $background ? null : ReadingClient::from($request);
         if (!$background && $unread) {
-            $this->readState->markOpened($chapter, lookup: $request->boolean('lookup'));
+            $this->readState->markOpened($chapter, lookup: $request->boolean('lookup'), client: $client);
         }
         // A look-up (`?lookup=1`: a Highlights entry or a full-text search
         // hit) opens an old chapter to check a passage, not to read on from
@@ -74,7 +78,7 @@ class NovelChapterController extends Controller
         // the reader JS (`lookup`) so its scroll saves skip this chapter too.
         $lookup = $request->boolean('lookup');
         if (!$background && !$lookup && $chapter->status) {
-            $this->positions->record($chapter, $chapter->readProgress() ?? 0, now(), $this->positions->device($request));
+            $this->positions->record($chapter, $chapter->readProgress() ?? 0, now(), $this->positions->device($request), client: $client);
         }
 
         return view('chapters.show', [
@@ -217,8 +221,9 @@ class NovelChapterController extends Controller
         $recordedAt = $this->recordedAt($request);
         $chapter = $this->novelchapters->findOrFail($id);
         $this->readState->get($chapter);
-        $this->applyRead($chapter, !$chapter->isRead(), $recordedAt);
-        $this->recordReadMark($request, $chapter, $recordedAt);
+        $client = ReadingClient::from($request);
+        $this->applyRead($chapter, !$chapter->isRead(), $recordedAt, $client);
+        $this->recordReadMark($request, $chapter, $recordedAt, $client);
 
         return response()->json([
             'success' => true,
@@ -235,21 +240,22 @@ class NovelChapterController extends Controller
         $read = (bool) $request->validate(['read' => 'required|boolean'])['read'];
         $recordedAt = $this->recordedAt($request);
         $chapter = $this->novelchapters->findOrFail($id);
-        $this->applyRead($chapter, $read, $recordedAt);
-        $this->recordReadMark($request, $chapter, $recordedAt);
+        $client = ReadingClient::from($request);
+        $this->applyRead($chapter, $read, $recordedAt, $client);
+        $this->recordReadMark($request, $chapter, $recordedAt, $client);
 
         return response()->json(['success' => true, 'read' => $chapter->isRead()]);
     }
 
     /** A mark READ is "finished it here"; marking unread says nothing about where the reader is. */
-    private function recordReadMark(Request $request, NovelChapter $chapter, Carbon $recordedAt): void
+    private function recordReadMark(Request $request, NovelChapter $chapter, Carbon $recordedAt, ?ReadingClient $client): void
     {
         if ($chapter->isRead()) {
-            $this->positions->record($chapter, 100, $recordedAt, $this->positions->device($request));
+            $this->positions->record($chapter, 100, $recordedAt, $this->positions->device($request), client: $client);
         }
     }
 
-    private function applyRead(NovelChapter $chapter, bool $read, Carbon $recordedAt): void
+    private function applyRead(NovelChapter $chapter, bool $read, Carbon $recordedAt, ?ReadingClient $client): void
     {
         // An explicit mark also settles the in-chapter position: done when
         // read, forgotten when unread — so Continue Reading doesn't resume
@@ -257,7 +263,7 @@ class NovelChapterController extends Controller
         // read keeps its original date. The mark's time supersedes scroll
         // positions recorded before it (a replayed mark carries its own,
         // earlier time).
-        $this->readState->setRead($chapter, $read, $recordedAt);
+        $this->readState->setRead($chapter, $read, $recordedAt, client: $client);
     }
 
     /**
@@ -286,6 +292,7 @@ class NovelChapterController extends Controller
         $at = $this->recordedAt($request);
 
         $chapter = $this->novelchapters->findOrFail($id);
+        $client = ReadingClient::from($request);
 
         // A look-up is not reading there: its position is not stored, so
         // the chapter's position time does not make it the chapter read last
@@ -296,14 +303,15 @@ class NovelChapterController extends Controller
             isset($data['progress']) && empty($data['lookup']) ? (int) $data['progress'] : null,
             !empty($data['read']),
             $at,
-            lookup: !empty($data['lookup'])
+            lookup: !empty($data['lookup']),
+            client: $client
         );
 
         // The series' latest position follows this write unless the write
         // was itself too old for the chapter (record() also checks its age
         // against the series' stored position).
         if (!$stale && empty($data['lookup']) && (isset($data['progress']) || !empty($data['read']))) {
-            $this->positions->record($chapter, $chapter->readProgress() ?? 0, $at, $this->positions->device($request));
+            $this->positions->record($chapter, $chapter->readProgress() ?? 0, $at, $this->positions->device($request), client: $client);
         }
 
         return response()->json(['success' => true, 'read' => $chapter->isRead()]);
@@ -349,7 +357,7 @@ class NovelChapterController extends Controller
             ]);
         }
 
-        $count = $this->readState->markMany($chapters(), true, $recordedAt, onlyUnread: true);
+        $count = $this->readState->markMany($chapters(), true, $recordedAt, onlyUnread: true, client: ReadingClient::from($request));
 
         return response()->json(['success' => true, 'marked' => $count]);
     }
@@ -377,7 +385,8 @@ class NovelChapterController extends Controller
         $scope = $data['scope'] ?? 'ids';
         // Every selected chapter is set, already-read ones included (their
         // date becomes now), as this endpoint always has.
-        $mark = fn($query) => $this->readState->markMany($query, (bool) $data['read'], $recordedAt);
+        $client = ReadingClient::from($request);
+        $mark = fn($query) => $this->readState->markMany($query, (bool) $data['read'], $recordedAt, client: $client);
 
         if ($scope === 'ids') {
             return response()->json(['success' => true, 'count' => $mark(NovelChapter::whereIn('id', $data['ids']))]);

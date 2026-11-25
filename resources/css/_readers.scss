@@ -134,6 +134,7 @@
 }
 
 .reader-now-meta { font-size: $fs-micro; }
+.reader-now-meta time { white-space: nowrap; }
 
 // --- Tables ------------------------------------------------------------------
 .reader-table {
@@ -176,3 +177,48 @@
 }
 
 .users-activity-link { font-size: $fs-caption; }
+
+// --- Device and address of a read --------------------------------------------
+// One child per cell (.reader-device) so the phone card layout keeps the
+// label on the left and the stacked device / address on the right.
+.reader-device {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    min-width: 0;
+}
+
+.reader-device-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+}
+
+.reader-device-ip { font-size: $fs-micro; }
+
+// Addresses are mono everywhere (they are read character by character).
+.reader-ip {
+    font-family: $font-mono;
+    font-size: $fs-mono;
+    font-variant-numeric: tabular-nums;
+    word-break: break-all;
+}
+
+.reader-device-ip .reader-ip,
+.reader-now-meta .reader-ip { font-size: inherit; }
+
+.reader-chip-public { white-space: nowrap; }
+
+.reader-now-flags { margin-top: 2px; }
+
+.reader-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-2;
+}
+
+@include media-breakpoint-down(md) {
+    .table-responsive-cards .reader-device { align-items: flex-end; text-align: right; }
+}

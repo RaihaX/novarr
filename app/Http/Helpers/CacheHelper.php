@@ -68,7 +68,8 @@ class CacheHelper
      */
     public static function readerActivityKey(): string
     {
-        return 'reader_activity_v1';
+        // v2: each reader's last read carries its device.
+        return 'reader_activity_v2';
     }
 
     /** Cache key for NovelController::novelStats(), per reader. */

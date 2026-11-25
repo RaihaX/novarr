@@ -246,7 +246,7 @@
                                 {{-- One cell child, so the phone card layout keeps the two lines together. --}}
                                 <span class="reader-last">
                                     <a href="{{ route('novels.show', $f['last']['novel_id']) }}">{{ $f['last']['novel_name'] }}</a>
-                                    <span class="reader-last-meta mono-muted">{{ $f['last']['number'] !== '' ? 'Ch. ' . $f['last']['number'] : $f['last']['label'] }} · <time datetime="{{ $lastAt->toIso8601String() }}">{{ $lastAt->diffForHumans() }}</time></span>
+                                    <span class="reader-last-meta mono-muted">{{ $f['last']['number'] !== '' ? 'Ch. ' . $f['last']['number'] : $f['last']['label'] }} · <time datetime="{{ $lastAt->toIso8601String() }}">{{ $lastAt->diffForHumans() }}</time>@if(!empty($f['last']['device'])) · {{ $f['last']['device'] }}@endif</span>
                                 </span>
                             @else
                                 <span class="text-muted">—</span>
@@ -316,7 +316,7 @@
     @endif
 </div>
 
-<p class="page-note">Chapters marked read in bulk count in All-time only. A session is a reader's chapters of one series read no more than {{ ReaderActivity::SESSION_GAP_MINUTES }} minutes apart. Figures refresh every minute; Reading now every 30 seconds.</p>
+<p class="page-note">Chapters marked read in bulk count in All-time only. A session is a reader's chapters of one series read no more than {{ ReaderActivity::SESSION_GAP_MINUTES }} minutes apart. Figures refresh every minute; Reading now every 30 seconds. @include('readers._recorded-note')</p>
 @endsection
 
 @push('scripts')

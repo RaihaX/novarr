@@ -11,13 +11,18 @@ use Illuminate\Console\Command;
  * browser rows past the remember-me lifetime (App\Services\BrowserSessions),
  * expired remember-me rows (App\Services\RememberTokens) and unfinished
  * second steps (App\Services\SecondStep).
+ *
+ * The addresses recorded with reads (chapter_reads.ip, reading_positions.ip;
+ * App\Support\ReadingClient) follow the sign-in history's retention: older
+ * than novarr.auth_log_days they are cleared (the read, its device, client
+ * and public flag stay). Kept forever with 0, like the history.
  * Daily, from the scheduler (routes/console.php).
  */
 class PruneAuthLog extends Command
 {
     protected $signature = 'novarr:prune-auth-log';
 
-    protected $description = 'Delete sign-in history older than NOVARR_AUTH_LOG_DAYS (default 180 days)';
+    protected $description = 'Delete sign-in history, and clear the addresses of reads, older than NOVARR_AUTH_LOG_DAYS (default 180 days)';
 
     public function handle(): int
     {
@@ -48,6 +53,34 @@ class PruneAuthLog extends Command
 
         $this->info("Deleted {$deleted} sign-in history " . ($deleted === 1 ? 'entry' : 'entries') . " older than {$days} days.");
 
+        $cleared = $this->clearReadAddresses($cutoff);
+        $this->info("Cleared the address of {$cleared} " . ($cleared === 1 ? 'read' : 'reads') . " older than {$days} days.");
+
         return self::SUCCESS;
+    }
+
+    /**
+     * chapter_reads.ip / reading_positions.ip older than $cutoff → NULL.
+     * Reads one reader at a time, so each UPDATE is a (user_id, read_at)
+     * range on the index rather than a scan of the whole table. Returns
+     * the rows changed.
+     */
+    private function clearReadAddresses(\Carbon\CarbonInterface $cutoff): int
+    {
+        $cleared = 0;
+        foreach (\App\User::query()->pluck('id') as $userId) {
+            $cleared += \Illuminate\Support\Facades\DB::table('chapter_reads')
+                ->where('user_id', $userId)
+                ->where('read_at', '<', $cutoff)
+                ->whereNotNull('ip')
+                ->update(['ip' => null]);
+        }
+        // One row per reader and series: a small table.
+        $cleared += \Illuminate\Support\Facades\DB::table('reading_positions')
+            ->where('recorded_at', '<', $cutoff)
+            ->whereNotNull('ip')
+            ->update(['ip' => null]);
+
+        return $cleared;
     }
 }

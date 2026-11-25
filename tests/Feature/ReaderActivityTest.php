@@ -349,7 +349,7 @@ class ReaderActivityTest extends TestCase
             ->assertSee('Sam')->assertSee('Reading now')->assertSee('Pixel 8')
             ->assertSee('Sam Story')->assertDontSee('Owner Only')
             ->assertSee('Sam phone')->assertSee('Safari on macOS')->assertSee('public address')
-            ->assertDontSee('203.0.113.77')
+            ->assertSee('203.0.113.77') // the browser's address (shown since addresses are recorded)
             ->assertSee(route('settings.users.history', ['user' => $sam->id]))
             ->assertSee(route('settings.users') . '#user-' . $sam->id, false)
             ->assertSee(route('readers.history', ['user' => $sam->id]));
@@ -402,5 +402,140 @@ class ReaderActivityTest extends TestCase
             $this->get($url)->assertOk()->assertDontSee('SECRET-HIGHLIGHT');
         }
     }
-}
 
+    // ---- Device and address of each read ------------------------------------
+
+    /** $user read $chapter at $at from $ip on $device. */
+    private function readFrom(NovelChapter $chapter, User $user, $at, ?string $ip, ?string $device = null, ?string $client = null, bool $public = false, bool $bulk = false): void
+    {
+        $this->read($chapter, $user, $at, bulk: $bulk);
+        DB::table('chapter_reads')->where('user_id', $user->id)->where('novel_chapter_id', $chapter->id)
+            ->update(['ip' => $ip, 'device' => $device, 'client' => $client, 'public' => $public]);
+    }
+
+    public function test_sessions_split_on_a_device_change_and_carry_the_addresses(): void
+    {
+        $sessions = ReaderActivity::sessions([
+            $this->row(1, 10, 5, '2026-11-25 11:00:00', ['device' => 'Kindle', 'client' => 'KOReader', 'ip' => '192.168.1.9']),
+            $this->row(1, 10, 4, '2026-11-25 10:50:00', ['device' => null, 'client' => 'KOReader', 'ip' => '192.168.1.8', 'public' => true]),
+            $this->row(1, 10, 3, '2026-11-25 10:40:00', ['client' => 'KOReader', 'ip' => '192.168.1.9']),
+            $this->row(1, 10, 2, '2026-11-25 10:30:00', ['device' => 'Phone', 'ip' => '192.168.1.20']),
+            $this->row(1, 10, 1, '2026-11-25 10:20:00', ['device' => 'Phone']),
+        ]);
+
+        // Kindle (5) | KOReader (4, 3) | Phone (2, 1).
+        $this->assertSame([1, 2, 2], array_column($sessions, 'chapters'));
+        $this->assertSame(['Kindle', 'KOReader', 'Phone'], array_column($sessions, 'label'));
+        $this->assertSame(['192.168.1.8', '192.168.1.9'], $sessions[1]['ips']);
+        $this->assertSame('192.168.1.8', $sessions[1]['ip']);
+        $this->assertTrue($sessions[1]['public']);
+        $this->assertFalse($sessions[2]['public']);
+        $this->assertSame(['192.168.1.20'], $sessions[2]['ips']);
+        $this->assertSame(['Kindle', null, 'Phone'], array_column($sessions, 'device'));
+        $this->assertSame(['KOReader', 'KOReader', null], array_column($sessions, 'client'));
+    }
+
+    public function test_sessions_and_history_show_device_and_address_and_old_reads_a_dash(): void
+    {
+        $owner = $this->owner();
+        $sam = $this->makeReader();
+        [, $ac] = $this->novelWithChapters('Device Saga', 3);
+        $this->readFrom($ac[1], $sam, now()->subMinutes(40), '192.168.1.30', 'Kindle Paperwhite', 'KOReader');
+        $this->readFrom($ac[2], $sam, now()->subMinutes(30), '203.0.113.4', 'Kindle Paperwhite', 'KOReader', public: true);
+        $this->read($ac[3], $owner, now()->subDays(2)); // from before addresses were recorded
+
+        $html = $this->get(route('readers.history'))->assertOk()
+            ->assertSee('Kindle Paperwhite')->assertSee('title="KOReader"', false)
+            ->assertSee('203.0.113.4')->assertSee('+1')->assertSee('Also 192.168.1.30')
+            ->assertSee('Public address')
+            ->assertSee(route('readers.history', ['ip' => '203.0.113.4']))
+            ->getContent();
+        $this->assertMatchesRegularExpression('/data-session-user="' . $owner->id . '".*?data-label="Device">\s*<span class="text-muted">—<\/span>/s', $html);
+
+        // On a reader's page the address links keep the reader filter.
+        $this->get(route('readers.show', $sam->id))->assertOk()
+            ->assertSee(route('readers.history', ['user' => $sam->id, 'ip' => '203.0.113.4']));
+    }
+
+    public function test_history_filters_by_address_and_keeps_it_through_the_form_and_pages(): void
+    {
+        $owner = $this->owner();
+        $sam = $this->makeReader();
+        [, $ac] = $this->novelWithChapters('Address Saga', 2);
+        $this->readFrom($ac[1], $owner, now()->subHours(3), '192.168.1.30', 'Phone');
+        $this->readFrom($ac[2], $sam, now()->subHours(2), '192.168.1.31', 'Tablet');
+
+        $response = $this->get(route('readers.history', ['ip' => '192.168.1.31']))->assertOk()
+            ->assertSee('id="historyIpChip"', false)
+            ->assertSee('<input type="hidden" name="ip" value="192.168.1.31">', false);
+        $this->assertSame('192.168.1.31', $response->viewData('ip'));
+        $this->assertSame([$sam->id], array_column($response->viewData('sessions'), 'user_id'));
+
+        // Invalid: ignored.
+        $ignored = $this->get('/readers/history?ip=not-an-ip')->assertOk()->assertDontSee('id="historyIpChip"', false);
+        $this->assertNull($ignored->viewData('ip'));
+        $this->assertCount(2, $ignored->viewData('sessions'));
+
+        // Paging keeps it.
+        $novel = Novel::create(['name' => 'Long Address', 'status' => 0, 'group_id' => 1, 'no_of_chapters' => 0]);
+        $rows = [];
+        for ($n = 1; $n <= 101; $n++) {
+            $chapter = NovelChapter::create(['novel_id' => $novel->id, 'chapter' => $n, 'book' => 0, 'label' => "Chapter {$n}", 'url' => "https://example.test/addr/{$n}"]);
+            $rows[] = ['user_id' => $owner->id, 'novel_id' => $novel->id, 'novel_chapter_id' => $chapter->id, 'read_at' => now()->subDays(1)->subHours($n),
+                'bulk' => false, 'manual' => false, 'ip' => '10.0.0.8', 'device' => null, 'client' => null, 'public' => false];
+        }
+        DB::table('chapter_reads')->insert($rows);
+        $paged = $this->get(route('readers.history', ['ip' => '10.0.0.8']))->assertOk();
+        $this->assertCount(100, $paged->viewData('sessions'));
+        $this->assertStringContainsString('ip=10.0.0.8', (string) $paged->viewData('rows')->nextPageUrl());
+        $this->assertCount(1, $this->get(route('readers.history', ['ip' => '10.0.0.8', 'page' => 2]))->viewData('sessions'));
+    }
+
+    public function test_reading_now_shows_the_device_and_address(): void
+    {
+        $sam = $this->makeReader();
+        [, $c] = $this->novelWithChapters('Now With Address', 1);
+        ReadingPosition::create([
+            'user_id' => $sam->id, 'novel_id' => $c[1]->novel_id, 'novel_chapter_id' => $c[1]->id, 'progress' => 62,
+            'device_id' => 'kindle-device-1', 'device_name' => 'Kindle Paperwhite', 'recorded_at' => now()->subMinutes(2),
+            'ip' => '203.0.113.50', 'client' => 'KOReader', 'public' => true,
+        ]);
+
+        $now = app(ReaderActivity::class)->readingNow()->first();
+        $this->assertSame(['KOReader', '203.0.113.50', true], [$now->client, $now->ip, $now->public]);
+        $this->get(route('readers.now'))->assertOk()
+            ->assertSee('62%')->assertSee('Kindle Paperwhite')->assertSee('title="KOReader"', false)
+            ->assertSee('<span class="reader-ip">203.0.113.50</span>', false)
+            ->assertSee('Public address')->assertSee('2 min ago');
+    }
+
+    public function test_reader_page_lists_addresses_and_the_last_read_names_its_device(): void
+    {
+        $sam = $this->makeReader();
+        [, $c] = $this->novelWithChapters('Where From', 4);
+
+        $this->get(route('readers.show', $sam->id))->assertOk()
+            ->assertSee('No addresses recorded yet. Addresses are recorded from now on, for each chapter read.');
+
+        $this->readFrom($c[1], $sam, now()->subDays(3), '192.168.1.30', 'Phone');
+        $this->readFrom($c[2], $sam, now()->subDays(1), '192.168.1.30', 'Phone');
+        $this->readFrom($c[3], $sam, now()->subHours(2), '203.0.113.4', 'Phone', public: true, bulk: true);
+        $this->readFrom($c[4], $sam, now()->subDays(40), '192.168.1.99', 'Phone'); // outside the window
+
+        $addresses = app(ReaderActivity::class)->addresses($sam->id);
+        $this->assertSame(['203.0.113.4', '192.168.1.30'], $addresses->pluck('ip')->all());
+        $this->assertSame([1, 2], $addresses->pluck('chapters')->all());
+        $this->assertSame([true, false], $addresses->pluck('public')->all());
+
+        $html = $this->get(route('readers.show', $sam->id))->assertOk()
+            ->assertSee('id="addressesTable"', false)->assertSee('Home network')
+            ->assertSee(route('readers.history', ['user' => $sam->id, 'ip' => '192.168.1.30']))
+            ->getContent();
+        preg_match('/id="addressesTable".*?<\/table>/s', $html, $card);
+        $this->assertStringNotContainsString('192.168.1.99', $card[0]);
+
+        $last = $this->get(route('readers.index'))->assertOk()->viewData('overview')['readers'][$sam->id]['last'];
+        $this->assertSame('Phone', $last['device']);
+        $this->get(route('readers.index'))->assertSee('· Phone</span>', false);
+    }
+}
