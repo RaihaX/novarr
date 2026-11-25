@@ -1,15 +1,17 @@
 {{-- Reading sessions (App\Services\ReaderActivity::sessions()) as a table:
-     Reader, Series, Chapter(s), When. Used by the Readers dashboard, the
+     Reader, Series, Chapter(s), Device (and address), When. Used by the Readers dashboard, the
      history and a reader's page.
        $sessions  list from sessions()
        $names     accounts keyed by id
        $caption   the table's (visually hidden) caption
        $showReader  false on one reader's page (default true)
-       $absolute  true: the date and time, then how long ago (the history) --}}
+       $absolute  true: the date and time, then how long ago (the history)
+       $ipFilter  query added to the address links (e.g. ['user' => 3]) --}}
 @php
     use App\Services\ReaderActivity;
     $showReader = $showReader ?? true;
     $absolute = $absolute ?? false;
+    $ipFilter = $ipFilter ?? [];
     $tz = config('app.timezone');
 @endphp
 <div class="table-responsive">
@@ -20,6 +22,7 @@
                 @if($showReader)<th>Reader</th>@endif
                 <th>Series</th>
                 <th>Chapters</th>
+                <th>Device</th>
                 <th class="text-end">When</th>
             </tr>
         </thead>
@@ -46,6 +49,27 @@
                         @endif
                         @if($s['bulk'])
                             <span class="chip-mono reader-chip" title="Marked read in bulk: not reading activity">Bulk</span>
+                        @endif
+                    </td>
+                    <td data-label="Device">
+                        @if($s['label'] === null && $s['ip'] === null)
+                            <span class="text-muted">—</span>
+                        @else
+                            {{-- One child: the phone card layout puts it beside the label. --}}
+                            <span class="reader-device">
+                                @if($s['label'] !== null)
+                                    <span class="reader-device-name" @if($s['device'] && $s['client'] && $s['client'] !== $s['device']) title="{{ $s['client'] }}" @endif>{{ $s['label'] }}</span>
+                                @endif
+                                @if($s['ip'] !== null)
+                                    @php $others = array_values(array_diff($s['ips'], [$s['ip']])); @endphp
+                                    <span class="reader-device-ip mono-muted">
+                                        <a href="{{ route('readers.history', $ipFilter + ['ip' => $s['ip']]) }}" class="reader-ip">{{ $s['ip'] }}</a>@if($others !== []) <span title="Also {{ implode(', ', $others) }}">+{{ count($others) }}</span>@endif
+                                    </span>
+                                @endif
+                                @if($s['public'])
+                                    <span class="chip-mono chip-mono-pending reader-chip-public">Public address</span>
+                                @endif
+                            </span>
                         @endif
                     </td>
                     <td class="text-end mono-muted" data-label="When">

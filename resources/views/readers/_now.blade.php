@@ -16,7 +16,11 @@
 @else
     <ul class="reader-now-list" data-reading-now>
         @foreach($now as $item)
-            @php $who = $names[$item->user_id] ?? null; @endphp
+            @php
+                $who = $names[$item->user_id] ?? null;
+                $deviceLabel = $item->device_name ?? $item->client;
+                $clientTitle = $item->device_name && $item->client && $item->client !== $item->device_name ? $item->client : null;
+            @endphp
             <li class="reader-now">
                 <a href="{{ route('novels.show', $item->novel->id) }}" class="reader-now-cover" tabindex="-1" aria-hidden="true">
                     <x-cover :novel="$item->novel" size="sm" decorative />
@@ -38,9 +42,13 @@
                     @endif
                     <span class="reader-now-meta mono-muted">
                         @if($item->progress !== null){{ $item->progress }}% · @endif
-                        @if($item->device_name){{ $item->device_name }} · @endif
+                        @if($deviceLabel)<span class="reader-device-name" @if($clientTitle) title="{{ $clientTitle }}" @endif>{{ $deviceLabel }}</span> · @endif
+                        @if($item->ip)<span class="reader-ip">{{ $item->ip }}</span> · @endif
                         <time datetime="{{ $item->at->toIso8601String() }}">{{ $item->minutes < 1 ? 'just now' : $item->minutes . ' min ago' }}</time>
                     </span>
+                    @if($item->public)
+                        <span class="reader-now-flags"><span class="chip-mono chip-mono-pending reader-chip-public">Public address</span></span>
+                    @endif
                 </div>
             </li>
         @endforeach

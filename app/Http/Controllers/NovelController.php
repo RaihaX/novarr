@@ -771,7 +771,8 @@ class NovelController extends Controller
                 NovelChapter::whereIn('novel_id', $data['ids'])->where('blacklist', 0),
                 true,
                 now(),
-                onlyUnread: true
+                onlyUnread: true,
+                client: \App\Support\ReadingClient::from($request)
             );
         } else {
             Novel::whereIn('id', $data['ids'])

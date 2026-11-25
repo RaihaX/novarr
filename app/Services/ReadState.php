@@ -6,6 +6,7 @@ use App\ChapterRead;
 use App\Http\Helpers\CacheHelper;
 use App\NovelChapter;
 use App\Support\CurrentReader;
+use App\Support\ReadingClient;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Carbon\CarbonInterface;
@@ -21,6 +22,13 @@ use Illuminate\Support\Facades\DB;
  * Every method takes an optional user id and otherwise uses the current
  * reader (App\Support\CurrentReader), resolved per call — never kept on the
  * instance, which controllers hold across requests under Octane.
+ *
+ * Where a read came from (App\Support\ReadingClient: ip, device, client,
+ * public) is stamped on a row exactly when a write newly sets its read_at —
+ * the read event. A chapter already read keeps its stamp, as it keeps its
+ * date; marking unread clears it. Without a client (console, old call
+ * sites) the columns stay empty. An offline replay gets the address of the
+ * request that delivered it, not of the device's earlier network: accepted.
  *
  * Writes forget the reader's own derived caches (CacheHelper::
  * clearReaderCache()) under the same conditions the single-user code cleared
@@ -200,16 +208,16 @@ class ReadState
      * (its in-chapter position is left alone) — read, not marked by hand
      * (manual = false), unless it was opened as a look-up ($lookup: from
      * Highlights or search), which must not move Continue. Returns whether
-     * it was marked.
+     * it was marked. $client is stamped on the row when it is marked.
      */
-    public function markOpened(NovelChapter $chapter, ?int $userId = null, bool $lookup = false): bool
+    public function markOpened(NovelChapter $chapter, ?int $userId = null, bool $lookup = false, ?ReadingClient $client = null): bool
     {
         $userId = $this->userId($userId);
-        $now = now();
+        $values = ['read_at' => now(), 'bulk' => false, 'manual' => $lookup] + ReadingClient::columnsOf($client);
 
-        $marked = DB::table(self::TABLE)->insertOrIgnore($this->row($chapter, $userId, ['read_at' => $now, 'bulk' => false, 'manual' => $lookup])) > 0
+        $marked = DB::table(self::TABLE)->insertOrIgnore($this->row($chapter, $userId, $values)) > 0
             || DB::table(self::TABLE)->where('user_id', $userId)->where('novel_chapter_id', $chapter->id)
-                ->whereNull('read_at')->update(['read_at' => $now, 'bulk' => false, 'manual' => $lookup]) > 0;
+                ->whereNull('read_at')->update($values) > 0;
 
         $this->get($chapter, $userId);
         if ($marked) {
@@ -226,21 +234,26 @@ class ReadState
      * read keeps its original date (and with it its bulk and manual flags);
      * a newly marked one is a single read (bulk = false) marked by hand
      * (manual = true: not reading activity, see ResumePoint). Unread clears
-     * both.
+     * both. $client is stamped on a newly marked row (an already read one
+     * keeps its stamp); unread clears the stamp.
      */
-    public function setRead(NovelChapter $chapter, bool $read, CarbonInterface $recordedAt, ?int $userId = null): ?ChapterRead
+    public function setRead(NovelChapter $chapter, bool $read, CarbonInterface $recordedAt, ?int $userId = null, ?ReadingClient $client = null): ?ChapterRead
     {
         $userId = $this->userId($userId);
         $current = $this->get($chapter, $userId);
 
         $keep = $read && $current?->read_at !== null;
-        $this->put($chapter, $userId, [
+        $values = [
             'read_at' => $read ? ($current?->read_at ?? now()) : null,
             'bulk' => $keep && (bool) $current->bulk,
             'manual' => $read && (!$keep || (bool) $current->manual),
             'progress' => $read ? 100 : null,
             'progress_at' => $recordedAt,
-        ]);
+        ];
+        if (!$keep) {
+            $values += ReadingClient::columnsOf($read ? $client : null);
+        }
+        $this->put($chapter, $userId, $values);
         CacheHelper::clearReaderCache($userId, [(int) $chapter->novel_id]);
 
         return $this->get($chapter, $userId);
@@ -257,9 +270,10 @@ class ReadState
      * mark (manual = false). A read mark without a stored position is
      * reading too, except on a $lookup (a chapter opened from Highlights or
      * search to check a passage): that mark is manual, not activity, so it
-     * does not move Continue (ResumePoint).
+     * does not move Continue (ResumePoint). $client is stamped on the row
+     * when this call marks it read.
      */
-    public function recordProgress(NovelChapter $chapter, ?int $progress, bool $markRead, CarbonInterface $at, ?int $userId = null, bool $lookup = false): bool
+    public function recordProgress(NovelChapter $chapter, ?int $progress, bool $markRead, CarbonInterface $at, ?int $userId = null, bool $lookup = false, ?ReadingClient $client = null): bool
     {
         $userId = $this->userId($userId);
         $current = $this->get($chapter, $userId);
@@ -281,6 +295,7 @@ class ReadState
             $values['read_at'] = now();
             $values['bulk'] = false;
             $values['manual'] ??= $lookup;
+            $values += ReadingClient::columnsOf($client);
         }
 
         if ($values !== []) {
@@ -306,9 +321,10 @@ class ReadState
      * all-time stats, not as daily activity) and manual (not reading
      * activity for ResumePoint). With $onlyUnread, chapters
      * already read are left exactly as they are (their date is kept).
-     * Returns how many chapters changed.
+     * Returns how many chapters changed. Every row marked read gets the
+     * same $client stamp (who marked them, from where); unread clears it.
      */
-    public function markMany(Builder $chapters, bool $read, CarbonInterface $recordedAt, bool $onlyUnread = false, ?int $userId = null): int
+    public function markMany(Builder $chapters, bool $read, CarbonInterface $recordedAt, bool $onlyUnread = false, ?int $userId = null, ?ReadingClient $client = null): int
     {
         $userId = $this->userId($userId);
         $values = [
@@ -317,7 +333,7 @@ class ReadState
             'manual' => $read,
             'progress' => $read ? 100 : null,
             'progress_at' => $recordedAt,
-        ];
+        ] + ReadingClient::columnsOf($read ? $client : null);
         // toBase() applies the soft-delete scope.
         $base = $chapters->toBase();
 
@@ -329,9 +345,12 @@ class ReadState
                 ->update($values);
 
             $inserted = DB::table(self::TABLE)->insertOrIgnoreUsing(
-                ['user_id', 'novel_id', 'novel_chapter_id', 'read_at', 'bulk', 'manual', 'progress', 'progress_at'],
+                ['user_id', 'novel_id', 'novel_chapter_id', 'read_at', 'bulk', 'manual', 'progress', 'progress_at', 'ip', 'device', 'client', 'public'],
                 (clone $base)
-                    ->selectRaw('?, novel_chapters.novel_id, novel_chapters.id, ?, ?, ?, ?, ?', [$userId, $values['read_at'], $values['bulk'], $values['manual'], $values['progress'], $values['progress_at']])
+                    ->selectRaw('?, novel_chapters.novel_id, novel_chapters.id, ?, ?, ?, ?, ?, ?, ?, ?, ?', [
+                        $userId, $values['read_at'], $values['bulk'], $values['manual'], $values['progress'], $values['progress_at'],
+                        $values['ip'], $values['device'], $values['client'], $values['public'],
+                    ])
                     ->whereNotExists(fn($q) => $q->from(self::TABLE . ' as ex')
                         ->selectRaw('1')
                         ->where('ex.user_id', $userId)

@@ -213,7 +213,8 @@ $oneServer(Schedule::command('storage:measure')
     ->runInBackground());
 
 // Sign-in history (Settings → Users → Sign-in history): drop entries older
-// than novarr.auth_log_days (default 180; 0 keeps everything).
+// than novarr.auth_log_days (default 180; 0 keeps everything), and clear the
+// addresses recorded with reads (Readers pages) after the same time.
 $oneServer(Schedule::command('novarr:prune-auth-log')
     ->dailyAt('04:35')
     ->name('prune_auth_log')

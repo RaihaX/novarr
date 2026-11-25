@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class ReadingPosition extends Model
 {
-    protected $fillable = ['user_id', 'novel_id', 'novel_chapter_id', 'progress', 'device_id', 'device_name', 'recorded_at'];
+    protected $fillable = ['user_id', 'novel_id', 'novel_chapter_id', 'progress', 'device_id', 'device_name', 'recorded_at', 'ip', 'client', 'public'];
 
     protected $casts = [
         'user_id' => 'integer',
@@ -19,6 +19,7 @@ class ReadingPosition extends Model
         'novel_chapter_id' => 'integer',
         'progress' => 'integer',
         'recorded_at' => 'datetime',
+        'public' => 'boolean',
     ];
 
     public function novel(): BelongsTo

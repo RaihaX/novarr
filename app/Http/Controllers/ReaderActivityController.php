@@ -43,7 +43,7 @@ class ReaderActivityController extends Controller
 
     /**
      * GET /readers/history — every read, newest first, filtered by account,
-     * series and (opt-in) bulk marks. Unknown or invalid filter values are
+     * series, address and (opt-in) bulk marks. Unknown or invalid filter values are
      * ignored, never an error.
      */
     public function history(Request $request, ReaderActivity $activity)
@@ -58,9 +58,11 @@ class ReaderActivityController extends Controller
         $novelId = $request->integer('novel') ?: null;
         $novel = $novelId === null ? null : Novel::find($novelId, ['id', 'name']);
         $bulk = $request->boolean('bulk');
+        $ip = is_string($request->query('ip')) && filter_var($request->query('ip'), FILTER_VALIDATE_IP) !== false
+            ? (string) $request->query('ip') : null;
 
         $ids = $userId !== null ? [$userId] : $accounts->pluck('id')->map(fn($id) => (int) $id)->all();
-        $rows = $activity->historyPage($ids, $novel?->id, $bulk);
+        $rows = $activity->historyPage($ids, $novel?->id, $bulk, $ip);
 
         return view('readers.history', [
             'accounts' => $accounts,
@@ -73,6 +75,7 @@ class ReaderActivityController extends Controller
             'userId' => $userId,
             'novel' => $novel,
             'bulk' => $bulk,
+            'ip' => $ip,
         ]);
     }
 
@@ -88,6 +91,7 @@ class ReaderActivityController extends Controller
             'inProgress' => $activity->inProgress((int) $user->id),
             'devices' => $activity->devices($user),
             'recent' => $activity->recentSessions([(int) $user->id], 20),
+            'addresses' => $activity->addresses((int) $user->id),
         ]);
     }
 }
