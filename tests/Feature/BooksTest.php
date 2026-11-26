@@ -125,6 +125,32 @@ class BooksTest extends TestCase
         $this->assertStringNotContainsString('Copyright', implode('', array_column($chapters, 'html')));
     }
 
+    public function test_a_whole_book_under_one_entry_is_cut_at_its_headings(): void
+    {
+        $chapters = Epub::open(EpubBuilder::wholeBookInOneEntry(headings: true))->chapters();
+
+        // The copyright line before the first heading joins chapter 1 (too short alone).
+        $this->assertSame(['Chapter 1', 'Chapter 2', 'Chapter 3', 'Chapter 4'], array_column($chapters, 'label'));
+        foreach ($chapters as $chapter) {
+            $this->assertEqualsWithDelta(5000, $chapter['words'], 10);
+        }
+    }
+
+    public function test_a_whole_book_without_headings_is_cut_into_parts(): void
+    {
+        $chapters = Epub::open(EpubBuilder::wholeBookInOneEntry(headings: false))->chapters();
+
+        $this->assertSame(['Part 1', 'Part 2', 'Part 3', 'Part 4'], array_column($chapters, 'label'));
+        $this->assertEqualsWithDelta(20000, array_sum(array_column($chapters, 'words')), 10);
+    }
+
+    public function test_a_long_chapter_under_the_split_limit_is_left_whole(): void
+    {
+        $chapters = Epub::open(EpubBuilder::wholeBookInOneEntry(headings: false, chapters: 1, wordsPerChapter: 12000))->chapters();
+
+        $this->assertSame(['Start'], array_column($chapters, 'label'));
+    }
+
     public function test_a_file_that_is_not_an_epub_is_refused(): void
     {
         $this->expectException(EpubException::class);

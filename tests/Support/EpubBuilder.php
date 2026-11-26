@@ -142,6 +142,30 @@ class EpubBuilder
         ]);
     }
 
+    /**
+     * One file, one contents entry ("Start"), the whole book inside: with
+     * $headings, h2 chapter headings (and a short copyright line first);
+     * without, plain paragraphs only.
+     */
+    public static function wholeBookInOneEntry(bool $headings, int $chapters = 4, int $wordsPerChapter = 5000): string
+    {
+        $para = '<p>' . self::words(100) . '</p>';
+        $body = '<p>Copyright 2020. All rights reserved.</p>';
+        for ($c = 1; $c <= $chapters; $c++) {
+            $body .= $headings ? "<h2>Chapter {$c}</h2>" : '';
+            $body .= str_repeat($para, intdiv($wordsPerChapter, 100));
+        }
+
+        return self::zip([
+            'mimetype' => 'application/epub+zip',
+            'META-INF/container.xml' => '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
+            'book.html' => self::xhtml('Book', $body),
+            'toc.ncx' => '<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><navMap><navPoint id="p"><navLabel><text>Start</text></navLabel><content src="book.html"/></navPoint></navMap></ncx>',
+            'content.opf' => '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Whole</dc:title></metadata>'
+                . '<manifest><item id="b" href="book.html" media-type="application/xhtml+xml"/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/></manifest><spine toc="ncx"><itemref idref="b"/></spine></package>',
+        ]);
+    }
+
     /** A zip that is not an ePub (no package document). */
     public static function notAnEpub(): string
     {

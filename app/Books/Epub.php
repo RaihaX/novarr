@@ -32,6 +32,12 @@ class Epub
      * Sections the contents names that are no part of the text: a list of
      * the chapters, the copyright and publisher pages.
      */
+    /** A section longer than this is cut at its own chapter headings, or into parts. */
+    public const SPLIT_ABOVE_WORDS = 15000;
+
+    /** Words per part when a long section has no headings to cut at. */
+    public const PART_WORDS = 5000;
+
     /** A "boilerplate" section longer than this is real text with a misleading label. */
     public const MAX_BOILERPLATE_WORDS = 1500;
 
@@ -206,6 +212,8 @@ class Epub
         $sections = $entries === []
             ? $this->sectionsPerDocument($documents)
             : $this->sectionsFromContents($entries, $documents);
+
+        $sections = $this->splitLongSections($sections);
 
         // Title, copyright and similar pages are dropped while they are short:
         // a long one is the book itself under a misleading first label. A
@@ -619,6 +627,86 @@ class Epub
             fn($section) => ['label' => $section['label'], 'html' => $section['html'], 'words' => $section['words']],
             array_filter($sections, fn($section) => !$section['front'] || $section['words'] >= self::MIN_FRONT_MATTER_WORDS)
         ));
+    }
+
+    /**
+     * A very long section (a whole book under one contents entry) is cut
+     * where the text itself starts chapters: paragraphs that were headings
+     * (now "<p><strong>…</strong></p>") or short lines such as "Chapter
+     * Twelve", "Prologue", "12". With fewer than three of those it is cut into
+     * parts of about PART_WORDS words at paragraph breaks instead.
+     *
+     * @param  array<int, array{label: string, html: string, words: int}>  $sections
+     * @return array<int, array{label: string, html: string, words: int}>
+     */
+    private function splitLongSections(array $sections): array
+    {
+        $out = [];
+        foreach ($sections as $section) {
+            if ($section['words'] <= self::SPLIT_ABOVE_WORDS) {
+                $out[] = $section;
+                continue;
+            }
+
+            $paragraphs = preg_split('/(?=<p>|<hr\/>)/', $section['html'], -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            $headings = [];
+            foreach ($paragraphs as $i => $paragraph) {
+                if (($heading = self::headingText($paragraph)) !== null) {
+                    $headings[$i] = $heading;
+                }
+            }
+
+            $current = ['label' => $section['label'], 'html' => '', 'words' => 0];
+            if (count($headings) >= 3) {
+                foreach ($paragraphs as $i => $paragraph) {
+                    if (isset($headings[$i])) {
+                        if ($current['words'] > 0) {
+                            $out[] = $current;
+                            $current = ['label' => $headings[$i], 'html' => '', 'words' => 0];
+                        } elseif ($current['html'] === '' || $current['words'] === 0) {
+                            $current['label'] = $headings[$i];
+                        }
+                    }
+                    $current['html'] .= $paragraph;
+                    $current['words'] += EpubHtml::countWords($paragraph);
+                }
+                $out[] = $current;
+                continue;
+            }
+
+            $part = 1;
+            $current['label'] = 'Part 1';
+            foreach ($paragraphs as $paragraph) {
+                if ($current['words'] >= self::PART_WORDS) {
+                    $out[] = $current;
+                    $part++;
+                    $current = ['label' => "Part {$part}", 'html' => '', 'words' => 0];
+                }
+                $current['html'] .= $paragraph;
+                $current['words'] += EpubHtml::countWords($paragraph);
+            }
+            $out[] = $current;
+        }
+
+        return $out;
+    }
+
+    /** A paragraph's text when it reads as a chapter heading, else null. */
+    private static function headingText(string $paragraph): ?string
+    {
+        $text = EpubHtml::squash(html_entity_decode(strip_tags($paragraph), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if ($text === '' || mb_strlen($text) > 80) {
+            return null;
+        }
+        // A whole paragraph in bold: an h1–h6 in the ePub (EpubHtml), or set like one.
+        if (preg_match('#^<p><strong>(?:(?!</strong>).)+</strong></p>$#su', trim($paragraph)) && mb_strlen($text) <= 60) {
+            return $text;
+        }
+        if (preg_match('/^(?:chapter|prologue|epilogue|interlude|afterword|part|book)\b/iu', $text) && mb_strlen($text) <= 60) {
+            return $text;
+        }
+
+        return preg_match('/^\d{1,3}\.?$/', $text) ? "Chapter {$text}" : null;
     }
 
     /**
