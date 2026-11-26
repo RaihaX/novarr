@@ -70,7 +70,7 @@ class BookLookup
      * here, so a file with a wrong or missing title can still be matched by
      * searching for the right one.
      *
-     * @param  array{title?: ?string, author?: ?string, isbn?: ?string}  $query
+     * @param  array{title?: ?string, author?: ?string, isbn?: ?string, language?: ?string}  $query
      * @return array<int, array{source: string, source_name: string, key: string, title: string, authors: string[],
      *               description: ?string, genres: string[], publisher: ?string, year: ?int, isbn: ?string,
      *               cover_url: ?string, url: ?string}>
@@ -110,9 +110,17 @@ class BookLookup
             }
         }
 
+        // Closest title first; among equals, an edition in the book's own
+        // language, then the closer full title (subtitle included).
+        $language = Epub::languageCode($query['language'] ?? null);
         $list = array_values($merged);
         if ($title !== '') {
-            usort($list, fn($a, $b) => self::similarity($title, $b['title']) <=> self::similarity($title, $a['title']));
+            $score = fn(array $c): array => [
+                round(self::similarity($title, $c['title']), 2),
+                $language !== null && (($c['language'] ?? null) === $language || in_array($language, (array) ($c['languages'] ?? []), true)) ? 1 : 0,
+                self::fullSimilarity($title, $c['title']),
+            ];
+            usort($list, fn($a, $b) => $score($b) <=> $score($a));
         }
 
         return array_slice($list, 0, $limit);
@@ -156,6 +164,7 @@ class BookLookup
                 'isbn' => $foundIsbn,
                 'cover_url' => $cover ? str_replace(['http://', '&edge=curl'], ['https://', ''], (string) $cover) : null,
                 'url' => !empty($info['infoLink']) ? str_replace('http://', 'https://', (string) $info['infoLink']) : null,
+                'language' => Epub::languageCode($info['language'] ?? null),
             ];
         }
 
@@ -164,7 +173,7 @@ class BookLookup
 
     private function openLibraryDocs(string $title, string $author, ?string $isbn): array
     {
-        $params = ['limit' => 8, 'fields' => 'key,title,subtitle,author_name,cover_i,first_publish_year,isbn,publisher,subject'];
+        $params = ['limit' => 8, 'fields' => 'key,title,subtitle,author_name,cover_i,first_publish_year,isbn,publisher,language'];
         if ($isbn !== null) {
             $params['isbn'] = $isbn;
         } else {
@@ -200,6 +209,9 @@ class BookLookup
                 'isbn' => $foundIsbn,
                 'cover_url' => !empty($doc['cover_i']) ? self::OPEN_LIBRARY_COVERS . '/id/' . (int) $doc['cover_i'] . '-L.jpg' : null,
                 'url' => !empty($doc['key']) ? 'https://openlibrary.org' . $doc['key'] : null,
+                // A work in several languages counts as the book's own when it is among them.
+                'language' => null,
+                'languages' => array_values(array_filter(array_map(fn($l) => Epub::languageCode((string) $l), (array) ($doc['language'] ?? [])))),
             ];
         }
 
@@ -330,6 +342,19 @@ class BookLookup
         }
         if ($a === $b) {
             return 1.0;
+        }
+        similar_text($a, $b, $percent);
+
+        return $percent / 100;
+    }
+
+    /** Similarity of the whole titles, subtitles included (a tie-break). */
+    private static function fullSimilarity(string $a, string $b): float
+    {
+        $a = self::normalize($a);
+        $b = self::normalize($b);
+        if ($a === '' || $b === '') {
+            return 0.0;
         }
         similar_text($a, $b, $percent);
 

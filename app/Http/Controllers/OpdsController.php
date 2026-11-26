@@ -13,11 +13,12 @@ class OpdsController extends Controller
 {
     public function index()
     {
+        // Web novels with a generated ePub and uploaded books (their original ePub).
         $novels = Novel::with('file')
-            ->text()
+            ->readable()
             ->whereNotNull('epub_generated')
             ->orderBy('name')
-            ->get(['id', 'name', 'author', 'description', 'epub_generated', 'updated_at']);
+            ->get(['id', 'name', 'author', 'description', 'epub_generated', 'updated_at', 'medium']);
 
         $updated = optional($novels->max('epub_generated'))->toAtomString() ?? now()->toAtomString();
 

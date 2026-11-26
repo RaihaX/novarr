@@ -118,6 +118,8 @@
                 </div>
             </div>
 
+            {{-- An uploaded book has no source to scrape: its identity is its file. --}}
+            @unless($novel->isBook())
             <div class="novel-form-section">
                 <div class="novel-form-section-head">
                     <span class="novel-form-section-title">Sources</span>
@@ -166,6 +168,7 @@
                     </div>
                 </div>
             </div>
+            @endunless
 
             <div class="novel-form-section">
                 <div class="novel-form-section-head">

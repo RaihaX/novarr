@@ -31,6 +31,11 @@
     if ($medium === \App\Novel::MEDIUM_MANGA) {
         unset($chips['offline']);
     }
+    // A book arrives whole: never new chapters, nothing to download.
+    $isBooks = $medium === \App\Novel::MEDIUM_BOOK;
+    if ($isBooks) {
+        unset($chips['new'], $chips['attention']);
+    }
     // Translated / Original only exist in the Novels library.
     foreach (['translated' => 'Translated', 'original' => 'Original'] as $originKey => $originLabel) {
         if (in_array($originKey, $originChips, true)) {
@@ -49,7 +54,9 @@
         <h1 class="page-title mb-0">{{ $libraryTitle }}</h1>
         <p class="lib-summary mb-0">
             <span class="mono-num">{{ number_format($chipCounts['all']) }}</span> {{ LibraryMedium::countNoun($medium, $chipCounts['all']) }}
+            @unless($isBooks)
             · <span class="mono-num">{{ number_format($totals['downloaded']) }}</span> chapters downloaded
+            @endunless
             @if($totals['queued'] > 0)
                 · <span class="mono-num">{{ number_format($totals['queued']) }}</span> queued
             @endif
@@ -59,9 +66,14 @@
         </p>
     </div>
     <div class="page-head-actions">
-        @can('admin')
-        <a href="{{ route('novels.discover', ['medium' => $medium]) }}" class="btn btn-primary">+ Add {{ $mediumNoun }}</a>
-        @endcan
+        @if($isBooks)
+            {{-- Anyone can send a book; the owner matches and approves it. --}}
+            <a href="{{ route('books.upload') }}" class="btn btn-primary">+ Upload a book</a>
+        @else
+            @can('admin')
+            <a href="{{ route('novels.discover', ['medium' => $medium]) }}" class="btn btn-primary">+ Add {{ $mediumNoun }}</a>
+            @endcan
+        @endif
         @if($view === 'grid')
             <button type="button" class="btn btn-secondary" id="libSelect" aria-pressed="false">Select</button>
         @endif
@@ -93,7 +105,7 @@
         {{-- Library: Novels or Manga, remembered in the session; switching
              keeps the view and sort and starts the filters over. --}}
         <div class="btn-group segmented lib-medium" role="group" aria-label="Library">
-            @foreach(['novel' => 'Novels', 'manga' => 'Manga'] as $mKey => $mLabel)
+            @foreach(['novel' => 'Novels', 'manga' => 'Manga', 'book' => 'Books'] as $mKey => $mLabel)
                 <a href="{{ $mediumUrl($mKey) }}" data-medium="{{ $mKey }}"
                    class="btn btn-secondary {{ $medium === $mKey ? 'active' : '' }}" @if($medium === $mKey) aria-current="true" @endif>{{ $mLabel }}</a>
             @endforeach
@@ -121,7 +133,7 @@
         @endif
         {{-- Origin country (?origin=, in the URL like the tag); counts are
              this library's series (Novel::originCountry()). --}}
-        @if(!empty($originCounts))
+        @if(!empty($originCounts) && !$isBooks)
             <select name="origin" aria-label="Filter by origin" class="form-select lib-origin" onchange="this.form.requestSubmit()">
                 <option value="">All origins</option>
                 @foreach(['jp' => 'JP', 'kr' => 'KR', 'cn' => 'CN', 'en' => 'EN'] as $oKey => $oCode)

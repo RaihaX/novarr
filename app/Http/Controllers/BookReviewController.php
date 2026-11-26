@@ -54,7 +54,8 @@ class BookReviewController extends Controller
             'candidates' => $candidates,
             'chosen' => $chosen,
             'form' => $form,
-            'fileCover' => !empty($meta['cover_path']) ? \Illuminate\Support\Facades\Storage::disk('public')->url($meta['cover_path']) : null,
+            // On the address in use (the disk's URL is built on APP_URL).
+            'fileCover' => !empty($meta['cover_path']) ? \App\Http\Controllers\Api\V1\Presenter::url(\Illuminate\Support\Facades\Storage::disk('public')->url($meta['cover_path'])) : null,
             'requester' => $bookRequest->requester,
             'novel' => $bookRequest->novel_id ? Novel::find($bookRequest->novel_id) : null,
             'fileMissing' => $bookRequest->isPending() && !is_file((string) BookUploads::pendingPath($bookRequest)),

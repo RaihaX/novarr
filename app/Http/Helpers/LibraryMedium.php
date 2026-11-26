@@ -21,7 +21,7 @@ class LibraryMedium
 {
     public const SESSION_KEY = 'library_medium';
 
-    public const ALL = [Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA];
+    public const ALL = [Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK];
 
     public static function isValid(mixed $medium): bool
     {
@@ -69,10 +69,14 @@ class LibraryMedium
         return self::isValid($medium) ? $medium : self::remembered();
     }
 
-    /** "novel" / "manga" — the singular word for one series of the medium. */
+    /** "novel" / "manga" / "book" — the singular word for one series of the medium. */
     public static function noun(string $medium): string
     {
-        return $medium === Novel::MEDIUM_MANGA ? 'manga' : 'novel';
+        return match ($medium) {
+            Novel::MEDIUM_MANGA => 'manga',
+            Novel::MEDIUM_BOOK => 'book',
+            default => 'novel',
+        };
     }
 
     /** "12 novels", "1 novel", "9 manga" (manga is not pluralised). */
@@ -83,15 +87,19 @@ class LibraryMedium
         return $medium === Novel::MEDIUM_MANGA ? $noun : \Illuminate\Support\Str::plural($noun, $count);
     }
 
-    /** The plural, capitalised library title: "Novels" / "Manga". */
+    /** The plural, capitalised library title: "Novels" / "Manga" / "Books". */
     public static function title(string $medium): string
     {
-        return $medium === Novel::MEDIUM_MANGA ? 'Manga' : 'Novels';
+        return ucfirst(self::plural($medium));
     }
 
-    /** Lower-case plural for running text: "novels" / "manga". */
+    /** Lower-case plural for running text: "novels" / "manga" / "books". */
     public static function plural(string $medium): string
     {
-        return $medium === Novel::MEDIUM_MANGA ? 'manga' : 'novels';
+        return match ($medium) {
+            Novel::MEDIUM_MANGA => 'manga',
+            Novel::MEDIUM_BOOK => 'books',
+            default => 'novels',
+        };
     }
 }

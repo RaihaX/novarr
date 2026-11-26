@@ -140,6 +140,7 @@ class BookUploads
             'title' => $title ?? ($meta['title'] ?? $request->title),
             'author' => $author ?? ($meta['authors'][0] ?? $request->author),
             'isbn' => $isbn ?? ($meta['isbn'] ?? null),
+            'language' => $meta['language'] ?? null,
         ];
         // A typed title replaces the file's ISBN (which may be the wrong one), unless one was typed too.
         if ($title !== null && $isbn === null) {

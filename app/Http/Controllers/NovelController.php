@@ -620,7 +620,13 @@ class NovelController extends Controller
      */
     public function create(Request $request)
     {
-        return view('novels.create', ['medium' => LibraryMedium::resolve($request)]);
+        $medium = LibraryMedium::resolve($request);
+        // A book is added from its ePub, not by hand.
+        if ($medium === Novel::MEDIUM_BOOK) {
+            return redirect()->route('books.upload');
+        }
+
+        return view('novels.create', ['medium' => $medium]);
     }
 
     public function edit($id)
@@ -915,7 +921,8 @@ class NovelController extends Controller
             $object->translator = $request->translator;
         }
 
-        if ( $request->has('translator_url') ) {
+        // An uploaded book's identity (book://library/{sha1}) is its file: never replaced.
+        if ( $request->has('translator_url') && !$object->isBook() ) {
             $object->translator_url = $request->translator_url;
         }
 

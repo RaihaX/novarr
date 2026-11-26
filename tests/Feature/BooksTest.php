@@ -153,7 +153,8 @@ class BooksTest extends TestCase
 
         $chapters = NovelChapter::where('novel_id', $book->id)->orderBy('sort_key')->get();
         $this->assertSame(['Part One — 1', 'Two', 'Three'], $chapters->pluck('label')->all());
-        $this->assertTrue($chapters->every(fn($c) => $c->status && $c->download_date !== null));
+        // Readable, but never "new chapters": no download date.
+        $this->assertTrue($chapters->every(fn($c) => $c->status && $c->download_date === null));
         $this->assertStringContainsString('Second word', $chapters[1]->description);
 
         // The original is kept and is the book's ePub.

@@ -115,10 +115,11 @@
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('home') ? 'active' : '' }}" @if(request()->routeIs('home')) aria-current="page" @endif href="{{ route('home') }}">Home</a>
                     </li>
-                    {{-- Two libraries on one route: the item of the medium this
-                         page belongs to (LibraryMedium::current()) is active. --}}
-                    @php $navMedium = request()->routeIs('novels.*') ? \App\Http\Helpers\LibraryMedium::current() : null; @endphp
-                    @foreach(['novel' => 'Novels', 'manga' => 'Manga'] as $navKey => $navLabel)
+                    {{-- Three libraries on one route: the item of the medium this
+                         page belongs to (LibraryMedium::current()) is active;
+                         uploading a book belongs to Books. --}}
+                    @php $navMedium = request()->routeIs('novels.*') ? \App\Http\Helpers\LibraryMedium::current() : (request()->routeIs('books.*') ? 'book' : null); @endphp
+                    @foreach(['novel' => 'Novels', 'manga' => 'Manga', 'book' => 'Books'] as $navKey => $navLabel)
                         <li class="nav-item">
                             <a class="nav-link {{ $navMedium === $navKey ? 'active' : '' }}" @if($navMedium === $navKey) aria-current="page" @endif href="{{ route('novels.index', ['medium' => $navKey]) }}" data-nav-medium="{{ $navKey }}">{{ $navLabel }}</a>
                         </li>

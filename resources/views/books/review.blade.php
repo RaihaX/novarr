@@ -59,7 +59,7 @@
     @endif
 
     @if($book->note)
-        <div class="book-review-note"><span class="req-row-label">{{ $requester?->name ?? 'Their' }} note:</span> {{ $book->note }}</div>
+        <div class="book-review-note"><span class="req-row-label">{{ $requester?->name ? $requester->name . '’s' : 'Their' }} note:</span> {{ $book->note }}</div>
     @endif
 
     <div class="book-review-grid">
@@ -203,22 +203,19 @@
                                 @php($coverChoice = old('cover', $form['cover']))
                                 @if($chosenCover)
                                     <label class="book-cover-choice">
-                                        <input type="radio" name="cover" value="match" @checked($coverChoice === 'match')>
                                         <span class="cover"><img src="{{ $chosenCover }}" alt="" referrerpolicy="no-referrer"></span>
-                                        <span>The match’s cover</span>
+                                        <span class="book-cover-caption"><input type="radio" name="cover" value="match" @checked($coverChoice === 'match')> The match’s cover</span>
                                     </label>
                                 @endif
                                 @if($fileCover)
                                     <label class="book-cover-choice">
-                                        <input type="radio" name="cover" value="file" @checked($coverChoice === 'file')>
                                         <span class="cover"><img src="{{ $fileCover }}" alt=""></span>
-                                        <span>The file’s cover</span>
+                                        <span class="book-cover-caption"><input type="radio" name="cover" value="file" @checked($coverChoice === 'file')> The file’s cover</span>
                                     </label>
                                 @endif
                                 <label class="book-cover-choice">
-                                    <input type="radio" name="cover" value="none" @checked($coverChoice === 'none' || (!$chosenCover && !$fileCover))>
                                     <span class="cover"></span>
-                                    <span>No cover (a designed one is made)</span>
+                                    <span class="book-cover-caption"><input type="radio" name="cover" value="none" @checked($coverChoice === 'none' || (!$chosenCover && !$fileCover))> No cover (a designed one is made)</span>
                                 </label>
                             </fieldset>
                             @if(session('duplicate'))

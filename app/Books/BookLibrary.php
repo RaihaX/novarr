@@ -169,7 +169,6 @@ class BookLibrary
             $novel->completed_at = now();
             $novel->save();
 
-            $now = now();
             foreach (array_values($chapters) as $index => $chapter) {
                 $number = $index + 1;
                 $row = new NovelChapter([
@@ -177,14 +176,18 @@ class BookLibrary
                     'chapter' => $number,
                     'number' => $number,
                     'sort_key' => $number,
-                    'book' => 1,
+                    // No volume: a book is one work (the chapter list and reader show no "Book 1").
+                    'book' => 0,
                     'label' => mb_substr($chapter['label'], 0, 250),
                     'title' => mb_substr($chapter['label'], 0, 250),
                     'source_label' => mb_substr($chapter['label'], 0, 250),
                     'url' => $url . '/' . $number,
                 ]);
+                // Readable (status 1) but never "downloaded": no download_date,
+                // so a whole book never shows as new chapters (home strip,
+                // Activity, the daily email, the apps' updates, "new since you
+                // last read"). The reader hears of it through its request instead.
                 $row->status = 1;
-                $row->download_date = $now;
                 $row->description = $chapter['html'];
                 $row->save();
             }

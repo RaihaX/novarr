@@ -35,8 +35,11 @@
     $continueLabel = $continue_number !== null && $continue_number !== '' ? 'chapter ' . $continue_number : null;
 
     $metaItems = [];
-    if ($data->translator_url) $metaItems[] = ['href' => $data->translator_url, 'text' => parse_url($data->translator_url, PHP_URL_HOST)];
+    // An uploaded book's book:// identity is no page to link to.
+    $isBook = $data->isBook();
+    if ($data->translator_url && !$isBook) $metaItems[] = ['href' => $data->translator_url, 'text' => parse_url($data->translator_url, PHP_URL_HOST)];
     if ($data->isManga()) $metaItems[] = ['text' => 'Manga'];
+    if ($isBook) $metaItems[] = ['text' => 'Book'];
     if ($originLabel = $data->originLabel()) $metaItems[] = ['text' => $originLabel];
     if ($data->group && $data->group->label) $metaItems[] = ['text' => $data->group->label];
     if ($data->language && $data->language->label) $metaItems[] = ['text' => $data->language->label];
@@ -45,7 +48,7 @@
     $showBookCol = $chapters->contains(fn($c) => (int) $c->book !== 0);
     $chapterUrl = route('chapters.show', '__ID__');
     // Links back to the library go to this series' own library (Novels / Manga).
-    $seriesMedium = $data->isManga() ? \App\Novel::MEDIUM_MANGA : \App\Novel::MEDIUM_NOVEL;
+    $seriesMedium = $data->isManga() ? \App\Novel::MEDIUM_MANGA : ($isBook ? \App\Novel::MEDIUM_BOOK : \App\Novel::MEDIUM_NOVEL);
     $libraryUrl = route('novels.index', ['medium' => $seriesMedium]);
 @endphp
 
@@ -220,9 +223,9 @@
                 <p class="visually-hidden" data-lists-status role="status" aria-live="polite"></p>
             </div>
         </div>
-        @cannot('admin')
+        @if(!$isBook && \Illuminate\Support\Facades\Gate::denies('admin'))
         {{-- A reader: "check for new chapters" through the API, in plain
-             sight (the admin has the commands in Maintenance). --}}
+             sight (the admin has the commands in Maintenance). A book has none. --}}
         <button type="button" class="btn btn-secondary btn-icon-label nv-check reader-action-btn" data-reader-action="check" data-novel="{{ $data->id }}" title="Ask the source for new chapters and download them" aria-label="Check for new chapters">
             <x-icon name="refresh-cw" :size="14" />
             <span class="cmd-label">Check for new chapters</span>
@@ -230,7 +233,7 @@
             <span class="cmd-done d-none">Done</span>
             <span class="cmd-fail d-none">Failed</span>
         </button>
-        @endcannot
+        @endif
         <div class="dropdown">
             <button type="button" class="btn btn-secondary btn-icon" id="novelMoreBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="More actions" title="More actions">
                 <x-icon name="more-horizontal" :size="16" />
@@ -238,6 +241,7 @@
             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="novelMoreBtn">
                 @can('admin')
                 <li><a href="{{ route('novels.edit', $data->id) }}" class="dropdown-item"><x-icon name="pencil" :size="14" />Edit details</a></li>
+                @unless($isBook)
                 <li>
                     <button type="button" id="pauseToggle" class="dropdown-item" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">
                         <x-icon name="pause" :size="14" class="icon pause-icon-pause {{ $data->paused_at ? 'd-none' : '' }}" />
@@ -245,8 +249,9 @@
                         <span class="pause-label">{{ $data->paused_at ? 'Resume downloads' : 'Pause downloads' }}</span>
                     </button>
                 </li>
+                @endunless
                 <li>
-                    <button type="button" class="dropdown-item cmd-btn" id="refreshMetadataBtn" data-command="metadata" data-novel="{{ $data->id }}" title="Re-fetch title, author, cover and synopsis from the source">
+                    <button type="button" class="dropdown-item cmd-btn" id="refreshMetadataBtn" data-command="metadata" data-novel="{{ $data->id }}" title="{{ $isBook ? 'Fill a missing description, genres or cover from Google Books and Open Library' : 'Re-fetch title, author, cover and synopsis from the source' }}">
                         <x-icon name="refresh-cw" :size="14" />
                         <span class="cmd-label">Refresh metadata</span>
                         <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Running</span>
@@ -263,6 +268,8 @@
                 {{-- Only once an ePub has been built (hidden until then; a
                      build started here reveals it, see showEpubDownload()). --}}
                 <li id="epubDownloadItem" class="{{ $epub_built_at ? '' : 'd-none' }}"><a href="{{ route('novels.download_epub', $data->id) }}" class="dropdown-item" data-turbo="false" data-turbo-prefetch="false" @if($epub_built_at) title="Built {{ $epub_built_at->format('j M Y, H:i') }}" @endif><x-icon name="download" :size="14" />Download ePub<span class="item-suffix">{{ $epub_built_at?->format($epub_built_at->isCurrentYear() ? 'j M' : 'j M Y') }}</span></a></li>
+                {{-- A book's ePub is the uploaded original: nothing to build. --}}
+                @unless($isBook)
                 <li>
                     @can('admin')
                     <button type="button" class="dropdown-item cmd-btn" data-command="epub" data-novel="{{ $data->id }}" title="Build an ePub from the downloaded chapters">
@@ -276,6 +283,7 @@
                         <span class="cmd-fail d-none">Failed</span>
                     </button>
                 </li>
+                @endunless
                 @can('admin')
                 <li>
                     <button type="button" class="dropdown-item cmd-btn" data-command="send_to_kindle" data-novel="{{ $data->id }}" title="Email this novel's ePub to your Kindle">
@@ -290,7 +298,7 @@
                 @endunless
                 @can('admin')
                 <li><hr class="dropdown-divider"></li>
-                <li><button type="button" id="deleteNovel" class="dropdown-item item-danger" data-id="{{ $data->id }}" data-name="{{ $data->name }}"><x-icon name="trash-2" :size="14" />Delete novel</button></li>
+                <li><button type="button" id="deleteNovel" class="dropdown-item item-danger" data-id="{{ $data->id }}" data-name="{{ $data->name }}"><x-icon name="trash-2" :size="14" />Delete {{ $isBook ? 'book' : 'novel' }}</button></li>
                 @endcan
             </ul>
         </div>
@@ -324,6 +332,17 @@
                 @endif
             </div>
 
+            @if($isBook)
+            {{-- A book arrived whole from its ePub: nothing to download or check. --}}
+            <div class="nv-progress-part">
+                <h3 class="nv-progress-key">Book</h3>
+                <p class="nv-dl-line">
+                    <span class="nv-dot {{ \App\Enums\NovelState::Completed->barClass() }}" aria-hidden="true"></span>
+                    <span>{{ number_format($dl['total']) }} {{ Str::plural('chapter', $dl['total']) }} from an uploaded ePub</span>
+                </p>
+                <p class="nv-progress-note">Added {{ $data->created_at?->format('j M Y') }} · the original ePub is in the ⋯ menu</p>
+            </div>
+            @else
             <div class="nv-progress-part">
                 <h3 class="nv-progress-key">Downloads</h3>
                 <p class="nv-dl-line">
@@ -396,6 +415,7 @@
                     </div>
                 @endif
             </div>
+            @endif
         </section>
         @include('partials.source-unavailable', ['novel' => $data])
     </div>

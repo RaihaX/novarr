@@ -23,9 +23,9 @@ class SourceResolver
 
     /** @var array<string, class-string<Source>> what the config map defaults to */
     public const DEFAULT_SOURCES = [
-        'book' => BookSource::class,
         'mangadex' => MangaDexSource::class,
         'suwayomi' => SuwayomiSource::class,
+        'book' => BookSource::class,
         'empirenovel' => EmpireNovelSource::class,
         'novelfull' => NovelFullSource::class,
         'novelarrow' => NovelArrowSource::class,

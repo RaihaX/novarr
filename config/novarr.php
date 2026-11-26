@@ -46,9 +46,6 @@ return [
     |
     */
     'sources' => [
-        // Books uploaded as ePubs (medium 'book'): claims only its own
-        // book:// URLs, so it never takes a web address from another source.
-        'book' => \App\Sources\BookSource::class,
         // Manga (medium 'manga'): claims only mangadex.org URLs. Listed
         // first so no group-id logic of the novel adapters ever sees one.
         'mangadex' => \App\Sources\MangaDexSource::class,
@@ -56,6 +53,11 @@ return [
         // below). Claims nothing and lists nothing until NOVARR_SUWAYOMI_URL
         // is set; on Discover it is one entry per Suwayomi source.
         'suwayomi' => \App\Sources\SuwayomiSource::class,
+        // Books uploaded as ePubs (medium 'book'): claims only its own
+        // book:// URLs (and rows of medium 'book'), so it never takes a web
+        // address from another source; before the novel adapters so none of
+        // their group-id logic ever sees a book.
+        'book' => \App\Sources\BookSource::class,
         'empirenovel' => \App\Sources\EmpireNovelSource::class,
         'novelfull' => \App\Sources\NovelFullSource::class,
         'novelfire' => \App\Sources\NovelFireSource::class,
@@ -81,8 +83,11 @@ return [
     */
     'books' => [
         // Where uploaded originals are kept: back this folder up, it is the only copy.
-        'path' => env('NOVARR_BOOKS_PATH') ?: storage_path('app/books'),
-        'max_upload_mb' => (int) env('NOVARR_BOOKS_MAX_UPLOAD_MB', 100),
+        // A relative path is taken from the app's folder.
+        'path' => ($booksPath = trim((string) env('NOVARR_BOOKS_PATH', ''))) === ''
+            ? storage_path('app/books')
+            : (str_starts_with($booksPath, '/') ? $booksPath : base_path($booksPath)),
+        'max_upload_mb' => (int) env('NOVARR_BOOKS_MAX_UPLOAD_MB', 50),
         'lookup' => (bool) env('NOVARR_BOOKS_LOOKUP', true),
         'google_books_key' => (string) env('NOVARR_GOOGLE_BOOKS_KEY', ''),
         'timeout' => (int) env('NOVARR_BOOKS_LOOKUP_TIMEOUT', 15),

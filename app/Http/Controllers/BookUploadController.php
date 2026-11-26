@@ -72,6 +72,6 @@ class BookUploadController extends Controller
 
     public static function maxMb(): int
     {
-        return max(1, (int) config('novarr.books.max_upload_mb', 100));
+        return max(1, (int) config('novarr.books.max_upload_mb', 50));
     }
 }
