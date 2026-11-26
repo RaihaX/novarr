@@ -87,10 +87,42 @@ return [
         'path' => ($booksPath = trim((string) env('NOVARR_BOOKS_PATH', ''))) === ''
             ? storage_path('app/books')
             : (str_starts_with($booksPath, '/') ? $booksPath : base_path($booksPath)),
+        // Originals of books imported from Calibre-Web: they can be fetched
+        // again from Calibre, so they may live outside the backups (a big
+        // second disk). Empty = with the uploads, in `path`.
+        'calibre_path' => ($calibrePath = trim((string) env('NOVARR_BOOKS_CALIBRE_PATH', ''))) === ''
+            ? null
+            : (str_starts_with($calibrePath, '/') ? $calibrePath : base_path($calibrePath)),
         'max_upload_mb' => (int) env('NOVARR_BOOKS_MAX_UPLOAD_MB', 50),
         'lookup' => (bool) env('NOVARR_BOOKS_LOOKUP', true),
         'google_books_key' => (string) env('NOVARR_GOOGLE_BOOKS_KEY', ''),
         'timeout' => (int) env('NOVARR_BOOKS_LOOKUP_TIMEOUT', 15),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Calibre-Web (App\Books\CalibreWeb, App\Books\CalibreImport)
+    |--------------------------------------------------------------------------
+    |
+    | The owner's Calibre-Web, read through its OPDS feed with a read-only
+    | account (download permission). Empty url = off.
+    | languages  Calibre language codes listed and imported (a book with no
+    |            language is included); empty = every language.
+    | sync       import books added to Calibre from now on, hourly
+    |            (`books:calibre-import`); the first run only marks where
+    |            "from now on" starts. `--all` imports the whole library.
+    |
+    */
+    'calibre_web' => [
+        'url' => rtrim(trim((string) env('NOVARR_CALIBRE_WEB_URL', '')), '/'),
+        'username' => (string) env('NOVARR_CALIBRE_WEB_USERNAME', ''),
+        'password' => (string) env('NOVARR_CALIBRE_WEB_PASSWORD', ''),
+        'languages' => array_values(array_filter(array_map(
+            fn($l) => strtolower(trim($l)),
+            explode(',', (string) env('NOVARR_CALIBRE_WEB_LANGUAGES', 'eng'))
+        ), fn($l) => $l !== '')),
+        'sync' => (bool) env('NOVARR_CALIBRE_WEB_SYNC', true),
+        'timeout' => (int) env('NOVARR_CALIBRE_WEB_TIMEOUT', 30),
     ],
 
     /*

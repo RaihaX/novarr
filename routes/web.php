@@ -157,6 +157,9 @@ Route::get('/requests', [\App\Http\Controllers\RequestsPageController::class, 'i
 // Books: any reader uploads an ePub; the owner matches and approves it (App\Books\BookUploads).
 Route::get('/books/upload', [\App\Http\Controllers\BookUploadController::class, 'create'])->name('books.upload');
 Route::post('/books/upload', [\App\Http\Controllers\BookUploadController::class, 'store'])->middleware('throttle:novarr-book-upload')->name('books.upload.store');
+Route::get('/books/calibre', [\App\Http\Controllers\CalibreController::class, 'index'])->name('books.calibre');
+Route::post('/books/calibre/import', [\App\Http\Controllers\CalibreController::class, 'import'])->name('books.calibre.import');
+Route::get('/books/calibre/cover/{id}', [\App\Http\Controllers\CalibreController::class, 'cover'])->whereNumber('id')->name('books.calibre.cover');
 Route::get('/books/review/{id}', [\App\Http\Controllers\BookReviewController::class, 'show'])->whereNumber('id')->name('books.review');
 Route::post('/books/review/{id}/search', [\App\Http\Controllers\BookReviewController::class, 'search'])->whereNumber('id')->name('books.review.search');
 Route::post('/books/review/{id}/approve', [\App\Http\Controllers\BookReviewController::class, 'approve'])->whereNumber('id')->name('books.review.approve');

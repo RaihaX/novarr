@@ -175,3 +175,11 @@
     display: flex;
     gap: $s-2;
 }
+
+// Import from Calibre (/books/calibre): the search spans the page; paging below the list.
+.book-calibre-search { grid-template-columns: minmax(0, 1fr) auto auto; }
+
+.book-calibre-paging {
+    display: flex;
+    gap: $s-2;
+}

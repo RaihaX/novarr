@@ -46,14 +46,22 @@ class BookLibrary
     {
     }
 
-    /** Where a book's original ePub is kept. */
-    public static function path(Novel|int $novel): string
+    /** source_ref of a book imported from Calibre-Web: "calibre:{uuid}". */
+    public const CALIBRE_REF = 'calibre:';
+
+    /**
+     * Where a book's original ePub is kept: uploads under books.path (in the
+     * backups: it is the only copy), Calibre imports under
+     * books.calibre_path when set (Calibre has them too).
+     */
+    public static function path(Novel $novel): string
     {
-        $id = $novel instanceof Novel ? (int) $novel->id : $novel;
+        $calibre = str_starts_with((string) $novel->source_ref, self::CALIBRE_REF) && config('novarr.books.calibre_path');
+        $root = rtrim((string) ($calibre
+            ? config('novarr.books.calibre_path')
+            : (config('novarr.books.path') ?: storage_path('app/books'))), '/');
 
-        $root = rtrim((string) (config('novarr.books.path') ?: storage_path('app/books')), '/');
-
-        return "{$root}/{$id}.epub";
+        return "{$root}/" . (int) $novel->id . '.epub';
     }
 
     public static function urlFor(string $sha1): string
@@ -70,7 +78,9 @@ class BookLibrary
      * @param  array   $details       the owner's choice, over the file's own metadata, each key optional:
      *                                title, author, description (null clears), genres (string[], replaces
      *                                the file's subjects), cover_url (a catalogue cover, over the file's),
-     *                                file_cover (false: never the file's own cover)
+     *                                file_cover (false: never the file's own cover), cover_bytes (an
+     *                                image to use as the cover, over everything), source_ref (stored on
+     *                                the book: "calibre:{uuid}")
      * @return array{result: string, novel: Novel}  result: created | existing | duplicate
      *
      * @throws EpubException  the file cannot be read as an ePub or has no text
@@ -102,6 +112,7 @@ class BookLibrary
             $metadata['description'] = $description !== '' ? $description : null;
         }
 
+        $metadata['source_ref'] = $details['source_ref'] ?? null;
         $title = $metadata['title'] ?: self::titleFromFilename($originalName);
         $url = self::urlFor(sha1_file($file));
 
@@ -130,7 +141,11 @@ class BookLibrary
         }
 
         $covered = false;
-        if (!empty($details['cover_url']) && ($downloaded = downloadCoverImage((string) $details['cover_url'], $novel->id))) {
+        if (!empty($details['cover_bytes']) && ($info = @getimagesizefromstring((string) $details['cover_bytes']))) {
+            $this->attachCover($novel, ['bytes' => (string) $details['cover_bytes'], 'type' => $info['mime'], 'name' => 'cover']);
+            $covered = true;
+        }
+        if (!$covered && !empty($details['cover_url']) && ($downloaded = downloadCoverImage((string) $details['cover_url'], $novel->id))) {
             $novel->attachCover($downloaded['filename'], $downloaded['basename']);
             $covered = true;
         }
@@ -164,6 +179,7 @@ class BookLibrary
             $novel->description = $metadata['description'];
             $novel->no_of_chapters = count($chapters);
             $novel->origin_language = $metadata['language'];
+            $novel->source_ref = $metadata['source_ref'] ?? null;
             // Complete on arrival: nothing will ever be added to it.
             $novel->status = 1;
             $novel->completed_at = now();

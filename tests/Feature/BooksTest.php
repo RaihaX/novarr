@@ -232,6 +232,27 @@ class BooksTest extends TestCase
     }
 
     // ------------------------------------------------------------------
+    // Offline and the apps
+    // ------------------------------------------------------------------
+
+    public function test_a_book_can_be_saved_for_offline_reading_and_read_by_the_apps(): void
+    {
+        $book = app(BookLibrary::class)->import(EpubBuilder::epub3(), 'a.epub', lookup: false)['novel'];
+
+        // The PWA's "Download for offline" list holds every chapter of the book.
+        $manifest = $this->getJson("/novels/{$book->id}/offline-manifest")->assertOk()->json();
+        $this->assertSame(3, $manifest['chapterCount']);
+        $this->assertSame(['Part One — 1', 'Two', 'Three'], array_column($manifest['chapters'], 'label'));
+        $this->get($manifest['chapters'][1]['url'])->assertOk()->assertSee('Second word');
+
+        // The apps (Android, iOS, KOReader) list it with medium=all and read its chapters as text.
+        $listed = collect($this->getJson('/api/v1/novels?medium=all')->assertOk()->json('novels'))->firstWhere('id', $book->id);
+        $this->assertSame('book', $listed['medium']);
+        $chapterId = $manifest['chapters'][0]['id'];
+        $this->getJson("/api/v1/chapters/{$chapterId}")->assertOk()->assertJsonFragment(['id' => $chapterId]);
+    }
+
+    // ------------------------------------------------------------------
     // Catalogue lookup
     // ------------------------------------------------------------------
 

@@ -68,6 +68,11 @@
     <div class="page-head-actions">
         @if($isBooks)
             {{-- Anyone can send a book; the owner matches and approves it. --}}
+            @can('admin')
+                @if(\App\Books\CalibreWeb::enabled())
+                    <a href="{{ route('books.calibre') }}" class="btn btn-secondary">Import from Calibre</a>
+                @endif
+            @endcan
             <a href="{{ route('books.upload') }}" class="btn btn-primary">+ Upload a book</a>
         @else
             @can('admin')
