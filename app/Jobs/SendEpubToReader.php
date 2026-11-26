@@ -43,7 +43,11 @@ class SendEpubToReader implements ShouldQueue
         SendEpub::put($this->userId, $this->novelId, SendEpub::SENDING, $this->to);
         try {
             $this->send();
-            SendEpub::put($this->userId, $this->novelId, SendEpub::SENT, $this->to, "Sent to {$this->to}. It arrives in a few minutes.");
+            $message = "Sent to {$this->to}. It arrives in a few minutes.";
+            if (SendEpub::isKindle($this->to)) {
+                $message .= ' Not on your Kindle? Approve ' . SendEpub::fromAddress() . ' in Amazon’s Personal Document Settings, then send again.';
+            }
+            SendEpub::put($this->userId, $this->novelId, SendEpub::SENT, $this->to, $message);
         } catch (\Throwable $e) {
             $message = $e instanceof \RuntimeException && $e->getCode() === 422
                 ? $e->getMessage()

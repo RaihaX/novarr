@@ -63,6 +63,8 @@ class SendEpubTest extends TestCase
     {
         $this->asSignedIn($this->reader)->get('/account')->assertOk()
             ->assertSee('Send to Kindle or email')
+            ->assertSee('Sending to a Kindle?')
+            ->assertSee('Approved Personal Document E-mail List')
             ->assertSee('novarr@example.test');
 
         $this->asSignedIn($this->reader)->post('/account/send-to', ['send_to_email' => 'sam_42@kindle.com'])
@@ -86,7 +88,14 @@ class SendEpubTest extends TestCase
         Mail::assertSent(SendToKindle::class, fn($m) => $m->hasTo('sam_42@kindle.com') && $m->novelTitle === $book->name);
         $this->api($this->reader)->getJson("/api/v1/novels/{$book->id}/send")
             ->assertOk()
-            ->assertJsonPath('send.status', SendEpub::SENT);
+            ->assertJsonPath('send.status', SendEpub::SENT)
+            ->assertJsonPath('send.message', fn($m) => str_contains($m, 'Approve novarr@example.test'));
+
+        // Not a Kindle: no Amazon reminder.
+        $this->reader->forceFill(['send_to_email' => 'sam@example.test'])->save();
+        \Illuminate\Support\Facades\Cache::flush();
+        $this->api($this->reader)->postJson("/api/v1/novels/{$book->id}/send")
+            ->assertJsonPath('send.message', 'Sent to sam@example.test. It arrives in a few minutes.');
     }
 
     public function test_no_address_points_to_the_account_page(): void

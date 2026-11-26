@@ -261,7 +261,13 @@
                         @error('send_to_email')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         <button type="submit" class="btn btn-secondary btn-sm">Save</button>
                     </form>
-                    <p class="form-text mb-0">For a Kindle, add <strong>{{ \App\Services\SendEpub::fromAddress() }}</strong> to the approved senders in Amazon (Content &amp; Devices → Preferences → Personal Document Settings), or Amazon drops the email.@if(!$user->send_to_email && $user->isAdmin() && \App\Services\SendEpub::address($user)) Until you set one, the Kindle email in Settings is used ({{ \App\Services\SendEpub::address($user) }}).@endif</p>
+                    <div class="alert alert-warning mb-2" role="note">
+                        <strong>Sending to a Kindle?</strong> Amazon only accepts email from addresses you approve. Add
+                        <strong>{{ \App\Services\SendEpub::fromAddress() }}</strong> to your approved list first: amazon.com → Account → <em>Content Library</em> / <em>Content &amp; Devices</em> → <em>Preferences</em> → <em>Personal Document Settings</em> → <em>Approved Personal Document E-mail List</em> → <em>Add a new approved e-mail address</em>. Without it, Amazon drops the book without telling you.
+                    </div>
+                    @if(!$user->send_to_email && $user->isAdmin() && \App\Services\SendEpub::address($user))
+                        <p class="form-text mb-0">Until you set one, the Kindle email in Settings is used ({{ \App\Services\SendEpub::address($user) }}).</p>
+                    @endif
                 </div>
             </section>
 
