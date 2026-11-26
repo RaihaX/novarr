@@ -223,6 +223,15 @@ class CalibreImportTest extends TestCase
         $this->assertNull($import->webNovelFor(['title' => 'The Lord of the Rings']));
     }
 
+    public function test_a_tag_list_packed_into_one_tag_is_split_and_overlong_tags_dropped(): void
+    {
+        $packed = 'Dragons;Fantasy Academy;Fantasy Romance;' . str_repeat('x', 300) . ';Enemies To Lovers';
+        $tags = \App\Books\BookLibrary::cleanTags([$packed, 'War, Epic', '']);
+
+        $this->assertSame(['Dragons', 'Fantasy Academy', 'Fantasy Romance', 'Enemies To Lovers', 'War', 'Epic'], $tags);
+        $this->assertCount(\App\Books\BookLibrary::MAX_TAGS, \App\Books\BookLibrary::cleanTags([implode(';', range(1, 40))]));
+    }
+
     public function test_title_variants_drop_volume_numbering_but_keep_real_titles(): void
     {
         $this->assertContains('Shadow Slave', CalibreImport::titleVariants(['title' => 'Shadow Slave Vol. 3']));

@@ -169,7 +169,7 @@ class BookLibrary
         /** @var Novel $novel */
         $novel = $outcome['novel'];
         if (array_key_exists('genres', $details)) {
-            $this->applyTags($novel, normalizeGenres(array_map('strval', (array) $details['genres'])));
+            $this->applyTags($novel, array_map('strval', (array) $details['genres']));
         } else {
             $this->applyTags($novel, self::subjectTags($metadata['subjects']));
         }
@@ -288,9 +288,37 @@ class BookLibrary
         }
     }
 
+    /** Longest tag kept (tags.name is 255; a real genre is far shorter). */
+    public const MAX_TAG_LENGTH = 60;
+
+    /** Most tags one book gets. */
+    public const MAX_TAGS = 12;
+
+    /**
+     * Tags as given by a person or a catalogue, cleaned: "a;b, c" split,
+     * trimmed, overlong ones dropped, title-cased, at most MAX_TAGS.
+     *
+     * @return string[]
+     */
+    public static function cleanTags(array $tags): array
+    {
+        $split = [];
+        foreach ($tags as $tag) {
+            foreach (preg_split('/\s*[;,|]\s*/u', (string) $tag) as $part) {
+                $part = trim($part);
+                if ($part !== '' && mb_strlen($part) <= self::MAX_TAG_LENGTH) {
+                    $split[] = $part;
+                }
+            }
+        }
+
+        return array_slice(normalizeGenres($split), 0, self::MAX_TAGS);
+    }
+
     /** @param string[] $tags */
     private function applyTags(Novel $novel, array $tags): void
     {
+        $tags = self::cleanTags($tags);
         if ($tags === []) {
             return;
         }
