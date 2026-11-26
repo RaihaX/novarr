@@ -31,6 +31,7 @@ class RequestsPageController extends Controller
             'sourceCounts' => [
                 Novel::MEDIUM_NOVEL => $this->sourceCount($searches, $discover, Novel::MEDIUM_NOVEL),
                 Novel::MEDIUM_MANGA => $this->sourceCount($searches, $discover, Novel::MEDIUM_MANGA),
+                Novel::MEDIUM_BOOK => $this->sourceCount($searches, $discover, Novel::MEDIUM_BOOK),
             ],
             // The admin account on the public address: deciding is refused
             // there (Gate 'admin'), so the page explains instead.

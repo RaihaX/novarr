@@ -401,7 +401,7 @@ class RequestFollowersTest extends TestCase
         foreach ([$this->samToken, $this->kimToken, $this->ownerToken] as $token) {
             $request = $this->asToken($token)->getJson("/api/v1/requests/{$id}")->assertOk()->json('request');
             $this->assertSame($old, array_slice(array_keys($request), 0, count($old)));
-            $this->assertSame(['also_wanted_by', 'mine', 'followers', 'review_url'], array_slice(array_keys($request), count($old)));
+            $this->assertSame(['also_wanted_by', 'mine', 'followers', 'review_url', 'wanted'], array_slice(array_keys($request), count($old)));
         }
         $list = $this->asToken($this->kimToken)->getJson('/api/v1/requests')->assertOk()->json();
         $this->assertSame(['requests', 'page', 'has_more', 'can_decide', 'pending_limit'], array_keys($list));

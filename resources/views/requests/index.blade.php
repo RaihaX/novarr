@@ -68,6 +68,7 @@
         <div class="btn-group segmented" role="group" aria-label="Kind" id="reqMedium">
             <button type="button" class="btn btn-secondary active" data-medium="novel" aria-pressed="true">Novels</button>
             <button type="button" class="btn btn-secondary" data-medium="manga" aria-pressed="false">Manga</button>
+            <button type="button" class="btn btn-secondary" data-medium="book" aria-pressed="false">Books</button>
         </div>
         <button type="submit" class="btn btn-primary" id="reqSearchBtn">Search</button>
     </form>
@@ -226,6 +227,7 @@
                     <div class="req-radio-row">
                         <label class="req-radio"><input type="radio" name="medium" value="novel" checked> Novel</label>
                         <label class="req-radio"><input type="radio" name="medium" value="manga"> Manga</label>
+                        <label class="req-radio"><input type="radio" name="medium" value="book"> Book</label>
                     </div>
                 </fieldset>
                 <div class="mb-3">

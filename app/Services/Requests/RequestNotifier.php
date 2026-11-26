@@ -48,7 +48,7 @@ class RequestNotifier
         $name = static::nameOf($requester);
         $what = "{$request->title} ({$request->mediumLabel()})";
 
-        $verb = $request->isUpload() ? 'uploaded' : 'requested';
+        $verb = $request->isUpload() && !$request->isWanted() ? 'uploaded' : 'requested';
         $this->feed(null, RequestNotification::KIND_NEW, 'New request', "{$name} {$verb} {$what}.", $request);
         $this->webhook("{$name} {$verb} {$what}");
 
@@ -61,10 +61,11 @@ class RequestNotifier
                 $request->mediumLabel(),
                 RequestCoverController::url($request->cover_url, $ownerId, static::adminBase()),
                 $request->note ?: null,
-                // An uploaded book is matched on its own review page.
+                // A book (uploaded, or asked for to be found) is matched on its own review page.
                 $request->isUpload()
                     ? static::adminBase() . route('books.review', $request->id, false)
                     : static::requestsPageUrl(),
+                $request->isWanted(),
             ));
         }
     }

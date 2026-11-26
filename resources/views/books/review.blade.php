@@ -67,7 +67,7 @@
             @if($fileCover)<img src="{{ $fileCover }}" alt="The file’s cover">@endif
         </div>
         <div class="book-file-main">
-            <span class="page-head-kicker">Uploaded by {{ $requester?->name ?? 'someone' }}{{ $book->created_at ? ' · ' . $book->created_at->diffForHumans() : '' }}</span>
+            <span class="page-head-kicker">@if(!empty($meta['requested']))Requested by {{ $requester?->name ?? 'someone' }} as “{{ $meta['requested']['title'] }}” · you uploaded the ePub @else Uploaded by {{ $requester?->name ?? 'someone' }}{{ $book->created_at ? ' · ' . $book->created_at->diffForHumans() : '' }}@endif</span>
             <h1 class="book-file-title" id="fileTitle">{{ $fileTitle ?: '(no title in the file)' }}</h1>
             <p class="book-file-facts">
                 {{ $fileAuthors ?: 'No author in the file' }}

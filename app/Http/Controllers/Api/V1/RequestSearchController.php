@@ -32,7 +32,7 @@ class RequestSearchController extends Controller
         }
         $data = $request->validate([
             'q' => 'required|string|max:100',
-            'medium' => 'required|in:novel,manga',
+            'medium' => 'required|in:novel,manga,book',
         ]);
         $query = trim(preg_replace('/\s+/u', ' ', $data['q']) ?? '');
         if ($query === '') {

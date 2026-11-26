@@ -274,6 +274,10 @@ class RequestSearch
      */
     public function sources(Discover $discover, string $medium): array
     {
+        // Books: the catalogues (Google Books + Open Library), not a site to scrape.
+        if ($medium === \App\Novel::MEDIUM_BOOK) {
+            return [\App\Sources\BookCatalogueSource::KEY => new \App\Sources\BookCatalogueSource()];
+        }
         $sources = array_filter($discover->sourcesFor($medium), fn(Source $s) => in_array('search', $s->discoverLists(), true));
         $names = [];
         foreach ($sources as $key => $source) {
@@ -514,7 +518,9 @@ class RequestSearch
     {
         $deadline = (int) now()->getPreciseTimestamp(3) + static::budgetSeconds() * 1000;
         $sources = $this->sources($discover, $medium);
-        $answers = $this->runner()->run($medium, $query, static::lanes($sources), $sources, $deadline);
+        // The catalogue source is not in the registry a lane process loads: asked here.
+        $runner = $medium === \App\Novel::MEDIUM_BOOK ? new InlineSearchRunner() : $this->runner();
+        $answers = $runner->run($medium, $query, static::lanes($sources), $sources, $deadline);
 
         // Hits in search order, whatever order the sources answered in.
         $hits = [];
@@ -624,7 +630,10 @@ class RequestSearch
             if ($normalized === '' || (string) ($item['url'] ?? '') === '') {
                 continue;
             }
-            $key = static::groupKey($medium, $normalized);
+            // Books: the same title by another author is another book.
+            $key = static::groupKey($medium, $medium === \App\Novel::MEDIUM_BOOK
+                ? $normalized . '|' . Discover::normalizeName((string) ($item['author'] ?? ''))
+                : $normalized);
             if (!isset($groups[$key])) {
                 $groups[$key] = [
                     'key' => $key,

@@ -148,7 +148,7 @@ class RequestController extends Controller
             ],
             default => [
                 'title' => 'required|string|max:255',
-                'medium' => 'required|in:novel,manga',
+                'medium' => 'required|in:novel,manga,book',
                 'link' => 'nullable|url:http,https|max:2048',
                 'note' => 'nullable|string|max:500',
             ],

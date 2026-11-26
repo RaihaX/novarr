@@ -54,6 +54,75 @@ class BookUploads
      */
     public function receive(User $user, string $file, string $originalName, ?string $note): NovelRequest
     {
+        $parked = $this->park($file, $originalName);
+        $metadata = $parked['metadata'];
+
+        try {
+            return $this->requests->createUpload($user, [
+                'title' => $metadata['title'] ?: BookLibrary::titleFromFilename($originalName),
+                'author' => $metadata['authors'] !== [] ? implode(', ', $metadata['authors']) : null,
+                'cover_url' => $parked['meta']['cover_path'] !== null ? Storage::disk('public')->url($parked['meta']['cover_path']) : null,
+                'description' => $metadata['description'],
+                'upload_path' => $parked['relative'],
+                'upload_meta' => $parked['meta'],
+            ], $note);
+        } catch (\Throwable $e) {
+            // No request, no parked file.
+            self::unpark($parked);
+            throw $e;
+        }
+    }
+
+    /**
+     * The owner fulfils a book asked for by title (NovelRequest::isWanted())
+     * with the ePub they found: the file is read and parked like an upload,
+     * the reader's title, author and cover stay on the request, and the
+     * catalogues are searched for the requested book, so the review page
+     * opens with it as the first match.
+     *
+     * @throws EpubException   not a readable ePub, or nothing to read in it
+     * @throws RequestRefused  not a pending wanted book / the file is already in the library or waiting
+     */
+    public function attach(NovelRequest $request, string $file, string $originalName): NovelRequest
+    {
+        if (!$request->isPending() || !$request->isWanted()) {
+            throw new RequestRefused(409, 'This request already has its ePub, or is no longer waiting.', 'not_wanted');
+        }
+        $parked = $this->park($file, $originalName);
+        $meta = $parked['meta'] + ['requested' => ['title' => $request->title, 'author' => $request->author]];
+
+        try {
+            $request->forceFill([
+                'upload_path' => $parked['relative'],
+                'upload_meta' => $meta,
+                // The reader's cover until the owner chooses (the file's when they asked for none).
+                'cover_url' => $request->cover_url ?: ($meta['cover_path'] !== null ? Storage::disk('public')->url($meta['cover_path']) : null),
+                'description' => $request->description ?: $parked['metadata']['description'],
+                'candidates' => null,
+                'candidates_ranked_at' => null,
+            ])->save();
+        } catch (\Throwable $e) {
+            self::unpark($parked);
+            throw $e;
+        }
+
+        $this->search($request, (string) $request->title, $request->author ? trim(explode(',', (string) $request->author)[0]) : null);
+        Log::info('Book request fulfilled with an upload', ['request' => $request->id, 'file' => $originalName]);
+
+        return $request->refresh();
+    }
+
+    /**
+     * Read an ePub and park a copy under pending/ with its cover: what a
+     * request needs to know about the file (upload_meta).
+     *
+     * @return array{relative: string, target: string, metadata: array, meta: array}
+     *
+     * @throws EpubException
+     * @throws RequestRefused  already in the library / the same file already waiting
+     */
+    private function park(string $file, string $originalName): array
+    {
         $epub = Epub::open($file);
         try {
             $metadata = $epub->metadata();
@@ -86,44 +155,39 @@ class BookUploads
         if (!File::copy($file, $target)) {
             throw new \RuntimeException('The upload could not be stored.');
         }
-
         $coverPath = $cover !== null ? $this->storeCover($token, $cover) : null;
-        $title = $metadata['title'] ?: BookLibrary::titleFromFilename($originalName);
 
-        try {
-            return $this->requests->createUpload($user, [
-                'title' => $title,
-                'author' => $metadata['authors'] !== [] ? implode(', ', $metadata['authors']) : null,
-                'cover_url' => $coverPath !== null ? Storage::disk('public')->url($coverPath) : null,
-                'description' => $metadata['description'],
-                'upload_path' => $relative,
-                'upload_meta' => [
-                    'sha1' => $sha1,
-                    'original_name' => mb_substr($originalName, 0, 200),
-                    'size' => (int) filesize($file),
-                    'title' => $metadata['title'],
-                    'authors' => $metadata['authors'],
-                    'isbn' => $metadata['isbn'],
-                    'language' => $metadata['language'],
-                    'publisher' => $metadata['publisher'],
-                    'year' => $metadata['year'],
-                    'series' => $metadata['series'],
-                    'series_index' => $metadata['series_index'],
-                    'subjects' => array_slice($metadata['subjects'], 0, 20),
-                    'chapters' => count($chapters),
-                    'words' => array_sum(array_column($chapters, 'words')),
-                    'labels' => array_slice(array_column($chapters, 'label'), 0, self::KEEP_LABELS),
-                    'excerpt' => self::excerpt($chapters),
-                    'cover_path' => $coverPath,
-                ],
-            ], $note);
-        } catch (\Throwable $e) {
-            // No request, no parked file.
-            @unlink($target);
-            if ($coverPath !== null) {
-                Storage::disk('public')->delete($coverPath);
-            }
-            throw $e;
+        return [
+            'relative' => $relative,
+            'target' => $target,
+            'metadata' => $metadata,
+            'meta' => [
+                'sha1' => $sha1,
+                'original_name' => mb_substr($originalName, 0, 200),
+                'size' => (int) filesize($file),
+                'title' => $metadata['title'],
+                'authors' => $metadata['authors'],
+                'isbn' => $metadata['isbn'],
+                'language' => $metadata['language'],
+                'publisher' => $metadata['publisher'],
+                'year' => $metadata['year'],
+                'series' => $metadata['series'],
+                'series_index' => $metadata['series_index'],
+                'subjects' => array_slice($metadata['subjects'], 0, 20),
+                'chapters' => count($chapters),
+                'words' => array_sum(array_column($chapters, 'words')),
+                'labels' => array_slice(array_column($chapters, 'label'), 0, self::KEEP_LABELS),
+                'excerpt' => self::excerpt($chapters),
+                'cover_path' => $coverPath,
+            ],
+        ];
+    }
+
+    private static function unpark(array $parked): void
+    {
+        @unlink($parked['target']);
+        if (($parked['meta']['cover_path'] ?? null) !== null) {
+            Storage::disk('public')->delete($parked['meta']['cover_path']);
         }
     }
 

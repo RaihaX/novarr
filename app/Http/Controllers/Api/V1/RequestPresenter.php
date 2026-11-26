@@ -167,6 +167,8 @@ class RequestPresenter
             'followers' => $admin ? $joined : null,
             // An uploaded book is matched on its own page (admin).
             'review_url' => $admin && $request->isUpload() ? Presenter::url(route('books.review', $request->id, false)) : null,
+            // A book asked for by title: no ePub yet (the owner finds and uploads one).
+            'wanted' => $request->isWanted(),
         ];
     }
 

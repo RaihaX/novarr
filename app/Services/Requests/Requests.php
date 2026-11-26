@@ -243,7 +243,7 @@ class Requests
         try {
             $request = Cache::lock(self::CREATE_LOCK, 10)->block(5, function () use ($user, $fields, $title, $normalized, $note) {
                 if (!$user->isAdmin()
-                    && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)->where('medium', Novel::MEDIUM_BOOK)->count() >= static::maxPendingUploads()) {
+                    && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)->where('medium', Novel::MEDIUM_BOOK)->whereNotNull('upload_path')->count() >= static::maxPendingUploads()) {
                     throw new RequestRefused(429, 'You have ' . static::maxPendingUploads() . ' books waiting for the owner already. Wait for some to be added, or cancel one.', 'pending_limit', ['limit' => static::maxPendingUploads()]);
                 }
 
@@ -322,7 +322,10 @@ class Requests
                 }
 
                 if (!$user->isAdmin()
-                    && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)->where('medium', '!=', Novel::MEDIUM_BOOK)->count() >= static::maxPending()) {
+                    && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)
+                        // Title requests: every medium, and books asked for by title (no file).
+                        ->where(fn($q) => $q->where('medium', '!=', Novel::MEDIUM_BOOK)->orWhereNull('upload_path'))
+                        ->count() >= static::maxPending()) {
                     throw new RequestRefused(429, 'You have ' . static::maxPending() . ' requests waiting already. Wait for the owner to decide on one, or cancel one.', 'pending_limit', ['limit' => static::maxPending()]);
                 }
 
@@ -488,7 +491,9 @@ class Requests
 
         // An uploaded book is added from its file, on its review page (App\Books\BookUploads).
         if ($request->isUpload() && !isset($data['novel_id'])) {
-            throw new RequestRefused(422, 'An uploaded book is matched and added on its review page.', 'review_upload', [
+            throw new RequestRefused(422, $request->isWanted()
+                ? 'A requested book is added by uploading its ePub on its review page.'
+                : 'An uploaded book is matched and added on its review page.', 'review_upload', [
                 'review_url' => route('books.review', $request->id, false),
             ]);
         }

@@ -118,9 +118,19 @@ class NovelRequest extends Model
         };
     }
 
-    /** A book a reader uploaded, waiting for (or past) the owner's match. */
+    /**
+     * A book request: either an ePub a reader uploaded, or a book a reader
+     * asked for from the catalogue (isWanted()) that the owner fulfils by
+     * uploading its ePub. Both are matched and added on the review page.
+     */
     public function isUpload(): bool
     {
         return $this->medium === Novel::MEDIUM_BOOK;
+    }
+
+    /** A book asked for by title (from the catalogue): no file yet, the owner finds and uploads it. */
+    public function isWanted(): bool
+    {
+        return $this->medium === Novel::MEDIUM_BOOK && empty(((array) ($this->upload_meta ?? []))['sha1']);
     }
 }

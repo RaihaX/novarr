@@ -24,6 +24,17 @@ class BookReviewController extends Controller
     {
         $bookRequest = $this->find($id);
 
+        // Asked for by title: nothing to match until the owner uploads the ePub.
+        if ($bookRequest->isWanted()) {
+            return view('books.wanted', [
+                'book' => $bookRequest,
+                'requester' => $bookRequest->requester,
+                'followers' => \App\NovelRequestFollower::where('novel_request_id', $bookRequest->id)->count(),
+                'cover' => \App\Http\Controllers\RequestCoverController::url($bookRequest->cover_url),
+                'maxMb' => BookUploadController::maxMb(),
+            ]);
+        }
+
         // The first visit searches with the file's own details.
         if ($bookRequest->isPending() && $bookRequest->candidates_ranked_at === null) {
             $uploads->search($bookRequest);
@@ -117,6 +128,32 @@ class BookReviewController extends Controller
         }
 
         return $this->next($bookRequest, "“{$novel->name}” is in the library.", route('novels.show', $novel->id));
+    }
+
+    /** The owner fulfils a book asked for by title with the ePub they found (BookUploads::attach()). */
+    public function upload(int $id, Request $request, BookUploads $uploads): RedirectResponse
+    {
+        $bookRequest = $this->find($id);
+        $maxMb = BookUploadController::maxMb();
+        $request->validate([
+            'epub' => ['required', 'file', 'max:' . ($maxMb * 1024), 'extensions:epub'],
+        ], [
+            'epub.required' => 'Choose the ePub file to upload.',
+            'epub.max' => "The file is larger than {$maxMb} MB.",
+            'epub.extensions' => 'Only ePub files (.epub) can be added.',
+        ]);
+        $file = $request->file('epub');
+
+        try {
+            $uploads->attach($bookRequest, $file->getRealPath(), $file->getClientOriginalName());
+        } catch (\App\Books\EpubException $e) {
+            return back()->withErrors(['epub' => $e->getMessage()]);
+        } catch (RequestRefused $e) {
+            return back()->withErrors(['epub' => $e->getMessage()]);
+        }
+
+        return redirect()->route('books.review', [$bookRequest->id, 'match' => 0])
+            ->with('success', 'Uploaded. Check the details and cover, then add it to the library.');
     }
 
     public function decline(int $id, Request $request, BookUploads $uploads, CurrentReader $reader): RedirectResponse

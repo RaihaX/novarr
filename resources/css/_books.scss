@@ -254,3 +254,13 @@
     border: $hairline solid $border;
     border-radius: $radius;
 }
+
+// A requested book: the owner uploads the ePub they found.
+.book-wanted-upload {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-2 $s-4;
+    margin-bottom: $s-2;
+
+    .form-control { flex: 1 1 16rem; width: auto; min-width: 0; }
+}

@@ -1322,9 +1322,11 @@ export function initRequestsPage() {
 
         // An uploaded book: matched and added on its own review page.
         if (req.review_url) {
-            const review = el('a', 'btn btn-sm btn-primary', 'Review and match');
+            // A book asked for by title has no file yet: the owner finds and uploads it.
+            const reviewLabel = req.wanted ? 'Upload the ePub' : 'Review and match';
+            const review = el('a', 'btn btn-sm btn-primary', reviewLabel);
             review.href = req.review_url;
-            review.setAttribute('aria-label', `Review and match ${req.title}`);
+            review.setAttribute('aria-label', `${reviewLabel}: ${req.title}`);
             const decline = el('button', 'btn btn-sm btn-ghost', 'Decline');
             decline.type = 'button';
             decline.setAttribute('aria-label', `Decline ${req.title}`);

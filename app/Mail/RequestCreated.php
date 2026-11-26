@@ -12,13 +12,15 @@ class RequestCreated extends RequestMail
         ?string $coverUrl,
         ?string $note,
         string $requestsUrl,
+        /** A book asked for by title: the owner finds its ePub and uploads it. */
+        public bool $wantedBook = false,
     ) {
-        parent::__construct($seriesTitle, $mediumLabel, $coverUrl, $note, $note !== null ? "{$requesterName}'s note" : null, $requestsUrl, 'Review the request');
+        parent::__construct($seriesTitle, $mediumLabel, $coverUrl, $note, $note !== null ? "{$requesterName}'s note" : null, $requestsUrl, $wantedBook ? 'Upload the ePub' : 'Review the request');
     }
 
     public function subjectLine(): string
     {
-        return $this->mediumLabel === 'book'
+        return $this->mediumLabel === 'book' && !$this->wantedBook
             ? "{$this->requesterName} uploaded {$this->seriesTitle}"
             : "{$this->requesterName} requested {$this->seriesTitle}";
     }
@@ -30,6 +32,9 @@ class RequestCreated extends RequestMail
 
     public function intro(): string
     {
+        if ($this->wantedBook) {
+            return "{$this->requesterName} would like the book “{$this->seriesTitle}” in the library. Find its ePub, then upload it on the book's page to add it (from your home network), or decline the request.";
+        }
         if ($this->mediumLabel === 'book') {
             return "{$this->requesterName} uploaded an ePub, “{$this->seriesTitle}”, for the library. Check it is the right book, match its details and cover, then add or decline it, from your home network.";
         }
