@@ -1459,6 +1459,9 @@ function emptyNovelUpdatesMetadata(): array
         "description" => "", "author" => "", "no_of_chapters" => 0, "image" => "",
         "status_text" => "", "completed" => false, "fully_translated" => null, "genres" => [],
         "title" => "", "associated" => [],
+        // Every name under Author(s) (#authtag repeats: "Cuttlefish That
+        // Loves Diving", "爱潜水的乌贼"); 'author' stays the first one.
+        "authors" => [],
         // Origin (see App\Scraping\OriginInference::fromNovelUpdates):
         // #showtype verbatim ("Web Novel (KR)") and #showlang ("Korean").
         "type" => "", "original_language" => "",
@@ -1524,6 +1527,9 @@ function fetchNovelUpdatesMetadata(string $url, ?string &$failure = null): array
 
         $author = $crawler->filter("#authtag");
         $metadata["author"] = $author->count() > 0 ? $author->first()->text() : "";
+        $metadata["authors"] = $author->count() > 0
+            ? array_values(array_filter(array_map('trim', $author->each(fn($n) => $n->text())), 'strlen'))
+            : [];
 
         $status = $crawler->filter("#editstatus");
         if ($status->count() > 0) {

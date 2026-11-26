@@ -17,6 +17,10 @@ use App\Novel;
  *
  * It claims only book:// URLs, so it can never take a web address from
  * another source, and it is never on Discover.
+ *
+ * It also claims a book moved to Novels as a web novel (medium 'novel',
+ * still book://, App\Books\WebNovelCheck): no TOC, nothing fetched for its
+ * chapters, its metadata from NovelUpdates like any web novel's.
  */
 class BookSource extends AbstractSource
 {
@@ -53,6 +57,17 @@ class BookSource extends AbstractSource
 
     public function metadata(Novel $novel): array
     {
+        // A book moved to Novels as a web novel (App\Books\WebNovelCheck):
+        // its metadata is the NovelUpdates series', as for any web novel.
+        // The chapter count stays the ePub's: nothing will be downloaded.
+        if (!$novel->isBook() && !empty($novel->novelupdates_url)) {
+            $found = getMetadata($novel);
+            $found['no_of_chapters'] = $novel->chapters()->count();
+            $found['cover_candidates'] = array_values(array_filter([$found['image'] ?? null]));
+
+            return $found;
+        }
+
         $own = ['title' => $novel->name, 'authors' => array_filter([(string) $novel->author]), 'isbn' => null, 'description' => null, 'subjects' => []];
 
         $path = BookLibrary::path($novel);
