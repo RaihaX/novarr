@@ -63,6 +63,149 @@ class BookLookup
         return $found;
     }
 
+    /**
+     * Every plausible match, for the owner to choose from (the review page):
+     * Google Books and Open Library results for an ISBN and/or a title and
+     * author, closest title first. Nothing is filtered out by similarity
+     * here, so a file with a wrong or missing title can still be matched by
+     * searching for the right one.
+     *
+     * @param  array{title?: ?string, author?: ?string, isbn?: ?string}  $query
+     * @return array<int, array{source: string, source_name: string, key: string, title: string, authors: string[],
+     *               description: ?string, genres: string[], publisher: ?string, year: ?int, isbn: ?string,
+     *               cover_url: ?string, url: ?string}>
+     */
+    public function candidates(array $query, int $limit = 10): array
+    {
+        $title = trim((string) ($query['title'] ?? ''));
+        $author = trim((string) ($query['author'] ?? ''));
+        $isbn = preg_replace('/[^0-9X]/', '', strtoupper((string) ($query['isbn'] ?? ''))) ?: null;
+        if ($title === '' && $isbn === null) {
+            return [];
+        }
+
+        $found = [];
+        foreach ($this->googleItems($title, $author, $isbn) as $item) {
+            $found[] = $item;
+        }
+        foreach ($this->openLibraryDocs($title, $author, $isbn) as $doc) {
+            $found[] = $doc;
+        }
+
+        // One entry per book: the same ISBN (or title and first author) from both catalogues is merged, Google's text first.
+        $merged = [];
+        foreach ($found as $candidate) {
+            $key = $candidate['isbn'] ?? (self::normalize($candidate['title']) . '|' . self::normalize($candidate['authors'][0] ?? ''));
+            if (!isset($merged[$key])) {
+                $merged[$key] = $candidate;
+                continue;
+            }
+            foreach (['description', 'publisher', 'year', 'isbn', 'cover_url', 'url'] as $field) {
+                $merged[$key][$field] ??= $candidate[$field];
+            }
+            $merged[$key]['genres'] = array_values(array_unique(array_merge($merged[$key]['genres'], $candidate['genres'])));
+            // Open Library's cover is the larger one.
+            if ($candidate['source'] === 'openlibrary' && $candidate['cover_url'] !== null) {
+                $merged[$key]['cover_url'] = $candidate['cover_url'];
+            }
+        }
+
+        $list = array_values($merged);
+        if ($title !== '') {
+            usort($list, fn($a, $b) => self::similarity($title, $b['title']) <=> self::similarity($title, $a['title']));
+        }
+
+        return array_slice($list, 0, $limit);
+    }
+
+    private function googleItems(string $title, string $author, ?string $isbn): array
+    {
+        $query = $isbn !== null
+            ? 'isbn:' . $isbn
+            : 'intitle:"' . self::cleanTitle($title) . '"' . ($author !== '' ? ' inauthor:"' . $author . '"' : '');
+        $params = ['q' => $query, 'maxResults' => 8, 'printType' => 'books'];
+        if ($key = (string) config('novarr.books.google_books_key', '')) {
+            $params['key'] = $key;
+        }
+
+        $out = [];
+        foreach ((array) ($this->getJson(self::GOOGLE, $params)['items'] ?? []) as $item) {
+            $info = (array) ($item['volumeInfo'] ?? []);
+            if (trim((string) ($info['title'] ?? '')) === '') {
+                continue;
+            }
+            $foundIsbn = null;
+            foreach ((array) ($info['industryIdentifiers'] ?? []) as $identifier) {
+                $value = (string) ($identifier['identifier'] ?? '');
+                if (($identifier['type'] ?? '') === 'ISBN_13' && Epub::validIsbn($value)) {
+                    $foundIsbn = $value;
+                }
+            }
+            $cover = $info['imageLinks']['thumbnail'] ?? $info['imageLinks']['smallThumbnail'] ?? null;
+            $title = trim((string) $info['title']) . (!empty($info['subtitle']) ? ': ' . trim((string) $info['subtitle']) : '');
+            $out[] = [
+                'source' => 'google',
+                'source_name' => 'Google Books',
+                'key' => 'google:' . (string) ($item['id'] ?? md5($title)),
+                'title' => $title,
+                'authors' => array_values(array_map('strval', (array) ($info['authors'] ?? []))),
+                'description' => !empty($info['description']) ? Epub::plainDescription((string) $info['description']) : null,
+                'genres' => self::genresFromCategories((array) ($info['categories'] ?? [])),
+                'publisher' => !empty($info['publisher']) ? (string) $info['publisher'] : null,
+                'year' => preg_match('/^(\d{4})/', (string) ($info['publishedDate'] ?? ''), $m) ? (int) $m[1] : null,
+                'isbn' => $foundIsbn,
+                'cover_url' => $cover ? str_replace(['http://', '&edge=curl'], ['https://', ''], (string) $cover) : null,
+                'url' => !empty($info['infoLink']) ? str_replace('http://', 'https://', (string) $info['infoLink']) : null,
+            ];
+        }
+
+        return $out;
+    }
+
+    private function openLibraryDocs(string $title, string $author, ?string $isbn): array
+    {
+        $params = ['limit' => 8, 'fields' => 'key,title,subtitle,author_name,cover_i,first_publish_year,isbn,publisher,subject'];
+        if ($isbn !== null) {
+            $params['isbn'] = $isbn;
+        } else {
+            $params['title'] = self::cleanTitle($title);
+            if ($author !== '') {
+                $params['author'] = $author;
+            }
+        }
+
+        $out = [];
+        foreach ((array) ($this->getJson(self::OPEN_LIBRARY_SEARCH, $params)['docs'] ?? []) as $doc) {
+            if (trim((string) ($doc['title'] ?? '')) === '') {
+                continue;
+            }
+            $foundIsbn = $isbn;
+            foreach ((array) ($doc['isbn'] ?? []) as $value) {
+                if (strlen((string) $value) === 13 && Epub::validIsbn((string) $value)) {
+                    $foundIsbn ??= (string) $value;
+                    break;
+                }
+            }
+            $title = trim((string) $doc['title']) . (!empty($doc['subtitle']) ? ': ' . trim((string) $doc['subtitle']) : '');
+            $out[] = [
+                'source' => 'openlibrary',
+                'source_name' => 'Open Library',
+                'key' => 'openlibrary:' . (string) ($doc['key'] ?? md5($title)),
+                'title' => $title,
+                'authors' => array_values(array_map('strval', (array) ($doc['author_name'] ?? []))),
+                'description' => null,
+                'genres' => [],
+                'publisher' => isset($doc['publisher'][0]) ? (string) $doc['publisher'][0] : null,
+                'year' => isset($doc['first_publish_year']) ? (int) $doc['first_publish_year'] : null,
+                'isbn' => $foundIsbn,
+                'cover_url' => !empty($doc['cover_i']) ? self::OPEN_LIBRARY_COVERS . '/id/' . (int) $doc['cover_i'] . '-L.jpg' : null,
+                'url' => !empty($doc['key']) ? 'https://openlibrary.org' . $doc['key'] : null,
+            ];
+        }
+
+        return $out;
+    }
+
     /** @return ?array{description: ?string, genres: string[], publisher: ?string, year: ?int, isbn: ?string, cover: ?string} */
     private function google(array $book): ?array
     {

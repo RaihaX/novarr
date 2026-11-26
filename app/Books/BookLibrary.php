@@ -66,11 +66,16 @@ class BookLibrary
      *
      * @param  string  $file          the uploaded (temporary) file; it is copied, not moved
      * @param  string  $originalName  the name it was uploaded under (a title when the ePub has none)
+     * @param  bool    $lookup        fill gaps from the catalogues afterwards (off when the owner already matched it)
+     * @param  array   $details       the owner's choice, over the file's own metadata, each key optional:
+     *                                title, author, description (null clears), genres (string[], replaces
+     *                                the file's subjects), cover_url (a catalogue cover, over the file's),
+     *                                file_cover (false: never the file's own cover)
      * @return array{result: string, novel: Novel}  result: created | existing | duplicate
      *
      * @throws EpubException  the file cannot be read as an ePub or has no text
      */
-    public function import(string $file, string $originalName, bool $force = false, bool $lookup = true): array
+    public function import(string $file, string $originalName, bool $force = false, bool $lookup = true, array $details = []): array
     {
         $epub = Epub::open($file);
         try {
@@ -83,6 +88,18 @@ class BookLibrary
 
         if ($chapters === []) {
             throw new EpubException('This ePub has no text to read (only images, or nothing in its spine).');
+        }
+
+        if (trim((string) ($details['title'] ?? '')) !== '') {
+            $metadata['title'] = trim((string) $details['title']);
+        }
+        if (array_key_exists('author', $details)) {
+            $author = trim((string) $details['author']);
+            $metadata['authors'] = $author !== '' ? [$author] : [];
+        }
+        if (array_key_exists('description', $details)) {
+            $description = trim((string) $details['description']);
+            $metadata['description'] = $description !== '' ? $description : null;
         }
 
         $title = $metadata['title'] ?: self::titleFromFilename($originalName);
@@ -106,8 +123,18 @@ class BookLibrary
 
         /** @var Novel $novel */
         $novel = $outcome['novel'];
-        $this->applySubjects($novel, $metadata['subjects']);
-        if ($cover !== null) {
+        if (array_key_exists('genres', $details)) {
+            $this->applyTags($novel, normalizeGenres(array_map('strval', (array) $details['genres'])));
+        } else {
+            $this->applyTags($novel, self::subjectTags($metadata['subjects']));
+        }
+
+        $covered = false;
+        if (!empty($details['cover_url']) && ($downloaded = downloadCoverImage((string) $details['cover_url'], $novel->id))) {
+            $novel->attachCover($downloaded['filename'], $downloaded['basename']);
+            $covered = true;
+        }
+        if (!$covered && $cover !== null && ($details['file_cover'] ?? true)) {
             $this->attachCover($novel, $cover);
         }
         CacheHelper::clearNovelCache((int) $novel->id);
@@ -208,13 +235,9 @@ class BookLibrary
         }
     }
 
-    /**
-     * The ePub's subjects as tags, when they read like genres ("Fantasy",
-     * "Science fiction") rather than library headings ("England--Fiction").
-     */
-    private function applySubjects(Novel $novel, array $subjects): void
+    /** @param string[] $tags */
+    private function applyTags(Novel $novel, array $tags): void
     {
-        $tags = self::subjectTags($subjects);
         if ($tags === []) {
             return;
         }
@@ -222,7 +245,12 @@ class BookLibrary
         $novel->tags()->syncWithoutDetaching($ids);
     }
 
-    /** @return string[] */
+    /**
+     * The ePub's subjects as tags, when they read like genres ("Fantasy",
+     * "Science fiction") rather than library headings ("England--Fiction").
+     *
+     * @return string[]
+     */
     public static function subjectTags(array $subjects): array
     {
         $tags = [];

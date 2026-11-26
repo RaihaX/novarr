@@ -165,6 +165,8 @@ class RequestPresenter
             'also_wanted_by' => count($joined),
             'mine' => $isRequester ? 'requester' : ($isFollower ? 'follower' : null),
             'followers' => $admin ? $joined : null,
+            // An uploaded book is matched on its own page (admin).
+            'review_url' => $admin && $request->isUpload() ? Presenter::url(route('books.review', $request->id, false)) : null,
         ];
     }
 

@@ -154,6 +154,14 @@ Route::get('/discover/cover', [\App\Http\Controllers\DiscoverCoverController::cl
 // Reader requests: the page (its data comes from /api/v1/requests…).
 Route::get('/requests', [\App\Http\Controllers\RequestsPageController::class, 'index'])->name('requests.index');
 
+// Books: any reader uploads an ePub; the owner matches and approves it (App\Books\BookUploads).
+Route::get('/books/upload', [\App\Http\Controllers\BookUploadController::class, 'create'])->name('books.upload');
+Route::post('/books/upload', [\App\Http\Controllers\BookUploadController::class, 'store'])->middleware('throttle:novarr-book-upload')->name('books.upload.store');
+Route::get('/books/review/{id}', [\App\Http\Controllers\BookReviewController::class, 'show'])->whereNumber('id')->name('books.review');
+Route::post('/books/review/{id}/search', [\App\Http\Controllers\BookReviewController::class, 'search'])->whereNumber('id')->name('books.review.search');
+Route::post('/books/review/{id}/approve', [\App\Http\Controllers\BookReviewController::class, 'approve'])->whereNumber('id')->name('books.review.approve');
+Route::post('/books/review/{id}/decline', [\App\Http\Controllers\BookReviewController::class, 'decline'])->whereNumber('id')->name('books.review.decline');
+
 // Covers in reader-request results: signed URLs only (RequestCoverController).
 Route::get('/requests/cover', [\App\Http\Controllers\RequestCoverController::class, 'cover'])
     ->withoutMiddleware($sessionless)

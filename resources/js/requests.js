@@ -36,7 +36,7 @@ const RANK_POLL_MAX = 120;
 /** Pages of pending requests loaded for the review list (50 each). */
 const REVIEW_PAGES = 4;
 
-const MEDIUM_LABEL = { novel: 'Novel', manga: 'Manga' };
+const MEDIUM_LABEL = { novel: 'Novel', manga: 'Manga', book: 'Book' };
 
 /** JSON API call with the session cookie: {ok, status, data, headers}. Throws only on network errors / abort. */
 async function api(method, url, body, signal) {
@@ -1319,6 +1319,20 @@ export function initRequestsPage() {
         const errorBox = el('div', 'alert alert-danger req-row-error', '');
         errorBox.setAttribute('role', 'alert');
         errorBox.hidden = true;
+
+        // An uploaded book: matched and added on its own review page.
+        if (req.review_url) {
+            const review = el('a', 'btn btn-sm btn-primary', 'Review and match');
+            review.href = req.review_url;
+            review.setAttribute('aria-label', `Review and match ${req.title}`);
+            const decline = el('button', 'btn btn-sm btn-ghost', 'Decline');
+            decline.type = 'button';
+            decline.setAttribute('aria-label', `Decline ${req.title}`);
+            decline.addEventListener('click', () => openDecline(req, decline), { signal });
+            actions.append(review, decline);
+            actions.after(errorBox);
+            return row;
+        }
 
         let chosen = () => ({});
         const cands = Array.isArray(req.candidates) ? req.candidates : [];

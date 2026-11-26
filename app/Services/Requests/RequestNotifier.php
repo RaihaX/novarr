@@ -48,8 +48,9 @@ class RequestNotifier
         $name = static::nameOf($requester);
         $what = "{$request->title} ({$request->mediumLabel()})";
 
-        $this->feed(null, RequestNotification::KIND_NEW, 'New request', "{$name} requested {$what}.", $request);
-        $this->webhook("{$name} requested {$what}");
+        $verb = $request->isUpload() ? 'uploaded' : 'requested';
+        $this->feed(null, RequestNotification::KIND_NEW, 'New request', "{$name} {$verb} {$what}.", $request);
+        $this->webhook("{$name} {$verb} {$what}");
 
         $to = static::ownerEmail();
         if ($to !== null) {
@@ -60,7 +61,10 @@ class RequestNotifier
                 $request->mediumLabel(),
                 RequestCoverController::url($request->cover_url, $ownerId, static::adminBase()),
                 $request->note ?: null,
-                static::requestsPageUrl(),
+                // An uploaded book is matched on its own review page.
+                $request->isUpload()
+                    ? static::adminBase() . route('books.review', $request->id, false)
+                    : static::requestsPageUrl(),
             ));
         }
     }
