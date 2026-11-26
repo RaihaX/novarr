@@ -89,7 +89,8 @@ class NovelController extends Controller
         clearstatcache(true, $epub);
         $etag = md5(filemtime($epub) . '-' . filesize($epub));
 
-        $response = response()->download($epub)->setEtag($etag)->setPrivate();
+        // Named after the book, not the file: an uploaded book is kept as "{id}.epub".
+        $response = response()->download($epub, GenerateePub::epubFilename($object))->setEtag($etag)->setPrivate();
         $response->isNotModified($request);
 
         return $response;

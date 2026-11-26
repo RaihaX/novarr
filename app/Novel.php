@@ -50,6 +50,8 @@ class Novel extends Model
 
     public const MEDIUM_NOVEL = 'novel';
     public const MEDIUM_MANGA = 'manga';
+    /** A book uploaded as an ePub (App\Books\BookLibrary): text, complete on arrival, never scraped. */
+    public const MEDIUM_BOOK = 'book';
 
     /** Reader page modes of a manga (novels.reading_mode). */
     public const READING_MODES = ['rtl', 'ltr', 'vertical'];
@@ -107,6 +109,10 @@ class Novel extends Model
         // keeps them so a restore brings them back.
         static::forceDeleted(function (self $novel) {
             ChapterPage::purgeNovel((int) $novel->id);
+            // An uploaded book's original ePub goes with it.
+            if ($novel->isBook()) {
+                @unlink(\App\Books\BookLibrary::path($novel));
+            }
             app(\App\Services\ReadState::class)->forgetNovel((int) $novel->id);
             ReadingPosition::where('novel_id', $novel->id)->delete();
             // …and takes it out of every reader's lists (a soft-deleted one stays, hidden).
@@ -127,6 +133,27 @@ class Novel extends Model
     public function isManga(): bool
     {
         return $this->medium === self::MEDIUM_MANGA;
+    }
+
+    /** Is this an uploaded book (text from its own ePub, nothing to scrape)? */
+    public function isBook(): bool
+    {
+        return $this->medium === self::MEDIUM_BOOK;
+    }
+
+    /** Uploaded books only. */
+    public function scopeBooks($query)
+    {
+        return $query->where($query->qualifyColumn('medium'), self::MEDIUM_BOOK);
+    }
+
+    /**
+     * Read as text: web novels and books (everything but manga). The
+     * reader, ePub download, Kindle and OPDS go through this one.
+     */
+    public function scopeReadable($query)
+    {
+        return $query->whereIn($query->qualifyColumn('medium'), [self::MEDIUM_NOVEL, self::MEDIUM_BOOK]);
     }
 
     /**
