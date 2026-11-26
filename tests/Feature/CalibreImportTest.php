@@ -210,6 +210,19 @@ class CalibreImportTest extends TestCase
         Http::assertNotSent(fn($r) => str_contains($r->url(), '/opds/download/6/') || str_contains($r->url(), '/opds/download/5/'));
     }
 
+    public function test_near_misses_of_a_web_novel_are_caught_but_short_words_are_not(): void
+    {
+        Novel::create(['name' => 'Sacrificial Artifact System From Bell-Ringer to the Ancestral Patriarch of the Sect', 'translator_url' => 'https://novelfull.com/a.html', 'group_id' => 1]);
+        Novel::create(['name' => 'Lord of Mysteries 2 Circle of Inevitability', 'translator_url' => 'https://novelfull.com/b.html', 'group_id' => 1]);
+        Novel::create(['name' => 'Xyrin Empire', 'translator_url' => 'https://novelfull.com/c.html', 'group_id' => 1]);
+        $import = app(CalibreImport::class);
+
+        $this->assertNotNull($import->webNovelFor(['title' => 'Sacrificial Artifact System From Bell-Ringer to the Ancestral Patriach of the Sect']));
+        $this->assertNotNull($import->webNovelFor(['title' => 'Circle of Inevitability']));
+        $this->assertNull($import->webNovelFor(['title' => 'Empire']));
+        $this->assertNull($import->webNovelFor(['title' => 'The Lord of the Rings']));
+    }
+
     public function test_title_variants_drop_volume_numbering_but_keep_real_titles(): void
     {
         $this->assertContains('Shadow Slave', CalibreImport::titleVariants(['title' => 'Shadow Slave Vol. 3']));

@@ -27,6 +27,12 @@ class CalibreImport
     public const SKIPPED = 'skipped';
     public const FAILED = 'failed';
 
+    /** Letters (normalised) a title needs before it can match a web novel loosely. */
+    private const NEAR_MIN_LENGTH = 15;
+
+    /** similar_text percentage at which two long titles are the same work. */
+    private const NEAR_SIMILARITY = 92;
+
     /** @var ?array<string, int> normalised web-novel titles => id, built once per instance */
     private ?array $webNovels = null;
 
@@ -53,10 +59,27 @@ class CalibreImport
             unset($this->webNovels['']);
         }
 
+        $keys = [];
         foreach (self::titleVariants($entry) as $variant) {
             $key = \App\Services\DuplicateSeries::normalize($variant);
             if ($key !== '' && isset($this->webNovels[$key])) {
                 return Novel::find($this->webNovels[$key]);
+            }
+            $keys[] = $key;
+        }
+
+        // Near misses: a misspelt copy ("Patriach") or the web novel's
+        // subtitle alone ("Circle of Inevitability" for "Lord of Mysteries 2
+        // Circle of Inevitability"). Short titles never match this way.
+        foreach (array_filter($keys, fn($k) => strlen($k) >= self::NEAR_MIN_LENGTH) as $key) {
+            foreach ($this->webNovels as $webKey => $id) {
+                if (strlen($webKey) < self::NEAR_MIN_LENGTH) {
+                    continue;
+                }
+                similar_text($key, $webKey, $percent);
+                if ($percent >= self::NEAR_SIMILARITY || str_contains($webKey, $key)) {
+                    return Novel::find($id);
+                }
             }
         }
 
