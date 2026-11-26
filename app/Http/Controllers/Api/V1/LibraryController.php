@@ -52,6 +52,10 @@ class LibraryController extends Controller
             'lists' => true,
             // GET /api/v1/updates (new chapters to read) is offered.
             'updates' => true,
+            // Books (medium "book"): ?medium=book and ?medium=text (novels and
+            // books) are accepted on /novels and /home. A client checks this
+            // before asking for them: an older server answers 422.
+            'books' => true,
         ]);
     }
 
@@ -138,7 +142,7 @@ class LibraryController extends Controller
         $out['stats'] = [
             'novels' => $medium === 'all'
                 ? count($context['reading'])
-                : Novel::whereIn('id', array_keys($context['reading']))->where('medium', $medium)->count(),
+                : Novel::whereIn('id', array_keys($context['reading']))->whereIn('medium', Presenter::mediaFor($medium))->count(),
             'chapters_downloaded' => (int) $context['totals']['downloaded'],
             'chapters_queued' => (int) $context['totals']['queued'],
         ];

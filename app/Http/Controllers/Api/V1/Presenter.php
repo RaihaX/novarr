@@ -110,18 +110,41 @@ class Presenter
      * ?medium=): 'novel' (the default — the iPhone app and the KOReader
      * plugin can't show pages), 'manga' or 'all'.
      */
+    /**
+     * The listing a client asks for (?medium=): novel (the default, as old
+     * clients expect), manga, book, text (novels and books: everything an
+     * e-reader shows as text) or all.
+     */
+    public const MEDIA = ['novel', 'manga', 'book', 'text', 'all'];
+
     public static function medium(\Illuminate\Http\Request $request): string
     {
-        $request->validate(['medium' => 'nullable|in:novel,manga,all']);
+        $request->validate(['medium' => 'nullable|in:' . implode(',', self::MEDIA)]);
         $medium = $request->query('medium');
 
-        return in_array($medium, ['novel', 'manga', 'all'], true) ? $medium : 'novel';
+        return in_array($medium, self::MEDIA, true) ? $medium : 'novel';
     }
 
     /** Does a novel of $novelMedium belong in a listing for $medium? */
     public static function inMedium(?string $novelMedium, string $medium): bool
     {
-        return $medium === 'all' || ($novelMedium ?: Novel::MEDIUM_NOVEL) === $medium;
+        $novelMedium = $novelMedium ?: Novel::MEDIUM_NOVEL;
+
+        return match ($medium) {
+            'all' => true,
+            'text' => $novelMedium !== Novel::MEDIUM_MANGA,
+            default => $novelMedium === $medium,
+        };
+    }
+
+    /** The novels table's media a listing for $medium covers. */
+    public static function mediaFor(string $medium): array
+    {
+        return match ($medium) {
+            'all' => [Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK],
+            'text' => [Novel::MEDIUM_NOVEL, Novel::MEDIUM_BOOK],
+            default => [$medium],
+        };
     }
 
     /**

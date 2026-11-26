@@ -252,6 +252,22 @@ class BooksTest extends TestCase
         $this->getJson("/api/v1/chapters/{$chapterId}")->assertOk()->assertJsonFragment(['id' => $chapterId]);
     }
 
+    public function test_the_api_lists_books_on_their_own_and_with_novels_as_text(): void
+    {
+        $book = app(BookLibrary::class)->import(EpubBuilder::epub3(), 'a.epub', lookup: false)['novel'];
+        $novel = Novel::create(['name' => 'A Web Novel', 'translator_url' => 'https://novelfull.com/a.html', 'group_id' => 1]);
+        $manga = Novel::create(['name' => 'A Manga', 'translator_url' => 'https://mangadex.org/title/x', 'group_id' => 1, 'medium' => Novel::MEDIUM_MANGA]);
+        $ids = fn(string $medium) => collect($this->getJson("/api/v1/novels?medium={$medium}")->assertOk()->json('novels'))->pluck('id')->sort()->values()->all();
+
+        $this->assertSame([$book->id], $ids('book'));
+        $this->assertSame(collect([$novel->id, $book->id])->sort()->values()->all(), $ids('text'));
+        $this->assertSame([$novel->id], collect($this->getJson('/api/v1/novels')->json('novels'))->pluck('id')->all(), 'old clients: novels only');
+        $this->assertNotContains($manga->id, $ids('text'));
+        $this->getJson('/api/v1/home?medium=text')->assertOk();
+        $this->getJson('/api/v1/novels?medium=nope')->assertStatus(422);
+        $this->assertTrue($this->getJson('/api/v1/meta')->json('books'));
+    }
+
     // ------------------------------------------------------------------
     // Catalogue lookup
     // ------------------------------------------------------------------
