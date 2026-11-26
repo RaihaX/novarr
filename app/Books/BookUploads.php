@@ -290,6 +290,10 @@ class BookUploads
         $request->forceFill(['upload_path' => null])->saveQuietly();
 
         Log::info('Book request approved', ['request' => $request->id, 'novel' => $novel->id, 'result' => $outcome['result']]);
+        // Two-way Calibre sync: the new book goes to Calibre with the matched details.
+        if ($outcome['result'] === BookLibrary::CREATED) {
+            \App\Jobs\PushBookToCalibre::for($novel);
+        }
 
         return $novel;
     }

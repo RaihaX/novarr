@@ -137,6 +137,10 @@ return [
             explode(',', (string) env('NOVARR_CALIBRE_WEB_LANGUAGES', 'eng'))
         ), fn($l) => $l !== '')),
         'sync' => (bool) env('NOVARR_CALIBRE_WEB_SYNC', true),
+        // The other way (App\Books\CalibrePush): books added or edited in Novarr are
+        // sent to Calibre. Needs uploads on in Calibre-Web, and the account above
+        // with Upload and Edit rights.
+        'push' => (bool) env('NOVARR_CALIBRE_WEB_PUSH', true),
         'timeout' => (int) env('NOVARR_CALIBRE_WEB_TIMEOUT', 30),
     ],
 

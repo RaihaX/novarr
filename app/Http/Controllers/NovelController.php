@@ -1349,6 +1349,9 @@ class NovelController extends Controller
             CacheHelper::clearNovelCache($id);
         }
 
+        // Two-way Calibre sync: a book's edited details go to Calibre too.
+        \App\Jobs\PushBookToCalibre::for($object->fresh());
+
         return redirect()->route('novels.show', $id)->with('status', 'Novel updated.');
     }
 

@@ -36,6 +36,9 @@ class CalibreImport
     /** @var ?array<string, int> normalised web-novel titles => id, built once per instance */
     private ?array $webNovels = null;
 
+    /** @var ?array<int, int> Calibre ids of books Novarr sent there => novel id */
+    private ?array $sent = null;
+
     /** @var ?array<string, int> Calibre uuids already imported => id, kept current by import() */
     private ?array $imported = null;
 
@@ -107,16 +110,29 @@ class CalibreImport
         ], fn($t) => mb_strlen($t) >= 3)));
     }
 
-    /** Calibre uuids already in the library (deleted ones included) => novel id. */
+    /**
+     * Calibre uuids already in the library (deleted ones included) => novel
+     * id: books imported from Calibre (source_ref), and books Novarr sent to
+     * Calibre (calibre_uuid, App\Books\CalibrePush). Whatever their medium
+     * now: a book found to be a web novel and moved to Novels stays known.
+     */
     public static function importedUuids(bool $withDeleted = true): array
     {
-        $query = $withDeleted ? Novel::withTrashed() : Novel::query();
+        $query = fn() => $withDeleted ? Novel::withTrashed() : Novel::query();
 
-        return $query->where('medium', Novel::MEDIUM_BOOK)
-            ->where('source_ref', 'like', BookLibrary::CALIBRE_REF . '%')
+        $imported = $query()->where('source_ref', 'like', BookLibrary::CALIBRE_REF . '%')
             ->pluck('id', 'source_ref')
             ->mapWithKeys(fn($id, $ref) => [substr((string) $ref, strlen(BookLibrary::CALIBRE_REF)) => (int) $id])
             ->all();
+        $sent = $query()->whereNotNull('calibre_uuid')->pluck('id', 'calibre_uuid')->map(fn($id) => (int) $id)->all();
+
+        return $imported + $sent;
+    }
+
+    /** Calibre book ids Novarr sent there (CalibrePush) => novel id: never imported back. */
+    public static function sentIds(): array
+    {
+        return Novel::withTrashed()->whereNotNull('calibre_id')->pluck('id', 'calibre_id')->map(fn($id) => (int) $id)->all();
     }
 
     /**
@@ -128,8 +144,12 @@ class CalibreImport
     {
         $uuid = (string) ($entry['uuid'] ?? '');
         $this->imported ??= self::importedUuids();
+        $this->sent ??= self::sentIds();
         if ($uuid !== '' && ($id = ($this->imported[$uuid] ?? null)) !== null) {
             return ['result' => self::SKIPPED, 'novel' => Novel::withTrashed()->find($id), 'message' => 'already in the library'];
+        }
+        if (!empty($entry['id']) && ($id = ($this->sent[(int) $entry['id']] ?? null)) !== null) {
+            return ['result' => self::SKIPPED, 'novel' => Novel::withTrashed()->find($id), 'message' => 'sent to Calibre from Novarr'];
         }
         if (empty($entry['epub_href'])) {
             return ['result' => self::SKIPPED, 'novel' => null, 'message' => 'no ePub in Calibre'];
@@ -194,7 +214,8 @@ class CalibreImport
     public function preview(array $entry): array
     {
         $this->imported ??= self::importedUuids();
-        if (isset($this->imported[(string) ($entry['uuid'] ?? '')])) {
+        $this->sent ??= self::sentIds();
+        if (isset($this->imported[(string) ($entry['uuid'] ?? '')]) || isset($this->sent[(int) ($entry['id'] ?? 0)])) {
             return ['result' => self::SKIPPED, 'novel' => null, 'message' => 'already in the library'];
         }
         if (empty($entry['epub_href'])) {

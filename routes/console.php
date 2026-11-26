@@ -241,6 +241,15 @@ $oneServer(Schedule::command('books:calibre-import')
     ->withoutOverlapping(120)
     ->runInBackground());
 
+// The other way (App\Books\CalibrePush): books added in Novarr that Calibre does not
+// have yet, and sends that failed. A new or edited book is sent at once; this is the retry.
+$oneServer(Schedule::command('books:calibre-push')
+    ->hourlyAt(55)
+    ->when(fn() => \App\Books\CalibrePush::enabled())
+    ->name('books_calibre_push')
+    ->withoutOverlapping(60)
+    ->runInBackground());
+
 // Series of the Books library (App\Books\BookSeries): nightly, Calibre-Web's
 // series for the books imported from it (when Calibre-Web is set up), then
 // the guesses from titles for the rest (App\Books\SeriesInference). A new
