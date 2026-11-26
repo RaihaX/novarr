@@ -250,6 +250,17 @@ $oneServer(Schedule::command('books:calibre-push')
     ->withoutOverlapping(60)
     ->runInBackground());
 
+// Books that are web novels (App\Books\WebNovelCheck): nightly, up to 200
+// books never checked are looked up on NovelUpdates, one every few seconds;
+// a translated or self-published web novel listed there moves to Novels
+// with its NovelUpdates metadata. 03:20: after the TOC check (01:00), before
+// the backups (03:30). A failed lookup is retried the next night.
+$oneServer(Schedule::command('books:webnovel-check --limit=200')
+    ->dailyAt('03:20')
+    ->name('books_webnovel_check')
+    ->withoutOverlapping(120)
+    ->runInBackground());
+
 // Series of the Books library (App\Books\BookSeries): nightly, Calibre-Web's
 // series for the books imported from it (when Calibre-Web is set up), then
 // the guesses from titles for the rest (App\Books\SeriesInference). A new

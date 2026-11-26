@@ -146,10 +146,13 @@
                     <span class="novel-form-section-note">Where the scraper reads from</span>
                 </div>
                 <div class="form-grid">
+                    {{-- A book moved to Novels as a web novel keeps its ePub as its identity. --}}
+                    @unless($novel->hasLibraryFile())
                     <div class="field field-full">
                         <label for="translator_url" class="form-label">Source URL <span class="field-hint">translator_url — used for TOC scraping</span></label>
                         <input type="url" name="translator_url" id="translator_url" class="form-control" value="{{ old('translator_url', $novel->translator_url) }}">
                     </div>
+                    @endunless
                     <div class="field field-full">
                         <label for="novelupdates_url" class="form-label">NovelUpdates URL <span class="field-hint">optional — overrides metadata lookup for aliased titles</span></label>
                         <input type="url" name="novelupdates_url" id="novelupdates_url" class="form-control" value="{{ old('novelupdates_url', $novel->novelupdates_url) }}" placeholder="https://www.novelupdates.com/series/…">

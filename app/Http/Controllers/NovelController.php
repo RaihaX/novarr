@@ -251,10 +251,13 @@ class NovelController extends Controller
         $isBooks = $medium === Novel::MEDIUM_BOOK;
 
         // Search: the title; in Books also the series' name, so "Mistborn"
-        // finds the books of the series (shown one by one, see below).
+        // finds the books of the series (shown one by one, see below). Also
+        // the series' other names (alternative_titles: NovelUpdates'
+        // associated names, kept for a book moved to Novels as a web novel).
         if ($request->filled('search')) {
             $like = '%' . $request->search . '%';
             $query->where(fn($q) => $q->where('name', 'like', $like)
+                ->orWhere('alternative_titles', 'like', $like)
                 ->when($isBooks, fn($q) => $q->orWhere('series', 'like', $like)));
         }
 
@@ -1047,9 +1050,14 @@ class NovelController extends Controller
         }
 
         // Novel or manga: decided once, by the source that claims the URL.
-        $object->medium = $object->translator_url
-            ? \App\Sources\SourceResolver::forUrl((string) $object->translator_url)->medium()
-            : Novel::MEDIUM_NOVEL;
+        // A row whose text is a library ePub keeps its medium: a book, or a
+        // book the web-novel check moved to Novels (App\Books\WebNovelCheck),
+        // which the book:// URL alone would turn back into a book.
+        if (!$object->hasLibraryFile()) {
+            $object->medium = $object->translator_url
+                ? \App\Sources\SourceResolver::forUrl((string) $object->translator_url)->medium()
+                : Novel::MEDIUM_NOVEL;
+        }
 
         $object->save();
 
@@ -1254,7 +1262,9 @@ class NovelController extends Controller
             $object->translator = $request->translator;
         }
 
-        if ( $request->has('translator_url') ) {
+        // A book's identity (book://library/{sha1}) is its file: never
+        // replaced, also once it was moved to Novels as a web novel.
+        if ( $request->has('translator_url') && !$object->hasLibraryFile() ) {
             $object->translator_url = $request->translator_url;
         }
 

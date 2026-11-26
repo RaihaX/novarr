@@ -37,7 +37,7 @@
     $metaItems = [];
     // An uploaded book's book:// identity is no page to link to.
     $isBook = $data->isBook();
-    if ($data->translator_url && !$isBook) $metaItems[] = ['href' => $data->translator_url, 'text' => parse_url($data->translator_url, PHP_URL_HOST)];
+    if ($data->translator_url && !$data->hasLibraryFile()) $metaItems[] = ['href' => $data->translator_url, 'text' => parse_url($data->translator_url, PHP_URL_HOST)];
     if ($data->isManga()) $metaItems[] = ['text' => 'Manga'];
     if ($isBook) $metaItems[] = ['text' => 'Book'];
     if ($originLabel = $data->originLabel()) $metaItems[] = ['text' => $originLabel];

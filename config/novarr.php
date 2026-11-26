@@ -102,6 +102,11 @@ return [
         // Total size of one upload batch (below nginx client_max_body_size and PHP post_max_size).
         'max_batch_mb' => (int) env('NOVARR_BOOKS_MAX_BATCH_MB', 48),
         'lookup' => (bool) env('NOVARR_BOOKS_LOOKUP', true),
+        // books:webnovel-check (App\Books\WebNovelCheck): seconds between two
+        // books' NovelUpdates lookups (it is behind Cloudflare and rate
+        // limited), and how many failed lookups in a row end the run early.
+        'webnovel_check_delay' => (float) env('NOVARR_BOOKS_WEBNOVEL_CHECK_DELAY', 3),
+        'webnovel_check_max_failures' => (int) env('NOVARR_BOOKS_WEBNOVEL_CHECK_MAX_FAILURES', 5),
         'google_books_key' => (string) env('NOVARR_GOOGLE_BOOKS_KEY', ''),
         'timeout' => (int) env('NOVARR_BOOKS_LOOKUP_TIMEOUT', 15),
         // "Send to Kindle" for Novarr: readers email ePubs to this address

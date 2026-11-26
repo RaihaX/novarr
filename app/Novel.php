@@ -102,6 +102,10 @@ class Novel extends Model
         'source_ref' => 'string',
         // decimal(8,2) comes back as "2.00" (MariaDB) or 2 (SQLite): one type.
         'series_index' => 'float',
+        // Books that are web novels (App\Books\WebNovelCheck).
+        'webnovel_checked_at' => 'datetime',
+        'converted_snapshot' => 'array',
+        'alternative_titles' => 'array',
     ];
 
     public function chapters(): HasMany
@@ -116,8 +120,9 @@ class Novel extends Model
         // keeps them so a restore brings them back.
         static::forceDeleted(function (self $novel) {
             ChapterPage::purgeNovel((int) $novel->id);
-            // An uploaded book's original ePub goes with it.
-            if ($novel->isBook()) {
+            // An uploaded book's original ePub goes with it (also once it
+            // was moved to Novels as a web novel: the file is still its own).
+            if ($novel->hasLibraryFile()) {
                 @unlink(\App\Books\BookLibrary::path($novel));
             }
             app(\App\Services\ReadState::class)->forgetNovel((int) $novel->id);
@@ -146,6 +151,23 @@ class Novel extends Model
     public function isBook(): bool
     {
         return $this->medium === self::MEDIUM_BOOK;
+    }
+
+    /**
+     * Is its text from an ePub in the Books library (book://library/{sha1})?
+     * True for a book, and for a book moved to Novels as a web novel
+     * (App\Books\WebNovelCheck): its identity is still the file, so its
+     * translator_url is never replaced and nothing is scraped for it.
+     */
+    public function hasLibraryFile(): bool
+    {
+        return $this->isBook() || str_starts_with(trim((string) $this->translator_url), \App\Books\BookLibrary::URL_PREFIX);
+    }
+
+    /** A book moved to Novels by the web-novel check (undo: `books:webnovel-check --undo=`). */
+    public function wasConvertedFromBook(): bool
+    {
+        return $this->converted_from === self::MEDIUM_BOOK;
     }
 
     /** Uploaded books only. */
