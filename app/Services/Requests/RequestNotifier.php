@@ -201,7 +201,7 @@ class RequestNotifier
         return trim((string) ($user->name ?: $user->username)) ?: 'Someone';
     }
 
-    private static function hasEmail(User $user): bool
+    public static function hasEmail(User $user): bool
     {
         return filter_var(trim((string) $user->email), FILTER_VALIDATE_EMAIL) !== false;
     }
@@ -241,6 +241,12 @@ class RequestNotifier
         } catch (\Throwable $e) {
             Log::warning('Request webhook failed: ' . $e->getMessage());
         }
+    }
+
+    /** Send one mail the request way (off with mail, a failure only logged): for App\Books\BookInbox. */
+    public function sendMail(string $to, Mailable $mail): void
+    {
+        $this->mail($to, $mail);
     }
 
     protected function mail(string $to, Mailable $mail): void

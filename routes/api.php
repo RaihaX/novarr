@@ -118,6 +118,11 @@ Route::prefix('v1')
         // New chapters to read in series the reader follows (one combined phone notification).
         Route::get('/updates', [ApiV1\UpdatesController::class, 'index'])->name('updates');
 
+        // Books: the app's "Share to Novarr" (reader), and the books email
+        // address, posted by the Cloudflare Email Worker (shared secret).
+        Route::post('/books/uploads', [ApiV1\BookUploadController::class, 'store'])->middleware('throttle:novarr-reader-actions')->name('books.uploads.store');
+        Route::post('/books/inbox', [ApiV1\BookInboxController::class, 'store'])->middleware('throttle:30,1')->name('books.inbox');
+
         // The KOReader plugin's "update over Wi-Fi".
         Route::get('/koreader/plugin', [ApiV1\KoreaderPluginController::class, 'manifest'])->name('koreader.plugin');
         Route::get('/koreader/plugin/files/{path}', [ApiV1\KoreaderPluginController::class, 'file'])->where('path', '.*')->name('koreader.plugin.file');

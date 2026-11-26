@@ -2,14 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Books\BookInbox;
 use App\Books\BookUploads;
-use App\Books\EpubException;
-use App\Services\Requests\RequestRefused;
 use App\Support\CurrentReader;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 /**
@@ -26,6 +24,8 @@ class BookUploadController extends Controller
         return view('books.upload', [
             'maxMb' => self::maxMb(),
             'maxFiles' => max(1, (int) config('novarr.books.max_files_per_upload', 20)),
+            'inboxAddress' => BookInbox::enabled() ? BookInbox::address() : null,
+            'readerEmail' => !app(CurrentReader::class)->isGuest() && ($user = app(CurrentReader::class)->user()) && \App\Services\Requests\RequestNotifier::hasEmail($user) ? $user->email : null,
         ]);
     }
 
@@ -55,26 +55,13 @@ class BookUploadController extends Controller
         ]);
 
         $user = $reader->user();
-        $sent = [];
-        $refused = [];
-        $inLibrary = null;
-        foreach ($request->file('epub') as $file) {
-            $name = $file->getClientOriginalName();
-            try {
-                $sent[] = $uploads->receive($user, $file->getRealPath(), $name, $request->input('note'));
-            } catch (EpubException $e) {
-                $refused[] = "{$name}: {$e->getMessage()}";
-            } catch (RequestRefused $e) {
-                $refused[] = "{$name}: {$e->getMessage()}";
-                $inLibrary ??= isset($e->extra['novel_id']) ? route('novels.show', $e->extra['novel_id']) : null;
-                if ($e->errorCode === 'pending_limit') {
-                    break; // every later file would be refused the same way
-                }
-            } catch (\Throwable $e) {
-                Log::error("Book upload of {$name} failed: " . $e->getMessage(), ['exception' => $e]);
-                $refused[] = "{$name}: it could not be added. Try again in a moment.";
-            }
-        }
+        $result = $uploads->receiveMany($user, collect($request->file('epub'))
+            ->map(fn($file) => ['path' => $file->getRealPath(), 'name' => $file->getClientOriginalName()])
+            ->all(), $request->input('note'));
+        $sent = $result['sent'];
+        $refused = array_map(fn($r) => "{$r['file']}: {$r['message']}", $result['refused']);
+        $inLibrary = collect($result['refused'])->whereNotNull('novel_id')->pluck('novel_id')
+            ->map(fn($id) => route('novels.show', $id))->first();
 
         // The owner (at home) matches them now: one goes straight to its review, several to the review queue.
         if ($sent !== [] && $user->isAdmin() && Gate::allows('admin')) {

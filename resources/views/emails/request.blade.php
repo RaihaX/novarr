@@ -89,7 +89,7 @@
 
                         @if ($quote)
                             <p class="nv-muted" style="margin: 0 0 4px; font-family: {{ $sans }}; font-size: 13px; line-height: 1.6; color: #8B95A5;">{{ $quoteLabel }}</p>
-                            <p style="margin: 0 0 16px; padding-left: 12px; border-left: 2px solid #6470FF; {{ $body }}">{{ $quote }}</p>
+                            <p style="margin: 0 0 16px; padding-left: 12px; border-left: 2px solid #6470FF; {{ $body }}">{!! nl2br(e($quote)) !!}</p>
                         @endif
 
                         {{-- Bulletproof primary button: a filled cell, not an image. --}}

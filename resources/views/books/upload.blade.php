@@ -53,6 +53,14 @@
             </div>
         </div>
     </form>
+
+    @if ($inboxAddress)
+        <div class="book-upload-ways">
+            <h2 class="h6 mb-1">Other ways to send books</h2>
+            <p class="form-text mb-1"><strong>By email:</strong> attach the ePubs to an email to <a href="mailto:{{ $inboxAddress }}">{{ $inboxAddress }}</a>@if ($readerEmail), sent from <strong>{{ $readerEmail }}</strong> (your account’s address)@endif. You get a reply saying what arrived.</p>
+            <p class="form-text mb-0"><strong>From your Android phone:</strong> open or share an .epub and choose <strong>Novarr</strong>.</p>
+        </div>
+    @endif
 </div>
 
 <script>

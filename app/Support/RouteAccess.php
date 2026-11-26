@@ -74,6 +74,8 @@ final class RouteAccess
         // signature (Illuminate\Filesystem\ServeFile / ReceiveFile).
         'storage.local',
         'storage.local.upload',
+        // The books email address: the Cloudflare Email Worker, by its shared secret (App\Books\BookInbox)
+        'api.v1.books.inbox',
     ];
 
     /** Any signed-in account. */
@@ -173,6 +175,7 @@ final class RouteAccess
         // Uploading a book for the owner to approve (App\Books\BookUploads)
         'books.upload',
         'books.upload.store',
+        'api.v1.books.uploads.store', // the Android app's "Share to Novarr"
     ];
 
     /**

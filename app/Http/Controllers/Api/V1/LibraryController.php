@@ -56,6 +56,12 @@ class LibraryController extends Controller
             // books) are accepted on /novels and /home. A client checks this
             // before asking for them: an older server answers 422.
             'books' => true,
+            // Sending books: the app's "Share to Novarr" limits, and the books email address.
+            'book_uploads' => [
+                'max_mb' => \App\Http\Controllers\BookUploadController::maxMb(),
+                'max_files' => BookUploadController::maxFiles(),
+                'email' => \App\Books\BookInbox::enabled() ? \App\Books\BookInbox::address() : null,
+            ],
         ]);
     }
 

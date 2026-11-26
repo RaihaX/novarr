@@ -246,3 +246,11 @@
     display: flex;
     gap: $s-2;
 }
+
+// The upload page's "other ways to send books" (email address, Android share).
+.book-upload-ways {
+    margin-top: $s-6;
+    padding: $s-4;
+    border: $hairline solid $border;
+    border-radius: $radius;
+}

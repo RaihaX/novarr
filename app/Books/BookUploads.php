@@ -128,6 +128,43 @@ class BookUploads
     }
 
     /**
+     * Several files at once (the upload page, the app, the email inbox): each
+     * is received on its own, one refused file never stops the others, except
+     * the pending limit (every later file would be refused the same way).
+     *
+     * @param  array<int, array{path: string, name: string}>  $files
+     * @return array{sent: NovelRequest[], refused: array<int, array{file: string, message: string, code: string, novel_id?: int}>}
+     */
+    public function receiveMany(User $user, array $files, ?string $note): array
+    {
+        $sent = [];
+        $refused = [];
+        foreach ($files as $file) {
+            $name = $file['name'];
+            try {
+                $sent[] = $this->receive($user, $file['path'], $name, $note);
+            } catch (EpubException $e) {
+                $refused[] = ['file' => $name, 'message' => $e->getMessage(), 'code' => 'unreadable'];
+            } catch (RequestRefused $e) {
+                $refused[] = array_filter([
+                    'file' => $name,
+                    'message' => $e->getMessage(),
+                    'code' => (string) $e->errorCode,
+                    'novel_id' => isset($e->extra['novel_id']) ? (int) $e->extra['novel_id'] : null,
+                ], fn($v) => $v !== null);
+                if ($e->errorCode === 'pending_limit') {
+                    break;
+                }
+            } catch (\Throwable $e) {
+                Log::error("Book upload of {$name} failed: " . $e->getMessage(), ['exception' => $e]);
+                $refused[] = ['file' => $name, 'message' => 'It could not be added. Try again in a moment.', 'code' => 'failed'];
+            }
+        }
+
+        return ['sent' => $sent, 'refused' => $refused];
+    }
+
+    /**
      * Ask the catalogues and keep the result on the request (its
      * candidates; candidates_ranked_at marks that a search ran).
      *

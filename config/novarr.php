@@ -104,6 +104,14 @@ return [
         'lookup' => (bool) env('NOVARR_BOOKS_LOOKUP', true),
         'google_books_key' => (string) env('NOVARR_GOOGLE_BOOKS_KEY', ''),
         'timeout' => (int) env('NOVARR_BOOKS_LOOKUP_TIMEOUT', 15),
+        // "Send to Kindle" for Novarr: readers email ePubs to this address
+        // (App\Books\BookInbox). Cloudflare Email Routing hands the email to
+        // the Worker in cloudflare/books-inbox, which posts it to
+        // /api/v1/books/inbox with this secret (at least 32 characters).
+        'inbox' => [
+            'address' => (string) env('NOVARR_BOOKS_INBOX_ADDRESS', ''),
+            'secret' => (string) env('NOVARR_BOOKS_INBOX_SECRET', ''),
+        ],
     ],
 
     /*
