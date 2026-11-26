@@ -401,7 +401,7 @@ class ReaderAccountsTest extends TestCase
             'library' => ['id="bulkDelete"', 'id="bulkComplete"', '+ Add', 'Needs attention'],
             'library-table' => ['novel-delete-btn" data-id', 'novel-complete-btn" data-id'],
             'series' => ['Edit details', 'id="deleteNovel"', 'id="pauseToggle"', 'id="maintenancePanel"', 'id="editTags"',
-                'data-command="epub"', 'send_to_kindle', 'id="frequentToggle"', 'href="' . route('novels.edit', $novel->id) . '"'],
+                'data-command="epub"', 'id="frequentToggle"', 'href="' . route('novels.edit', $novel->id) . '"'],
         ];
 
         foreach ($pages as $page => $url) {

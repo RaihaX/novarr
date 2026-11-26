@@ -1132,6 +1132,7 @@ class NovelController extends Controller
             'review_count' => $stats['review_count'] ?? 0,
             'progress' => round($progress),
             'epub_built_at' => $this->epubBuiltAt($data),
+            'sendTo' => app(\App\Support\CurrentReader::class)->isGuest() ? null : \App\Services\SendEpub::address(app(\App\Support\CurrentReader::class)->user()),
             // The reader's reading lists and whether this series is in each (the Lists menu).
             'reading_lists' => \App\Services\ReadingLists::forNovel(app(\App\Support\CurrentReader::class)->id(), (int) $data->id),
         ]);

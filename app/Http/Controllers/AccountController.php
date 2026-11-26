@@ -186,6 +186,22 @@ class AccountController extends Controller
      * setting about their own mail: no "Confirm it's you". The owner's
      * summary is set in Settings.
      */
+    /** "Send to my Kindle / email": the reader's own address (App\Services\SendEpub); empty clears it. */
+    public function sendTo(Request $request, CurrentReader $reader)
+    {
+        abort_unless(AuthMode::required(), 404);
+        $data = $request->validate([
+            'send_to_email' => ['nullable', 'email', 'max:191'],
+        ], [
+            'send_to_email.email' => 'That is not an email address.',
+        ]);
+        $address = trim((string) ($data['send_to_email'] ?? ''));
+        $reader->user()->forceFill(['send_to_email' => $address === '' ? null : $address])->save();
+
+        return redirect()->route('account')->withFragment('send-to')
+            ->with('status', $address === '' ? 'Your send-to address is removed.' : "Books will be sent to {$address}.");
+    }
+
     public function summaryEmail(Request $request, CurrentReader $reader)
     {
         abort_unless(AuthMode::required(), 404);

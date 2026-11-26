@@ -248,6 +248,23 @@
                 </div>
             </section>
 
+            {{-- "Send to my Kindle / email" (App\Services\SendEpub): where a book's or novel's ePub is emailed. --}}
+            <section class="card form-panel acct-card" aria-labelledby="sendToTitle" id="send-to">
+                <div class="card-body">
+                    <h2 class="acct-card-title" id="sendToTitle">Send to Kindle or email</h2>
+                    <p class="acct-text">The address <strong>Send to my Kindle / email</strong> on a book or novel emails its ePub to: your Kindle’s Send-to-Kindle address (name_xxx@kindle.com), or any email.</p>
+                    <form method="POST" action="{{ route('account.send_to') }}" class="acct-actions">
+                        @csrf
+                        <label for="send_to_email" class="form-label visually-hidden">Send-to address</label>
+                        <input type="email" name="send_to_email" id="send_to_email" class="form-control @error('send_to_email') is-invalid @enderror"
+                               value="{{ old('send_to_email', $user->send_to_email) }}" placeholder="name_xxx@kindle.com" autocomplete="email" maxlength="191">
+                        @error('send_to_email')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        <button type="submit" class="btn btn-secondary btn-sm">Save</button>
+                    </form>
+                    <p class="form-text mb-0">For a Kindle, add <strong>{{ \App\Services\SendEpub::fromAddress() }}</strong> to the approved senders in Amazon (Content &amp; Devices → Preferences → Personal Document Settings), or Amazon drops the email.@if(!$user->send_to_email && $user->isAdmin() && \App\Services\SendEpub::address($user)) Until you set one, the Kindle email in Settings is used ({{ \App\Services\SendEpub::address($user) }}).@endif</p>
+                </div>
+            </section>
+
             {{-- The reader's daily summary email (novel:email-summary); the owner's is in Settings. --}}
             @if($summary)
                 <section class="card form-panel acct-card" aria-labelledby="summaryEmailTitle" id="summary-email">

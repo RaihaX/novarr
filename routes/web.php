@@ -64,6 +64,7 @@ Route::post('/account/link', [\App\Http\Controllers\AccountController::class, 'l
 Route::post('/account/link/confirm', [\App\Http\Controllers\AccountController::class, 'linkConfirm'])->name('account.link.confirm');
 Route::post('/account/browsers/sign-out-others', [\App\Http\Controllers\AccountController::class, 'signOutOtherBrowsers'])->name('account.browsers.sign_out_others');
 Route::delete('/account/browsers/{id}', [\App\Http\Controllers\AccountController::class, 'signOutBrowser'])->whereNumber('id')->name('account.browsers.sign_out');
+Route::post('/account/send-to', [\App\Http\Controllers\AccountController::class, 'sendTo'])->name('account.send_to');
 Route::post('/account/summary-email', [\App\Http\Controllers\AccountController::class, 'summaryEmail'])->name('account.summary_email');
 // Sign-in steps and catalogue passwords (App\Http\Controllers\AccountSecurityController);
 // changes need a recent "Confirm it's you" (App\Support\RecentConfirmation).

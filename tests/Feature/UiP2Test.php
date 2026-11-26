@@ -125,7 +125,7 @@ class UiP2Test extends TestCase
 
         // Download menu carries offline ranges + ePub + Kindle.
         $this->assertStringContainsString('id="offlineBtn"', $html);
-        foreach (['data-scope="unread-next"', 'data-scope="range"', 'data-command="epub"', 'data-command="send_to_kindle"'] as $needle) {
+        foreach (['data-scope="unread-next"', 'data-scope="range"', 'data-command="epub"', 'data-reader-action="send"'] as $needle) {
             $this->assertStringContainsString($needle, $html);
         }
         // Overflow menu: edit, pause, refresh metadata, delete.

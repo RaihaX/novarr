@@ -576,3 +576,12 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
 }
 
 .acct-card.is-highlighted { border-color: $accent; }
+
+// The send-to address: the field takes the row, the button beside it.
+#send-to .acct-actions {
+    margin-top: $s-4;
+    margin-bottom: $s-3;
+
+    .form-control { flex: 1 1 16rem; width: auto; min-width: 0; }
+    .invalid-feedback { flex-basis: 100%; order: 3; margin-top: 0; }
+}

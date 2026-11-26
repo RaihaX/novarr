@@ -118,6 +118,7 @@ final class RouteAccess
         'account.browsers.sign_out_others',
         'account.browsers.sign_out',
         'account.summary_email',
+        'account.send_to',
         // Own sign-in steps and catalogue passwords (each change needs a recent confirmation)
         'account.confirm',
         'account.confirm.email',
@@ -142,6 +143,8 @@ final class RouteAccess
         'api.v1.novels.position',
         'api.v1.novels.epub',
         'api.v1.novels.epub.build',
+        'api.v1.novels.send.show',
+        'api.v1.novels.send',
         'api.v1.novels.check',
         'api.v1.novels.check.start',
         'api.v1.chapters.show',

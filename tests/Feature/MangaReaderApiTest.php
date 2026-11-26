@@ -440,14 +440,14 @@ class MangaReaderApiTest extends TestCase
     {
         $html = $this->get(route('novels.show', $this->manga->id))->assertOk()->getContent();
         $this->assertStringNotContainsString('Download ePub', $html);
-        $this->assertStringNotContainsString('Send to Kindle', $html);
+        $this->assertStringNotContainsString('Send to my Kindle', $html);
         $this->assertStringNotContainsString('Search the text of this novel', $html);
         $this->assertStringContainsString('2 pages', $html);
         $this->assertStringContainsString('Manga', $html);
 
         $html = $this->get(route('novels.show', $this->text->id))->assertOk()->getContent();
         $this->assertStringContainsString('Download ePub', $html);
-        $this->assertStringContainsString('Send to Kindle', $html);
+        $this->assertStringContainsString('Send to my Kindle', $html);
 
         $json = collect($this->getJson(route('novels.chapters_json', $this->manga->id))->json('chapters'))->keyBy('id');
         $this->assertSame(2, $json[$this->chapters[2]->id]['pages']);

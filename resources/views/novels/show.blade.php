@@ -317,17 +317,17 @@
                     </button>
                 </li>
                 @endunless
-                @can('admin')
+                {{-- Every reader: email the ePub to their own Kindle / address (App\Services\SendEpub). --}}
                 <li>
-                    <button type="button" class="dropdown-item cmd-btn" data-command="send_to_kindle" data-novel="{{ $data->id }}" title="Email this novel's ePub to your Kindle">
+                    <button type="button" class="dropdown-item reader-action-btn" data-reader-action="send" data-novel="{{ $data->id }}"
+                            title="{{ $sendTo ? 'Email the ePub to ' . $sendTo : 'Set your Kindle or email address on your Account page' }}">
                         <x-icon name="external-link" :size="14" />
-                        <span class="cmd-label">Send to Kindle</span>
+                        <span class="cmd-label">Send to my Kindle / email</span>
                         <span class="cmd-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Sending</span>
                         <span class="cmd-done d-none">Sent</span>
                         <span class="cmd-fail d-none">Failed</span>
                     </button>
                 </li>
-                @endcan
                 @endunless
                 @can('admin')
                 <li><hr class="dropdown-divider"></li>
@@ -1166,6 +1166,7 @@
     const readerActions = {
         check: { url: (id) => `/api/v1/novels/${id}/check`, key: 'check', busy: ['running'], ok: ['done'] },
         epub: { url: (id) => `/api/v1/novels/${id}/epub`, key: 'epub', busy: ['building'], ok: ['ready'] },
+        send: { url: (id) => `/api/v1/novels/${id}/send`, key: 'send', busy: ['queued', 'sending'], ok: ['sent'] },
     };
     document.querySelectorAll('button.reader-action-btn').forEach(btn => {
         btn.addEventListener('click', () => runReaderAction(btn));
@@ -1183,6 +1184,12 @@
         try {
             let res = await fetch(url, { method: 'POST', headers });
             let data = await res.json().catch(() => ({}));
+            if (!res.ok && data.code === 'no_address' && data.account_url) {
+                setButtonState(btn, 'fail');
+                Novarr.showToast(data.message, 'warning');
+                setTimeout(() => { window.location.href = data.account_url; }, 1500);
+                return;
+            }
             if (!res.ok) throw new Error(data.message || `Could not start (${res.status}).`);
             let state = data[action.key] || {};
             const deadline = Date.now() + 30 * 60 * 1000;
