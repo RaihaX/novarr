@@ -116,7 +116,7 @@ class BookReviewController extends Controller
                 ->with('duplicate', $e->errorCode === 'duplicate');
         }
 
-        return redirect()->route('novels.show', $novel->id)->with('success', "“{$novel->name}” is in the library.");
+        return $this->next($bookRequest, "“{$novel->name}” is in the library.", route('novels.show', $novel->id));
     }
 
     public function decline(int $id, Request $request, BookUploads $uploads, CurrentReader $reader): RedirectResponse
@@ -130,7 +130,28 @@ class BookReviewController extends Controller
             return back()->withErrors(['approve' => $e->getMessage()]);
         }
 
-        return redirect()->route('requests.index')->with('success', "Declined “{$bookRequest->title}”.");
+        return $this->next($bookRequest, "Declined “{$bookRequest->title}”.");
+    }
+
+    /**
+     * After a decision: the next uploaded book waiting (oldest first), so a
+     * batch is reviewed one after another; the Requests page when none is left.
+     */
+    private function next(NovelRequest $decided, string $message, ?string $link = null): RedirectResponse
+    {
+        $next = NovelRequest::where('medium', Novel::MEDIUM_BOOK)
+            ->where('status', NovelRequest::STATUS_PENDING)
+            ->whereKeyNot($decided->id)
+            ->orderBy('id')
+            ->first();
+        $flash = ['success' => $message, 'success_link' => $link];
+        if ($next !== null) {
+            $left = NovelRequest::where('medium', Novel::MEDIUM_BOOK)->where('status', NovelRequest::STATUS_PENDING)->count();
+
+            return redirect()->route('books.review', $next->id)->with($flash + ['queue_left' => $left]);
+        }
+
+        return redirect()->route('requests.index')->with($flash);
     }
 
     private function find(int $id): NovelRequest

@@ -12,18 +12,99 @@
     .page-head { margin-bottom: 0; }
 }
 
-.book-review-note {
+// Every column may shrink below its content's natural width (long file names, inputs).
+.book-review > *,
+.book-review-work > *,
+.book-file-strip > * { min-width: 0; }
+
+.book-review-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: $s-2 $s-4;
+
+    .back-link { margin-bottom: 0; }
+}
+
+.book-review-queue {
+    font-size: $fs-caption;
     color: $text-muted;
 }
 
-.book-review-grid {
+// The file at a glance: a compact strip, details fold out.
+.book-file-strip {
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-    gap: $s-6;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: $s-4;
+    align-items: start;
+    padding: $s-4 $s-6;
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+}
 
-    @media (max-width: 900px) {
-        grid-template-columns: minmax(0, 1fr);
-    }
+.book-file-main {
+    display: flex;
+    flex-direction: column;
+    gap: $s-1;
+    min-width: 0;
+}
+
+.book-file-title {
+    margin: 0;
+    font-size: $fs-section-header;
+    font-weight: 600;
+}
+
+.book-file-facts,
+.book-file-note {
+    margin: 0;
+    font-size: $fs-caption;
+    color: $text-muted;
+    overflow-wrap: anywhere;
+}
+
+.book-file-inspect {
+    font-size: $fs-caption;
+
+    summary { cursor: pointer; color: $text-muted; }
+}
+
+.book-file-inspect-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: $s-4;
+    margin-top: $s-2;
+
+    @media (max-width: 760px) { grid-template-columns: minmax(0, 1fr); }
+}
+
+.book-file-labels {
+    margin: 0;
+    padding-left: $s-6;
+    max-height: 14rem;
+    overflow-y: auto;
+}
+
+.book-file-excerpt {
+    margin: 0;
+    padding-left: $s-4;
+    border-left: 2px solid $border;
+    font-family: $font-read;
+    color: $text-soft;
+    white-space: pre-line;
+    max-height: 14rem;
+    overflow-y: auto;
+}
+
+// Matches on the left, the decision on the right (sticky, always in view).
+.book-review-work {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(300px, 2fr);
+    gap: $s-6;
+    align-items: start;
+
+    @media (max-width: 900px) { grid-template-columns: minmax(0, 1fr); }
 }
 
 .book-review-panel {
@@ -37,49 +118,28 @@
     border-radius: $radius;
 }
 
-.book-review-file {
-    display: grid;
-    grid-template-columns: 120px minmax(0, 1fr);
-    gap: $s-4;
-    align-items: start;
-}
+.book-review-decide {
+    position: sticky;
+    top: $s-4;
+    max-height: calc(100vh - #{$s-6});
+    overflow-y: auto;
 
-.book-review-facts {
-    display: grid;
-    grid-template-columns: max-content minmax(0, 1fr);
-    gap: $s-2 $s-4;
-    margin: 0;
-    font-size: $fs-caption;
-
-    dt { color: $text-muted; font-weight: normal; }
-    dd { margin: 0; overflow-wrap: anywhere; }
-}
-
-.book-review-labels {
-    font-size: $fs-caption;
-
-    summary { cursor: pointer; color: $text-muted; }
-    ol { margin: $s-2 0 0; padding-left: $s-6; max-height: 16rem; overflow-y: auto; }
-}
-
-.book-review-excerpt {
-    margin: 0;
-
-    figcaption {
-        font-size: $fs-caption;
-        color: $text-muted;
-        margin-bottom: $s-2;
-    }
-
-    blockquote {
-        margin: 0;
-        padding-left: $s-4;
-        border-left: 2px solid $border;
-        font-family: $font-read;
-        color: $text-soft;
-        white-space: pre-line;
+    @media (max-width: 900px) {
+        position: static;
+        max-height: none;
+        order: -1; // on a phone the decision comes first, the matches below
     }
 }
+
+.book-decide-fields {
+    display: flex;
+    flex-direction: column;
+    gap: $s-1;
+
+    .form-label { margin: $s-2 0 0; }
+}
+
+.book-decide-add { width: 100%; margin-top: $s-4; }
 
 .book-review-search {
     display: grid;
@@ -174,6 +234,9 @@
 .book-review-decline-row {
     display: flex;
     gap: $s-2;
+
+    .form-control { flex: 1 1 auto; min-width: 0; }
+    .btn { flex: none; }
 }
 
 // Import from Calibre (/books/calibre): the search spans the page; paging below the list.

@@ -69,6 +69,8 @@ test('pending requests used, only with a limit', () => {
     assert.equal(pendingUsedLine([], 5), '0 of 5 pending requests used');
     assert.equal(pendingUsedLine(mine, 1), '2 of 1 pending request used');
     assert.equal(pendingUsedLine(mine, null), '', 'the admin has no limit');
+    // Uploaded books have their own limit: they don't use up title requests.
+    assert.equal(pendingUsedLine([...mine, { status: 'pending', medium: 'book' }], 5), '2 of 5 pending requests used');
 });
 
 test('candidates keep the server order, errored ones last; the first good one is preselected', () => {

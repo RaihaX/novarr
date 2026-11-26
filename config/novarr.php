@@ -94,6 +94,13 @@ return [
             ? null
             : (str_starts_with($calibrePath, '/') ? $calibrePath : base_path($calibrePath)),
         'max_upload_mb' => (int) env('NOVARR_BOOKS_MAX_UPLOAD_MB', 50),
+        // Uploaded books one reader may have waiting for the owner's approval
+        // (title requests have their own limit, requests.max_pending_per_reader).
+        'max_pending_uploads' => (int) env('NOVARR_BOOKS_MAX_PENDING_UPLOADS', 50),
+        // ePubs accepted in one upload.
+        'max_files_per_upload' => (int) env('NOVARR_BOOKS_MAX_FILES_PER_UPLOAD', 20),
+        // Total size of one upload batch (below nginx client_max_body_size and PHP post_max_size).
+        'max_batch_mb' => (int) env('NOVARR_BOOKS_MAX_BATCH_MB', 48),
         'lookup' => (bool) env('NOVARR_BOOKS_LOOKUP', true),
         'google_books_key' => (string) env('NOVARR_GOOGLE_BOOKS_KEY', ''),
         'timeout' => (int) env('NOVARR_BOOKS_LOOKUP_TIMEOUT', 15),

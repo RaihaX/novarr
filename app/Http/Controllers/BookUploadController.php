@@ -25,6 +25,7 @@ class BookUploadController extends Controller
 
         return view('books.upload', [
             'maxMb' => self::maxMb(),
+            'maxFiles' => max(1, (int) config('novarr.books.max_files_per_upload', 20)),
         ]);
     }
 
@@ -33,41 +34,69 @@ class BookUploadController extends Controller
         abort_unless(config('novarr.requests.enabled', true), 404);
         abort_if($reader->isGuest(), 403);
 
+        // One file or several (epub[]): always a list from here on. Read the
+        // raw bag: $request->file() would cache the single file before this.
+        $raw = $request->files->get('epub');
+        if ($raw !== null && !is_array($raw)) {
+            $request->files->set('epub', [$raw]);
+        }
+        $maxFiles = max(1, (int) config('novarr.books.max_files_per_upload', 20));
+
         $request->validate([
-            'epub' => ['required', 'file', 'max:' . (self::maxMb() * 1024), 'extensions:epub'],
+            'epub' => ['required', 'array', 'min:1', 'max:' . $maxFiles],
+            'epub.*' => ['required', 'file', 'max:' . (self::maxMb() * 1024), 'extensions:epub'],
             'note' => ['nullable', 'string', 'max:500'],
         ], [
             'epub.required' => 'Choose an ePub file to upload.',
-            'epub.max' => 'That file is larger than ' . self::maxMb() . ' MB.',
-            'epub.extensions' => 'Only ePub files (.epub) can be added.',
-            'epub.uploaded' => 'The upload did not arrive in one piece. Try again, or try a smaller file.',
+            'epub.max' => "Up to {$maxFiles} files at a time.",
+            'epub.*.max' => 'A file is larger than ' . self::maxMb() . ' MB.',
+            'epub.*.extensions' => 'Only ePub files (.epub) can be added.',
+            'epub.*.uploaded' => 'A file did not arrive in one piece. Try again, or try fewer files at once.',
         ]);
 
-        $file = $request->file('epub');
         $user = $reader->user();
-
-        try {
-            $bookRequest = $uploads->receive($user, $file->getRealPath(), $file->getClientOriginalName(), $request->input('note'));
-        } catch (EpubException $e) {
-            return back()->withInput()->withErrors(['epub' => $e->getMessage()]);
-        } catch (RequestRefused $e) {
-            $novelId = $e->extra['novel_id'] ?? null;
-
-            return back()->withInput()
-                ->withErrors(['epub' => $e->getMessage()])
-                ->with('in_library', $novelId ? route('novels.show', $novelId) : null);
-        } catch (\Throwable $e) {
-            Log::error('Book upload failed: ' . $e->getMessage(), ['exception' => $e]);
-
-            return back()->withInput()->withErrors(['epub' => 'The book could not be added. Try again in a moment.']);
+        $sent = [];
+        $refused = [];
+        $inLibrary = null;
+        foreach ($request->file('epub') as $file) {
+            $name = $file->getClientOriginalName();
+            try {
+                $sent[] = $uploads->receive($user, $file->getRealPath(), $name, $request->input('note'));
+            } catch (EpubException $e) {
+                $refused[] = "{$name}: {$e->getMessage()}";
+            } catch (RequestRefused $e) {
+                $refused[] = "{$name}: {$e->getMessage()}";
+                $inLibrary ??= isset($e->extra['novel_id']) ? route('novels.show', $e->extra['novel_id']) : null;
+                if ($e->errorCode === 'pending_limit') {
+                    break; // every later file would be refused the same way
+                }
+            } catch (\Throwable $e) {
+                Log::error("Book upload of {$name} failed: " . $e->getMessage(), ['exception' => $e]);
+                $refused[] = "{$name}: it could not be added. Try again in a moment.";
+            }
         }
 
-        // The owner (at home) matches it now; a reader waits for the owner.
-        if ($user->isAdmin() && Gate::allows('admin')) {
-            return redirect()->route('books.review', $bookRequest->id);
+        // The owner (at home) matches them now: one goes straight to its review, several to the review queue.
+        if ($sent !== [] && $user->isAdmin() && Gate::allows('admin')) {
+            $redirect = count($sent) === 1 && $refused === []
+                ? redirect()->route('books.review', $sent[0]->id)
+                : redirect()->route('requests.index');
+
+            return $refused === [] ? $redirect : $redirect->withErrors(['epub' => $refused]);
         }
 
-        return redirect()->route('books.upload')->with('success', "Thanks: “{$bookRequest->title}” was sent to the owner. You'll hear when it is in the library.");
+        $redirect = redirect()->route('books.upload');
+        if ($sent !== []) {
+            $titles = collect($sent)->map(fn($r) => "“{$r->title}”");
+            $redirect = $redirect->with('success', count($sent) === 1
+                ? "Thanks: {$titles[0]} was sent to the owner. You'll hear when it is in the library."
+                : 'Thanks: ' . count($sent) . ' books were sent to the owner (' . $titles->take(5)->implode(', ') . (count($sent) > 5 ? ', …' : '') . "). You'll hear as each is added.");
+        }
+        if ($refused !== []) {
+            $redirect = $redirect->withInput($request->only('note'))->withErrors(['epub' => $refused])->with('in_library', $inLibrary);
+        }
+
+        return $redirect;
     }
 
     public static function maxMb(): int

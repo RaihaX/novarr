@@ -144,7 +144,8 @@ export function statusLabel(request) {
 /** "3 of 5 pending requests used" (requests the reader only joined do not count); '' when there is no limit (the admin). */
 export function pendingUsedLine(requests, limit) {
     if (limit === null || limit === undefined) return '';
-    const used = (requests || []).filter((r) => r && r.status === 'pending' && !isFollower(r)).length;
+    // Uploaded books have their own limit: only title requests count here.
+    const used = (requests || []).filter((r) => r && r.status === 'pending' && !isFollower(r) && r.medium !== 'book').length;
     return `${used} of ${limit} pending request${limit === 1 ? '' : 's'} used`;
 }
 

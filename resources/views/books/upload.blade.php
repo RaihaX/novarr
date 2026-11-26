@@ -18,10 +18,6 @@
         </div>
     </div>
 
-    @if(session('success'))
-        <div class="alert alert-success" role="status">{{ session('success') }}</div>
-    @endif
-
     @if($errors->any())
         <div class="alert alert-danger" role="alert">
             @foreach($errors->all() as $error)
@@ -39,10 +35,10 @@
             <div class="novel-form-section">
                 <div class="form-grid">
                     <div class="field field-full">
-                        <label for="epub" class="form-label">ePub file <span class="field-required">*</span></label>
-                        <input type="file" name="epub" id="epub" class="form-control" required
+                        <label for="epub" class="form-label">ePub files <span class="field-required">*</span></label>
+                        <input type="file" name="epub[]" id="epub" class="form-control" required multiple
                                accept=".epub,application/epub+zip" aria-describedby="epubHelp">
-                        <p class="form-text mb-0" id="epubHelp">One .epub file, up to {{ $maxMb }} MB. Files from Calibre, publishers and most stores (without DRM) work. A file with wrong or missing details is fine: the owner matches it.</p>
+                        <p class="form-text mb-0" id="epubHelp">One or several .epub files (up to {{ $maxFiles }} at a time, {{ $maxMb }} MB each). Files from Calibre, publishers and most stores (without DRM) work. A file with wrong or missing details is fine: the owner matches it.</p>
                     </div>
                     <div class="field field-full">
                         <label for="note" class="form-label">Note for the owner</label>
@@ -53,12 +49,26 @@
             </div>
             <div class="novel-form-section novel-form-actions">
                 <button type="submit" class="btn btn-primary" data-busy-label="Uploading…">Send to the owner</button>
+                <span class="form-text" id="epubCount" aria-live="polite"></span>
             </div>
         </div>
     </form>
 </div>
 
 <script>
+    // How many files are chosen, on the button's side.
+    // and whether they fit in one upload (the web server's limit for one request).
+    const maxBatch = {{ (int) config('novarr.books.max_batch_mb', 48) }} * 1024 * 1024;
+    document.getElementById('epub')?.addEventListener('change', (event) => {
+        const files = [...event.currentTarget.files];
+        const total = files.reduce((sum, f) => sum + f.size, 0);
+        const button = event.currentTarget.form.querySelector('[type=submit]');
+        const tooBig = total > maxBatch;
+        button.disabled = tooBig;
+        document.getElementById('epubCount').textContent = tooBig
+            ? `These ${files.length} files are ${(total / 1048576).toFixed(0)} MB together: send them in smaller batches (up to ${maxBatch / 1048576} MB at a time).`
+            : (files.length > 1 ? `${files.length} books chosen` : '');
+    });
     // A large file takes a while: say so, and stop a second submit.
     document.querySelector('.book-upload-form')?.addEventListener('submit', (event) => {
         const button = event.currentTarget.querySelector('[data-busy-label]');

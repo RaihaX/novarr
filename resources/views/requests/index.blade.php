@@ -31,6 +31,32 @@
     </div>
 </div>
 
+{{-- C. Requests to review (the admin at home): first, so deciding needs no scrolling. --}}
+@if($ownerAway)
+<section class="req-section" aria-labelledby="reqAwayTitle" id="reqAway">
+    <div class="req-section-head">
+        <h2 class="req-section-title" id="reqAwayTitle">Requests to review</h2>
+    </div>
+    <div class="alert alert-secondary req-away" role="note">
+        Approving and declining requests is only available on your home network (or over Tailscale), like every admin feature. Open Novarr there to review them.
+    </div>
+</section>
+@endif
+<section class="req-section" aria-labelledby="reqReviewTitle" id="reqReview" hidden>
+    <div class="req-section-head">
+        <h2 class="req-section-title" id="reqReviewTitle">Requests to review</h2>
+        <div class="btn-group segmented" role="group" aria-label="Show" id="reqReviewTabs">
+            <button type="button" class="btn btn-secondary active" data-review-tab="pending" aria-pressed="true">To review <span class="req-tab-count" id="reqReviewCount"></span></button>
+            <button type="button" class="btn btn-secondary" data-review-tab="decided" aria-pressed="false">Decided</button>
+        </div>
+    </div>
+    <p id="reqReviewStatus" class="library-status req-status" role="status" aria-live="polite"></p>
+    <ul id="reqReviewList" class="req-list" role="list" aria-labelledby="reqReviewTitle"></ul>
+    <div class="req-more" hidden id="reqReviewMoreWrap">
+        <button type="button" class="btn btn-secondary" id="reqReviewMore">Load more</button>
+    </div>
+</section>
+
 {{-- A. Find something to request --}}
 <section class="req-section" aria-labelledby="reqFindTitle">
     <div class="req-section-head">
@@ -95,32 +121,6 @@
     <ul id="reqMine" class="req-list" role="list" aria-labelledby="reqMineTitle"></ul>
     <div class="req-more" hidden id="reqMineMoreWrap">
         <button type="button" class="btn btn-secondary" id="reqMineMore">Load more</button>
-    </div>
-</section>
-
-{{-- C. Requests to review (the admin at home) --}}
-@if($ownerAway)
-<section class="req-section" aria-labelledby="reqAwayTitle" id="reqAway">
-    <div class="req-section-head">
-        <h2 class="req-section-title" id="reqAwayTitle">Requests to review</h2>
-    </div>
-    <div class="alert alert-secondary req-away" role="note">
-        Approving and declining requests is only available on your home network (or over Tailscale), like every admin feature. Open Novarr there to review them.
-    </div>
-</section>
-@endif
-<section class="req-section" aria-labelledby="reqReviewTitle" id="reqReview" hidden>
-    <div class="req-section-head">
-        <h2 class="req-section-title" id="reqReviewTitle">Requests to review</h2>
-        <div class="btn-group segmented" role="group" aria-label="Show" id="reqReviewTabs">
-            <button type="button" class="btn btn-secondary active" data-review-tab="pending" aria-pressed="true">To review <span class="req-tab-count" id="reqReviewCount"></span></button>
-            <button type="button" class="btn btn-secondary" data-review-tab="decided" aria-pressed="false">Decided</button>
-        </div>
-    </div>
-    <p id="reqReviewStatus" class="library-status req-status" role="status" aria-live="polite"></p>
-    <ul id="reqReviewList" class="req-list" role="list" aria-labelledby="reqReviewTitle"></ul>
-    <div class="req-more" hidden id="reqReviewMoreWrap">
-        <button type="button" class="btn btn-secondary" id="reqReviewMore">Load more</button>
     </div>
 </section>
 

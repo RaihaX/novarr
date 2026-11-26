@@ -64,9 +64,16 @@ class Requests
     ) {
     }
 
+    /** A reader's pending title requests (series to find on a source). */
     public static function maxPending(): int
     {
         return max(1, (int) config('novarr.requests.max_pending_per_reader', 5));
+    }
+
+    /** A reader's uploaded books waiting for the owner (their own limit: a whole shelf can arrive at once). */
+    public static function maxPendingUploads(): int
+    {
+        return max(1, (int) config('novarr.books.max_pending_uploads', 50));
     }
 
     /**
@@ -236,8 +243,8 @@ class Requests
         try {
             $request = Cache::lock(self::CREATE_LOCK, 10)->block(5, function () use ($user, $fields, $title, $normalized, $note) {
                 if (!$user->isAdmin()
-                    && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)->count() >= static::maxPending()) {
-                    throw new RequestRefused(429, 'You have ' . static::maxPending() . ' requests waiting already. Wait for the owner to decide on one, or cancel one.', 'pending_limit', ['limit' => static::maxPending()]);
+                    && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)->where('medium', Novel::MEDIUM_BOOK)->count() >= static::maxPendingUploads()) {
+                    throw new RequestRefused(429, 'You have ' . static::maxPendingUploads() . ' books waiting for the owner already. Wait for some to be added, or cancel one.', 'pending_limit', ['limit' => static::maxPendingUploads()]);
                 }
 
                 return NovelRequest::create([
@@ -315,7 +322,7 @@ class Requests
                 }
 
                 if (!$user->isAdmin()
-                    && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)->count() >= static::maxPending()) {
+                    && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)->where('medium', '!=', Novel::MEDIUM_BOOK)->count() >= static::maxPending()) {
                     throw new RequestRefused(429, 'You have ' . static::maxPending() . ' requests waiting already. Wait for the owner to decide on one, or cancel one.', 'pending_limit', ['limit' => static::maxPending()]);
                 }
 

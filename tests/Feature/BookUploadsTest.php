@@ -141,7 +141,7 @@ class BookUploadsTest extends TestCase
         $this->asSignedIn($this->reader)->get("/books/review/{$request->id}")->assertForbidden();
         $this->asSignedIn($this->owner)->get("/books/review/{$request->id}")
             ->assertOk()
-            ->assertSee('Match this book')
+            ->assertSee('Which book is it?')
             ->assertSee('The Real Title')
             ->assertSee('It is The Real Title');
     }
@@ -170,7 +170,8 @@ class BookUploadsTest extends TestCase
         ]);
 
         $book = Novel::books()->sole();
-        $response->assertRedirect("/novels/{$book->id}");
+        // Nothing else waiting: back to the Requests page, with a link to the book.
+        $response->assertRedirect('/requests')->assertSessionHas('success_link', route('novels.show', $book->id));
         $this->assertSame('The Real Title', $book->name);
         $this->assertSame('Real Author', $book->author);
         $this->assertSame('The catalogue description.', $book->description);
@@ -240,6 +241,59 @@ class BookUploadsTest extends TestCase
 
         $listed = collect($this->asToken($token)->getJson('/api/v1/requests?scope=all')->json('requests'))->firstWhere('id', $request->id);
         $this->assertStringEndsWith("/books/review/{$request->id}", (string) ($listed['review_url'] ?? ''));
+    }
+
+    public function test_several_files_at_once_each_become_a_request_and_a_bad_one_is_reported(): void
+    {
+        $response = $this->asSignedIn($this->reader)->post('/books/upload', [
+            'epub' => [
+                new UploadedFile(EpubBuilder::epub3(), 'one.epub', 'application/epub+zip', null, true),
+                new UploadedFile(EpubBuilder::notAnEpub(), 'broken.epub', 'application/epub+zip', null, true),
+                new UploadedFile(EpubBuilder::epub2(), 'two.epub', 'application/epub+zip', null, true),
+            ],
+        ]);
+
+        $response->assertRedirect('/books/upload')->assertSessionHas('success')->assertSessionHasErrors('epub');
+        $this->assertStringContainsString('broken.epub', session('errors')->first('epub'));
+        $this->assertSame(2, NovelRequest::where('medium', Novel::MEDIUM_BOOK)->count());
+        Mail::assertSent(RequestCreated::class, 2);
+    }
+
+    public function test_uploads_have_their_own_limit_and_do_not_use_up_title_requests(): void
+    {
+        config(['novarr.books.max_pending_uploads' => 2, 'novarr.requests.max_pending_per_reader' => 1]);
+        $this->asSignedIn($this->reader);
+
+        $this->upload($this->reader, EpubBuilder::epub3())->assertSessionHasNoErrors();
+        $this->upload($this->reader, EpubBuilder::epub2())->assertSessionHasNoErrors();
+        $this->upload($this->reader, EpubBuilder::singleFile())->assertSessionHasErrors('epub');
+        $this->assertStringContainsString('2 books waiting', session('errors')->first('epub'));
+
+        // Two uploads waiting, yet the one title request is still free.
+        $this->asToken($this->tokenFor($this->reader))->postJson('/api/v1/requests', ['title' => 'Some Novel', 'medium' => 'novel'])->assertStatus(201);
+    }
+
+    public function test_after_a_decision_the_next_waiting_book_opens(): void
+    {
+        $this->upload($this->reader, EpubBuilder::epub3())->assertSessionHasNoErrors();
+        $this->upload($this->reader, EpubBuilder::epub2())->assertSessionHasNoErrors();
+        [$first, $second] = NovelRequest::where('medium', Novel::MEDIUM_BOOK)->orderBy('id')->get()->all();
+
+        $this->asSignedIn($this->owner)->post("/books/review/{$first->id}/decline", ['reason' => 'No'])
+            ->assertRedirect("/books/review/{$second->id}")
+            ->assertSessionHas('queue_left', 1);
+    }
+
+    public function test_the_review_page_puts_the_decision_beside_the_matches(): void
+    {
+        $request = $this->readerUpload();
+
+        $html = $this->asSignedIn($this->owner)->get("/books/review/{$request->id}")->assertOk()->getContent();
+
+        $this->assertStringContainsString('book-review-decide', $html);
+        $this->assertStringContainsString('data-match-details', $html);
+        // The decision panel comes after the file strip and is a sibling of the matches.
+        $this->assertLessThan(strpos($html, 'book-review-decide'), strpos($html, 'Which book is it?'));
     }
 
     public function test_the_owners_own_upload_goes_straight_to_the_review(): void
