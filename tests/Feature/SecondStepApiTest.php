@@ -152,7 +152,7 @@ class SecondStepApiTest extends TestCase
         $token = $done->json('token');
         $this->assertMatchesRegularExpression('/^nvr_[A-Za-z0-9]{60}$/', $token);
         $sam = \App\User::findByUsername('sam');
-        $this->assertSame('{"token":"' . $token . '","user":{"id":' . $sam->id . ',"name":"Sam","username":"sam","role":"reader"}}', $done->getContent());
+        $this->assertSame('{"token":"' . $token . '","user":{"id":' . $sam->id . ',"name":"Sam","username":"sam","role":"reader","email":' . json_encode($sam->email) . '}}', $done->getContent());
 
         // The token is the device's (name and id from the password request).
         $issued = ApiToken::sole();

@@ -30,7 +30,7 @@ class ApiAuthTest extends TestCase
 
         $response->assertExactJson([
             'token' => $response->json('token'),
-            'user' => ['id' => $reader->id, 'name' => 'Sam', 'username' => 'sam', 'role' => 'reader'],
+            'user' => ['id' => $reader->id, 'name' => 'Sam', 'username' => 'sam', 'role' => 'reader', 'email' => null],
         ]);
         $plain = $response->json('token');
         $this->assertIsString($plain);
@@ -42,7 +42,7 @@ class ApiAuthTest extends TestCase
         $this->assertSame('ios-abc', $stored->device_id);
 
         $this->asToken($plain)->getJson('/api/v1/auth/me')->assertOk()
-            ->assertExactJson(['user' => ['id' => $reader->id, 'name' => 'Sam', 'username' => 'sam', 'role' => 'reader']]);
+            ->assertExactJson(['user' => ['id' => $reader->id, 'name' => 'Sam', 'username' => 'sam', 'role' => 'reader', 'email' => null]]);
         $this->assertNotNull($stored->fresh()->last_used_at);
     }
 
@@ -148,7 +148,7 @@ class ApiAuthTest extends TestCase
 
         $linked = $this->asNobody()->getJson("/api/v1/auth/pairings/{$secret}")->assertOk();
         $linked->assertJsonPath('status', 'linked')
-            ->assertJsonPath('user', ['id' => $reader->id, 'name' => 'Sam', 'username' => 'sam', 'role' => 'reader']);
+            ->assertJsonPath('user', ['id' => $reader->id, 'name' => 'Sam', 'username' => 'sam', 'role' => 'reader', 'email' => null]);
         $token = $linked->json('token');
         $this->asToken($token)->getJson('/api/v1/auth/me')->assertOk()->assertJsonPath('user.id', $reader->id);
         $this->assertSame('kindle-1', ApiToken::where('name', 'Kindle')->value('device_id'));

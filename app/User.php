@@ -267,6 +267,9 @@ class User extends Authenticatable
             'name' => (string) $this->name,
             'username' => (string) $this->username,
             'role' => $this->isAdmin() ? self::ROLE_ADMIN : self::ROLE_READER,
+            // Only ever returned to the account itself (sign-in, pairing, /auth/me):
+            // the app's "email ePubs from {this address}" hint.
+            'email' => filter_var(trim((string) $this->email), FILTER_VALIDATE_EMAIL) ? trim((string) $this->email) : null,
         ];
     }
 

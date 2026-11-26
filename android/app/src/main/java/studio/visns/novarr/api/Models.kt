@@ -48,6 +48,9 @@ data class ServerMeta(
     val lists: Boolean = false,
     /** The server knows books (medium "book"); absent on older servers. Informational: the app shows books whenever the library has some. */
     val books: Boolean = false,
+    /** ePubs sent from the app (`POST /books/uploads`): the server's limits and its mail-in address; absent on older servers. */
+    @Serializable(with = BookUploadsMetaOrNull::class)
+    @SerialName("book_uploads") val bookUploads: BookUploadsMeta? = null,
 ) {
     /** Only an explicit `auth.required: true` turns sign-in on. */
     val requiresSignIn: Boolean get() = auth?.required == true
@@ -83,6 +86,8 @@ data class AuthUser(
     val name: String = "",
     val username: String = "",
     val role: String = "",
+    /** Only when the server sends it (newer servers); used for the "email ePubs from ..." hint. */
+    val email: String? = null,
 ) {
     val displayName: String get() = name.ifBlank { username }
 
@@ -437,6 +442,7 @@ object HomeStatsOrNull : OrNullSerializer<HomeStats>(HomeStats.serializer())
 object SourceUnavailableOrNull : OrNullSerializer<SourceUnavailable>(SourceUnavailable.serializer())
 object ReadingPositionOrNull : OrNullSerializer<ReadingPosition>(ReadingPosition.serializer())
 object StringOrNull : OrNullSerializer<String>(String.serializer())
+object BookUploadsMetaOrNull : OrNullSerializer<BookUploadsMeta>(BookUploadsMeta.serializer())
 
 /** Reads and writes NovelDetail as one flat object, exactly as the server sends it. */
 object NovelDetailSerializer : KSerializer<NovelDetail> {

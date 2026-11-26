@@ -18,11 +18,18 @@ import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okio.BufferedSink
+import okio.ForwardingSink
+import okio.buffer
+import okio.source
 import studio.visns.novarr.store.WriteKind
 
 /**
@@ -264,6 +271,45 @@ class ApiClient(
         return decode(ListEnvelope.serializer(), execute(prepare(method, "lists/$listId/novels/$novelId", body = if (add) JsonObject(emptyMap()) else null))).list
     }
 
+    // Books sent from the app ("Share to Novarr")
+
+    /** One ePub to send: [open] is called each time OkHttp writes the part (again on a retried connection). */
+    class UploadFile(val name: String, /** Bytes, or -1 when unknown (then the body is sent chunked). */ val size: Long, val open: () -> java.io.InputStream)
+
+    /**
+     * Sends ePubs to the owner's approval queue: one multipart part `epub[]`
+     * per file, streamed from [UploadFile.open] (never held in memory), and an
+     * optional [note]. 201, or 422 with `sent`/`refused` when none were taken,
+     * both answer a [BookUploadResponse]; anything else (a validation 422
+     * without `sent`, 404 `requests_disabled`, 404 from a server without the
+     * route, 401, 413) throws ApiError.Http — domain/BookUploads explains it.
+     * [onProgress] gets (bytes written, total or -1) on OkHttp's thread.
+     */
+    suspend fun uploadBooks(files: List<UploadFile>, note: String?, onProgress: ((Long, Long) -> Unit)? = null): BookUploadResponse {
+        val multipart = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
+            files.forEach { addFormDataPart("epub[]", it.name, StreamedBody(EPUB, it.size, it.open)) }
+            note?.takeIf { it.isNotBlank() }?.let { addFormDataPart("note", it) }
+        }.build()
+        val body = if (onProgress != null) CountingBody(multipart, onProgress) else multipart
+        // No overall call timeout: up to 20 x 50 MB over a phone connection.
+        // Writes and the server's answer (it reads every ePub) each get their own.
+        val prepared = prepare("POST", "books/uploads", rawBody = body, timeout = 0)
+        val answer = try {
+            execute(prepared, via = uploadHttp)
+        } catch (e: ApiError.Http) {
+            // None were taken: still the per-file answer. A validation 422 has no `sent`.
+            if (e.status == 422 && e.body?.containsKey("sent") == true) {
+                return NovarrJson.decodeFromJsonElement(BookUploadResponse.serializer(), e.body)
+            }
+            throw e
+        }
+        return decode(BookUploadResponse.serializer(), answer)
+    }
+
+    private val uploadHttp: OkHttpClient by lazy {
+        http.newBuilder().writeTimeout(2, TimeUnit.MINUTES).readTimeout(5, TimeUnit.MINUTES).build()
+    }
+
     // Accounts
 
     /**
@@ -375,6 +421,8 @@ class ApiClient(
         fresh: Boolean = false,
         authenticated: Boolean = true,
         headers: Map<String, String> = emptyMap(),
+        /** A body that is not JSON (multipart); wins over [body]. */
+        rawBody: RequestBody? = null,
     ): Prepared {
         val builder = Request.Builder()
             .url(url(path, query))
@@ -382,7 +430,7 @@ class ApiClient(
         headers.forEach { (k, v) -> builder.header(k, v) }
         if (authenticated && token != null) builder.header(AUTHORIZATION, "Bearer $token")
         if (fresh) builder.cacheControl(CacheControl.FORCE_NETWORK)
-        val requestBody = body?.toString()?.toRequestBody(JSON)
+        val requestBody = rawBody ?: body?.toString()?.toRequestBody(JSON)
         builder.method(method, requestBody ?: if (method == "GET") null else ByteArray(0).toRequestBody(null))
         return Prepared(builder.build(), timeout)
     }
@@ -410,9 +458,9 @@ class ApiClient(
     }
 
     /** Runs the request; returns the body of a 2xx, throws ApiError otherwise. */
-    suspend fun execute(prepared: Prepared, reportUnauthorized: Boolean = true): String {
+    suspend fun execute(prepared: Prepared, reportUnauthorized: Boolean = true, via: OkHttpClient = http): String {
         val (status, body, retryAfter) = try {
-            http.newCall(prepared.request).apply { timeout().timeout(prepared.timeoutSeconds, TimeUnit.SECONDS) }.await()
+            via.newCall(prepared.request).apply { timeout().timeout(prepared.timeoutSeconds, TimeUnit.SECONDS) }.await()
         } catch (e: IOException) {
             throw ApiError.from(e)
         }
@@ -435,6 +483,7 @@ class ApiClient(
         const val AUTHORIZATION = "Authorization"
         const val DEFAULT_TIMEOUT = 20L
         private val JSON = "application/json".toMediaType()
+        val EPUB = "application/epub+zip".toMediaType()
 
         /**
          * RFC 3986 unreserved characters only, so a server value can be put
@@ -470,6 +519,38 @@ class ApiClient(
 
         private fun JsonElement?.stringOrNull(): String? =
             (this as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content?.takeIf { it.isNotBlank() }
+    }
+}
+
+/** A file part copied straight from its stream into the request: never read into memory. */
+private class StreamedBody(
+    private val type: MediaType,
+    private val size: Long,
+    private val open: () -> java.io.InputStream,
+) : RequestBody() {
+    override fun contentType(): MediaType = type
+    override fun contentLength(): Long = size
+    override fun writeTo(sink: BufferedSink) {
+        open().source().use { sink.writeAll(it) }
+    }
+}
+
+/** Reports how much of [delegate] has been written; starts over when OkHttp writes it again. */
+private class CountingBody(private val delegate: RequestBody, private val onProgress: (Long, Long) -> Unit) : RequestBody() {
+    override fun contentType(): MediaType? = delegate.contentType()
+    override fun contentLength(): Long = delegate.contentLength()
+    override fun writeTo(sink: BufferedSink) {
+        val total = contentLength()
+        var written = 0L
+        val counting = object : ForwardingSink(sink) {
+            override fun write(source: okio.Buffer, byteCount: Long) {
+                super.write(source, byteCount)
+                written += byteCount
+                onProgress(written, total)
+            }
+        }.buffer()
+        delegate.writeTo(counting)
+        counting.flush()
     }
 }
 

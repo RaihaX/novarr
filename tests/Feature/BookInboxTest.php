@@ -241,6 +241,12 @@ class BookInboxTest extends TestCase
         $this->getJson('/api/v1/meta')->assertJsonPath('book_uploads.email', null);
     }
 
+    public function test_auth_me_gives_the_account_its_own_email(): void
+    {
+        $this->asToken($this->tokenFor($this->reader))->getJson('/api/v1/auth/me')
+            ->assertOk()->assertJsonPath('user.email', 'Sam@Example.test');
+    }
+
     public function test_the_upload_page_shows_the_email_address_and_the_readers_own_address(): void
     {
         $this->asSignedIn($this->reader)->get('/books/upload')
