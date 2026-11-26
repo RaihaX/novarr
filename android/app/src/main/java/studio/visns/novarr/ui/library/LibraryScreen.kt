@@ -114,7 +114,8 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
     var refreshing by mutableStateOf(false)
         private set
     var search by mutableStateOf("")
-    var shelf by mutableStateOf(Shelf.NOVELS)
+    /** The chosen shelf, remembered; see [shelf] for the one in effect. */
+    var shelfChoice by mutableStateOf(Shelf.NOVELS)
         private set
     var filter by mutableStateOf(Filter.ALL)
         private set
@@ -133,7 +134,7 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
 
     init {
         viewModelScope.launch {
-            app.prefs.string("library.shelf")?.let { v -> Shelf.entries.firstOrNull { it.name == v } }?.let { shelf = it }
+            app.prefs.string("library.shelf")?.let { v -> Shelf.entries.firstOrNull { it.name == v } }?.let { shelfChoice = it }
             app.prefs.string("library.filter")?.let { v -> Filter.entries.firstOrNull { it.name == v } }?.let { filter = it }
             app.prefs.string("library.sort")?.let { v -> Sort.entries.firstOrNull { it.name == v } }?.let { sort = it }
             app.prefs.string("library.list")?.toIntOrNull()?.let { listId = it }
@@ -141,18 +142,26 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
         }
     }
 
-    fun select(value: Shelf) { shelf = value; save("library.shelf", value.name) }
+    fun select(value: Shelf) { shelfChoice = value; save("library.shelf", value.name) }
     fun select(value: Filter) { filter = value; save("library.filter", value.name) }
     fun select(value: Sort) { sort = value; save("library.sort", value.name) }
     fun select(value: Origin.Filter) { originChoice = value; save("library.origin", value.name) }
     fun select(value: ReadingList?) { listId = value?.id; save("library.list", value?.id?.toString().orEmpty()) }
     private fun save(key: String, value: String) = viewModelScope.launch { app.prefs.setString(key, value) }
 
+    /** Books appears only when the library has a book. */
+    val shelves: List<Shelf> get() = LibraryFilter.shelves(novels)
+
+    /** The shelf shown: a remembered Books shelf with no books left falls back to Novels (the choice is kept). */
+    val shelf: Shelf get() = LibraryFilter.effectiveShelf(shelfChoice, novels)
     val onShelf: List<NovelSummary> get() = LibraryFilter.shelf(novels, shelf)
 
-    /** Offered only when some series in the loaded library has an origin (an older server sends none). */
-    val originOffered: Boolean get() = Origin.offered(novels)
-    val origin: Origin.Filter get() = Origin.effective(originChoice, novels)
+    /**
+     * Offered only when some series in the loaded library has an origin (an
+     * older server sends none), and never on Books (books have no origin).
+     */
+    val originOffered: Boolean get() = shelf != Shelf.BOOKS && Origin.offered(novels)
+    val origin: Origin.Filter get() = if (originOffered) Origin.effective(originChoice, novels) else Origin.Filter.ALL
     fun visible(list: ReadingList?): List<NovelSummary> = LibraryFilter.apply(onShelf, filter, sort, search, list, origin)
     fun count(filter: Filter, list: ReadingList?) = LibraryFilter.count(onShelf, list, filter, origin)
     fun count(origin: Origin.Filter, list: ReadingList?) = LibraryFilter.count(onShelf, list, filter, origin)
@@ -232,8 +241,9 @@ fun LibraryScreen(nav: NavController) {
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            PrimaryTabRow(selectedTabIndex = model.shelf.ordinal) {
-                Shelf.entries.forEach { shelf ->
+            val shelves = model.shelves
+            PrimaryTabRow(selectedTabIndex = shelves.indexOf(model.shelf).coerceAtLeast(0)) {
+                shelves.forEach { shelf ->
                     Tab(
                         selected = model.shelf == shelf,
                         onClick = { model.select(shelf) },
@@ -366,18 +376,24 @@ private fun LibraryEmpty(model: LibraryViewModel, list: ReadingList?) {
             Icons.AutoMirrored.Outlined.List,
         )
         list != null && listReason is ReadingLists.Empty.OtherShelf -> EmptyState(
-            if (model.shelf == Shelf.MANGA) "No manga in “${list.name}”" else "No novels in “${list.name}”",
-            "Its ${seriesCount(listReason.count)} ${if (listReason.count == 1) "is" else "are"} on the ${if (model.shelf == Shelf.MANGA) "Novels" else "Manga"} tab.",
+            "No ${model.shelf.noun} in “${list.name}”",
+            "Its ${seriesCount(listReason.count)} ${if (listReason.count == 1) "is" else "are"} on ${otherShelves(model, list)}.",
             Icons.AutoMirrored.Outlined.List,
         )
         model.onShelf.isEmpty() -> EmptyState(
-            if (model.shelf == Shelf.MANGA) "No manga yet" else "No novels yet",
+            "No ${model.shelf.noun} yet",
             "Add series on your Novarr server and they'll show up here.",
             Icons.Outlined.CollectionsBookmark,
         )
         list != null -> EmptyState("Nothing here", "Nothing in “${list.name}” matches “${filters(model)}”.", Icons.Outlined.FilterList)
         else -> EmptyState("Nothing here", "Nothing matches “${filters(model)}”.", Icons.Outlined.FilterList)
     }
+}
+
+/** "the Manga tab", or "the Manga and Books tabs": the other shelves holding [list]'s series. */
+private fun otherShelves(model: LibraryViewModel, list: ReadingList): String {
+    val others = model.shelves.filter { it != model.shelf && model.count(it, list) > 0 }.map { it.title }.ifEmpty { listOf("other") }
+    return if (others.size == 1) "the ${others[0]} tab" else "the ${others.dropLast(1).joinToString(", ")} and ${others.last()} tabs"
 }
 
 /** "Reading", "Korean", or "Reading · Korean": the filters in effect, for the empty state. */

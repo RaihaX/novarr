@@ -1603,9 +1603,11 @@ function Reading.showMissing(plugin, missing, next_id, next_downloaded, next_lab
     if not r then return end
     local novel_id = r.novel_id
     logger.info("Novarr: chapter", missing.id, "after chapter", r.chapter_id, "is not on the server yet: asking")
-    local buttons = {
-        { text = _("Check for new chapters"), callback = function() Reading.checkNew(plugin) end },
-    }
+    local buttons = {}
+    -- A book (1.12.0) never gets new chapters: no check.
+    if not Session:isBook(novel_id) then
+        table.insert(buttons, { text = _("Check for new chapters"), callback = function() Reading.checkNew(plugin) end })
+    end
     if next_id then
         table.insert(buttons, { text = T(_("Skip to %1"), next_label or _("the next chapter")), callback = function()
             local rr = plugin.reading

@@ -99,24 +99,28 @@ function CaughtUp:build()
     local cover_h = math.floor(math.min(dpi * 2.2, self.dimen.h * 0.4))
     local cover_w = math.floor(cover_h * 2 / 3)
     local has_next = info.has_next and info.has_next() or false
+    -- A book (1.12.0) is complete: finished, nothing to check for.
+    local book = s:isBook(info.novel_id)
 
     local group = VerticalGroup:new{ align = "center" }
     table.insert(group, self:coverFrame(novel, cover_w, cover_h))
     table.insert(group, VerticalSpan:new{ width = pad * 2 })
     table.insert(group, TextWidget:new{
-        text = has_next and _("New chapters are here") or _("You're up to date"),
+        text = has_next and _("New chapters are here") or (book and _("The end of the book") or _("You're up to date")),
         face = Font:getFace("tfont", 26), bold = true })
     table.insert(group, VerticalSpan:new{ width = pad })
 
     local lines = {}
     local cl = s:chapterList(info.novel_id)
     local n = cl and Model.ordinal(cl.list, info.chapter_id)
-    if n then
+    if n and book and not has_next then
+        table.insert(lines, T(_("You finished chapter %1, the last one."), ReadingInfo.thousands(n)))
+    elseif n then
         table.insert(lines, has_next and T(_("You finished chapter %1."), ReadingInfo.thousands(n))
             or T(_("Chapter %1 was the latest."), ReadingInfo.thousands(n)))
     end
     local t = Model.parseIso(novel.updated_at)
-    if t and not has_next then
+    if t and not has_next and not book then
         table.insert(lines, T(_("The server last got a new chapter on %1."), os.date("%d %b %Y", t)))
     end
     -- How the check goes ("Checking for new chapters…", "3 new chapters.", the server's reason).
@@ -152,7 +156,7 @@ function CaughtUp:build()
             if info.on_continue then info.on_continue() end
         end)
     end
-    if kind ~= "busy" and s:serverUrl() then
+    if kind ~= "busy" and s:serverUrl() and not book then
         button(_("Check for new chapters"), function()
             Checks.ask(info.novel_id)
         end)

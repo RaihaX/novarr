@@ -61,3 +61,12 @@ T.it("rows: the other buttons are always enabled", function()
         T.eq(byId(rows, id).enabled, true, id)
     end
 end)
+
+T.it("rows: a book has no check for new chapters and a Book page", function()
+    local rows = QM.rows({ book = true, can_check = true, has_prev = true, has_next = true })
+    T.eq(flat(rows), { "chapters|novel", "prev|next", "sync", "home|close" })
+    T.eq(byId(rows, "check"), nil)
+    T.eq(byId(rows, "novel").text, "Book page")
+    T.eq(byId(QM.rows({ can_check = true }), "novel").text, "Novel page")
+    T.eq(byId(QM.rows({ book = true, checking = true }), "check"), nil, "not even while one runs")
+end)

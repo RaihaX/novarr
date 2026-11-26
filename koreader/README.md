@@ -65,6 +65,13 @@ since 1.11.0; *sync now* works in the file browser too).
   and the new-chapters badge. Tap reads, hold opens the novel's page. Use
   **Search…** and **Show:** (All, Reading, Unread, New chapters, Completed,
   Downloaded on this device). Swipe left/right or use the arrows to turn pages.
+- **Books** (since 1.12.0, with a Novarr server that has books: ePubs uploaded or
+  imported from Calibre) read exactly like novels and are saved for offline the same
+  way. So that thousands of them don't bury your web novels, Home shows a book only
+  once you have started it; the others are behind the **Books** button on Home (shown
+  when your library has a book), which opens the Library on your books. In the
+  Library, the top row switches between *Novels* and *Books*. A book is complete, so
+  it has no *Check for new chapters* (on its page, in the quick menu or at its end).
 - **A novel** shows its cover, how many chapters are left and roughly how long
   they will take, your reading stats (below), and these actions: *Continue / Start
   reading*, *Chapters*, *Check for new chapters*, *Download for offline…*, *Remove

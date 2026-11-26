@@ -415,12 +415,36 @@ function Api:meta(opts)
     return data
 end
 
-function Api:home()
-    return self:request("home")
+--[[--
+Books (1.12.0): whether a server's meta says it has books (ePubs uploaded or
+imported from Calibre; they read like novels). Older servers lack the key
+and answer 422 to a medium they don't know.
+]]
+function Api.supportsBooks(meta)
+    return type(meta) == "table" and meta.books == true
 end
 
-function Api:novels(etag)
-    return self:request("novels", { etag = etag })
+--[[--
+The medium to ask GET novels / home for: "text" (web novels and books
+together, never manga) when the server has books, else nil (no parameter:
+the server's default, web novels only, exactly as before 1.12.0).
+]]
+function Api.textMedium(books)
+    return books and "text" or nil
+end
+
+--- "novels" or "novels?medium=text" (medium nil or "": no parameter).
+local function withMedium(path, medium)
+    local q = Api.query({ { "medium", medium } })
+    return q ~= "" and (path .. "?" .. q) or path
+end
+
+function Api:home(medium)
+    return self:request(withMedium("home", medium))
+end
+
+function Api:novels(etag, medium)
+    return self:request(withMedium("novels", medium), { etag = etag })
 end
 
 function Api:novel(id)

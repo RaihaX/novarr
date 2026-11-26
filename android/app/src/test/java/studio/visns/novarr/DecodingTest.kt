@@ -75,6 +75,35 @@ class DecodingTest {
         assertFalse(envelope.novels[1].isManga)
     }
 
+    @Test
+    fun bookSummaryDecodes() {
+        val envelope = NovarrJson.decodeFromString(
+            NovelsEnvelope.serializer(),
+            """{"novels":[
+                {"id":7,"name":"Dune","medium":"book","author":"Frank Herbert","origin_country":null,"chapters_total":"48"},
+                {"id":8,"medium":"BOOK"},
+                {"id":9,"medium":""},
+                {"id":10,"medium":"audiobook"}
+            ]}""",
+        )
+        val book = envelope.novels[0]
+        assertTrue(book.isBook)
+        assertFalse(book.isManga)
+        assertEquals("Frank Herbert", book.authorOrNull)
+        assertEquals(48, book.chaptersTotal)
+        assertTrue(envelope.novels[1].isBook)
+        // A blank or unknown medium is neither a book nor manga (it reads as a novel).
+        assertFalse(envelope.novels[2].isBook)
+        assertFalse(envelope.novels[3].isBook)
+        assertFalse(envelope.novels[3].isManga)
+    }
+
+    @Test
+    fun metaBooksFlag() {
+        assertTrue(NovarrJson.decodeFromString(ServerMeta.serializer(), """{"app":"novarr","api_version":1,"books":true}""").books)
+        assertFalse(NovarrJson.decodeFromString(ServerMeta.serializer(), """{"app":"novarr","api_version":1}""").books)
+    }
+
     @Test(expected = Exception::class)
     fun listEnvelopeWithoutItsKeyIsAnError() {
         NovarrJson.decodeFromString(NovelsEnvelope.serializer(), """{"message":"Server Error"}""")

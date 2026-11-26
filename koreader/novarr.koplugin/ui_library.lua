@@ -1,6 +1,10 @@
 --[[--
 Library: every novel in the API's order, with read/total and a marker for
 new chapters, plus search (name/author) and a filter.
+Books (1.12.0): the Library shows either the web novels or the books
+(self.medium "novel" | "book"); a "Novels / Books" row switches, shown only
+while the library holds at least one book (Home's Books button opens it on
+the books).
 ]]
 
 local UIManager = require("ui/uimanager")
@@ -24,7 +28,10 @@ local FILTER_NAMES = {
 }
 
 -- Remembered for the session (not persisted).
-local last_filter, last_query = "all", ""
+-- last_medium: also where leaving a book comes back to (main.lua).
+local last_filter, last_query, last_medium = "all", "", "novel"
+
+local MEDIUM_NAMES = { novel = _("Novels"), book = _("Books") }
 
 function Library:items()
     local s = self.session
@@ -34,6 +41,24 @@ function Library:items()
         table.insert(items, UI.offlineRow(fetched_at))
     end
     local covers = self.cover_list
+    local all = data and data.novels or {}
+    local has_books = Model.hasBooks(all)
+    -- No book in the library (or an older server): the novels, as before 1.12.0.
+    local medium = has_books and self.medium or "novel"
+    if has_books then
+        local other = medium == "book" and "novel" or "book"
+        table.insert(items, {
+            toolbar = covers or nil,
+            -- The cover toolbar's buttons share one line: the short form there.
+            text = covers and T(_("Switch to %1"), MEDIUM_NAMES[other])
+                or T(_("Showing: %1 (tap for %2)"), MEDIUM_NAMES[medium], MEDIUM_NAMES[other]),
+            callback = function()
+                self.medium = other
+                last_medium = other
+                self:rebuild()
+            end,
+        })
+    end
     table.insert(items, {
         text = self.query ~= "" and T(_("Search: %1"), self.query) or _("Search…"),
         toolbar = covers or nil,
@@ -55,7 +80,7 @@ function Library:items()
         text = T(_("Show: %1"), FILTER_NAMES[self.filter] or FILTER_NAMES.all),
         callback = function() self:askFilter() end,
     })
-    local novels = data and data.novels or {}
+    local novels = Model.byMedium(all, medium)
     local downloaded = {}
     for _i, id in ipairs(s.store:novelsWithDownloads()) do downloaded[id] = true end
     local shown = Model.filterNovels(novels, self.filter, self.query, downloaded)
@@ -84,7 +109,7 @@ function Library:items()
         if not data then
             text = _("The library hasn't been loaded yet.")
         else
-            text = _("No novels match.")
+            text = medium == "book" and _("No books match.") or _("No novels match.")
         end
         table.insert(items, { text = text, dim = true, callback = function() end })
     end
@@ -128,7 +153,7 @@ function Library:refresh()
     local s = self.session
     s:whenOnline(function()
         local closer = UI.loading(_("Loading…"))
-        local _data, e = s:fetchInto("novels", function(etag) return s.api:novels(etag) end, true)
+        local _data, e = s:fetchLibrary()
         closer()
         if e and e.kind ~= "offline" then UI.info(s:errorText(e)) end
         self:rebuild()
@@ -138,9 +163,14 @@ function Library:refresh()
     end)
 end
 
-function Library.show(session)
+--[[--
+Opens the Library. medium: "book" (Home's Books button), "novel" (Home's
+Library button) or nil (the last one shown in this session).
+]]
+function Library.show(session, medium)
+    if medium == "book" or medium == "novel" then last_medium = medium end
     local self = setmetatable({ session = session, kind = "library", filter = last_filter, query = last_query,
-        cover_list = session:showCovers() }, Library)
+        medium = last_medium, cover_list = session:showCovers() }, Library)
     self.menu = UI.showMenu(session, {
         title = _("Library"),
         cover_list = self.cover_list,

@@ -98,7 +98,7 @@ local function finished(novel_id)
         if Session:isConnected() then
             local _cl, e = Session:refreshChapterList(novel_id)
             if e then log("novel " .. novel_id .. ": chapter list not refreshed: " .. tostring(e.kind)) end
-            Session:fetchInto("novels", function(etag) return Session.api:novels(etag) end, true)
+            Session:fetchLibrary()
             Session:fetchInto("novel_" .. novel_id, function() return Session.api:novel(novel_id) end, false)
         end
         -- Reading this novel: the background run fetches the new chapters ahead.
@@ -214,11 +214,16 @@ end
 --[[--
 The user tapped "Check for new chapters": with the Wi-Fi prompt (or Novarr
 switching Wi-Fi back on) when not connected. on_started(st) runs after the
-first answer.
+first answer. A book (1.12.0) is complete: nothing is asked (the screens
+offer no check for one; this covers any other way in).
 ]]
 function Checks.ask(novel_id, on_started)
     local Session = S()
     local UI = require("novarr.ui_common")
+    if Session:isBook(novel_id) then
+        UI.info(_("This is a book: it is complete and never gets new chapters."))
+        return
+    end
     Session:whenConnected(function()
         local closer = UI.loading(_("Asking the server to check for new chapters…"))
         local st = Checks.start(novel_id)

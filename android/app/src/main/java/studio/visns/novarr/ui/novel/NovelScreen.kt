@@ -157,11 +157,14 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                                     scope.launch { if (eink) list.scrollToItem(headerItems(model) + index) else list.animateScrollToItem(headerItems(model) + index) }
                                 })
                             }
-                            DropdownMenuItem(
-                                text = { Text("Check for new chapters") },
-                                enabled = novelId !in running,
-                                onClick = { menu = false; app.startCheck(novelId) },
-                            )
+                            // A book is complete on arrival: nothing to check for.
+                            if (!model.isBook) {
+                                DropdownMenuItem(
+                                    text = { Text("Check for new chapters") },
+                                    enabled = novelId !in running,
+                                    onClick = { menu = false; app.startCheck(novelId) },
+                                )
+                            }
                             HorizontalDivider()
                             DropdownMenuItem(text = { Text("Mark all read") }, onClick = { menu = false; confirmBulk = BulkReadRequest.all(novelId, true) })
                             DropdownMenuItem(text = { Text("Mark all unread") }, onClick = { menu = false; confirmBulk = BulkReadRequest.all(novelId, false) })
@@ -193,7 +196,7 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                                 NovelHeader(summary, model.detail, wide)
                                 ProgressBlock(summary)
                                 PrimaryButton(summary, model.resumeChapterId, model.hasStarted) { id -> open(id) }
-                                CheckForChaptersControl(novelId)
+                                if (!summary.isBook) CheckForChaptersControl(novelId)
                                 DownloadBlock(model, reachable, onDownload = { model.download(it) }, onRemove = { confirmRemove = true })
                                 model.detail?.extras?.sourceUnavailable?.takeIf { it.count > 0 }?.let { unavailable ->
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -344,7 +347,8 @@ private fun NovelHeader(summary: NovelSummary, detail: NovelDetail?, wide: Boole
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     StateBadge(summary.state, summary.stateLabel)
                     OriginBadge(summary, Modifier.align(Alignment.CenterVertically))
-                    summary.origin?.let {
+                    // Books carry no origin (no source or translation info).
+                    summary.origin?.takeUnless { summary.isBook }?.let {
                         Text(
                             it,
                             style = MaterialTheme.typography.labelSmall,
@@ -354,8 +358,8 @@ private fun NovelHeader(summary: NovelSummary, detail: NovelDetail?, wide: Boole
                         )
                     }
                 }
-                if (summary.isManga) {
-                    Text("Manga", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (summary.isManga || summary.isBook) {
+                    Text(if (summary.isBook) "Book" else "Manga", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

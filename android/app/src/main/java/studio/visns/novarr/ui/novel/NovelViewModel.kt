@@ -57,6 +57,7 @@ class NovelViewModel(private val app: AppModel, val novelId: Int) : ViewModel() 
 
     val summary: NovelSummary? get() = detail?.summary
     val isManga: Boolean get() = summary?.isManga == true
+    val isBook: Boolean get() = summary?.isBook == true
 
     val visibleChapters: List<ChapterListItem>
         get() {

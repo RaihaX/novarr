@@ -64,6 +64,54 @@ function Model.filterNovels(novels, filter, query, downloaded_set)
     return out
 end
 
+-- ---------------------------------------------------------------- books
+
+--[[--
+Books (1.12.0): a server with books lists them with the web novels
+(GET novels?medium=text), each summary carrying medium = "novel" | "book".
+A book reads like a novel but is complete: it never gets new chapters.
+Summaries without a medium (older servers) are novels.
+]]
+function Model.isBook(novel)
+    return type(novel) == "table" and novel.medium == "book"
+end
+
+--- Whether the library holds at least one book.
+function Model.hasBooks(novels)
+    for _i, n in ipairs(novels or {}) do
+        if Model.isBook(n) then return true end
+    end
+    return false
+end
+
+--- The library's books ("book") or everything else ("novel", the default), in the API's order.
+function Model.byMedium(novels, medium)
+    local want_book = medium == "book"
+    local out = {}
+    for _i, n in ipairs(novels or {}) do
+        if type(n) == "table" and Model.isBook(n) == want_book then table.insert(out, n) end
+    end
+    return out
+end
+
+--[[--
+What Home's shelf is built from: every novel, and the books being read
+(some chapter read, or read on this device: last_local[id]) - so thousands
+of unopened books never bury the web novels; they are in Library > Books.
+]]
+function Model.homeNovels(novels, last_local)
+    last_local = last_local or {}
+    local out = {}
+    for _i, n in ipairs(novels or {}) do
+        if type(n) == "table" and n.id then
+            if not Model.isBook(n) or (tonumber(n.chapters_read) or 0) > 0 or last_local[n.id] ~= nil then
+                table.insert(out, n)
+            end
+        end
+    end
+    return out
+end
+
 -- ---------------------------------------------------------------- chapters
 
 --- 1-based position of a chapter id in a chapter list, or nil.

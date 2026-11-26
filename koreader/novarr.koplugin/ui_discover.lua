@@ -424,7 +424,7 @@ function Screen:add(it, force)
         if novel_id then
             Discover.markInLibrary(self.view, it.url, novel_id)
             -- Home and Library show it from now on.
-            s:fetchInto("novels", function(etag) return s.api:novels(etag) end, true)
+            s:fetchLibrary()
         end
         if kind == "added" and novel_id then
             -- Its chapter list is fetched by a check on the server.

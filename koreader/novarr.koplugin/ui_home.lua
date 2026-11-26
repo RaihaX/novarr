@@ -2,7 +2,9 @@
 Novarr Home: a Kindle-like shelf (see ui_shelf.lua). The novel being read
 as a large "hero" block, then a grid of covers (other novels in progress,
 most recent first; novels with new chapters; the rest of the library), and
-a row of buttons: Library · Discover · Downloads · Sync · Settings.
+a row of buttons: Library · Books · Discover · Downloads · Sync · Settings.
+Books (1.12.0) are on the shelf only once started; the Books button (shown
+when the library holds a book) opens the Library on them.
 
 One tap on a novel opens its resume chapter straight away; hold opens the
 Novel screen. Everything shown prefers this device's own reading (marks
@@ -92,9 +94,11 @@ function Home:items()
         table.insert(items, { kind = "note", text = _("Offline — showing saved data from") .. " " .. UI.timeText(fetched_at),
             select_enabled = false, callback = function() end })
     end
-    local novels = data and data.novels or {}
+    local all = data and data.novels or {}
     local last_local = {}
-    for _i, n in ipairs(novels) do last_local[n.id] = s:localLastRead(n.id) end
+    for _i, n in ipairs(all) do last_local[n.id] = s:localLastRead(n.id) end
+    -- Books being read are on the shelf; the others are in Library > Books.
+    local novels = Model.homeNovels(all, last_local)
     local hero, started, rest = Model.shelfOrder(novels, last_local)
     self.hero_id = hero and hero.id
     if hero then
@@ -110,9 +114,11 @@ function Home:items()
         table.insert(items, { kind = "button", text = text, callback = cb })
     end
     -- Which buttons: auth.lua (readers get no Discover; Link instead of Sync while not linked).
-    for _i, id in ipairs(require("novarr.auth").homeButtons(s:role(), needs_link)) do
+    for _i, id in ipairs(require("novarr.auth").homeButtons(s:role(), needs_link, Model.hasBooks(all))) do
         if id == "library" then
-            button(_("Library"), function() require("novarr.ui_library").show(s) end)
+            button(_("Library"), function() require("novarr.ui_library").show(s, "novel") end)
+        elseif id == "books" then
+            button(_("Books"), function() require("novarr.ui_library").show(s, "book") end)
         elseif id == "discover" then
             button(_("Discover"), function() require("novarr.ui_discover").show(s) end)
         elseif id == "downloads" then
@@ -156,13 +162,13 @@ function Home:refresh(quiet)
         s:refreshUser()
         -- Our own pending marks go first so the server's answer includes them.
         if s.queue:count() > 0 then s:flushQueue() end
-        local _data, e = s:fetchInto("novels", function(etag) return s.api:novels(etag) end, true)
+        local _data, e = s:fetchLibrary()
         if not e then
             -- The hero shows "Chapter N of M": it needs that novel's chapter list.
             local data = s:cached("novels")
             local last_local = {}
             for _i, n in ipairs(data and data.novels or {}) do last_local[n.id] = s:localLastRead(n.id) end
-            local hero = Model.shelfOrder(data and data.novels or {}, last_local)
+            local hero = Model.shelfOrder(Model.homeNovels(data and data.novels or {}, last_local), last_local)
             if hero then s:refreshChapterList(hero.id) end
         end
         if closer then closer() end

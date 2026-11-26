@@ -25,24 +25,27 @@ end
 --[[--
 The buttons, as rows of {id, text, enabled}. state = {has_prev, has_next,
 pending (writes waiting), checking (a check for new chapters is running),
-can_check (the account may ask for one)}.
+can_check (the account may ask for one), book (1.12.0: a book is complete:
+no check for new chapters, and "Book page")}.
 ]]
 function QuickMenu.rows(state)
     state = state or {}
     local pending = tonumber(state.pending) or 0
     local sync_text = pending > 0 and string.format(_("Sync now (%d)"), pending) or _("Sync now")
     local check
-    if state.checking then
+    if state.book then
+        check = nil
+    elseif state.checking then
         check = { id = "check", text = _("Checking…"), enabled = false }
     else
         check = { id = "check", text = _("Check for new chapters"), enabled = state.can_check ~= false }
     end
     return {
         { { id = "chapters", text = _("Chapter list"), enabled = true },
-          { id = "novel", text = _("Novel page"), enabled = true } },
+          { id = "novel", text = state.book and _("Book page") or _("Novel page"), enabled = true } },
         { { id = "prev", text = _("Previous chapter"), enabled = state.has_prev and true or false },
           { id = "next", text = _("Next chapter"), enabled = state.has_next and true or false } },
-        { { id = "sync", text = sync_text, enabled = true }, check },
+        { { id = "sync", text = sync_text, enabled = true }, check }, -- a book: Sync alone
         { { id = "home", text = _("Novarr home"), enabled = true },
           { id = "close", text = _("Close"), enabled = true } },
     }

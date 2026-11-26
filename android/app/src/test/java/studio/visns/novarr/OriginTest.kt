@@ -47,6 +47,16 @@ class OriginTest {
     }
 
     @Test
+    fun aBookHasNoOrigin() {
+        val book = NovelSummary(1, medium = "book", originCountry = "JP")
+        assertNull(Origin.label(book))
+        assertNull(Origin.country(book))
+        assertNull(Origin.label(NovelSummary(2, medium = "book")))
+        // So the Origin filter is not offered for a library of books alone.
+        assertFalse(Origin.offered(listOf(book)))
+    }
+
+    @Test
     fun lowercaseAndPaddedCodesAreRead() {
         assertEquals(Country.JP, Origin.country("jp"))
         assertEquals(Country.KR, Origin.country(" kr "))

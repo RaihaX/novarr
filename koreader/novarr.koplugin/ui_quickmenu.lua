@@ -46,6 +46,8 @@ function QuickMenuUI.state(plugin)
         checking = check ~= nil and CheckState.active(check) or false,
         -- Nothing restricts the check (auth.lua lets readers ask for one too).
         can_check = Session:allows("check"),
+        -- A book never gets new chapters: no check (quickmenu.lua).
+        book = Session:isBook(r.novel_id),
     }
 end
 

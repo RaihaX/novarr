@@ -29,6 +29,33 @@ class LibraryFilterTest {
     }
 
     @Test
+    fun shelvesSeparateBooks() {
+        val library = novels + listOf(
+            NovelSummary(5, "A Book", medium = "book"),
+            NovelSummary(6, "Blank medium", medium = ""),
+            NovelSummary(7, "Another Book", medium = "Book"),
+        )
+        assertEquals(listOf(1, 2, 3, 6), LibraryFilter.shelf(library, Shelf.NOVELS).map { it.id })
+        assertEquals(listOf(4), LibraryFilter.shelf(library, Shelf.MANGA).map { it.id })
+        assertEquals(listOf(5, 7), LibraryFilter.shelf(library, Shelf.BOOKS).map { it.id })
+    }
+
+    @Test
+    fun booksShelfOnlyWhenTheLibraryHasABook() {
+        assertEquals(listOf(Shelf.NOVELS, Shelf.MANGA), LibraryFilter.shelves(novels))
+        assertEquals(listOf(Shelf.NOVELS, Shelf.MANGA), LibraryFilter.shelves(emptyList()))
+        val withBook = novels + NovelSummary(5, "A Book", medium = "book")
+        assertEquals(listOf(Shelf.NOVELS, Shelf.MANGA, Shelf.BOOKS), LibraryFilter.shelves(withBook))
+    }
+
+    @Test
+    fun rememberedBooksShelfFallsBackToNovelsWithoutBooks() {
+        assertEquals(Shelf.NOVELS, LibraryFilter.effectiveShelf(Shelf.BOOKS, novels))
+        assertEquals(Shelf.MANGA, LibraryFilter.effectiveShelf(Shelf.MANGA, novels))
+        assertEquals(Shelf.BOOKS, LibraryFilter.effectiveShelf(Shelf.BOOKS, novels + NovelSummary(5, medium = "book")))
+    }
+
+    @Test
     fun filters() {
         val shelf = LibraryFilter.shelf(novels, Shelf.NOVELS)
         assertEquals(listOf(1), shelf.filter(Filter.READING::matches).map { it.id })

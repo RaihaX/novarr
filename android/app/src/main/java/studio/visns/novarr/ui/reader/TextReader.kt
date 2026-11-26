@@ -775,8 +775,12 @@ internal fun Footer(content: ChapterContent, model: BaseReaderViewModel, colors:
         when {
             next != null -> CenteredNote(next.title + if (next.downloaded == false) " · not downloaded yet" else "", colors.secondary)
             content.downloaded -> {
-                CenteredNote("You're all caught up.", colors.secondary)
-                CheckForChaptersControl(model.novelId, compact = true, tint = colors.secondary)
+                if (model.isBook) {
+                    CenteredNote("The end.", colors.secondary)
+                } else {
+                    CenteredNote("You're all caught up.", colors.secondary)
+                    CheckForChaptersControl(model.novelId, compact = true, tint = colors.secondary)
+                }
                 TextButton(onClick = onBackToSeries) { Text("Back to series") }
             }
         }

@@ -8,7 +8,17 @@ import studio.visns.novarr.api.ReadingList
 
 /** Pure filter/sort/search logic for the library grid (same rules as iOS). */
 object LibraryFilter {
-    enum class Shelf(val title: String) { NOVELS("Novels"), MANGA("Manga") }
+    /** [noun]: the shelf's series in running text ("No books yet"). */
+    enum class Shelf(val title: String, val noun: String) {
+        NOVELS("Novels", "novels"), MANGA("Manga", "manga"), BOOKS("Books", "books");
+
+        /** Novels takes every series that is neither manga nor a book (including a blank or unknown medium). */
+        fun matches(novel: NovelSummary): Boolean = when (this) {
+            NOVELS -> !novel.isManga && !novel.isBook
+            MANGA -> novel.isManga
+            BOOKS -> novel.isBook
+        }
+    }
 
     enum class Filter(val title: String) {
         ALL("All"), READING("Reading"), NEW_CHAPTERS("New chapters"), NOT_STARTED("Not started"), FINISHED("Finished");
@@ -24,8 +34,17 @@ object LibraryFilter {
 
     enum class Sort(val title: String) { LAST_READ("Last read"), NAME("Name"), RECENTLY_UPDATED("Recently updated") }
 
-    fun shelf(novels: List<NovelSummary>, shelf: Shelf): List<NovelSummary> =
-        novels.filter { it.isManga == (shelf == Shelf.MANGA) }
+    fun shelf(novels: List<NovelSummary>, shelf: Shelf): List<NovelSummary> = novels.filter(shelf::matches)
+
+    /**
+     * The shelves the picker offers: Books only when the library has at least
+     * one book, so a library without books looks exactly as before.
+     */
+    fun shelves(novels: List<NovelSummary>): List<Shelf> =
+        if (novels.any { it.isBook }) Shelf.entries else Shelf.entries - Shelf.BOOKS
+
+    /** The shelf in effect: a remembered shelf that isn't offered (Books with no books) falls back to Novels. */
+    fun effectiveShelf(shelf: Shelf, novels: List<NovelSummary>): Shelf = if (shelf in shelves(novels)) shelf else Shelf.NOVELS
 
     /**
      * The grid: [novels] in [list] (when one is chosen: Library's list

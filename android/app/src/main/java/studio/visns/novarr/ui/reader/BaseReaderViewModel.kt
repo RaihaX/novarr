@@ -18,6 +18,7 @@ import studio.visns.novarr.api.ReadingPosition
 import studio.visns.novarr.app.AppModel
 import studio.visns.novarr.domain.LatestPosition
 import studio.visns.novarr.domain.ProgressTracker
+import studio.visns.novarr.store.OfflineStore
 import studio.visns.novarr.store.WriteKind
 
 /** The prompt to jump to where another device read more recently. */
@@ -107,9 +108,19 @@ abstract class BaseReaderViewModel(
     protected val tracker = ProgressTracker(now = System::currentTimeMillis)
     private var sendJob: Job? = null
 
+    /**
+     * The series is a book (per the saved library listing): complete on
+     * arrival, so its last chapter offers no "check for new chapters".
+     */
+    var isBook by mutableStateOf(false)
+        private set
+
     init {
         // A look-up holds positions from the start; only [endLookup] lets go.
         if (lookingUp) tracker.hold()
+        viewModelScope.launch {
+            isBook = app.cached(OfflineStore.Key.novels)?.firstOrNull { it.id == novelId }?.isBook == true
+        }
     }
 
     // Latest-position check: once on open (if [offersLatest]), and again on

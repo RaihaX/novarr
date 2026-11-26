@@ -2,6 +2,7 @@
 Novel screen: Continue/Start, Chapters, Highlights (ui_highlights.lua), reading stats (stats.lua), Check
 for new chapters (checks.lua) with its status, Download for offline,
 Remove downloads, Mark all as read, Download as EPUB, About (synopsis).
+A book (1.12.0: medium "book", complete) has no Check for new chapters.
 ]]
 
 local UIManager = require("ui/uimanager")
@@ -88,23 +89,27 @@ function Novel:items()
     for _i, line in ipairs(Stats.lines(s:novelStats(self.novel_id))) do
         table.insert(items, { text = line, dim = true, select_enabled = false, stats = true, callback = function() end })
     end
-    local check_text, check_kind = Checks.text(self.novel_id)
-    table.insert(items, {
-        text = _("Check for new chapters"),
-        mandatory = check_kind == "busy" and _("Checking…") or nil,
-        dim = check_kind == "busy",
-        callback = function()
-            if check_kind == "busy" then
-                UI.info(check_text)
-                return
-            end
-            Checks.ask(self.novel_id)
-        end,
-    })
-    if check_text and check_kind ~= "busy" then
-        -- A long reason may not fit on the row: a tap shows it whole.
-        table.insert(items, { text = check_text, dim = true, check_status = true,
-            callback = function() UI.info(check_text) end })
+    local book = s:isBook(self.novel_id)
+    -- A book is complete: it never gets new chapters, so no check.
+    if not book then
+        local check_text, check_kind = Checks.text(self.novel_id)
+        table.insert(items, {
+            text = _("Check for new chapters"),
+            mandatory = check_kind == "busy" and _("Checking…") or nil,
+            dim = check_kind == "busy",
+            callback = function()
+                if check_kind == "busy" then
+                    UI.info(check_text)
+                    return
+                end
+                Checks.ask(self.novel_id)
+            end,
+        })
+        if check_text and check_kind ~= "busy" then
+            -- A long reason may not fit on the row: a tap shows it whole.
+            table.insert(items, { text = check_text, dim = true, check_status = true,
+                callback = function() UI.info(check_text) end })
+        end
     end
     local _set, saved = s.store:storedSet(self.novel_id)
     table.insert(items, {
@@ -113,7 +118,7 @@ function Novel:items()
         callback = function() self:askDownload() end,
     })
     table.insert(items, {
-        text = _("Remove downloads for this novel"),
+        text = book and _("Remove downloads for this book") or _("Remove downloads for this novel"),
         dim = saved == 0,
         callback = function()
             if saved == 0 then
@@ -152,7 +157,7 @@ function Novel:items()
         callback = function() require("novarr.epub").download(s, self.novel_id, self:summary().name) end,
     })
     table.insert(items, {
-        text = _("About this novel"),
+        text = book and _("About this book") or _("About this novel"),
         callback = function() self:showAbout() end,
     })
     return items
@@ -165,6 +170,7 @@ function Novel:showAbout()
     local parts = {}
     if novel.author then table.insert(parts, T(_("By %1"), novel.author)) end
     if novel.origin then table.insert(parts, novel.origin) end
+    if Model.isBook(novel) or self.session:isBook(self.novel_id) then table.insert(parts, _("Book")) end
     if type(novel.tags) == "table" and #novel.tags > 0 then
         local names = {}
         for _i, t in ipairs(novel.tags) do table.insert(names, t.name) end

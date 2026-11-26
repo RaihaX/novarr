@@ -29,12 +29,14 @@ object Origin {
         return Country.entries.firstOrNull { it.code == code }
     }
 
-    fun country(novel: NovelSummary): Country? = country(novel.originCountry)
+    /** Null for a book (no origin, even if a value were sent), so no badge and the Unknown filter. */
+    fun country(novel: NovelSummary): Country? = if (novel.isBook) null else country(novel.originCountry)
 
     /** The badge's content description, or null when there is no badge. */
     fun label(raw: String?, manga: Boolean): String? = country(raw)?.label(manga)
 
-    fun label(novel: NovelSummary): String? = country(novel)?.label(novel.isManga)
+    /** Null for a book: books carry no origin. */
+    fun label(novel: NovelSummary): String? = if (novel.isBook) null else country(novel)?.label(novel.isManga)
 
     /** The Library's Origin filter. */
     enum class Filter(val title: String, val country: Country?) {

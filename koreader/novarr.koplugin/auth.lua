@@ -280,12 +280,15 @@ function Auth.allows(role, action)
 end
 
 --[[--
-The buttons along the bottom of Home, in order, as ids: library, discover
-(not for readers), downloads, sync (or "link" while the Kindle needs
+The buttons along the bottom of Home, in order, as ids: library, books
+(only when has_books: the library holds one), discover (not for readers),
+downloads, sync (or "link" while the Kindle needs
 linking: nothing can be synced then), settings.
 ]]
-function Auth.homeButtons(role, needs_link)
+function Auth.homeButtons(role, needs_link, has_books)
     local out = { "library" }
+    -- Books (1.12.0): only when the library holds at least one.
+    if has_books then table.insert(out, "books") end
     if Auth.allows(role, "discover") then table.insert(out, "discover") end
     table.insert(out, "downloads")
     table.insert(out, needs_link and "link" or "sync")

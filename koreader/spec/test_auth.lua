@@ -567,3 +567,11 @@ T.it("Wi-Fi management never switches Wi-Fi on for a Kindle that is not linked",
     s.not_linked = nil
     T.eq((Policy.decide(s)), "on")
 end)
+
+T.it("books: Home's Books button only when the library has a book", function()
+    T.eq(Auth.homeButtons("admin", false, true), { "library", "books", "discover", "downloads", "sync", "settings" })
+    T.eq(Auth.homeButtons("reader", false, true), { "library", "books", "downloads", "sync", "settings" })
+    T.eq(Auth.homeButtons("admin", true, true), { "library", "books", "discover", "downloads", "link", "settings" })
+    T.eq(Auth.homeButtons("admin", false, false), { "library", "discover", "downloads", "sync", "settings" })
+    T.eq(Auth.homeButtons("admin", false), { "library", "discover", "downloads", "sync", "settings" }, "unknown: none")
+end)

@@ -366,3 +366,56 @@ T.it("return screens after leaving a book: where it was opened from, Home undern
     a[3] = "x"
     T.eq(Model.returnScreens("novel"), { "home", "novel" }, "a fresh list each time")
 end)
+
+-- ---------------------------------------------------------------- books (1.12.0)
+
+local function lib()
+    return {
+        { id = 1, name = "Web A", medium = "novel", chapters_read = 3 },
+        { id = 2, name = "Book Read", medium = "book", chapters_read = 2 },
+        { id = 3, name = "Book New", medium = "book", chapters_read = 0 },
+        { id = 4, name = "Old Server Novel" }, -- no medium: a novel
+        { id = 5, name = "Book Local", medium = "book", chapters_read = 0 },
+    }
+end
+
+T.it("books: isBook and hasBooks", function()
+    T.truthy(Model.isBook({ medium = "book" }))
+    T.falsy(Model.isBook({ medium = "novel" }))
+    T.falsy(Model.isBook({}), "no medium (older server): a novel")
+    T.falsy(Model.isBook(nil))
+    T.truthy(Model.hasBooks(lib()))
+    T.falsy(Model.hasBooks({ { id = 1, medium = "novel" }, { id = 4 } }))
+    T.falsy(Model.hasBooks({}))
+    T.falsy(Model.hasBooks(nil))
+end)
+
+T.it("books: byMedium splits the library, keeping the API's order", function()
+    local ids = function(list) local out = {} for _i, n in ipairs(list) do table.insert(out, n.id) end return out end
+    T.eq(ids(Model.byMedium(lib(), "book")), { 2, 3, 5 })
+    T.eq(ids(Model.byMedium(lib(), "novel")), { 1, 4 })
+    T.eq(ids(Model.byMedium(lib(), nil)), { 1, 4 }, "default: the novels")
+    T.eq(Model.byMedium(nil, "book"), {})
+end)
+
+T.it("books: Home keeps every novel and only the books being read", function()
+    local ids = function(list) local out = {} for _i, n in ipairs(list) do table.insert(out, n.id) end return out end
+    T.eq(ids(Model.homeNovels(lib(), { [5] = 1700000000000 })), { 1, 2, 4, 5 }, "read on the server or on this device")
+    T.eq(ids(Model.homeNovels(lib(), nil)), { 1, 2, 4 })
+    -- The hero can be a book being read; an unopened book never is.
+    local hero = Model.shelfOrder(Model.homeNovels({
+        { id = 3, medium = "book", chapters_read = 0 },
+        { id = 4, chapters_read = 0 },
+    }, {}), {})
+    T.eq(hero.id, 4)
+end)
+
+T.it("books: volume 0 chapters order and label like any other", function()
+    local list = {
+        { id = 10, book = 0, chapter = 1, label = "Prologue", downloaded = true },
+        { id = 11, book = 0, chapter = 2, downloaded = true },
+    }
+    T.eq(Model.ordinal(list, 11), 2)
+    T.eq(Model.chapterLabel(list[1]), "Prologue")
+    T.eq(Model.chapterLabel(list[2]), "Chapter 2")
+end)

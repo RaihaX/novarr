@@ -46,6 +46,8 @@ data class ServerMeta(
     val updates: Boolean = false,
     /** Reading lists (`/lists`); absent on older servers, and the app then hides lists entirely. */
     val lists: Boolean = false,
+    /** The server knows books (medium "book"); absent on older servers. Informational: the app shows books whenever the library has some. */
+    val books: Boolean = false,
 ) {
     /** Only an explicit `auth.required: true` turns sign-in on. */
     val requiresSignIn: Boolean get() = auth?.required == true
@@ -105,6 +107,9 @@ data class NovelTag(val id: Int, val name: String = "")
 object Medium {
     const val NOVEL = "novel"
     const val MANGA = "manga"
+
+    /** An ePub upload or Calibre import: read like a novel, complete on arrival, no origin. */
+    const val BOOK = "book"
 }
 
 @Serializable
@@ -139,6 +144,9 @@ data class NovelSummary(
     @SerialName("resume_chapter_id") val resumeChapterId: Int? = null,
 ) {
     val isManga: Boolean get() = medium.equals(Medium.MANGA, ignoreCase = true)
+
+    /** A book (ePub/Calibre): read like a novel, but complete on arrival, never checked for new chapters. */
+    val isBook: Boolean get() = medium.equals(Medium.BOOK, ignoreCase = true)
     val authorOrNull: String? get() = author?.takeIf { it.isNotBlank() }
 
     /** The short caption under a cover in the library grid. */

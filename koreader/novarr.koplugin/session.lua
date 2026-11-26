@@ -238,7 +238,8 @@ end
 
 --[[--
 /api/v1/meta of this server answered: keeps whether sign-in is required,
-and the server's instance id (server_instance) when it gives one.
+the server's instance id (server_instance) when it gives one, and whether
+it has books (server_books, 1.12.0).
 No longer required: nothing is blocked any more (a held token is kept, and
 still sent).
 ]]
@@ -257,20 +258,50 @@ function Session:noteMeta(meta, opts)
     if Auth.setRequired(self.settings, server, Auth.requiredFromMeta(meta)) then
         log("Novarr: the server " .. (Auth.requiredFromMeta(meta) and "requires" or "does not require") .. " sign-in")
     end
+    -- Books (1.12.0): only a server that says so is asked for medium=text.
+    local books = Api.supportsBooks(meta)
+    if (self:get("server_books") == true) ~= books then
+        self:set("server_books", books)
+        log("Novarr: the server " .. (books and "has" or "has no") .. " books")
+    end
+end
+
+--- The medium the library is asked for: "text" (novels and books) when the server has books, else nil.
+function Session:textMedium()
+    return Api.textMedium(self:get("server_books") == true)
+end
+
+--- Fetches the library (GET novels, with the medium this server supports) into the "novels" cache.
+function Session:fetchLibrary()
+    local medium = self:textMedium()
+    return self:fetchInto("novels", function(etag) return self.api:novels(etag, medium) end, true)
+end
+
+--[[--
+Whether a novel is a book (medium "book": complete, never gets new
+chapters). From its cached detail or the library; unknown counts as a novel.
+]]
+function Session:isBook(novel_id)
+    local detail = self:cached("novel_" .. novel_id)
+    if detail and type(detail.novel) == "table" and detail.novel.medium then
+        return Model.isBook(detail.novel)
+    end
+    return Model.isBook(self:novelSummary(novel_id))
 end
 
 --[[--
 Asks this server's meta (short timeouts) when sign-in is not known yet,
 while this Kindle is blocked waiting to be linked (the server may have
 switched sign-in off), or once per start while its instance id is not
-known. Called by user actions only (Home's refresh, Link).
+known or it has not said it has books (1.12.0). Called by user actions only (Home's refresh, Link).
 Returns meta or nil.
 ]]
 function Session:refreshAuthState(force)
     local server = self:serverUrl()
     if not server then return nil end
-    -- Also once per KOReader start while the server's instance id is not known (Session:isSameServer).
-    local instance_known = self:get("server_instance") ~= nil or self.instance_asked
+    -- Also once per KOReader start while the server's instance id is not known (Session:isSameServer),
+    -- or while it has not said it has books (it may have been updated since).
+    local instance_known = (self:get("server_instance") ~= nil and self:get("server_books") == true) or self.instance_asked
     if not force and Auth.known(self.settings, server) and not self:needsLink() and instance_known then return nil end
     self.instance_asked = true
     local meta = self.api:meta({ block_timeout = 5, total_timeout = 8 })
@@ -983,7 +1014,7 @@ function Session:syncNow(done)
         self.address:reprobe("Sync", { force = true })
         local r = self:flushQueue()
         -- Pull a fresh library so the screens show the server's view.
-        self:fetchInto("novels", function(etag) return self.api:novels(etag) end, true)
+        self:fetchLibrary()
         closer()
         if r.remaining > 0 then
             UI.info(T(_("Couldn't send everything: %1 change(s) are still waiting.\n\n%2"), r.remaining, self:errorText(r.error)))
@@ -1705,6 +1736,7 @@ function Session:setServer(url, opts)
         self:unset("last_sync_at")
         self:unset("position_declined")
         self:unset("server_instance")
+        self:unset("server_books")
         self:unset("auth_me_at")
         for _i, novel_id in ipairs(self.store:novelsWithDownloads()) do
             self:removeNovelDownloads(novel_id)
