@@ -166,6 +166,18 @@ class EpubBuilder
         ]);
     }
 
+    /** One file whose whole text is a single <div> of lines joined by <br/> (no paragraphs). */
+    public static function oneBlock(string $lines): string
+    {
+        return self::zip([
+            'mimetype' => 'application/epub+zip',
+            'META-INF/container.xml' => '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
+            'book.html' => self::xhtml('Book', "<div>{$lines}</div>"),
+            'content.opf' => '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Blob</dc:title></metadata>'
+                . '<manifest><item id="b" href="book.html" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="b"/></spine></package>',
+        ]);
+    }
+
     /** A zip that is not an ePub (no package document). */
     public static function notAnEpub(): string
     {

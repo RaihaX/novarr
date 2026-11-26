@@ -648,7 +648,7 @@ class Epub
                 continue;
             }
 
-            $paragraphs = preg_split('/(?=<p>|<hr\/>)/', $section['html'], -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            $paragraphs = self::paragraphs($section['html']);
             $headings = [];
             foreach ($paragraphs as $i => $paragraph) {
                 if (($heading = self::headingText($paragraph)) !== null) {
@@ -656,37 +656,90 @@ class Epub
                 }
             }
 
-            $current = ['label' => $section['label'], 'html' => '', 'words' => 0];
-            if (count($headings) >= 3) {
-                foreach ($paragraphs as $i => $paragraph) {
-                    if (isset($headings[$i])) {
-                        if ($current['words'] > 0) {
-                            $out[] = $current;
-                            $current = ['label' => $headings[$i], 'html' => '', 'words' => 0];
-                        } elseif ($current['html'] === '' || $current['words'] === 0) {
-                            $current['label'] = $headings[$i];
-                        }
-                    }
-                    $current['html'] .= $paragraph;
-                    $current['words'] += EpubHtml::countWords($paragraph);
-                }
-                $out[] = $current;
+            if (count($headings) < 3) {
+                array_push($out, ...self::parts($paragraphs, 'Part'));
                 continue;
             }
 
-            $part = 1;
-            $current['label'] = 'Part 1';
-            foreach ($paragraphs as $paragraph) {
-                if ($current['words'] >= self::PART_WORDS) {
-                    $out[] = $current;
-                    $part++;
-                    $current = ['label' => "Part {$part}", 'html' => '', 'words' => 0];
+            $pieces = [];
+            $current = ['label' => $section['label'], 'html' => '', 'words' => 0, 'paragraphs' => []];
+            foreach ($paragraphs as $i => $paragraph) {
+                if (isset($headings[$i])) {
+                    if ($current['words'] > 0) {
+                        $pieces[] = $current;
+                        $current = ['label' => $headings[$i], 'html' => '', 'words' => 0, 'paragraphs' => []];
+                    } else {
+                        $current['label'] = $headings[$i];
+                    }
                 }
                 $current['html'] .= $paragraph;
                 $current['words'] += EpubHtml::countWords($paragraph);
+                $current['paragraphs'][] = $paragraph;
             }
-            $out[] = $current;
+            $pieces[] = $current;
+
+            // A stretch between two headings that is still a book's worth of
+            // text (few headings in a long file) is cut into parts as well.
+            foreach ($pieces as $piece) {
+                if ($piece['words'] > self::SPLIT_ABOVE_WORDS) {
+                    // A boilerplate label ("Copyright") on a book's worth of text names nothing: plain parts.
+                    $prefix = preg_match(self::BOILERPLATE, trim($piece['label'])) ? 'Part' : $piece['label'] . ' — part';
+                    array_push($out, ...self::parts($piece['paragraphs'], $prefix));
+                } else {
+                    $out[] = ['label' => $piece['label'], 'html' => $piece['html'], 'words' => $piece['words']];
+                }
+            }
         }
+
+        return $out;
+    }
+
+    /**
+     * A section's paragraphs; one paragraph that is itself longer than a
+     * part (a whole book set as lines with <br/> inside one block) is broken
+     * at its line breaks into paragraphs of its own.
+     *
+     * @return string[]
+     */
+    private static function paragraphs(string $html): array
+    {
+        $out = [];
+        foreach (preg_split('/(?=<p>|<hr\/>)/', $html, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $paragraph) {
+            if (EpubHtml::countWords($paragraph) <= self::PART_WORDS || !str_contains($paragraph, '<br/>')) {
+                $out[] = $paragraph;
+                continue;
+            }
+            $inner = preg_replace('#^<p>|</p>$#', '', $paragraph) ?? $paragraph;
+            foreach (preg_split('#(?:\s*<br/>\s*)+#', $inner, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $line) {
+                if (trim(strip_tags($line)) !== '') {
+                    $out[] = '<p>' . trim($line) . '</p>';
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Paragraphs cut into parts of about PART_WORDS words, at paragraph
+     * breaks: "{$prefix} 1", "{$prefix} 2", …
+     *
+     * @param  string[]  $paragraphs
+     * @return array<int, array{label: string, html: string, words: int}>
+     */
+    private static function parts(array $paragraphs, string $prefix): array
+    {
+        $out = [];
+        $current = ['label' => "{$prefix} 1", 'html' => '', 'words' => 0];
+        foreach ($paragraphs as $paragraph) {
+            if ($current['words'] >= self::PART_WORDS) {
+                $out[] = $current;
+                $current = ['label' => $prefix . ' ' . (count($out) + 1), 'html' => '', 'words' => 0];
+            }
+            $current['html'] .= $paragraph;
+            $current['words'] += EpubHtml::countWords($paragraph);
+        }
+        $out[] = $current;
 
         return $out;
     }

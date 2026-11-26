@@ -144,6 +144,24 @@ class BooksTest extends TestCase
         $this->assertEqualsWithDelta(20000, array_sum(array_column($chapters, 'words')), 10);
     }
 
+    public function test_a_long_stretch_between_few_headings_and_a_line_broken_blob_are_cut_into_parts(): void
+    {
+        // Three headings, but chapter 2 alone is 20,000 words.
+        $chapters = Epub::open(EpubBuilder::wholeBookInOneEntry(headings: true, chapters: 3, wordsPerChapter: 20000))->chapters();
+        $this->assertSame('Chapter 1 — part 1', $chapters[0]['label']);
+        foreach ($chapters as $chapter) {
+            $this->assertLessThanOrEqual(5200, $chapter['words']);
+        }
+
+        // A whole book as lines inside one block (no paragraphs at all).
+        $lines = implode('<br/>', array_fill(0, 400, EpubBuilder::words(50)));
+        $chapters = Epub::open(EpubBuilder::epub3(['nav' => false]))->chapters(); // sanity: normal book unaffected
+        $this->assertCount(2, $chapters);
+        $blob = Epub::open(EpubBuilder::oneBlock($lines))->chapters();
+        $this->assertCount(4, $blob);
+        $this->assertSame(['Part 1', 'Part 2', 'Part 3', 'Part 4'], array_column($blob, 'label'));
+    }
+
     public function test_a_long_chapter_under_the_split_limit_is_left_whole(): void
     {
         $chapters = Epub::open(EpubBuilder::wholeBookInOneEntry(headings: false, chapters: 1, wordsPerChapter: 12000))->chapters();
