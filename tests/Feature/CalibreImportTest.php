@@ -187,6 +187,50 @@ class CalibreImportTest extends TestCase
         $this->artisan('books:calibre-import', ['--all' => true])->expectsOutputToContain('Imported 0')->assertSuccessful();
     }
 
+    public function test_a_web_novel_already_in_the_library_is_not_imported_as_a_book(): void
+    {
+        Novel::create(['name' => 'Shadow Slave', 'translator_url' => 'https://novelfull.com/shadow-slave.html', 'group_id' => 1]);
+        Novel::create(['name' => 'Lord of the Mysteries', 'translator_url' => 'https://novelfull.com/lotm.html', 'group_id' => 1]);
+        $this->fakeCalibre([0 => self::feed([
+            ['id' => 6, 'title' => 'Shadow Slave Vol. 3', 'author' => 'Guiltythree', 'lang' => 'eng'],
+            ['id' => 5, 'title' => 'Book 2: The Fool', 'author' => 'Cuttlefish', 'lang' => 'eng'],
+            ['id' => 4, 'title' => 'Dune', 'author' => 'Frank Herbert', 'lang' => 'eng'],
+        ])]);
+        // Entry 5's Calibre series is the web novel's title.
+        $page = app(CalibreWeb::class)->recent();
+        $page['entries'][1]['series'] = 'Lord of the Mysteries';
+
+        $import = app(CalibreImport::class);
+        $results = array_map(fn($e) => $import->import($e), $page['entries']);
+
+        $this->assertSame([CalibreImport::SKIPPED, CalibreImport::SKIPPED, CalibreImport::IMPORTED], array_column($results, 'result'));
+        $this->assertStringContainsString('web novel in the library: Shadow Slave', $results[0]['message']);
+        $this->assertSame(['Dune'], Novel::books()->pluck('name')->all());
+        // Nothing was downloaded for the skipped ones.
+        Http::assertNotSent(fn($r) => str_contains($r->url(), '/opds/download/6/') || str_contains($r->url(), '/opds/download/5/'));
+    }
+
+    public function test_title_variants_drop_volume_numbering_but_keep_real_titles(): void
+    {
+        $this->assertContains('Shadow Slave', CalibreImport::titleVariants(['title' => 'Shadow Slave Vol. 3']));
+        $this->assertContains('Solo Leveling', CalibreImport::titleVariants(['title' => 'Solo Leveling, Volume Two']));
+        $this->assertContains('Overgeared', CalibreImport::titleVariants(['title' => 'Overgeared (Chapters 1-200)']));
+        $this->assertContains('Mother of Learning', CalibreImport::titleVariants(['title' => 'Mother of Learning: Arc 1']));
+        $this->assertContains('The Wandering Inn', CalibreImport::titleVariants(['title' => 'The Wandering Inn #4']));
+        $this->assertSame(['The Book Thief'], CalibreImport::titleVariants(['title' => 'The Book Thief']));
+    }
+
+    public function test_dry_run_lists_without_importing(): void
+    {
+        Setting::put(CalibreImport::MARK, '1');
+        $this->fakeCalibre([0 => self::feed([['id' => 3, 'title' => 'Three', 'author' => 'A', 'lang' => 'eng']])]);
+
+        $this->artisan('books:calibre-import', ['--all' => true, '--dry-run' => true])->expectsOutputToContain('Three')->assertSuccessful();
+
+        $this->assertSame(0, Novel::books()->count());
+        $this->assertSame('1', (string) Setting::get(CalibreImport::MARK));
+    }
+
     public function test_wrong_credentials_are_reported(): void
     {
         config(['novarr.calibre_web.username' => '']);

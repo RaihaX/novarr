@@ -42,8 +42,35 @@ class BookLibrary
     /** At most this many tags from the ePub's own subjects. */
     private const MAX_SUBJECT_TAGS = 8;
 
+    /**
+     * Normalised titles of the library's books => id, built once per
+     * instance (a bulk import adds thousands: rebuilding the whole-library
+     * duplicate index per book would be quadratic), kept current by create().
+     *
+     * @var ?array<string, int>
+     */
+    private ?array $bookTitles = null;
+
     public function __construct(private DuplicateSeries $duplicates)
     {
+    }
+
+    /** The library book with this title (DuplicateSeries::normalize), or null. */
+    private function bookWithTitle(string $title): ?Novel
+    {
+        $key = DuplicateSeries::normalize($title);
+        if ($key === '') {
+            return null;
+        }
+        if ($this->bookTitles === null) {
+            $this->bookTitles = [];
+            foreach (Novel::books()->orderBy('id')->get(['id', 'name']) as $book) {
+                $this->bookTitles[DuplicateSeries::normalize((string) $book->name)] ??= (int) $book->id;
+            }
+        }
+        $id = $this->bookTitles[$key] ?? null;
+
+        return $id !== null ? Novel::find($id) : null;
     }
 
     /** source_ref of a book imported from Calibre-Web: "calibre:{uuid}". */
@@ -117,15 +144,22 @@ class BookLibrary
         $url = self::urlFor(sha1_file($file));
 
         $outcome = Cache::lock(self::LOCK, 120)->block(30, function () use ($file, $url, $title, $metadata, $chapters, $force) {
-            $existing = $this->duplicates->find($title, Novel::MEDIUM_BOOK, [], $url);
-            if ($existing !== null && $existing['by'] === DuplicateSeries::BY_SOURCE) {
-                return ['result' => self::EXISTING, 'novel' => $existing['novel']];
+            // The same file is the same book (any book, deleted ones included).
+            $same = Novel::withTrashed()->where('translator_url', $url)->first();
+            if ($same !== null && !$same->trashed()) {
+                return ['result' => self::EXISTING, 'novel' => $same];
             }
-            if ($existing !== null && !$force) {
-                return ['result' => self::DUPLICATE, 'novel' => $existing['novel']];
+            $titled = $this->bookWithTitle($title);
+            if ($titled !== null && !$force) {
+                return ['result' => self::DUPLICATE, 'novel' => $titled];
             }
 
-            return ['result' => self::CREATED, 'novel' => $this->create($file, $url, $title, $metadata, $chapters)];
+            $novel = $this->create($file, $url, $title, $metadata, $chapters);
+            if ($this->bookTitles !== null && ($key = DuplicateSeries::normalize($title)) !== '') {
+                $this->bookTitles[$key] ??= (int) $novel->id;
+            }
+
+            return ['result' => self::CREATED, 'novel' => $novel];
         });
 
         if ($outcome['result'] !== self::CREATED) {
