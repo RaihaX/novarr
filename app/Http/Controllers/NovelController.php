@@ -233,11 +233,7 @@ class NovelController extends Controller
         // accents), with id as a final tie-break. The sort below is a stable
         // PHP sort on cached per-novel chapter aggregates, so ties keep this
         // name order, exactly like the old `ORDER BY <key>, name`.
-        $query = Novel::query()->select(['id', 'name', 'no_of_chapters']);
-
-        if ($request->filled('search')) {
-            $query->where('name', 'like', '%' . $request->search . '%');
-        }
+        $query = Novel::query()->select(['id', 'name', 'no_of_chapters', 'series', 'series_index']);
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
@@ -252,6 +248,22 @@ class NovelController extends Controller
         // summary, chips, shelves — belongs to that medium only.
         $medium = LibraryMedium::resolve($request);
         $query->where('medium', $medium);
+        $isBooks = $medium === Novel::MEDIUM_BOOK;
+
+        // Search: the title; in Books also the series' name, so "Mistborn"
+        // finds the books of the series (shown one by one, see below).
+        if ($request->filled('search')) {
+            $like = '%' . $request->search . '%';
+            $query->where(fn($q) => $q->where('name', 'like', $like)
+                ->when($isBooks, fn($q) => $q->orWhere('series', 'like', $like)));
+        }
+
+        // Series (?series=<name>, in the URL like ?tag=; Books only): its
+        // books, listed in series order.
+        $activeSeries = $isBooks && $request->filled('series') ? (string) $request->query('series') : null;
+        if ($activeSeries !== null) {
+            $query->where('series', $activeSeries);
+        }
 
         // --- Reading index -------------------------------------------------
         // One grouped pass over the chapter table gives every novel's read /
@@ -338,7 +350,9 @@ class NovelController extends Controller
         session(['novels_sort' => $sort]);
 
         $candidates = $query->orderBy('name')->orderBy('id')->get();
-        $orderedIds = static::sortLibraryIds($candidates, $aggregates, $sort);
+        $orderedIds = $activeSeries !== null
+            ? $candidates->sort([\App\Books\SeriesCard::class, 'compare'])->map(fn(Novel $n) => (int) $n->id)->values()->all()
+            : static::sortLibraryIds($candidates, $aggregates, $sort);
 
         // Grid/table toggle: explicit ?view= wins (the old ?view=list means
         // table), otherwise the last choice remembered in the session; the
@@ -356,11 +370,21 @@ class NovelController extends Controller
         // are unchanged); any explicit sort or filter shows one flat list.
         $shelved = $view === 'grid' && $sort === 'read' && $filter === 'all'
             && !$request->filled('search') && !$request->filled('tag') && !$request->filled('status')
-            && $activeList === null && $activeOrigin === null;
+            && $activeList === null && $activeOrigin === null && $activeSeries === null;
+
+        // Books grid: a series is one card (seriesCards()), counted as one
+        // by the pagination. A search lists the matching books themselves
+        // (a hit is never hidden inside a card), and the table stays flat.
+        $grouped = $isBooks && $view === 'grid' && $activeSeries === null && !$request->filled('search');
+        $perPage = $view === 'grid' ? 42 : 25;
 
         return view('novels.index', [
             'shelved' => $shelved,
-            'novels' => static::paginateLibrary($orderedIds, $aggregates, $view === 'grid' ? 42 : 25),
+            'novels' => $grouped
+                ? static::paginateLibrary(static::seriesCards($orderedIds, $candidates, $sort), $aggregates, $perPage)
+                : static::paginateLibrary($orderedIds, $aggregates, $perPage),
+            'activeSeries' => $activeSeries,
+            'activeSeriesCount' => $activeSeries !== null ? $candidates->count() : 0,
             'view' => $view,
             'sort' => $sort,
             'filter' => $filter,
@@ -581,22 +605,76 @@ class NovelController extends Controller
     }
 
     /**
+     * The Books grid's cards from the ordered book ids: a series with two or
+     * more of the listed books becomes one card ['series' => name, 'ids' =>
+     * its books in series order, the first being the cover], placed where
+     * its first book came in the order (its most recently read book for
+     * "last read", and so on); every other book stays an id. Sorted by name,
+     * a card goes by the series' name. PHP over rows already loaded: no
+     * query per card.
+     *
+     * @param  int[]  $orderedIds
+     * @param  \Illuminate\Support\Collection<int, Novel>  $candidates  with series and series_index
+     * @return array<int, int|array{series: string, ids: int[]}>
+     */
+    public static function seriesCards(array $orderedIds, $candidates, string $sort): array
+    {
+        $byId = $candidates->keyBy('id');
+        $members = [];
+        foreach ($orderedIds as $id) {
+            $series = (string) ($byId[$id]->series ?? '');
+            if ($series !== '') {
+                $members[$series][] = $byId[$id];
+            }
+        }
+        $members = array_filter($members, fn($books) => count($books) >= 2);
+
+        $cards = [];
+        $placed = [];
+        foreach ($orderedIds as $id) {
+            $series = (string) ($byId[$id]->series ?? '');
+            if (!isset($members[$series])) {
+                $cards[] = $id;
+                continue;
+            }
+            if (isset($placed[$series])) {
+                continue;
+            }
+            $placed[$series] = true;
+            $books = $members[$series];
+            usort($books, [\App\Books\SeriesCard::class, 'compare']);
+            $cards[] = ['series' => $series, 'ids' => array_map(fn(Novel $n) => (int) $n->id, $books)];
+        }
+
+        if ($sort === 'name') {
+            $name = fn($card) => mb_strtolower(is_array($card) ? $card['series'] : (string) $byId[$card]->name);
+            usort($cards, fn($a, $b) => strnatcmp($name($a), $name($b)));
+        }
+
+        return $cards;
+    }
+
+    /**
      * Paginate the ordered id list and load only that page's novels, with the
      * columns the list renders and the counts the view reads.
      */
     public static function paginateLibrary(array $orderedIds, array $aggregates, int $perPage): \Illuminate\Pagination\LengthAwarePaginator
     {
         $page = \Illuminate\Pagination\Paginator::resolveCurrentPage('page');
+        // An entry is a novel id or a series card (seriesCards()): one load
+        // for the page's novels and the cards' covers.
         $pageIds = array_slice($orderedIds, ($page - 1) * $perPage, $perPage);
+        $loadIds = array_map(fn($entry) => is_array($entry) ? $entry['ids'][0] : $entry, $pageIds);
 
-        $novels = $pageIds === [] ? collect() : Novel::with('file')
-            ->select(['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures', 'origin', 'origin_language', 'origin_source', 'origin_confidence', 'medium'])
-            ->whereIn('id', $pageIds)
+        $novels = $loadIds === [] ? collect() : Novel::with('file')
+            ->select(['id', 'name', 'author', 'status', 'paused_at', 'group_id', 'language_id', 'no_of_chapters', 'scrape_failures', 'toc_failures', 'origin', 'origin_language', 'origin_source', 'origin_confidence', 'medium', 'series', 'series_index'])
+            ->whereIn('id', $loadIds)
             ->get()
             ->keyBy('id');
 
         $items = [];
-        foreach ($pageIds as $id) {
+        foreach ($pageIds as $entry) {
+            $id = is_array($entry) ? $entry['ids'][0] : $entry;
             $novel = $novels->get($id);
             if ($novel === null) {
                 continue; // deleted between the two queries
@@ -605,7 +683,7 @@ class NovelController extends Controller
             $novel->setAttribute('chapters_count', $a['chapters'] ?? 0);
             $novel->setAttribute('downloaded_chapters_count', $a['downloaded'] ?? 0);
             $novel->setAttribute('source_chapters_count', $a['source'] ?? 0);
-            $items[] = $novel;
+            $items[] = is_array($entry) ? new \App\Books\SeriesCard($entry['series'], $entry['ids'], $novel) : $novel;
         }
 
         return new \Illuminate\Pagination\LengthAwarePaginator($items, count($orderedIds), $perPage, $page, [
@@ -1021,8 +1099,19 @@ class NovelController extends Controller
             $continuePage = HomeController::mangaPage($stats['continue_progress'] ?? null, $stats['continue_page_count'] ?? null);
         }
 
+        // A book's series: its books in series order (one small query on the
+        // indexed column), for "Book 2 of …" and the previous / next book.
+        $seriesBooks = collect();
+        if ($data->isBook() && (string) $data->series !== '') {
+            $seriesBooks = Novel::books()->where('series', $data->series)
+                ->get(['id', 'name', 'series', 'series_index'])
+                ->sort([\App\Books\SeriesCard::class, 'compare'])
+                ->values();
+        }
+
         return view('novels.show', [
             'data' => $data,
+            'series_books' => $seriesBooks,
             'continue_page_number' => $continuePage,
             'synopsis' => $this->cleanSynopsis($data->description, $data->name),
             'chapters' => $chapters,
@@ -1119,9 +1208,28 @@ class NovelController extends Controller
             'image' => 'nullable|image|max:10240',
             'origin' => 'nullable|in:auto,ja,ko,zh,en,unknown,original,translated',
             'origin_language' => 'nullable|in:en,zh,ko,ja,vi,th,id,tl,es,other',
+            'series' => 'nullable|string|max:255',
+            'series_index' => 'nullable|numeric|min:0|max:999999',
         ]);
 
         $object = $this->novels->findOrFail($id);
+
+        // A book's series, set by the owner (series_source manual): a weaker
+        // source never changes it. Cleared, it stays "no series" ('' and
+        // manual) so the inference doesn't add one back. Unchanged fields
+        // leave Calibre's, the ePub's or a guess alone.
+        if ($object->isBook() && $request->has('series')) {
+            $series = trim((string) $request->input('series'));
+            $index = $series !== '' ? \App\Books\BookSeries::index($request->input('series_index')) : null;
+            $before = trim((string) $object->series);
+            if ($series !== $before || ($series !== '' && $index !== \App\Books\BookSeries::index($object->series_index))) {
+                $object->forceFill([
+                    'series' => $series,
+                    'series_index' => $index,
+                    'series_source' => \App\Books\BookSeries::MANUAL,
+                ]);
+            }
+        }
 
         if ( $request->has('name') ) {
             $object->name = $request->name;

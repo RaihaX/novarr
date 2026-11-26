@@ -60,6 +60,26 @@
                             @endforeach
                         </select>
                     </div>
+                    @if($novel->isBook())
+                        @php
+                            $seriesSetBy = match ($novel->series_source) {
+                                'calibre' => 'Set by Calibre',
+                                'epub' => "Set by the ePub's own metadata",
+                                'inferred' => 'Guessed from the titles of the author\'s books',
+                                'manual' => (string) $novel->series === '' ? 'Set by you: no series (no guess will add one)' : 'Set by you',
+                                default => 'No series',
+                            };
+                        @endphp
+                        <div class="field field-half">
+                            <label for="series" class="form-label">Series</label>
+                            <input type="text" name="series" id="series" class="form-control" maxlength="255" value="{{ old('series', $novel->series) }}" aria-describedby="seriesSetBy">
+                            <div class="form-text" id="seriesSetBy" data-series-source="{{ $novel->series_source }}">{{ $seriesSetBy }}. A change here is yours; clear it for no series.</div>
+                        </div>
+                        <div class="field field-quarter">
+                            <label for="series_index" class="form-label">Number in series</label>
+                            <input type="number" name="series_index" id="series_index" class="form-control" min="0" max="999999" step="any" value="{{ old('series_index', \App\Books\BookSeries::formatIndex($novel->series_index)) }}">
+                        </div>
+                    @endif
                     @php
                         // Auto unless you set it; a manual value shows as itself.
                         $isMangaForm = $novel->isManga();

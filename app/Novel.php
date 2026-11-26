@@ -41,6 +41,11 @@ class Novel extends Model
         // The upstream source behind a shared host (a Suwayomi source id);
         // see App\Services\DownloadLanes.
         "source_ref",
+        // Books only (App\Books\BookSeries): the series, the book's number
+        // in it, and who set them (calibre | epub | inferred | manual).
+        "series",
+        "series_index",
+        "series_source",
     ];
 
     /** In memory as in the database: a new row is a novel unless set. */
@@ -95,6 +100,8 @@ class Novel extends Model
         'origin_type' => 'string',
         'origin_confidence' => 'string',
         'source_ref' => 'string',
+        // decimal(8,2) comes back as "2.00" (MariaDB) or 2 (SQLite): one type.
+        'series_index' => 'float',
     ];
 
     public function chapters(): HasMany

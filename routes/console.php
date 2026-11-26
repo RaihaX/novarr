@@ -240,3 +240,13 @@ $oneServer(Schedule::command('books:calibre-import')
     ->name('books_calibre_import')
     ->withoutOverlapping(120)
     ->runInBackground());
+
+// Series of the Books library (App\Books\BookSeries): nightly, Calibre-Web's
+// series for the books imported from it (when Calibre-Web is set up), then
+// the guesses from titles for the rest (App\Books\SeriesInference). A new
+// book is grouped with its author's books as it arrives; this catches the rest.
+$oneServer(Schedule::command('books:series' . (\App\Books\CalibreWeb::enabled() ? ' --calibre' : ''))
+    ->dailyAt('04:45')
+    ->name('books_series')
+    ->withoutOverlapping(60)
+    ->runInBackground());

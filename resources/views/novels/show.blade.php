@@ -68,6 +68,39 @@
 
     <div class="nv-head">
         <h1 class="nv-title">{{ $data->name }}</h1>
+        @if($isBook && ($series_books ?? collect())->isNotEmpty())
+            @php
+                // "Book 2 of The Iron Sky Trilogy", previous / next in series order.
+                $seriesPos = $series_books->search(fn($b) => (int) $b->id === (int) $data->id);
+                $seriesPrev = $seriesPos !== false && $seriesPos > 0 ? $series_books[$seriesPos - 1] : null;
+                $seriesNext = $seriesPos !== false ? $series_books->get($seriesPos + 1) : null;
+                $seriesNumber = \App\Books\BookSeries::formatIndex($data->series_index);
+                $seriesUrl = route('novels.index', ['medium' => \App\Novel::MEDIUM_BOOK, 'series' => $data->series]);
+            @endphp
+            <nav class="nv-series" aria-label="Series">
+                <span class="nv-series-of">
+                    {{ $seriesNumber !== null ? "Book {$seriesNumber} of" : 'Part of' }}
+                    <a href="{{ $seriesUrl }}" class="nv-series-link">{{ $data->series }}</a>
+                    @if($series_books->count() > 1)
+                        <span class="nv-series-count">· {{ $series_books->count() }} books</span>
+                    @endif
+                </span>
+                @if($seriesPrev || $seriesNext)
+                    <span class="nv-series-nav">
+                        @if($seriesPrev)
+                            <a href="{{ route('novels.show', $seriesPrev->id) }}" class="nv-series-step" rel="prev" title="{{ $seriesPrev->name }}">
+                                <x-icon name="chevron-left" :size="13" /><span>Previous<span class="visually-hidden">: {{ $seriesPrev->name }}</span></span>
+                            </a>
+                        @endif
+                        @if($seriesNext)
+                            <a href="{{ route('novels.show', $seriesNext->id) }}" class="nv-series-step" rel="next" title="{{ $seriesNext->name }}">
+                                <span>Next<span class="visually-hidden">: {{ $seriesNext->name }}</span></span><x-icon name="chevron-right" :size="13" />
+                            </a>
+                        @endif
+                    </span>
+                @endif
+            </nav>
+        @endif
         <p class="nv-byline">
             <span class="nv-author">{{ $data->author ?: 'Unknown author' }}</span>
             <span class="nv-sep" aria-hidden="true">·</span>

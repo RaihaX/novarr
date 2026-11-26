@@ -166,10 +166,10 @@ class UiP1Test extends TestCase
         $this->get(route('chapters.show', $chapter->id))
             ->assertOk()
             ->assertSee('is-chromeless', false)
-            ->assertDontSee('navbar navbar-expand-lg', false);
+            ->assertDontSee('navbar navbar-expand-xl', false);
 
         $this->get(route('novels.show', $novel->id))
-            ->assertSee('navbar navbar-expand-lg', false);
+            ->assertSee('navbar navbar-expand-xl', false);
     }
 
     public function test_book_column_only_when_a_chapter_has_a_book(): void

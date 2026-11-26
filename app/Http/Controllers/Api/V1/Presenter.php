@@ -23,7 +23,7 @@ class Presenter
     public const SUMMARY_COLUMNS = [
         'id', 'name', 'author', 'status', 'paused_at', 'no_of_chapters',
         'scrape_failures', 'toc_failures', 'origin', 'origin_language', 'medium',
-        'origin_source', 'origin_confidence',
+        'origin_source', 'origin_confidence', 'series', 'series_index',
     ];
 
     /**
@@ -102,6 +102,10 @@ class Presenter
             'last_read_at' => static::timestamp($a['last_read']),
             'updated_at' => static::timestamp($a['last_download']),
             'resume_chapter_id' => $context['resume'][$id] ?? null,
+            // A book's series and its number in it (App\Books\BookSeries);
+            // null when none ('' = the owner's "no series" is none too).
+            'series' => (string) $novel->series !== '' ? (string) $novel->series : null,
+            'series_index' => (string) $novel->series !== '' && $novel->series_index !== null ? (float) $novel->series_index : null,
         ];
     }
 

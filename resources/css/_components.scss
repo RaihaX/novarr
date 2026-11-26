@@ -344,8 +344,18 @@ hr { border-top-color: $border; }
     border-radius: 3px;
 }
 
-@include media-breakpoint-down(lg) {
+@include media-breakpoint-down(xl) {
     .nav-search { width: 100%; }
+}
+
+// Ten nav items since Books: between the bar opening out (xl) and wide screens
+// the links tighten and the search narrows, so the bar stays one line and the
+// theme toggle stays on screen.
+@media (min-width: 1200px) and (max-width: 1399.98px) {
+    .navbar .navbar-nav { gap: 0; }
+    .navbar .nav-link { padding-left: $s-2; padding-right: $s-2; }
+    .nav-search { width: 180px; }
+    .nav-search .nav-search-kbd { display: none; }
 }
 
 // ---------------------------------------------------------------------------

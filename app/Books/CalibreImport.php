@@ -157,6 +157,12 @@ class CalibreImport
             if (!empty($entry['tags'])) {
                 $details['genres'] = $entry['tags'];
             }
+            // Calibre's series is curated: it wins over the ePub's own.
+            if (trim((string) ($entry['series'] ?? '')) !== '') {
+                $details['series'] = $entry['series'];
+                $details['series_index'] = $entry['series_index'] ?? null;
+                $details['series_source'] = BookSeries::CALIBRE;
+            }
             if ($cover = $this->calibre->cover($entry)) {
                 $details['cover_bytes'] = $cover;
             }

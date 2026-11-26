@@ -59,9 +59,11 @@ class CalibreImportTest extends TestCase
             $lang = isset($b['lang']) ? "<dcterms:language>{$b['lang']}</dcterms:language>" : '';
             $tags = implode('', array_map(fn($t) => "<category scheme=\"x\" term=\"{$t}\" label=\"{$t}\"/>", $b['tags'] ?? []));
             $epub = ($b['epub'] ?? true) ? "<link rel=\"http://opds-spec.org/acquisition\" href=\"/opds/download/{$b['id']}/epub/\" length=\"1\" title=\"EPUB\" type=\"application/epub+zip\"/>" : '';
+            // Every book is in "Cycle" #2 unless the fixture says otherwise (false: no series).
+            $series = ($b['series'] ?? 'Cycle [2.00]') !== false ? 'SERIES: ' . ($b['series'] ?? 'Cycle [2.00]') . '<br/>' : '';
             $entries .= "<entry><title>{$b['title']}</title><id>urn:uuid:uuid-{$b['id']}</id><updated>2026-11-20T00:00:00+00:00</updated>"
                 . "<author><name>{$b['author']}</name></author><published>2021-05-01T00:00:00+00:00</published>{$lang}{$tags}"
-                . "<content type=\"xhtml\"><div xmlns=\"http://www.w3.org/1999/xhtml\">TAGS: x<br/>SERIES: Cycle [2.00]<br/><p>{$b['title']} description.</p></div></content>"
+                . "<content type=\"xhtml\"><div xmlns=\"http://www.w3.org/1999/xhtml\">TAGS: x<br/>{$series}<p>{$b['title']} description.</p></div></content>"
                 . "<link type=\"image/jpeg\" href=\"/opds/cover/{$b['id']}\" rel=\"http://opds-spec.org/image\"/>"
                 . "<link rel=\"http://opds-spec.org/acquisition\" href=\"/opds/download/{$b['id']}/mobi/\" title=\"MOBI\" type=\"application/x-mobipocket-ebook\"/>{$epub}</entry>";
         }
@@ -251,6 +253,58 @@ class CalibreImportTest extends TestCase
 
         $this->assertSame(0, Novel::books()->count());
         $this->assertSame('1', (string) Setting::get(CalibreImport::MARK));
+    }
+
+    public function test_import_keeps_calibres_series_over_the_epubs(): void
+    {
+        // The downloaded ePub says "Orchard Cycle" #2 (EpubBuilder); Calibre says "Cycle" #2.
+        $this->fakeCalibre([0 => self::feed([
+            ['id' => 9, 'title' => 'Dune', 'author' => 'Frank Herbert', 'lang' => 'eng', 'series' => 'Dune Chronicles [1.00]'],
+            ['id' => 8, 'title' => 'Loose', 'author' => 'Frank Herbert', 'lang' => 'eng', 'series' => false],
+        ])]);
+        $entries = app(CalibreWeb::class)->recent()['entries'];
+
+        $dune = app(CalibreImport::class)->import($entries[0])['novel']->fresh();
+        $this->assertSame('Dune Chronicles', $dune->series);
+        $this->assertSame(1.0, $dune->series_index);
+        $this->assertSame('calibre', $dune->series_source);
+
+        // No series in Calibre: the ePub's own.
+        $loose = app(CalibreImport::class)->import($entries[1])['novel']->fresh();
+        $this->assertSame('Orchard Cycle', $loose->series);
+        $this->assertSame(2.0, $loose->series_index);
+        $this->assertSame('epub', $loose->series_source);
+    }
+
+    public function test_books_series_calibre_backfills_imported_books_but_never_the_owners_choice(): void
+    {
+        $this->fakeCalibre([0 => self::feed([
+            ['id' => 9, 'title' => 'Dune', 'author' => 'Frank Herbert', 'lang' => 'eng', 'series' => 'Dune Chronicles [1.00]'],
+            ['id' => 8, 'title' => 'Messiah', 'author' => 'Frank Herbert', 'lang' => 'eng', 'series' => 'Dune Chronicles [2.00]'],
+        ], 2), 2 => self::feed([
+            ['id' => 7, 'title' => 'Mine', 'author' => 'Frank Herbert', 'lang' => 'eng', 'series' => 'Dune Chronicles [3.00]'],
+        ])]);
+        $make = fn(string $name, string $uuid, array $attrs = []) => Novel::create(array_merge([
+            'name' => $name, 'author' => 'Frank Herbert', 'medium' => Novel::MEDIUM_BOOK, 'group_id' => 0, 'status' => 1,
+            'no_of_chapters' => 1, 'source_ref' => BookLibrary::CALIBRE_REF . $uuid,
+        ], $attrs));
+        // Imported before series were stored.
+        $dune = $make('Dune', 'uuid-9');
+        $messiah = $make('Messiah', 'uuid-8', ['series' => 'Orchard Cycle', 'series_index' => 2, 'series_source' => 'epub']);
+        $mine = $make('Mine', 'uuid-7', ['series' => '', 'series_source' => 'manual']);
+
+        $this->artisan('books:series', ['--calibre' => true, '--dry-run' => true])
+            ->expectsOutputToContain('[dry run] Calibre: 3 books read, 3 in the library, 2 series set')
+            ->assertSuccessful();
+        $this->assertNull($dune->fresh()->series);
+
+        $this->artisan('books:series', ['--calibre' => true])->assertSuccessful();
+
+        $this->assertSame(['Dune Chronicles', 1.0, 'calibre'], [$dune->fresh()->series, $dune->fresh()->series_index, $dune->fresh()->series_source]);
+        // Calibre's series wins over the ePub's.
+        $this->assertSame(['Dune Chronicles', 2.0, 'calibre'], [$messiah->fresh()->series, $messiah->fresh()->series_index, $messiah->fresh()->series_source]);
+        // The owner said "no series": it stays so.
+        $this->assertSame(['', 'manual'], [$mine->fresh()->series, $mine->fresh()->series_source]);
     }
 
     public function test_wrong_credentials_are_reported(): void

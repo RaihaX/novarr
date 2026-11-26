@@ -15,6 +15,9 @@ use Illuminate\Support\Facades\Cache;
  *   books:calibre-import --all      the whole library (English ePubs; skips what is in)
  *   books:calibre-import --limit=N  stop after N imports
  *   books:calibre-import --dry-run  list, import nothing
+ *
+ * After a run that imported something, the series inference runs over the
+ * whole library (App\Books\BookSeries::infer).
  */
 class CalibreImportCommand extends Command
 {
@@ -68,6 +71,13 @@ class CalibreImportCommand extends Command
             $this->info('Starting point set: books added to Calibre from now on are imported. Use --all for the whole library.');
         }
         $this->info("Imported {$counts['imported']}, skipped {$counts['skipped']}, failed {$counts['failed']}.");
+
+        // Each book was grouped with its author's books as it arrived; one
+        // pass over the whole library catches authors written differently.
+        if ($counts['imported'] > 0 && !$this->option('dry-run')) {
+            $series = \App\Books\BookSeries::infer();
+            $this->info("Series: {$series['assigned']} books grouped, {$series['cleared']} cleared ({$series['series']} inferred series).");
+        }
 
         return $counts['failed'] > 0 && $counts['imported'] === 0 ? self::FAILURE : self::SUCCESS;
     }

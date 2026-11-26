@@ -8,7 +8,9 @@
     $activeList ??= null;
     $activeOrigin ??= null;
     $originCounts ??= [];
-    $hasFilters = request('search') || request()->filled('status') || request()->filled('tag') || $filter !== 'all' || $activeList || $activeOrigin;
+    $activeSeries ??= null;
+    $activeSeriesCount ??= 0;
+    $hasFilters = request('search') || request()->filled('status') || request()->filled('tag') || $filter !== 'all' || $activeList || $activeOrigin || $activeSeries !== null;
     $libraryTitle = LibraryMedium::title($medium);
     $mediumNoun = LibraryMedium::noun($medium);
     // Chip / toggle links keep every other query parameter and the library
@@ -101,7 +103,7 @@
     </nav>
 
     <form method="GET" action="{{ route('novels.index') }}" class="lib-tools" role="search">
-        @foreach(['filter' => $filter === 'all' ? null : $filter, 'ids' => request('ids'), 'view' => $view, 'status' => request('status'), 'medium' => $medium] as $k => $v)
+        @foreach(['filter' => $filter === 'all' ? null : $filter, 'ids' => request('ids'), 'view' => $view, 'status' => request('status'), 'medium' => $medium, 'series' => $activeSeries] as $k => $v)
             @if($v !== null && $v !== '')
                 <input type="hidden" name="{{ $k }}" value="{{ $v }}">
             @endif
@@ -197,6 +199,23 @@
     </section>
 @endif
 
+@if($activeSeries !== null)
+    {{-- One series of the Books library (?series=): its books in series
+         order (series_index, then name). --}}
+    <section class="lib-listbar lib-seriesbar" aria-labelledby="libSeriesTitle">
+        <div class="lib-listbar-head">
+            <x-icon name="library" :size="16" class="lib-listbar-icon" />
+            <h2 class="lib-listbar-title" id="libSeriesTitle"><span class="lib-seriesbar-kicker">Series:</span> {{ $activeSeries }}</h2>
+            <span class="lib-listbar-count">· <span class="mono-num">{{ number_format($activeSeriesCount) }}</span> {{ Str::plural('book', $activeSeriesCount) }}</span>
+        </div>
+        <div class="lib-listbar-actions">
+            <a href="{{ request()->fullUrlWithQuery(['series' => null, 'page' => null, 'search' => null, 'medium' => $medium]) }}" class="btn btn-ghost btn-sm">
+                <x-icon name="chevron-left" :size="13" />All books
+            </a>
+        </div>
+    </section>
+@endif
+
 <div id="bulkBar" class="novels-bulk-bar">
     <span id="bulkCount" class="bulk-count"></span>
     <button type="button" id="bulkRead" class="btn btn-secondary">Mark all read</button>
@@ -227,7 +246,7 @@
             if ($shelved) {
                 $shelves = ['reading' => [], 'unstarted' => [], 'finished' => []];
                 foreach ($novels as $novel) {
-                    $r = $reading[$novel->id] ?? $blank;
+                    $r = $novel instanceof \App\Books\SeriesCard ? $novel->reading($reading) : ($reading[$novel->id] ?? $blank);
                     $shelves[$r['finished'] ? 'finished' : ($r['read'] > 0 ? 'reading' : 'unstarted')][] = $novel;
                 }
                 $shelves = array_filter($shelves);
@@ -246,6 +265,32 @@
                     @endif
                     <ul class="lib-grid" role="list">
                         @foreach($shelfNovels as $novel)
+                            @if($novel instanceof \App\Books\SeriesCard)
+                                @php
+                                    // A series: one card (its first book's cover on a
+                                    // small stack, "N BOOKS"), opening the series' view.
+                                    $card = $novel;
+                                    $cr = $card->reading($reading);
+                                    [$sub, $subTone] = match (true) {
+                                        $cr['finished'] => ['FINISHED', 'tone-success'],
+                                        $cr['read'] === 0 => ['NOT STARTED', 'tone-muted'],
+                                        default => [$cr['books_finished'] . ' / ' . $card->count() . ' READ', ''],
+                                    };
+                                    $eager = $tileIndex++ < 6;
+                                @endphp
+                                <li class="lib-tile lib-tile-series" data-series="{{ $card->name }}">
+                                    <a href="{{ $card->url(['view' => $view, 'sort' => $sort]) }}" class="lib-tile-link"
+                                       title="{{ $card->name }} — series of {{ $card->count() }} books">
+                                        <span class="lib-series-stack">
+                                            <x-cover :novel="$card->cover" :progress="$cr['percent']" :eager="$eager" :chip="$card->count() . ' BOOKS'" decorative />
+                                        </span>
+                                        <span class="lib-tile-title">{{ $card->name }}</span>
+                                        <span class="lib-tile-sub {{ $subTone }}">{{ $sub }}</span>
+                                        <span class="lib-tile-origin"><span class="lib-tile-origin-text">{{ $card->cover->author ?: 'Unknown author' }}</span></span>
+                                    </a>
+                                </li>
+                                @continue
+                            @endif
                             @php
                                 $r = $reading[$novel->id] ?? $blank;
                                 // Download figure for the tooltip — same definition as the
@@ -288,6 +333,12 @@
                                     <span class="lib-tile-sub {{ $subTone }}" data-reading="{{ $r['read'] }}/{{ $r['total'] }}">{{ $sub }}</span>
                                     @if($origin || $novel->originCountry())
                                         <span class="lib-tile-origin"><x-origin :novel="$novel" />@if($origin)<span class="lib-tile-origin-text">{{ $origin }}</span>@endif</span>
+                                    @endif
+                                    @if($isBooks && (string) $novel->series !== '')
+                                        {{-- Listed on its own (a search, a series' view, or the
+                                             series' only book here): where it sits in its series. --}}
+                                        @php $seriesNo = \App\Books\BookSeries::formatIndex($novel->series_index); @endphp
+                                        <span class="lib-tile-origin lib-tile-seriesline"><span class="lib-tile-origin-text">{{ $activeSeries !== null ? ($seriesNo !== null ? "Book {$seriesNo}" : 'Unnumbered') : $novel->series . ($seriesNo !== null ? " #{$seriesNo}" : '') }}</span></span>
                                     @endif
                                 </a>
                                 <input type="checkbox" class="form-check-input novel-check lib-tile-check" value="{{ $novel->id }}" aria-label="Select {{ $novel->name }}" tabindex="-1">
@@ -337,7 +388,7 @@
                     @endif
                     <div class="novel-row-body">
                         <div class="novel-row-title">{{ $novel->name }} <x-origin :novel="$novel" class="align-text-bottom" /></div>
-                        <div class="novel-row-meta">{{ $novel->author ?? 'Unknown author' }}</div>
+                        <div class="novel-row-meta">{{ $novel->author ?? 'Unknown author' }}@if($isBooks && (string) $novel->series !== '') · {{ $novel->series }}@if(($seriesNo = \App\Books\BookSeries::formatIndex($novel->series_index)) !== null) #{{ $seriesNo }}@endif @endif</div>
                         <div class="novel-row-counts">Read {{ number_format($r['read']) }} of {{ number_format($r['total']) }} · {{ $r['percent'] }}%</div>
                         <div class="novel-row-progress" aria-hidden="true"><span class="bar-reading" style="width: {{ $r['percent'] }}%"></span></div>
                         <div class="novel-row-counts">Downloaded {{ number_format($downloaded) }} of {{ number_format($total) }} on source · {{ $pct }}%</div>
@@ -361,6 +412,9 @@
                     <th class="col-cover"><span class="visually-hidden">Cover</span></th>
                     <th>Name</th>
                     <th class="col-author">Author</th>
+                    @if($isBooks)
+                        <th class="col-series">Series</th>
+                    @endif
                     <th class="col-status">Status</th>
                     <th class="col-read">Read</th>
                     <th class="col-progress">Downloaded</th>
@@ -401,6 +455,15 @@
                             <x-origin :novel="$novel" class="ms-1 align-text-bottom" />
                         </td>
                         <td class="col-author">{{ $novel->author ?? '—' }}</td>
+                        @if($isBooks)
+                            <td class="col-series">
+                                @if((string) $novel->series !== '')
+                                    <a href="{{ route('novels.index', ['medium' => $medium, 'series' => $novel->series, 'view' => $view]) }}" class="lib-series-cell">{{ $novel->series }}</a>@if(($seriesNo = \App\Books\BookSeries::formatIndex($novel->series_index)) !== null) <span class="mono-num text-muted">#{{ $seriesNo }}</span>@endif
+                                @else
+                                    —
+                                @endif
+                            </td>
+                        @endif
                         <td class="col-status">
                             <x-status :state="\App\Enums\NovelState::forNovel($novel)" />
                         </td>
@@ -436,7 +499,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="9">@include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter, 'medium' => $medium])</td>
+                        <td colspan="{{ $isBooks ? 10 : 9 }}">@include('novels._empty', ['hasFilters' => $hasFilters, 'filter' => $filter, 'medium' => $medium])</td>
                     </tr>
                 @endforelse
             </tbody>
@@ -557,8 +620,10 @@
         if (!grid.classList.contains('is-selecting')) return;
         const tile = e.target.closest('.lib-tile');
         if (!tile || e.target.classList.contains('novel-check')) return;
-        e.preventDefault();
         const box = tile.querySelector('.novel-check');
+        // A series card has no checkbox: it still opens the series.
+        if (!box) return;
+        e.preventDefault();
         box.checked = !box.checked;
         refreshBulkBar();
     });

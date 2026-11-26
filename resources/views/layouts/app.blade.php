@@ -94,7 +94,8 @@
         </div>
     </nav>
     @elseif(!$isChromeless)
-    <nav class="navbar navbar-expand-lg">
+    {{-- Opens out from xl (1200px): ten items since Books no longer fit a 992px bar. --}}
+    <nav class="navbar navbar-expand-xl">
         <div class="container d-flex align-items-center">
             {{-- Brand lockup: 28px mark + 15px wordmark (handoff §4) --}}
             <a class="navbar-brand" href="{{ url('/') }}">

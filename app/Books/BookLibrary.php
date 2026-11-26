@@ -107,7 +107,9 @@ class BookLibrary
      *                                the file's subjects), cover_url (a catalogue cover, over the file's),
      *                                file_cover (false: never the file's own cover), cover_bytes (an
      *                                image to use as the cover, over everything), source_ref (stored on
-     *                                the book: "calibre:{uuid}")
+     *                                the book: "calibre:{uuid}"), series + series_index (over the
+     *                                file's own series when non-empty) with series_source (who chose
+     *                                it: BookSeries::CALIBRE, else BookSeries::MANUAL)
      * @return array{result: string, novel: Novel}  result: created | existing | duplicate
      *
      * @throws EpubException  the file cannot be read as an ePub or has no text
@@ -140,6 +142,18 @@ class BookLibrary
         }
 
         $metadata['source_ref'] = $details['source_ref'] ?? null;
+
+        // Series: the caller's (Calibre, the owner), else the file's own; a
+        // book without one may get a guess below (BookSeries::inferFor).
+        $metadata['series_source'] = null;
+        if (trim((string) ($details['series'] ?? '')) !== '') {
+            $metadata['series'] = trim((string) $details['series']);
+            $metadata['series_index'] = $details['series_index'] ?? null;
+            $metadata['series_source'] = ($details['series_source'] ?? null) === BookSeries::CALIBRE ? BookSeries::CALIBRE : BookSeries::MANUAL;
+        } elseif (trim((string) ($metadata['series'] ?? '')) !== '') {
+            $metadata['series'] = trim((string) $metadata['series']);
+            $metadata['series_source'] = BookSeries::EPUB;
+        }
         $title = $metadata['title'] ?: self::titleFromFilename($originalName);
         $url = self::urlFor(sha1_file($file));
 
@@ -186,6 +200,16 @@ class BookLibrary
         if (!$covered && $cover !== null && ($details['file_cover'] ?? true)) {
             $this->attachCover($novel, $cover);
         }
+        // A guess from its author's other books ("Vol. 2" joins "Vol. 1"):
+        // one small query; never fails the import.
+        try {
+            if (BookSeries::inferFor($novel)['assigned'] > 0) {
+                $row = DB::table('novels')->where('id', $novel->id)->first(['series', 'series_index', 'series_source']);
+                $novel->forceFill((array) $row)->syncOriginalAttributes(['series', 'series_index', 'series_source']);
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Book {$novel->id}: series inference failed: " . $e->getMessage());
+        }
         CacheHelper::clearNovelCache((int) $novel->id);
 
         Log::info('Book added', ['novel' => $novel->id, 'title' => $novel->name, 'chapters' => count($chapters)]);
@@ -214,6 +238,11 @@ class BookLibrary
             $novel->no_of_chapters = count($chapters);
             $novel->origin_language = $metadata['language'];
             $novel->source_ref = $metadata['source_ref'] ?? null;
+            if (($metadata['series_source'] ?? null) !== null) {
+                $novel->series = mb_substr((string) $metadata['series'], 0, 255);
+                $novel->series_index = BookSeries::index($metadata['series_index'] ?? null);
+                $novel->series_source = $metadata['series_source'];
+            }
             // Complete on arrival: nothing will ever be added to it.
             $novel->status = 1;
             $novel->completed_at = now();

@@ -525,7 +525,10 @@
 
 #reqFreeDialog legend.form-label { float: none; }
 
-// The pending count next to "Requests" in the desktop nav.
+// The pending count next to "Requests" in the desktop nav: on the same line
+// as the word even when the nav is full (Books made it one item longer).
+#navRequests { white-space: nowrap; }
+
 .nav-count {
     margin-left: 6px;
     vertical-align: 1px;

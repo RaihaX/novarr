@@ -24,6 +24,8 @@ class ApiV1Test extends TestCase
         'finished', 'last_read_at', 'updated_at', 'resume_chapter_id',
         // Manga phase 1: 'novel' | 'manga'.
         'medium',
+        // Books: the series and the book's number in it (null when none).
+        'series', 'series_index',
     ];
 
     private const REF_KEYS = ['id', 'label', 'chapter', 'book'];
