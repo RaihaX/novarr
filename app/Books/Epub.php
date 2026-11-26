@@ -32,6 +32,9 @@ class Epub
      * Sections the contents names that are no part of the text: a list of
      * the chapters, the copyright and publisher pages.
      */
+    /** A "boilerplate" section longer than this is real text with a misleading label. */
+    public const MAX_BOILERPLATE_WORDS = 1500;
+
     private const BOILERPLATE = '/^(?:(?:table of )?contents|toc|imprint|colophon|uncopyright|copyright(?: page)?|title ?page|half ?title|cover)$/i';
 
     private ZipArchive $zip;
@@ -204,9 +207,13 @@ class Epub
             ? $this->sectionsPerDocument($documents)
             : $this->sectionsFromContents($entries, $documents);
 
+        // Title, copyright and similar pages are dropped while they are short:
+        // a long one is the book itself under a misleading first label. A
+        // list of the chapters is dropped whatever its length.
         $sections = array_values(array_filter(
             $sections,
             fn($section) => !preg_match(self::BOILERPLATE, trim($section['label']))
+                || ($section['words'] > self::MAX_BOILERPLATE_WORDS && !preg_match('/^(?:(?:table of )?contents|toc)$/i', trim($section['label'])))
         ));
 
         return $this->mergeShortSections($sections);
@@ -414,7 +421,10 @@ class Epub
         $seen = [];
         $kept = [];
         foreach ($entries as $entry) {
-            $key = $entry['path'] . '#' . ($entry['fragment'] ?? '');
+            // A repeat of the same place is dropped; entries without an anchor
+            // into one shared file are told apart by their label (each is
+            // found by its heading text in sectionsFromContents()).
+            $key = $entry['path'] . '#' . ($entry['fragment'] ?? ("\0" . mb_strtolower($entry['label'])));
             if ($entry['label'] === '' || isset($seen[$key]) || !in_array($entry['path'], $this->spine, true)) {
                 continue;
             }
@@ -549,9 +559,19 @@ class Epub
     {
         // path => [block index => label]; a fragment not found starts at the top.
         $starts = [];
+        // path => index of the last start placed, so text search moves forward.
+        $cursor = [];
+        // How many entries share each path without an anchor.
+        $anchorless = [];
         foreach ($entries as $entry) {
-            $blocks = $documents[$entry['path']] ?? [];
-            $at = 0;
+            if ($entry['fragment'] === null) {
+                $anchorless[$entry['path']] = ($anchorless[$entry['path']] ?? 0) + 1;
+            }
+        }
+        foreach ($entries as $entry) {
+            $path = $entry['path'];
+            $blocks = $documents[$path] ?? [];
+            $at = null;
             if ($entry['fragment'] !== null) {
                 foreach ($blocks as $index => $block) {
                     if (in_array($entry['fragment'], $block['ids'], true)) {
@@ -560,8 +580,20 @@ class Epub
                     }
                 }
             }
+            // Several entries into one file with no anchor (a single-file
+            // conversion): each starts at the paragraph that reads like its
+            // label, after the previous one. The first that cannot be found
+            // starts at the top only when it is the first in the file.
+            if ($at === null && ($anchorless[$path] ?? 0) > 1) {
+                $at = self::findHeading($blocks, $entry['label'], ($cursor[$path] ?? -1) + 1);
+                if ($at === null && isset($starts[$path])) {
+                    continue; // not in the text: no chapter of its own
+                }
+            }
+            $at ??= 0;
             // Two entries at one place ("Part One" and its first chapter): the later, deeper one names it.
-            $starts[$entry['path']][$at] = $entry['label'];
+            $starts[$path][$at] = $entry['label'];
+            $cursor[$path] = max($cursor[$path] ?? -1, $at);
         }
 
         $sections = [];
@@ -587,6 +619,35 @@ class Epub
             fn($section) => ['label' => $section['label'], 'html' => $section['html'], 'words' => $section['words']],
             array_filter($sections, fn($section) => !$section['front'] || $section['words'] >= self::MIN_FRONT_MATTER_WORDS)
         ));
+    }
+
+    /**
+     * The first block from $from on whose text begins like $label (case,
+     * punctuation and spacing ignored), within its first few words, or null.
+     * "CHAPTER 2 Rain of Fire" finds "Chapter 2: Rain of Fire" and "CHAPTER 2"
+     * followed by the title in the next paragraph.
+     */
+    private static function findHeading(array $blocks, string $label, int $from): ?int
+    {
+        $flat = fn(string $text): string => trim(preg_replace('/[^\p{L}\p{N}]+/u', ' ', mb_strtolower(html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?? '');
+        $want = $flat($label);
+        if ($want === '') {
+            return null;
+        }
+        $count = count($blocks);
+        for ($i = max(0, $from); $i < $count; $i++) {
+            $text = $flat($blocks[$i]['html']);
+            if ($text === '' || mb_strlen($text) > mb_strlen($want) + 80) {
+                continue; // a heading is short; a long paragraph only mentions it
+            }
+            // The label split over two short paragraphs ("Chapter 2" / "Rain of Fire").
+            $joined = $i + 1 < $count ? trim($text . ' ' . $flat($blocks[$i + 1]['html'])) : $text;
+            if (str_starts_with($text, $want) || $text === $want || str_starts_with($joined, $want)) {
+                return $i;
+            }
+        }
+
+        return null;
     }
 
     /**

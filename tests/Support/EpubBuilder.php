@@ -114,6 +114,34 @@ class EpubBuilder
         return self::zip($files);
     }
 
+    /**
+     * A single-file conversion (as Amazon/Calibre write them): every NCX
+     * entry points at the same file with no anchor, the first is
+     * "Copyright", chapters are found only by their headings.
+     */
+    public static function singleFile(): string
+    {
+        $w = self::words(60);
+        $body = '<p>Copyright 2014 by Someone. All rights reserved.</p>'
+            . "<p>CHAPTER 1</p><p>Emergence</p><p>Alarms rang {$w}</p>"
+            . "<p>CHAPTER 2 Rain of Fire</p><p>The rain {$w}</p>"
+            . "<p>Somewhere in the text the words chapter 3 the gathering storm are mentioned in a long sentence {$w}</p>"
+            . "<p>Chapter 3: The Gathering Storm</p><p>Storm {$w}</p>";
+        $points = '';
+        foreach (['Copyright', 'CHAPTER 1 Emergence', 'CHAPTER 2 Rain of Fire', 'CHAPTER 3 The Gathering Storm', 'CHAPTER 9 Not There'] as $i => $label) {
+            $points .= "<navPoint id=\"p{$i}\"><navLabel><text>{$label}</text></navLabel><content src=\"text/part0000.html\"/></navPoint>";
+        }
+
+        return self::zip([
+            'mimetype' => 'application/epub+zip',
+            'META-INF/container.xml' => '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
+            'text/part0000.html' => self::xhtml('Unknown', $body),
+            'toc.ncx' => '<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><navMap>' . $points . '</navMap></ncx>',
+            'content.opf' => '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Fang</dc:title><dc:language>en</dc:language></metadata>'
+                . '<manifest><item id="id1" href="text/part0000.html" media-type="application/xhtml+xml"/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/></manifest><spine toc="ncx"><itemref idref="id1"/></spine></package>',
+        ]);
+    }
+
     /** A zip that is not an ePub (no package document). */
     public static function notAnEpub(): string
     {

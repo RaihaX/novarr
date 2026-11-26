@@ -111,6 +111,20 @@ class BooksTest extends TestCase
         $this->assertStringStartsWith('<p><strong>The Quiet Orchard</strong></p>', $chapters[0]['html']);
     }
 
+    public function test_a_single_file_conversion_is_split_by_its_headings(): void
+    {
+        $chapters = Epub::open(EpubBuilder::singleFile())->chapters();
+
+        // The short copyright page is dropped, each chapter starts at its own
+        // heading (a mention inside a long paragraph doesn't count), and an
+        // entry not in the text gets no chapter.
+        $this->assertSame(['CHAPTER 1 Emergence', 'CHAPTER 2 Rain of Fire', 'CHAPTER 3 The Gathering Storm'], array_column($chapters, 'label'));
+        $this->assertStringStartsWith('<p>CHAPTER 1</p><p>Emergence</p>', $chapters[0]['html']);
+        $this->assertStringContainsString('mentioned in a long sentence', $chapters[1]['html']);
+        $this->assertStringStartsWith('<p>Chapter 3: The Gathering Storm</p>', $chapters[2]['html']);
+        $this->assertStringNotContainsString('Copyright', implode('', array_column($chapters, 'html')));
+    }
+
     public function test_a_file_that_is_not_an_epub_is_refused(): void
     {
         $this->expectException(EpubException::class);
