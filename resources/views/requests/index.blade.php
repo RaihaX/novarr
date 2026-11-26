@@ -24,7 +24,10 @@
     <div class="page-head-titles">
         <span class="page-head-kicker">Requests</span>
         <h1 class="page-title mb-0">Request a series</h1>
-        <p class="page-head-sub mb-0">Ask for a novel or manga that isn’t in the library yet. The owner decides; you’ll see here when it’s ready to read.</p>
+        <p class="page-head-sub mb-0">Ask for a novel or manga that isn’t in the library yet, or send a book you have as an ePub. The owner decides; you’ll see here when it’s ready to read.</p>
+    </div>
+    <div class="page-head-actions">
+        <a href="{{ route('books.upload') }}" class="btn btn-secondary" id="reqUploadBook">Upload a book</a>
     </div>
 </div>
 

@@ -66,6 +66,10 @@ class GenerateePub extends Command
             $this->warn("Novel {$novelId} is a manga — ePubs are made from chapter text only.");
             return self::SUCCESS;
         }
+        if ($novelId != 0 && Novel::whereKey($novelId)->books()->exists()) {
+            $this->info("Novel {$novelId} is an uploaded book: its ePub is the original file, nothing to generate.");
+            return self::SUCCESS;
+        }
 
         if ($novelId == 0) {
             $query->where("status", 1)->whereNull("epub_generated");
@@ -976,6 +980,11 @@ XHTML;
      */
     public static function epubPath(Novel $novel): string
     {
+        // A book's ePub is the file that was uploaded, never a generated one.
+        if ($novel->isBook()) {
+            return \App\Books\BookLibrary::path($novel);
+        }
+
         return storage_path("app/ePub/" . self::epubFilename($novel));
     }
 

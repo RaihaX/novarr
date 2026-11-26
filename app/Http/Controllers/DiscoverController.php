@@ -24,6 +24,16 @@ class DiscoverController extends Controller
     public function index(Request $request)
     {
         $medium = LibraryMedium::resolve($request);
+        // Books have no source to browse: they arrive as uploads. Asked for
+        // by name, that is where Discover sends you; remembered from the
+        // Books library, Discover opens on novels.
+        if ($medium === \App\Novel::MEDIUM_BOOK) {
+            if ($request->query('medium') === \App\Novel::MEDIUM_BOOK) {
+                return redirect()->route('books.upload');
+            }
+            $medium = \App\Novel::MEDIUM_NOVEL;
+            LibraryMedium::share($medium);
+        }
         $sources = $this->sourceOptions($medium);
 
         // Nothing left to pick because every source of the medium is hidden

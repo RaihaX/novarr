@@ -170,6 +170,9 @@ final class RouteAccess
         'api.v1.updates', // new chapters to read (App\Services\Updates\NewChapterUpdates)
         // Covers in request results: only through a URL the server signed
         'requests.cover',
+        // Uploading a book for the owner to approve (App\Books\BookUploads)
+        'books.upload',
+        'books.upload.store',
     ];
 
     /**
@@ -198,6 +201,8 @@ final class RouteAccess
         'api.v1.discover', 'api.v1.discover.browse', 'api.v1.discover.searches.store', 'api.v1.discover.searches.show',
         'api.v1.novels.store',
         'api.v1.requests.approve', 'api.v1.requests.decline', 'api.v1.requests.rerank',
+        'books.review', 'books.review.search', 'books.review.approve', 'books.review.decline',
+        'books.calibre', 'books.calibre.import', 'books.calibre.cover',
     ];
 
     /**

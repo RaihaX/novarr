@@ -218,6 +218,70 @@ class Requests
     }
 
     /**
+     * A book a reader uploaded (App\Books\BookUploads): a pending request of
+     * medium 'book' whose parked file is set by the caller. Unlike a title
+     * request it never joins another request or is refused by title: an
+     * uploaded file's own title can be anything (a "dump" ePub), so only
+     * the owner's match decides what it is. The pending limit still applies.
+     *
+     * @param  array{title: string, author: ?string, cover_url: ?string, description: ?string, upload_path: string, upload_meta: array}  $fields
+     *
+     * @throws RequestRefused 429 pending_limit, 503 busy
+     */
+    public function createUpload(User $user, array $fields, ?string $note): NovelRequest
+    {
+        $title = trim($fields['title']) !== '' ? trim($fields['title']) : 'Untitled book';
+        $normalized = Discover::normalizeName($title) ?: 'untitled book';
+
+        try {
+            $request = Cache::lock(self::CREATE_LOCK, 10)->block(5, function () use ($user, $fields, $title, $normalized, $note) {
+                if (!$user->isAdmin()
+                    && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)->count() >= static::maxPending()) {
+                    throw new RequestRefused(429, 'You have ' . static::maxPending() . ' requests waiting already. Wait for the owner to decide on one, or cancel one.', 'pending_limit', ['limit' => static::maxPending()]);
+                }
+
+                return NovelRequest::create([
+                    'user_id' => (int) $user->id,
+                    'medium' => Novel::MEDIUM_BOOK,
+                    'title' => mb_substr($title, 0, 255),
+                    'normalized_title' => mb_substr($normalized, 0, 255),
+                    'author' => $fields['author'] !== null ? (mb_substr(trim($fields['author']), 0, 255) ?: null) : null,
+                    'cover_url' => $fields['cover_url'],
+                    'description' => $fields['description'],
+                    'note' => static::clean($note),
+                    'link' => null,
+                    'status' => NovelRequest::STATUS_PENDING,
+                    'candidates' => [],
+                    'upload_path' => $fields['upload_path'],
+                    'upload_meta' => $fields['upload_meta'],
+                ]);
+            });
+        } catch (LockTimeoutException) {
+            throw new RequestRefused(503, self::BUSY, 'busy');
+        }
+
+        static::forgetPendingCount();
+        $this->notify(fn() => $this->notifier->created($request), $request);
+
+        return $request;
+    }
+
+    /**
+     * Mark an approved request whose series is readable now as available
+     * (a book is complete the moment it is added), telling the requester.
+     */
+    public function markAvailableNow(NovelRequest $request): void
+    {
+        $updated = NovelRequest::whereKey($request->id)
+            ->where('status', NovelRequest::STATUS_APPROVED)
+            ->whereNull('available_at')
+            ->update(['available_at' => now()]);
+        if ($updated === 1) {
+            $this->notify(fn() => $this->notifier->available($request->fresh()), $request);
+        }
+    }
+
+    /**
      * @return array{request: NovelRequest, joined: bool}
      *
      * @throws RequestRefused
@@ -415,6 +479,13 @@ class Requests
             throw new RequestRefused(409, 'Only a pending request can be approved.', 'not_pending', ['status' => $request->displayStatus()]);
         }
 
+        // An uploaded book is added from its file, on its review page (App\Books\BookUploads).
+        if ($request->isUpload() && !isset($data['novel_id'])) {
+            throw new RequestRefused(422, 'An uploaded book is matched and added on its review page.', 'review_upload', [
+                'review_url' => route('books.review', $request->id, false),
+            ]);
+        }
+
         if (isset($data['novel_id'])) {
             $novel = Novel::find((int) $data['novel_id']);
             if ($novel === null) {
@@ -498,6 +569,11 @@ class Requests
             'decline_reason' => static::clean($reason),
         ])->save();
         static::forgetPendingCount();
+        // A declined upload's parked file is not kept.
+        if ($request->isUpload()) {
+            \App\Books\BookUploads::discard($request);
+            $request->forceFill(['upload_path' => null])->saveQuietly();
+        }
 
         $this->notify(fn() => $this->notifier->declined($request), $request);
 

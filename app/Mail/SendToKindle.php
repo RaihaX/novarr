@@ -14,10 +14,14 @@ class SendToKindle extends Mailable
     public string $epubPath;
     public string $novelTitle;
 
-    public function __construct(string $epubPath, string $novelTitle)
+    /** The attachment's name; the file's own name when null. */
+    public ?string $fileName;
+
+    public function __construct(string $epubPath, string $novelTitle, ?string $fileName = null)
     {
         $this->epubPath = $epubPath;
         $this->novelTitle = $novelTitle;
+        $this->fileName = $fileName;
     }
 
     public function build()
@@ -27,7 +31,7 @@ class SendToKindle extends Mailable
         return $this->subject($this->novelTitle)
             ->html('<p>Sent from Novarr.</p>')
             ->attach($this->epubPath, [
-                'as'   => basename($this->epubPath),
+                'as'   => $this->fileName ?? basename($this->epubPath),
                 'mime' => 'application/epub+zip',
             ]);
     }

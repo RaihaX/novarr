@@ -144,6 +144,8 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('novarr-invite', fn(Request $request) => Limit::perMinute(30)->by('invite|' . $request->ip()));
         // "Stop these emails" (public, signed link), per IP: about load.
         RateLimiter::for('novarr-unsubscribe', fn(Request $request) => Limit::perMinute(30)->by('unsubscribe|' . $request->ip()));
+        // Book uploads (each is up to NOVARR_BOOKS_MAX_UPLOAD_MB and is read in full): per account, else per address.
+        RateLimiter::for('novarr-book-upload', fn(Request $request) => Limit::perHour(30)->by('book-upload|' . (app(\App\Support\CurrentReader::class)->isGuest() ? $request->ip() : app(\App\Support\CurrentReader::class)->user()->id)));
         // Public file downloads (the Android app), per IP.
         RateLimiter::for('novarr-download', fn(Request $request) => Limit::perMinute(10)->by('download|' . $request->ip()));
         // Readers' "check for new chapters" / "build ePub": the admin is not limited.

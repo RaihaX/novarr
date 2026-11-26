@@ -1,0 +1,185 @@
+// ===========================================================================
+// Books: the upload form (/books/upload) and the owner's review of an
+// uploaded book (/books/review/{id}). Layout only; every value is a token.
+// ===========================================================================
+
+.book-review {
+    display: flex;
+    flex-direction: column;
+    gap: $s-6;
+    min-width: 0;
+
+    .page-head { margin-bottom: 0; }
+}
+
+.book-review-note {
+    color: $text-muted;
+}
+
+.book-review-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: $s-6;
+
+    @media (max-width: 900px) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.book-review-panel {
+    display: flex;
+    flex-direction: column;
+    gap: $s-4;
+    min-width: 0;
+    padding: $s-6;
+    background-color: $surface;
+    border: $hairline solid $border;
+    border-radius: $radius;
+}
+
+.book-review-file {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    gap: $s-4;
+    align-items: start;
+}
+
+.book-review-facts {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: $s-2 $s-4;
+    margin: 0;
+    font-size: $fs-caption;
+
+    dt { color: $text-muted; font-weight: normal; }
+    dd { margin: 0; overflow-wrap: anywhere; }
+}
+
+.book-review-labels {
+    font-size: $fs-caption;
+
+    summary { cursor: pointer; color: $text-muted; }
+    ol { margin: $s-2 0 0; padding-left: $s-6; max-height: 16rem; overflow-y: auto; }
+}
+
+.book-review-excerpt {
+    margin: 0;
+
+    figcaption {
+        font-size: $fs-caption;
+        color: $text-muted;
+        margin-bottom: $s-2;
+    }
+
+    blockquote {
+        margin: 0;
+        padding-left: $s-4;
+        border-left: 2px solid $border;
+        font-family: $font-read;
+        color: $text-soft;
+        white-space: pre-line;
+    }
+}
+
+.book-review-search {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1.5fr) minmax(0, 1fr) auto;
+    gap: $s-2;
+
+    @media (max-width: 640px) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.book-review-matches {
+    display: flex;
+    flex-direction: column;
+    gap: $s-2;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.book-match {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr) auto;
+    gap: $s-4;
+    align-items: start;
+    padding: $s-3;
+    border: $hairline solid $border;
+    border-radius: $radius;
+
+    // The "file's own details" row has no cover column.
+    &:first-child { grid-template-columns: minmax(0, 1fr) auto; }
+
+    &.is-chosen { border-color: $accent; }
+}
+
+.book-match-empty {
+    display: block;
+    color: $text-muted;
+}
+
+.book-match-body {
+    display: flex;
+    flex-direction: column;
+    gap: $s-1;
+    min-width: 0;
+}
+
+.book-match-title { font-weight: 600; }
+
+.book-match-meta,
+.book-match-desc {
+    font-size: $fs-caption;
+    color: $text-muted;
+}
+
+.book-review-covers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-4;
+    border: 0;
+    padding: 0;
+    margin: 0;
+}
+
+.book-cover-choice {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: $s-2;
+    width: 8rem;
+    font-size: $fs-caption;
+    color: $text-muted;
+    cursor: pointer;
+
+    > .cover { width: 72px; }
+}
+
+.book-cover-caption {
+    display: flex;
+    gap: $s-2;
+    align-items: flex-start;
+
+    > input { margin-top: 2px; flex: none; }
+}
+
+.book-review-decline {
+    display: flex;
+    flex-direction: column;
+    gap: $s-2;
+}
+
+.book-review-decline-row {
+    display: flex;
+    gap: $s-2;
+}
+
+// Import from Calibre (/books/calibre): the search spans the page; paging below the list.
+.book-calibre-search { grid-template-columns: minmax(0, 1fr) auto auto; }
+
+.book-calibre-paging {
+    display: flex;
+    gap: $s-2;
+}

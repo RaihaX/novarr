@@ -37,6 +37,7 @@ class NovelRequest extends Model
     /** Requests that block another request for the same work. */
     public const OPEN_STATUSES = [self::STATUS_PENDING, self::STATUS_APPROVED];
 
+    /** What a reader can search for and request by title (a book arrives as an upload instead). */
     public const MEDIA = [Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA];
 
     protected $table = 'novel_requests';
@@ -49,12 +50,15 @@ class NovelRequest extends Model
         'decided_at' => 'datetime',
         'available_at' => 'datetime',
         'requester_notified_at' => 'datetime',
+        'upload_meta' => 'array',
     ];
 
     protected static function booted(): void
     {
         static::deleted(function (self $request) {
             NovelRequestFollower::where('novel_request_id', $request->id)->delete();
+            // A cancelled book upload takes its parked file and cover with it.
+            \App\Books\BookUploads::discard($request);
         });
     }
 
@@ -104,9 +108,19 @@ class NovelRequest extends Model
         return array_values(array_filter((array) ($this->candidates ?? []), 'is_array'));
     }
 
-    /** "manga" / "novel" for messages. */
+    /** "manga" / "novel" / "book" for messages. */
     public function mediumLabel(): string
     {
-        return $this->medium === Novel::MEDIUM_MANGA ? 'manga' : 'novel';
+        return match ($this->medium) {
+            Novel::MEDIUM_MANGA => 'manga',
+            Novel::MEDIUM_BOOK => 'book',
+            default => 'novel',
+        };
+    }
+
+    /** A book a reader uploaded, waiting for (or past) the owner's match. */
+    public function isUpload(): bool
+    {
+        return $this->medium === Novel::MEDIUM_BOOK;
     }
 }

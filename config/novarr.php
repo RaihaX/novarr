@@ -53,11 +53,76 @@ return [
         // below). Claims nothing and lists nothing until NOVARR_SUWAYOMI_URL
         // is set; on Discover it is one entry per Suwayomi source.
         'suwayomi' => \App\Sources\SuwayomiSource::class,
+        // Books uploaded as ePubs (medium 'book'): claims only its own
+        // book:// URLs (and rows of medium 'book'), so it never takes a web
+        // address from another source; before the novel adapters so none of
+        // their group-id logic ever sees a book.
+        'book' => \App\Sources\BookSource::class,
         'empirenovel' => \App\Sources\EmpireNovelSource::class,
         'novelfull' => \App\Sources\NovelFullSource::class,
         'novelfire' => \App\Sources\NovelFireSource::class,
         'royalroad' => \App\Sources\RoyalRoadSource::class,
         'novelarrow' => \App\Sources\NovelArrowSource::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Books (ePub uploads, App\Books)
+    |--------------------------------------------------------------------------
+    |
+    | max_upload_mb      largest ePub accepted (PHP's upload_max_filesize and
+    |                    post_max_size, and nginx's client_max_body_size, must
+    |                    allow it too).
+    | lookup             fill what an ePub leaves out (description, genres,
+    |                    cover) from Google Books and Open Library. Off: only
+    |                    the ePub's own metadata is used.
+    | google_books_key   optional Google Books API key (the API answers without
+    |                    one, with a lower daily quota).
+    | timeout            seconds per lookup request.
+    |
+    */
+    'books' => [
+        // Where uploaded originals are kept: back this folder up, it is the only copy.
+        // A relative path is taken from the app's folder.
+        'path' => ($booksPath = trim((string) env('NOVARR_BOOKS_PATH', ''))) === ''
+            ? storage_path('app/books')
+            : (str_starts_with($booksPath, '/') ? $booksPath : base_path($booksPath)),
+        // Originals of books imported from Calibre-Web: they can be fetched
+        // again from Calibre, so they may live outside the backups (a big
+        // second disk). Empty = with the uploads, in `path`.
+        'calibre_path' => ($calibrePath = trim((string) env('NOVARR_BOOKS_CALIBRE_PATH', ''))) === ''
+            ? null
+            : (str_starts_with($calibrePath, '/') ? $calibrePath : base_path($calibrePath)),
+        'max_upload_mb' => (int) env('NOVARR_BOOKS_MAX_UPLOAD_MB', 50),
+        'lookup' => (bool) env('NOVARR_BOOKS_LOOKUP', true),
+        'google_books_key' => (string) env('NOVARR_GOOGLE_BOOKS_KEY', ''),
+        'timeout' => (int) env('NOVARR_BOOKS_LOOKUP_TIMEOUT', 15),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Calibre-Web (App\Books\CalibreWeb, App\Books\CalibreImport)
+    |--------------------------------------------------------------------------
+    |
+    | The owner's Calibre-Web, read through its OPDS feed with a read-only
+    | account (download permission). Empty url = off.
+    | languages  Calibre language codes listed and imported (a book with no
+    |            language is included); empty = every language.
+    | sync       import books added to Calibre from now on, hourly
+    |            (`books:calibre-import`); the first run only marks where
+    |            "from now on" starts. `--all` imports the whole library.
+    |
+    */
+    'calibre_web' => [
+        'url' => rtrim(trim((string) env('NOVARR_CALIBRE_WEB_URL', '')), '/'),
+        'username' => (string) env('NOVARR_CALIBRE_WEB_USERNAME', ''),
+        'password' => (string) env('NOVARR_CALIBRE_WEB_PASSWORD', ''),
+        'languages' => array_values(array_filter(array_map(
+            fn($l) => strtolower(trim($l)),
+            explode(',', (string) env('NOVARR_CALIBRE_WEB_LANGUAGES', 'eng'))
+        ), fn($l) => $l !== '')),
+        'sync' => (bool) env('NOVARR_CALIBRE_WEB_SYNC', true),
+        'timeout' => (int) env('NOVARR_CALIBRE_WEB_TIMEOUT', 30),
     ],
 
     /*

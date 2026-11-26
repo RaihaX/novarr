@@ -18,7 +18,9 @@ class RequestCreated extends RequestMail
 
     public function subjectLine(): string
     {
-        return "{$this->requesterName} requested {$this->seriesTitle}";
+        return $this->mediumLabel === 'book'
+            ? "{$this->requesterName} uploaded {$this->seriesTitle}"
+            : "{$this->requesterName} requested {$this->seriesTitle}";
     }
 
     public function heading(): string
@@ -28,6 +30,10 @@ class RequestCreated extends RequestMail
 
     public function intro(): string
     {
+        if ($this->mediumLabel === 'book') {
+            return "{$this->requesterName} uploaded an ePub, “{$this->seriesTitle}”, for the library. Check it is the right book, match its details and cover, then add or decline it, from your home network.";
+        }
+
         return "{$this->requesterName} would like {$this->seriesTitle} ({$this->mediumLabel}) added to the library. Approve or decline it on the Requests page, from your home network.";
     }
 

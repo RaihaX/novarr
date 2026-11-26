@@ -149,7 +149,7 @@ class ReaderRequestsTest extends TestCase
         // Every field an old client reads, in the same order; the "Me too" fields after them.
         $this->assertSame(['id', 'title', 'author', 'cover_url', 'description', 'medium', 'note', 'link', 'status', 'decline_reason',
             'requested_by', 'novel_id', 'created_at', 'decided_at', 'available_at', 'candidates', 'candidates_ranked_at', 'can_decide', 'can_cancel',
-            'also_wanted_by', 'mine', 'followers'],
+            'also_wanted_by', 'mine', 'followers', 'review_url'],
             array_keys($response->json('request')));
         $this->assertFalse($response->json('joined'));
         $this->assertSame(0, $response->json('request.also_wanted_by'));

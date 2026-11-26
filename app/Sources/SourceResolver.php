@@ -25,6 +25,7 @@ class SourceResolver
     public const DEFAULT_SOURCES = [
         'mangadex' => MangaDexSource::class,
         'suwayomi' => SuwayomiSource::class,
+        'book' => BookSource::class,
         'empirenovel' => EmpireNovelSource::class,
         'novelfull' => NovelFullSource::class,
         'novelarrow' => NovelArrowSource::class,

@@ -231,3 +231,12 @@ $oneServer(Schedule::command('manga:fill-missing')
     ->name('manga_fill_missing')
     ->withoutOverlapping(40)
     ->runInBackground());
+
+// Books added to the owner's Calibre-Web since the last run (App\Books\CalibreImport);
+// off until NOVARR_CALIBRE_WEB_URL is set, or with NOVARR_CALIBRE_WEB_SYNC=false.
+$oneServer(Schedule::command('books:calibre-import')
+    ->hourlyAt(50)
+    ->when(fn() => \App\Books\CalibreWeb::enabled() && (bool) config('novarr.calibre_web.sync', true))
+    ->name('books_calibre_import')
+    ->withoutOverlapping(120)
+    ->runInBackground());

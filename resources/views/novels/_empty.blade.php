@@ -22,6 +22,7 @@
     // A reading list on its own (no chip, search, tag or status): its own copy.
     $onlyList = $activeList && $filter === 'all' && !request('search') && !request()->filled('status') && !request()->filled('tag');
     $otherMedium = $medium === \App\Novel::MEDIUM_MANGA ? \App\Novel::MEDIUM_NOVEL : \App\Novel::MEDIUM_MANGA;
+    $isBooks = $medium === \App\Novel::MEDIUM_BOOK;
 @endphp
 <div class="novels-empty">
     <x-brand-mark variant="mono" :size="28" class="novels-empty-icon" />
@@ -50,6 +51,13 @@
         <p class="novels-empty-body">Try a different search or tag, or clear the filters to see the whole library.</p>
         <div class="novels-empty-actions">
             <a href="{{ route('novels.index', ['medium' => $medium]) }}" class="btn btn-secondary">Clear filters</a>
+        </div>
+    @elseif($isBooks)
+        {{-- Anyone can send a book: the owner matches and approves it. --}}
+        <span class="novels-empty-title">No books yet</span>
+        <p class="novels-empty-body">Upload an ePub (from Calibre, a publisher or a store without DRM). The owner matches it to the right book, with its details and cover, and it can be read here, in the apps and on KOReader.</p>
+        <div class="novels-empty-actions">
+            <a href="{{ route('books.upload') }}" class="btn btn-primary">Upload a book</a>
         </div>
     @elsecannot('admin')
         {{-- A reader cannot add series: a friendly "nothing yet" instead. --}}

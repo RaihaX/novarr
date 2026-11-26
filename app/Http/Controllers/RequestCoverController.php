@@ -34,6 +34,14 @@ class RequestCoverController extends DiscoverCoverController
         if ($cover === '') {
             return null;
         }
+        // A cover Novarr stores itself (an uploaded book's): on the address
+        // the reader is using, not the one the URL was saved with.
+        $own = rtrim((string) config('filesystems.disks.public.url'), '/') . '/';
+        if (str_starts_with($cover, $own) || str_starts_with($cover, '/storage/')) {
+            $path = '/storage/' . ltrim(substr($cover, str_starts_with($cover, $own) ? strlen($own) : strlen('/storage/')), '/');
+
+            return $base !== null ? rtrim($base, '/') . $path : Presenter::url($path);
+        }
         if (!static::proxied($cover)) {
             return preg_match('#^https?://#i', $cover) ? $cover : null;
         }
