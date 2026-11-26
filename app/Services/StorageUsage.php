@@ -422,9 +422,15 @@ class StorageUsage
             return ['series' => [], 'loose' => $loose, 'total' => $total];
         }
 
+        // Book originals kept on the same disk (NOVARR_BOOKS_CALIBRE_PATH) are not manga.
+        $booksDir = ($books = config('novarr.books.calibre_path')) ? rtrim((string) $books, '/') : null;
+
         foreach ($top as $entry) {
             try {
                 if ($entry->isLink()) {
+                    continue;
+                }
+                if ($booksDir !== null && rtrim($entry->getPathname(), '/') === $booksDir) {
                     continue;
                 }
                 if ($entry->isDir()) {
