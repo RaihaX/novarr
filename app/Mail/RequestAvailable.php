@@ -25,6 +25,21 @@ class RequestAvailable extends RequestMail
         return "Hi {$this->name},";
     }
 
+    public function eyebrow(): ?string
+    {
+        return 'Ready to read';
+    }
+
+    public function tone(): string
+    {
+        return 'success';
+    }
+
+    public function chip(): ?string
+    {
+        return 'In the library';
+    }
+
     public function intro(): string
     {
         return "{$this->seriesTitle} ({$this->mediumLabel}), which you requested, is in the library and its first chapters have downloaded.";

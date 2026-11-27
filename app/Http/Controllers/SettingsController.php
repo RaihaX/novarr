@@ -381,9 +381,7 @@ class SettingsController extends Controller
         }
 
         try {
-            Mail::raw('This is a test email from Novarr — your mail settings are working.', function ($m) use ($to) {
-                $m->to($to)->subject('Novarr test email');
-            });
+            Mail::to($to)->send(new \App\Mail\TestMail());
 
             return response()->json(['success' => true, 'message' => "Test email sent to {$to}."]);
         } catch (\Throwable $e) {

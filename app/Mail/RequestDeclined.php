@@ -26,6 +26,21 @@ class RequestDeclined extends RequestMail
         return "Hi {$this->name},";
     }
 
+    public function eyebrow(): ?string
+    {
+        return 'Request declined';
+    }
+
+    public function tone(): string
+    {
+        return 'warning';
+    }
+
+    public function chip(): ?string
+    {
+        return 'Declined';
+    }
+
     public function intro(): string
     {
         return "Your request for {$this->seriesTitle} ({$this->mediumLabel}) was declined.";

@@ -5,8 +5,15 @@
     $fig = fn ($n) => $n === null ? '-' : number_format((int) $n);
     // A reader's summary: no admin figures, sections or links.
     $reader = $v['reader'] ?? null;
+    // The shared plain-text frame (emails.layout_text).
+    $textTitle = 'Daily summary' . ($reader && !empty($reader['name']) ? ' for ' . $reader['name'] : '') . ', ' . $v['date']->format('D d M Y');
+    $footerLinks = $reader
+        ? ['Open Novarr' => $v['links']['home'], 'Account' => $v['links']['account']]
+        : ['Open Novarr' => $v['links']['home'], 'Activity' => $v['links']['activity'], 'Settings' => $v['links']['settings']];
 @endphp
-NOVARR. — Daily summary{!! $reader && !empty($reader['name']) ? ' for ' . $reader['name'] : '' !!}, {{ $v['date']->format('D d M Y') }}
+@extends('emails.layout_text')
+
+@section('content')
 @if ($v['since'])
 Since {{ \Illuminate\Support\Carbon::parse($v['since'])->timezone($tz)->format('D d M, g:i A') }}
 @endif
@@ -93,17 +100,15 @@ Health: {!! $v['links']['health'] !!}
 Nothing new in this period.
 @endif
 
---
+@endsection
+
+@section('footer_note')
 @if ($reader)
-Open Novarr: {!! $v['links']['home'] !!}
-Account: {!! $v['links']['account'] !!}
 Daily at {{ $v['summary_time'] }} · turn off in Account
 @if (!empty($v['links']['unsubscribe']))
 Stop these emails: {!! $v['links']['unsubscribe'] !!}
 @endif
 @else
-Open Novarr: {!! $v['links']['home'] !!}
-Activity: {!! $v['links']['activity'] !!}
-Settings: {!! $v['links']['settings'] !!}
 Daily at {{ $v['summary_time'] }} · change in Settings
 @endif
+@endsection

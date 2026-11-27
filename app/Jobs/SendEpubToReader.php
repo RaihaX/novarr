@@ -89,7 +89,7 @@ class SendEpubToReader implements ShouldQueue
             throw new \RuntimeException(sprintf('The ePub is %.0f MB, too large to email (the limit is %d MB). Download it from the page instead.', $mb, $limit), 422);
         }
 
-        Mail::to($this->to)->send(new SendToKindle($path, (string) $novel->name, GenerateePub::epubFilename($novel)));
+        Mail::to($this->to)->send(new SendToKindle($path, (string) $novel->name, GenerateePub::epubFilename($novel), $novel->author));
         Log::info('ePub sent by email', ['user' => $this->userId, 'novel' => $this->novelId, 'mb' => round($mb, 1)]);
     }
 

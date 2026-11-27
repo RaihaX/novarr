@@ -410,9 +410,9 @@ class SourceHealthTest extends TestCase
         $alert = new class extends AdminAlert {
             public array $sent = [];
 
-            public function send(string $subject, string $message, ?string $url = null): array
+            public function send(string $subject, string $message, ?string $url = null, array $mail = []): array
             {
-                $this->sent[] = compact('subject', 'message', 'url');
+                $this->sent[] = compact('subject', 'message', 'url', 'mail');
 
                 return ['webhook' => true, 'email' => true];
             }

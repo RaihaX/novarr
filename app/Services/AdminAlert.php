@@ -16,17 +16,20 @@ use Illuminate\Support\Facades\Mail;
  * address a new reader request is mailed to). Email only when mail is set
  * up (not the "log" mailer), as for the other mails. Best effort: a channel
  * that fails is logged and never throws.
+ *
+ * $mail structures the email (heading, cover, card, items, button…: see
+ * App\Mail\AdminAlertMail); the webhook gets the one-line message.
  */
 class AdminAlert
 {
     /** @return array{webhook: bool, email: bool} which channels took the message */
-    public function send(string $subject, string $message, ?string $url = null): array
+    public function send(string $subject, string $message, ?string $url = null, array $mail = []): array
     {
         $text = $message . ($url !== null ? " {$url}" : '');
 
         return [
             'webhook' => $this->webhook("Novarr: {$text}"),
-            'email' => $this->email($subject, $message, $url),
+            'email' => $this->email($subject, $message, $url, $mail),
         ];
     }
 
@@ -41,7 +44,7 @@ class AdminAlert
         }
     }
 
-    protected function email(string $subject, string $message, ?string $url): bool
+    protected function email(string $subject, string $message, ?string $url, array $mail = []): bool
     {
         if (UserInviteController::mailIsOff()) {
             return false;
@@ -52,7 +55,7 @@ class AdminAlert
         }
 
         try {
-            Mail::to($to)->send(new AdminAlertMail($subject, $message, $url));
+            Mail::to($to)->send(new AdminAlertMail($subject, $message, $url, $mail));
 
             return true;
         } catch (\Throwable $e) {

@@ -60,7 +60,7 @@ class SourceHealthCheck extends Command
             }
 
             [$subject, $message] = self::message($row);
-            $alert->send($subject, $message, self::pageUrl());
+            $alert->send($subject, $message, self::pageUrl(), self::mailDetails($row));
             $alerted[$key] = now()->toIso8601String();
             $told++;
             Log::warning("Source health: {$message}");
@@ -106,6 +106,40 @@ class SourceHealthCheck extends Command
         return [
             "Source failing: {$row['name']}",
             "Source {$name} is failing. Last 24 h — " . implode('; ', $parts) . ".{$reason}",
+        ];
+    }
+
+    /** The email's structure: the source on the card, a row per kind of call, the top reason as a note. */
+    public static function mailDetails(array $row): array
+    {
+        $items = [];
+        foreach (SourceHealth::KINDS as $kind) {
+            $day = $row['kinds'][$kind]['day'];
+            if ($day['attempts'] === 0) {
+                continue;
+            }
+            $rate = (int) round(100 * $day['rate']);
+            $items[] = [
+                'title' => SourceHealth::KIND_LABELS[$kind],
+                'meta' => "{$day['ok']} of {$day['attempts']} ok in the last 24 hours",
+                'status' => "{$rate}% ok",
+                'tone' => $rate < 50 ? 'danger' : ($rate < 90 ? 'warning' : 'success'),
+            ];
+        }
+
+        return [
+            'eyebrow' => 'Source health',
+            'heading' => 'A source is failing',
+            'tone' => 'danger',
+            'intro' => "Calls to {$row['name']} keep failing, so its series may not be updating. Check the site still works, or move its series to another source.",
+            'title' => (string) $row['name'],
+            'meta' => $row['name'] !== $row['key'] ? (string) $row['key'] : null,
+            'chip' => 'Failing',
+            'items' => $items,
+            'items_label' => 'Last 24 hours',
+            'note' => $row['top_reason'] !== null ? "{$row['top_reason']['label']} ({$row['top_reason']['count']}× in 7 days)" : null,
+            'note_label' => 'Top reason',
+            'button' => 'Open Health',
         ];
     }
 

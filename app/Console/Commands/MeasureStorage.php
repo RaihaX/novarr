@@ -86,7 +86,7 @@ class MeasureStorage extends Command
         }
 
         [$subject, $message] = self::message($low);
-        $alert->send($subject, $message, self::pageUrl());
+        $alert->send($subject, $message, self::pageUrl(), self::mailDetails($low));
         Cache::put(self::ALERT_KEY, now()->toIso8601String(), now()->addHours(self::ALERT_REPEAT_HOURS * 2));
         Log::warning("Storage: {$message}");
         $this->warn("Alert sent: {$message}");
@@ -107,6 +107,28 @@ class MeasureStorage extends Command
             'Disk space low',
             'Disk space is low: ' . implode('; ', $parts) . '. Threshold: '
                 . rtrim(rtrim(number_format(StorageUsage::lowFreePercent(), 1), '0'), '.') . '% free.',
+        ];
+    }
+
+    /** The email's structure: one list row per low disk, the threshold under it. */
+    public static function mailDetails(array $low): array
+    {
+        $pct = fn($n) => rtrim(rtrim(number_format((float) $n, 1), '0'), '.');
+
+        return [
+            'eyebrow' => 'Storage',
+            'heading' => 'Disk space is low',
+            'tone' => 'warning',
+            'intro' => 'Novarr is running out of room: downloads, covers and new chapters may start to fail. Free some space or move the library to a bigger disk.',
+            'items' => array_map(fn(array $d) => [
+                'title' => implode(' + ', (array) ($d['labels'] ?? ['A disk'])),
+                'meta' => Bytes::human($d['free'] ?? 0) . ' free of ' . Bytes::human($d['total'] ?? 0),
+                'status' => $pct($d['free_percent'] ?? 0) . '% free',
+                'tone' => 'warning',
+            ], $low),
+            'items_label' => 'Low disks',
+            'facts' => ['Alert below' => $pct(StorageUsage::lowFreePercent()) . '% free'],
+            'button' => 'Open Storage',
         ];
     }
 

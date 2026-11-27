@@ -350,6 +350,19 @@ class DownloadController extends Controller
                 "Audiobook asked for: {$novel->name}",
                 "{$who} asked for the audiobook of \u{201C}{$novel->name}\u{201D}." . (Downloads::enabled() ? ' Novarr is looking for it.' : ''),
                 RequestNotifier::adminBase() . route('downloads.index', ['tab' => 'wanted'], false),
+                [
+                    'eyebrow' => 'Audiobooks',
+                    'heading' => 'Audiobook asked for',
+                    'intro' => "{$who} asked for the audiobook of \u{201C}{$novel->name}\u{201D}." . (Downloads::enabled()
+                        ? ' Novarr is looking for it now, and again later until it finds one.'
+                        : ' It is on the wanted list; Novarr looks for it once Prowlarr is set up.'),
+                    'cover' => \App\Mail\AdminAlertMail::coverOf($novel),
+                    'title' => (string) $novel->name,
+                    'title_url' => RequestNotifier::adminBase() . route('novels.show', $novel->id, false),
+                    'meta' => implode(' · ', array_filter(['Audiobook', (string) $novel->author])),
+                    'chip' => 'Wanted',
+                    'button' => 'Open Downloads',
+                ],
             );
         }
 

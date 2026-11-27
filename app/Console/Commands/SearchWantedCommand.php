@@ -75,11 +75,45 @@ class SearchWantedCommand extends Command
         }
         $names = $rows->map(fn(DownloadWanted $r) => "\u{201C}{$r->title()}\u{201D}" . ($r->kind === 'audiobook' ? ' (audiobook)' : ''))->take(10)->implode(', ');
         $more = $rows->count() > 10 ? ' and ' . ($rows->count() - 10) . ' more' : '';
+        $url = RequestNotifier::adminBase() . route('downloads.index', ['tab' => 'wanted'], false);
         $alert->send(
             'Downloads need your choice (' . $rows->count() . ')',
             "Novarr found results but no clear match to grab by itself for {$names}{$more}. Pick one on the Downloads page.",
-            RequestNotifier::adminBase() . route('downloads.index', ['tab' => 'wanted'], false),
+            $url,
+            [
+                'eyebrow' => 'Downloads',
+                'heading' => $rows->count() === 1 ? 'A download needs your choice' : $rows->count() . ' downloads need your choice',
+                'tone' => 'warning',
+                'intro' => 'Novarr found results but no clear match to grab by itself. Pick the right result for each on the Downloads page.',
+                'items' => $rows->take(10)->map(fn(DownloadWanted $r) => [
+                    'title' => $r->title(),
+                    'meta' => implode(' · ', array_filter([
+                        $r->kind === 'audiobook' ? 'Audiobook' : 'Book',
+                        $r->author(),
+                        (int) $r->results_count > 0 ? number_format((int) $r->results_count) . ' ' . ((int) $r->results_count === 1 ? 'result' : 'results') : null,
+                    ])),
+                    'status' => 'Pick one',
+                    'tone' => 'warning',
+                    'cover' => self::coverOf($r),
+                ])->all(),
+                'more' => $rows->count() > 10 ? 'and ' . ($rows->count() - 10) . ' more on the Downloads page' : null,
+                'button' => 'Pick a result',
+            ],
         );
         DownloadWanted::whereIn('id', $rows->pluck('id'))->update(['notified_at' => now()]);
+    }
+
+    /** A wanted row's cover for the email: its book's, else its request's. */
+    private static function coverOf(DownloadWanted $row): ?string
+    {
+        try {
+            if ($row->novel_id && $row->novel) {
+                return \App\Mail\AdminAlertMail::coverOf($row->novel);
+            }
+
+            return $row->request ? \App\Mail\AdminAlertMail::coverUrl($row->request->cover_url) : null;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }
