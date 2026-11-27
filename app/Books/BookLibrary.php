@@ -105,15 +105,19 @@ class BookLibrary
         return null;
     }
 
-    /** Lower-case surnames of an author list ("Timothy Zahn, Albert Agut" → [zahn, agut]). */
+    /**
+     * The words of an author list, each normalised ("Timothy Zahn, Albert
+     * Agut" → [timothy, zahn, albert, agut]), names of 3+ letters only. Two
+     * author lists agree when they share one: "Sanderson, Brandon" and
+     * "Brandon Sanderson" do, "Ada Wren" and "Bo Lark" do not.
+     */
     private static function surnames(?string $authors): array
     {
         $out = [];
-        foreach (preg_split('/\s*(?:,|&|;|\band\b)\s*/iu', (string) $authors) ?: [] as $name) {
-            $words = preg_split('/\s+/u', trim(DuplicateSeries::normalize($name))) ?: [];
-            $last = end($words);
-            if ($last !== false && mb_strlen($last) > 1) {
-                $out[] = $last;
+        foreach (preg_split('/[\s,;&.]+/u', (string) $authors) ?: [] as $word) {
+            $word = DuplicateSeries::normalize($word);
+            if (mb_strlen($word) >= 3 && !in_array($word, ['and', 'the', 'with', 'translated', 'translator', 'editor'], true)) {
+                $out[] = $word;
             }
         }
 

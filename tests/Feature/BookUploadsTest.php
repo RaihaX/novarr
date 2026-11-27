@@ -317,6 +317,10 @@ class BookUploadsTest extends TestCase
         $this->assertStringContainsString('“Star Wars: Thrawn” by Timothy Zahn is already in the library.', session('errors')->first('epub'));
         $this->assertSame(0, NovelRequest::count());
 
+        // The author written the other way round is the same author.
+        $this->upload($this->reader, EpubBuilder::epub3(['title' => 'Star Wars: Thrawn', 'author' => 'Zahn, Timothy', 'description' => 'reversed']))
+            ->assertSessionHasErrors('epub');
+
         // The same title by someone else is another book.
         $this->upload($this->reader, EpubBuilder::epub3(['title' => 'Star Wars: Thrawn', 'author' => 'Someone Else', 'description' => 'third']))
             ->assertSessionHasNoErrors();
