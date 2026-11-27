@@ -147,6 +147,8 @@ data class NovelSummary(
     @SerialName("last_read_at") val lastReadAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
     @SerialName("resume_chapter_id") val resumeChapterId: Int? = null,
+    /** On the reader's "Want to read" (an older server sends none: false). */
+    @SerialName("want_to_read") val wantToRead: Boolean = false,
 ) {
     val isManga: Boolean get() = medium.equals(Medium.MANGA, ignoreCase = true)
 
@@ -222,6 +224,10 @@ data class HomeFeed(
     @Serializable(with = NewChaptersList::class)
     @SerialName("new_chapters") val newChapters: List<NewChaptersItem> = emptyList(),
     @Serializable(with = HomeStatsOrNull::class) val stats: HomeStats? = null,
+    /** Home's "Want to read" shelf, newest first (up to 12), and how many the list holds (an older server: none). */
+    @Serializable(with = WantToReadList::class)
+    @SerialName("want_to_read") val wantToRead: List<WantToReadItem> = emptyList(),
+    @SerialName("want_to_read_count") val wantToReadCount: Int = 0,
 )
 
 @Serializable
@@ -414,6 +420,7 @@ object NovelList : LossyListSerializer<NovelSummary>(NovelSummary.serializer())
 object ChapterList : LossyListSerializer<ChapterListItem>(ChapterListItem.serializer())
 object ContinueList : LossyListSerializer<ContinueItem>(ContinueItem.serializer())
 object NewChaptersList : LossyListSerializer<NewChaptersItem>(NewChaptersItem.serializer())
+object WantToReadList : LossyListSerializer<WantToReadItem>(WantToReadItem.serializer())
 object MangaPageList : LossyListSerializer<MangaPage>(MangaPage.serializer())
 object HighlightList : LossyListSerializer<Highlight>(Highlight.serializer())
 object StringList : LossyListSerializer<String>(String.serializer())

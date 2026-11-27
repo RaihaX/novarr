@@ -13,10 +13,34 @@ data class ReadingList(
     val name: String = "",
     val count: Int = 0,
     @SerialName("novel_ids") val novelIds: List<Int> = emptyList(),
+    /** null: the reader's own list; "want_to_read": the built-in one (never renamed or deleted, newest first). */
+    val kind: String? = null,
 ) {
     /** Membership by the ids the server sent (count can lag a series that was removed from the library). */
     operator fun contains(novelId: Int): Boolean = novelId in novelIds
+
+    /** The built-in "Want to read" list. */
+    val isWantToRead: Boolean get() = kind == KIND_WANT_TO_READ
+
+    companion object {
+        const val KIND_WANT_TO_READ = "want_to_read"
+    }
 }
+
+/** One series on "Want to read" (GET /want-to-read, Home's shelf): when it was added, and whether the reader has begun it. */
+@Serializable
+data class WantToReadItem(
+    val novel: NovelSummary,
+    @SerialName("added_at") val addedAt: String? = null,
+    val started: Boolean = false,
+)
+
+/** GET /want-to-read: the list itself and its series, newest first. */
+@Serializable
+data class WantToReadEnvelope(
+    val list: ReadingList? = null,
+    @Serializable(with = WantToReadList::class) val items: List<WantToReadItem> = emptyList(),
+)
 
 @Serializable
 data class ListsEnvelope(@Serializable(with = ReadingListList::class) val lists: List<ReadingList>)

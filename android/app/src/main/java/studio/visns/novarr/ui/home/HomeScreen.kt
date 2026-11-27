@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -58,13 +60,16 @@ import kotlinx.coroutines.launch
 import studio.visns.novarr.api.ContinueItem
 import studio.visns.novarr.api.HomeFeed
 import studio.visns.novarr.api.NewChaptersItem
+import studio.visns.novarr.api.WantToReadItem
 import studio.visns.novarr.app.AppModel
 import studio.visns.novarr.domain.NewChapters
+import studio.visns.novarr.domain.ReadingLists
 import studio.visns.novarr.domain.ResumeRule
 import studio.visns.novarr.store.OfflineStore
 import studio.visns.novarr.ui.NovelRoute
 import studio.visns.novarr.ui.ReaderRoute
 import studio.visns.novarr.ui.RequestsRoute
+import studio.visns.novarr.ui.WantToReadRoute
 import studio.visns.novarr.ui.components.RequestsIcon
 import studio.visns.novarr.ui.components.isWide
 import studio.visns.novarr.ui.components.CenteredProgress
@@ -166,6 +171,15 @@ fun HomeScreen(nav: NavController) {
     val scroll = TopAppBarDefaults.pinnedScrollBehavior()
     val requestsOffered by app.requestsOffered.collectAsStateWithLifecycle()
     val unseenRequests by app.requestsUnseen.collectAsStateWithLifecycle(0)
+    // "Want to read": the feed's shelf, kept in step with the local list (the series screen's bookmark).
+    val listsOffered by app.listsOffered.collectAsStateWithLifecycle()
+    val listsState by app.lists.state.collectAsStateWithLifecycle()
+    val wantList = if (listsOffered) ReadingLists.wantToRead(listsState.lists) else null
+    LaunchedEffect(listsOffered) { if (listsOffered && !app.lists.loaded.value) app.lists.refresh() }
+    LaunchedEffect(wantList?.novelIds) {
+        val feed = model.feed
+        if (feed != null && ReadingLists.needsRefetch(feed.wantToRead, wantList, WANT_TO_READ_SHELF)) model.load()
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
@@ -209,6 +223,18 @@ fun HomeScreen(nav: NavController) {
                 when {
                     feed != null -> {
                         item { ContinueSection(model.continueItems, wide, nav) }
+                        // Shown once the server has the list (an older server sends neither).
+                        if (wantList != null || feed.wantToRead.isNotEmpty()) {
+                            item(key = "want-to-read") {
+                                WantToReadSection(
+                                    ReadingLists.shown(feed.wantToRead, wantList),
+                                    total = wantList?.count ?: feed.wantToReadCount,
+                                    wide = wide,
+                                    onSeeAll = { nav.navigate(WantToReadRoute) },
+                                    onOpen = { nav.navigate(NovelRoute(it)) },
+                                )
+                            }
+                        }
                         val newChapters = NewChapters.shown(feed.newChapters)
                         if (newChapters.isNotEmpty()) {
                             item { SectionTitle("New chapters", Modifier.readableWidth(1000.dp).padding(top = 28.dp, bottom = 8.dp)) }
@@ -272,6 +298,57 @@ private fun ContinueSection(items: List<ContinueItem>, wide: Boolean, nav: NavCo
                 }
             }
         }
+    }
+}
+
+/** Covers on Home's "Want to read" row (the server sends as many). */
+private const val WANT_TO_READ_SHELF = 12
+
+@Composable
+private fun WantToReadSection(items: List<WantToReadItem>, total: Int, wide: Boolean, onSeeAll: () -> Unit, onOpen: (Int) -> Unit) {
+    Column(Modifier.readableWidth(1000.dp).padding(top = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionTitle(ReadingLists.WANT_TO_READ, Modifier.weight(1f))
+            if (total > 0) {
+                TextButton(onClick = onSeeAll, modifier = Modifier.semantics { contentDescription = "See all $total in Want to read" }) { Text("See all") }
+            }
+        }
+        if (items.isEmpty()) {
+            Text(
+                "Shortlist what to read next: tap the bookmark at the top of a series and it waits here.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@Column
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(items, key = { it.novel.id }) { item ->
+                WantToReadTile(item, Modifier.width(if (wide) 130.dp else 108.dp)) { onOpen(item.novel.id) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WantToReadTile(item: WantToReadItem, modifier: Modifier, onClick: () -> Unit) {
+    val started = ReadingLists.started(item)
+    Column(
+        modifier
+            .clickable(onClickLabel = "Open the series", role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) {},
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Cover(item.novel.coverUrl, item.novel.name)
+        Text(item.novel.name, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+            when {
+                started -> "STARTED"
+                item.novel.isManga -> "MANGA"
+                item.novel.isBook -> "BOOK"
+                else -> "NOVEL"
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = if (started) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

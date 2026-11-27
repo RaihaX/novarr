@@ -50,6 +50,7 @@ import studio.visns.novarr.ui.connect.ConnectScreen
 import studio.visns.novarr.ui.highlights.HighlightsScreen
 import studio.visns.novarr.ui.home.HomeScreen
 import studio.visns.novarr.ui.library.LibraryScreen
+import studio.visns.novarr.ui.lists.WantToReadScreen
 import studio.visns.novarr.ui.novel.NovelScreen
 import studio.visns.novarr.ui.reader.MangaReaderScreen
 import studio.visns.novarr.ui.reader.ReaderSettingsScreen
@@ -92,6 +93,9 @@ import studio.visns.novarr.ui.theme.LocalEink
 @Serializable data class RequestsRoute(val section: String = "SEARCH")
 @Serializable data object ReaderSettingsRoute
 @Serializable data object ChangeServerRoute
+
+/** The reader's whole "Want to read" (Home's shelf "See all"). */
+@Serializable data object WantToReadRoute
 
 private data class Tab(val route: Any, val label: String, val icon: ImageVector)
 
@@ -251,6 +255,7 @@ private fun NovarrNavHost(nav: NavHostController) {
         }
         composable<HighlightsRoute> { HighlightsScreen(nav, it.toRoute()) }
         composable<DownloadsRoute> { DownloadsScreen(nav) }
+        composable<WantToReadRoute> { WantToReadScreen(nav) }
         composable<RequestsRoute> { RequestsScreen(nav, it.toRoute()) }
         composable<ReaderSettingsRoute> { ReaderSettingsScreen(nav) }
         composable<ChangeServerRoute> { ConnectScreen(initialSetup = false, onDone = { nav.popBackStack() }) }

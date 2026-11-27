@@ -21,6 +21,9 @@ class HomeController extends Controller
     /** How far back "New chapters" looks. */
     public const NEW_CHAPTER_DAYS = 7;
 
+    /** Covers on Home's "Want to read" shelf (web and API); the page has them all. */
+    public const WANT_TO_READ_SHELF = 12;
+
     // Stateless (the reader is resolved per call), so safe to hold here even
     // though Octane keeps controller instances across requests.
     public function __construct(private ReadState $readState, private ResumePoint $resumePoint)
@@ -81,6 +84,7 @@ class HomeController extends Controller
         return view('home', [
             'hero' => $hero,
             'shelf' => $shelf,
+            'want_to_read' => $this->wantToReadShelf(self::WANT_TO_READ_SHELF),
             'new_reading' => $newReading,
             'new_fresh' => $newFresh,
             'strip' => $admin ? $this->statusStrip(count($attention)) : null,
@@ -475,6 +479,38 @@ class HomeController extends Controller
      * most recently read novel's ResumePoint), or to the dashboard when
      * there is nothing to continue.
      */
+    /**
+     * GET /want-to-read — the reader's whole "Want to read" (the built-in
+     * reading list), every medium, newest first, each marked Started once
+     * the reader has begun it.
+     */
+    public function wantToRead()
+    {
+        return view('want-to-read', ['want_to_read' => $this->wantToReadShelf()]);
+    }
+
+    /**
+     * The reader's "Want to read" with its novels (and covers), newest
+     * first: the first $limit (null: all) and how many there are.
+     *
+     * @return array{count:int, items: list<array{novel: Novel, added_at: ?string, started: bool}>}
+     */
+    public function wantToReadShelf(?int $limit = null): array
+    {
+        $shelf = \App\Services\ReadingLists::wantToReadItems($this->readState->userId(), null, $limit);
+        $ids = array_column($shelf['items'], 'novel_id');
+        $novels = $ids === [] ? collect() : Novel::with('file')->whereIn('id', $ids)->get()->keyBy('id');
+
+        $items = [];
+        foreach ($shelf['items'] as $item) {
+            if ($novel = $novels->get($item['novel_id'])) {
+                $items[] = ['novel' => $novel] + $item;
+            }
+        }
+
+        return ['count' => $shelf['count'], 'items' => $items];
+    }
+
     public function continue()
     {
         $first = $this->continueReading(8)[0] ?? null;

@@ -96,6 +96,8 @@ Route::get('/readers/history', [\App\Http\Controllers\ReaderActivityController::
 Route::get('/readers/{id}', [\App\Http\Controllers\ReaderActivityController::class, 'show'])->whereNumber('id')->name('readers.show');
 Route::view('/offline', 'offline')->name('offline');
 Route::view('/library', 'library')->name('library');
+// "Want to read": the reader's built-in list, every medium, newest first.
+Route::get('/want-to-read', [HomeController::class, 'wantToRead'])->name('want_to_read');
 
 // Novels
 Route::get('/novels', [NovelController::class, 'index'])->name('novels.index');

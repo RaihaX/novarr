@@ -101,6 +101,10 @@ Route::prefix('v1')
         Route::delete('/lists/{list}', [ApiV1\ReadingListController::class, 'destroy'])->whereNumber('list')->name('lists.destroy');
         Route::put('/lists/{list}/novels/{novel}', [ApiV1\ReadingListController::class, 'addNovel'])->whereNumber(['list', 'novel'])->name('lists.novels.add');
         Route::delete('/lists/{list}/novels/{novel}', [ApiV1\ReadingListController::class, 'removeNovel'])->whereNumber(['list', 'novel'])->name('lists.novels.remove');
+        // "Want to read": the built-in list, by series (made on first use).
+        Route::get('/want-to-read', [ApiV1\ReadingListController::class, 'wantToRead'])->name('want_to_read');
+        Route::put('/novels/{novel}/want-to-read', [ApiV1\ReadingListController::class, 'addWantToRead'])->whereNumber('novel')->name('novels.want_to_read.add');
+        Route::delete('/novels/{novel}/want-to-read', [ApiV1\ReadingListController::class, 'removeWantToRead'])->whereNumber('novel')->name('novels.want_to_read.remove');
 
         // Reader requests: search every source of a medium, request a series,
         // the owner approves / declines (App\Services\Requests). Searching,

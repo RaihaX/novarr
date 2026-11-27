@@ -1135,6 +1135,8 @@ class NovelController extends Controller
             'sendTo' => app(\App\Support\CurrentReader::class)->isGuest() ? null : \App\Services\SendEpub::address(app(\App\Support\CurrentReader::class)->user()),
             // The reader's reading lists and whether this series is in each (the Lists menu).
             'reading_lists' => \App\Services\ReadingLists::forNovel(app(\App\Support\CurrentReader::class)->id(), (int) $data->id),
+            // On the reader's "Want to read" (the header's bookmark button).
+            'want_to_read' => \App\Services\ReadingLists::isWanted(app(\App\Support\CurrentReader::class)->id(), (int) $data->id),
         ]);
     }
 

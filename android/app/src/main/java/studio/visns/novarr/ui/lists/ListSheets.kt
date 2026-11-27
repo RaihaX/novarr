@@ -103,7 +103,8 @@ fun SeriesListsSheet(novelId: Int, novelName: String, onDismiss: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
         )
         if (!reachable) OfflineNote()
-        val lists = ReadingLists.sorted(state.lists)
+        // The reader's own lists: "Want to read" is the bookmark on the series screen.
+        val lists = ReadingLists.sorted(ReadingLists.own(state.lists))
         when {
             !loaded -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             lists.isEmpty() -> {
@@ -182,7 +183,9 @@ fun LibraryListsSheet(selected: Int?, onSelect: (ReadingList?) -> Unit, onDismis
         Column {
             ChoiceRow("All series", null, selected == null, onClick = { onSelect(null) })
             lists.forEach { list ->
+                // "Want to read" is built in: never renamed or deleted, so no options.
                 ChoiceRow(list.name, seriesCount(list.count), selected == list.id, onClick = { onSelect(list) }) {
+                    if (list.isWantToRead) return@ChoiceRow
                     var menu by remember { mutableStateOf(false) }
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "Options for ${list.name}") }
@@ -198,7 +201,7 @@ fun LibraryListsSheet(selected: Int?, onSelect: (ReadingList?) -> Unit, onDismis
                 }
             }
         }
-        if (loaded && lists.isEmpty()) {
+        if (loaded && ReadingLists.own(lists).isEmpty()) {
             Text(
                 "No lists yet. Make one here, or add a series to a list from its page (Lists, at the top).",
                 style = MaterialTheme.typography.bodyMedium,

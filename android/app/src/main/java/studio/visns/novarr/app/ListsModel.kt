@@ -93,6 +93,20 @@ class ListsModel(private val app: AppModel) {
         }
     }
 
+    /** The built-in "Want to read", once the server sent it (null on an older server or before the first fetch). */
+    val wantToRead: ReadingList? get() = ReadingLists.wantToRead(lists)
+
+    /**
+     * Puts [novelId] on "Want to read" or takes it off: shown at once, undone
+     * on failure (the message returned, for a snackbar) — [toggle] on the
+     * built-in list, fetched first if this session hasn't yet.
+     */
+    suspend fun toggleWantToRead(novelId: Int, add: Boolean): String? {
+        if (wantToRead == null) refresh()
+        val list = wantToRead ?: return "Want to read isn't available on this server yet."
+        return toggle(list.id, novelId, add)
+    }
+
     /** Creates a list (and puts [addNovel] in it); the new list, or the message why not. */
     suspend fun create(name: String, addNovel: Int? = null): Result<ReadingList> {
         val session = app.active ?: return Result.failure(IllegalStateException("No session"))

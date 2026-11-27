@@ -33,20 +33,22 @@ class ApiV1ReadingListsTest extends TestCase
     {
         $response = $this->postJson('/api/v1/lists', ['name' => '  Favourites  '])->assertCreated();
         $id = $response->json('list.id');
-        $this->assertSame(['list' => ['id' => $id, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => []]], $response->json());
+        $this->assertSame(['list' => ['id' => $id, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => null]], $response->json());
 
         $this->postJson('/api/v1/lists', ['name' => 'To read'])->assertCreated();
 
+        // "Want to read" is made on first use (this listing) and always first.
         $this->getJson('/api/v1/lists')->assertOk()->assertExactJson(['lists' => [
-            ['id' => $id, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => []],
-            ['id' => $id + 1, 'name' => 'To read', 'count' => 0, 'novel_ids' => []],
+            ['id' => $id + 2, 'name' => 'Want to read', 'count' => 0, 'novel_ids' => [], 'kind' => 'want_to_read'],
+            ['id' => $id, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => null],
+            ['id' => $id + 1, 'name' => 'To read', 'count' => 0, 'novel_ids' => [], 'kind' => null],
         ]]);
 
         $this->patchJson("/api/v1/lists/{$id}", ['name' => 'Zzz best'])->assertOk()
             ->assertJsonPath('list.name', 'Zzz best')->assertJsonPath('list.id', $id);
         // Ordered by name, case-insensitively.
         $this->postJson('/api/v1/lists', ['name' => 'abc'])->assertCreated();
-        $this->assertSame(['abc', 'To read', 'Zzz best'], array_column($this->getJson('/api/v1/lists')->json('lists'), 'name'));
+        $this->assertSame(['Want to read', 'abc', 'To read', 'Zzz best'], array_column($this->getJson('/api/v1/lists')->json('lists'), 'name'));
 
         $this->deleteJson("/api/v1/lists/{$id}")->assertNoContent();
         $this->assertNull(ReadingList::find($id));
@@ -113,7 +115,7 @@ class ApiV1ReadingListsTest extends TestCase
         $b = $this->novel('B');
 
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$b->id}")->assertOk()
-            ->assertExactJson(['list' => ['id' => $list->id, 'name' => 'Favourites', 'count' => 1, 'novel_ids' => [$b->id]]]);
+            ->assertExactJson(['list' => ['id' => $list->id, 'name' => 'Favourites', 'count' => 1, 'novel_ids' => [$b->id], 'kind' => null]]);
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$b->id}")->assertOk()->assertJsonPath('list.count', 1);
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$a->id}")->assertOk()
             ->assertJsonPath('list.novel_ids', [$a->id, $b->id]);
@@ -127,7 +129,7 @@ class ApiV1ReadingListsTest extends TestCase
         // A series can be in several lists.
         $other = $this->makeList('To read');
         $this->putJson("/api/v1/lists/{$other->id}/novels/{$a->id}")->assertOk();
-        $this->assertSame([[$a->id], [$a->id]], array_column($this->getJson('/api/v1/lists')->json('lists'), 'novel_ids'));
+        $this->assertSame([[], [$a->id], [$a->id]], array_column($this->getJson('/api/v1/lists')->json('lists'), 'novel_ids'));
 
         // Deleting a list removes its rows only.
         $this->deleteJson("/api/v1/lists/{$list->id}")->assertNoContent();
@@ -182,12 +184,12 @@ class ApiV1ReadingListsTest extends TestCase
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$gone->id}")->assertOk();
 
         $gone->delete();
-        $this->getJson('/api/v1/lists')->assertJsonPath('lists.0.novel_ids', [$kept->id])->assertJsonPath('lists.0.count', 1);
+        $this->getJson('/api/v1/lists')->assertJsonPath('lists.1.novel_ids', [$kept->id])->assertJsonPath('lists.1.count', 1);
         // It cannot be added or removed while deleted…
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$gone->id}")->assertNotFound();
         // …and comes back with a restore.
         $gone->restore();
-        $this->getJson('/api/v1/lists')->assertJsonPath('lists.0.count', 2);
+        $this->getJson('/api/v1/lists')->assertJsonPath('lists.1.count', 2);
 
         $gone->forceDelete();
         $this->assertSame(0, DB::table('reading_list_novel')->where('novel_id', $gone->id)->count());
@@ -207,8 +209,12 @@ class ApiV1ReadingListsTest extends TestCase
         $theirs = $this->asToken($ownerToken)->postJson('/api/v1/lists', ['name' => 'Favourites'])->assertCreated()->json('list.id');
         $this->asToken($ownerToken)->putJson("/api/v1/lists/{$theirs}/novels/{$novel->id}")->assertOk();
 
+        $wanted = $this->asToken($readerToken)->getJson('/api/v1/lists')->assertOk()->json('lists.0.id');
         $this->asToken($readerToken)->getJson('/api/v1/lists')->assertOk()
-            ->assertExactJson(['lists' => [['id' => $mine, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => []]]]);
+            ->assertExactJson(['lists' => [
+                ['id' => $wanted, 'name' => 'Want to read', 'count' => 0, 'novel_ids' => [], 'kind' => 'want_to_read'],
+                ['id' => $mine, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => null],
+            ]]);
 
         // Someone else's list: 404 for every action, nothing changes.
         $this->asToken($readerToken)->patchJson("/api/v1/lists/{$theirs}", ['name' => 'Mine now'])->assertNotFound();
@@ -216,11 +222,11 @@ class ApiV1ReadingListsTest extends TestCase
         $this->asToken($readerToken)->putJson("/api/v1/lists/{$theirs}/novels/{$novel->id}")->assertNotFound();
         $this->asToken($readerToken)->deleteJson("/api/v1/lists/{$theirs}/novels/{$novel->id}")->assertNotFound();
         $this->assertSame('Favourites', ReadingList::find($theirs)->name);
-        $this->asToken($ownerToken)->getJson('/api/v1/lists')->assertJsonPath('lists.0.novel_ids', [$novel->id]);
+        $this->asToken($ownerToken)->getJson('/api/v1/lists')->assertJsonPath('lists.1.novel_ids', [$novel->id]);
 
         // Web session works too (the web UI's own calls).
         $cookies = $this->webSignIn('sam', self::READER_PASSWORD);
-        $this->withBrowser($cookies)->getJson('/api/v1/lists')->assertOk()->assertJsonPath('lists.0.id', $mine);
+        $this->withBrowser($cookies)->getJson('/api/v1/lists')->assertOk()->assertJsonPath('lists.1.id', $mine);
     }
 
     public function test_unauthenticated_calls_are_refused_with_sign_in_on(): void
@@ -254,7 +260,8 @@ class ApiV1ReadingListsTest extends TestCase
         $token = $this->tokenFor($reader);
 
         $this->asToken($token)->postJson('http://read.example.test/api/v1/lists', ['name' => 'Favourites'])->assertCreated();
-        $this->asToken($token)->getJson('http://read.example.test/api/v1/lists')->assertOk()->assertJsonCount(1, 'lists');
+        // Theirs and the built-in "Want to read".
+        $this->asToken($token)->getJson('http://read.example.test/api/v1/lists')->assertOk()->assertJsonCount(2, 'lists');
     }
 
     public function test_deleting_an_account_removes_its_lists(): void

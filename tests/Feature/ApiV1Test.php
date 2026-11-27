@@ -26,6 +26,8 @@ class ApiV1Test extends TestCase
         'medium',
         // Books: the series and the book's number in it (null when none).
         'series', 'series_index',
+        // On the reader's "Want to read" (the built-in reading list).
+        'want_to_read',
     ];
 
     private const REF_KEYS = ['id', 'label', 'chapter', 'book'];
@@ -305,11 +307,12 @@ class ApiV1Test extends TestCase
             $this->assertStringNotContainsString('select * from "novels"', $sql);
         }
 
-        // Warm caches: only the three statements that load the novels.
+        // Warm caches: only the three statements that load the novels, and
+        // the reader's "Want to read" ids.
         DB::flushQueryLog();
         DB::enableQueryLog();
         $this->getJson('/api/v1/novels')->assertOk();
-        $this->assertCount(3, DB::getQueryLog());
+        $this->assertCount(4, DB::getQueryLog());
         DB::disableQueryLog();
     }
 
@@ -340,7 +343,7 @@ class ApiV1Test extends TestCase
 
         $json = $this->getJson('/api/v1/home')->assertOk()->json();
 
-        $this->assertSame(['continue', 'new_chapters', 'stats'], $this->sorted(array_keys($json)));
+        $this->assertSame(['continue', 'new_chapters', 'stats', 'want_to_read', 'want_to_read_count'], $this->sorted(array_keys($json)));
 
         $this->assertCount(1, $json['continue']);
         $item = $json['continue'][0];
@@ -389,6 +392,8 @@ class ApiV1Test extends TestCase
             'continue' => [],
             'new_chapters' => [],
             'stats' => ['novels' => 0, 'chapters_downloaded' => 0, 'chapters_queued' => 0],
+            'want_to_read' => [],
+            'want_to_read_count' => 0,
         ]);
     }
 
