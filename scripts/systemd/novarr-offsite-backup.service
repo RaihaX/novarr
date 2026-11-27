@@ -1,0 +1,12 @@
+[Unit]
+Description=Novarr offsite backup to the Hetzner Storage Box (restic, encrypted)
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/novarr-offsite-backup
+# The first run uploads the whole library (~180 GB); later nights only changes.
+TimeoutStartSec=72h
+Nice=10
+IOSchedulingClass=idle

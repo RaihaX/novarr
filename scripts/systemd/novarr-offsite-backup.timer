@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly Novarr offsite backup (after Novarr's own 03:30 jobs)
+
+[Timer]
+OnCalendar=*-*-* 04:30:00 Australia/Perth
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target
