@@ -38,6 +38,7 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import studio.visns.novarr.store.OfflineStore
 import studio.visns.novarr.ui.NovelRoute
+import studio.visns.novarr.ui.PlayerRoute
 import studio.visns.novarr.ui.components.CenteredProgress
 import studio.visns.novarr.ui.components.EmptyState
 import studio.visns.novarr.ui.components.LocalApp
@@ -53,6 +54,13 @@ fun DownloadsScreen(nav: NavController) {
     val revision by app.downloads.revision.collectAsStateWithLifecycle()
     var items by remember { mutableStateOf<List<OfflineStore.NovelDownloads>?>(null) }
     LaunchedEffect(revision) { items = app.active?.store?.downloads().orEmpty() }
+    // Downloaded audiobooks (only on servers with them).
+    val audioRevision by app.listening.downloadsRevision.collectAsStateWithLifecycle()
+    val audiobooksOffered by app.audiobooksOffered.collectAsStateWithLifecycle()
+    var audiobooks by remember { mutableStateOf<List<OfflineStore.AudiobookDownload>>(emptyList()) }
+    LaunchedEffect(audioRevision, audiobooksOffered) {
+        audiobooks = if (audiobooksOffered) app.active?.store?.audiobookDownloads().orEmpty() else emptyList()
+    }
 
     Scaffold(
         topBar = {
@@ -68,10 +76,47 @@ fun DownloadsScreen(nav: NavController) {
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
             when {
                 list == null -> item { CenteredProgress() }
-                list.isEmpty() -> item {
+                list.isEmpty() && audiobooks.isEmpty() -> item {
                     EmptyState("No downloads", "Use “Download” on a series to read it without a connection.", Icons.Outlined.DownloadForOffline)
                 }
                 else -> {
+                    if (audiobooks.isNotEmpty()) {
+                        item(key = "audiobooks-title") {
+                            Text(
+                                "Audiobooks",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.readableWidth().padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
+                            )
+                        }
+                        items(audiobooks, key = { "a${it.audiobookId}" }) { item ->
+                            Row(
+                                Modifier.readableWidth()
+                                    .clickable(role = Role.Button) { nav.navigate(PlayerRoute(item.audiobookId)) }
+                                    .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
+                                    Text(item.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text("Audiobook · ${formatBytes(item.bytes)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                IconButton(onClick = { scope.launch { app.audiobookDownloads.remove(item.audiobookId) } }) {
+                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = "Remove ${item.title} download")
+                                }
+                            }
+                            HorizontalDivider(Modifier.readableWidth().padding(horizontal = 16.dp))
+                        }
+                        if (list.isNotEmpty()) {
+                            item(key = "series-title") {
+                                Text(
+                                    "Series",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.readableWidth().padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+                                )
+                            }
+                        }
+                    }
                     items(list, key = { it.novelId }) { item ->
                         Row(
                             Modifier.readableWidth()
@@ -98,7 +143,7 @@ fun DownloadsScreen(nav: NavController) {
                     }
                     item {
                         Text(
-                            "Total ${formatBytes(list.sumOf { it.bytes })}.",
+                            "Total ${formatBytes(list.sumOf { it.bytes } + audiobooks.sumOf { it.bytes })}.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.readableWidth().padding(16.dp),

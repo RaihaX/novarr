@@ -8,14 +8,17 @@ import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkOut
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.CollectionsBookmark
+import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -44,6 +47,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import kotlinx.serialization.Serializable
+import studio.visns.novarr.ui.audiobooks.AudiobooksScreen
+import studio.visns.novarr.ui.audiobooks.MiniPlayer
+import studio.visns.novarr.ui.audiobooks.PlayerScreen
 import studio.visns.novarr.ui.components.LocalApp
 import studio.visns.novarr.ui.components.isWide
 import studio.visns.novarr.ui.connect.ConnectScreen
@@ -97,13 +103,22 @@ import studio.visns.novarr.ui.theme.LocalEink
 /** The reader's whole "Want to read" (Home's shelf "See all"). */
 @Serializable data object WantToReadRoute
 
+/** Every audiobook (a tab when the server has them). */
+@Serializable data object AudiobooksRoute
+
+/** The full-screen audiobook player, opening audiobook [id] if another is loaded. */
+@Serializable data class PlayerRoute(val id: Int)
+
 private data class Tab(val route: Any, val label: String, val icon: ImageVector)
 
-private val tabs = listOf(
-    Tab(HomeRoute, "Home", Icons.AutoMirrored.Outlined.MenuBook),
-    Tab(LibraryRoute, "Library", Icons.Outlined.CollectionsBookmark),
-    Tab(SettingsRoute, "Settings", Icons.Outlined.Settings),
-)
+private val homeTab = Tab(HomeRoute, "Home", Icons.AutoMirrored.Outlined.MenuBook)
+private val libraryTab = Tab(LibraryRoute, "Library", Icons.Outlined.CollectionsBookmark)
+private val audiobooksTab = Tab(AudiobooksRoute, "Listen", Icons.Outlined.Headphones)
+private val settingsTab = Tab(SettingsRoute, "Settings", Icons.Outlined.Settings)
+
+/** The tabs; "Listen" only on servers with audiobooks (meta `audiobooks`). */
+private fun tabsFor(audiobooks: Boolean): List<Tab> =
+    if (audiobooks) listOf(homeTab, libraryTab, audiobooksTab, settingsTab) else listOf(homeTab, libraryTab, settingsTab)
 
 /** Navigation for a signed-in (or sign-in-off) session. No Discover: this app only reads. */
 @Composable
@@ -111,8 +126,12 @@ fun MainNavigation() {
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val destination = entry?.destination
-    // The reader is full-screen: no tab chrome.
-    val showTabs = destination?.hasRoute(ReaderRoute::class) != true
+    // The reader and the player are full-screen: no tab chrome.
+    val showTabs = destination?.hasRoute(ReaderRoute::class) != true && destination?.hasRoute(PlayerRoute::class) != true
+    val app = LocalApp.current
+    val audiobooksOffered by app.audiobooksOffered.collectAsStateWithLifecycle()
+    val tabs = tabsFor(audiobooksOffered)
+    val nowPlaying by app.listening.nowPlaying.collectAsStateWithLifecycle()
     val wide = isWide()
     val eink = LocalEink.current
 
@@ -130,8 +149,16 @@ fun MainNavigation() {
         }
     }
 
+    // The playback notification: the full-screen player, over whatever was on screen.
+    val openPlayer by app.openPlayerRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(openPlayer, nowPlaying?.id) {
+        if (!openPlayer) return@LaunchedEffect
+        val id = nowPlaying?.id ?: return@LaunchedEffect
+        if (destination?.hasRoute(PlayerRoute::class) != true) nav.navigate(PlayerRoute(id)) { launchSingleTop = true }
+        app.playerOpened()
+    }
+
     // A tapped notification: Home, from wherever the app was (Home's banner offers the update).
-    val app = LocalApp.current
     val openHome by app.openHomeRequest.collectAsStateWithLifecycle()
     LaunchedEffect(openHome) {
         if (!openHome) return@LaunchedEffect
@@ -161,7 +188,7 @@ fun MainNavigation() {
             popUpTo(nav.graph.findStartDestination().id)
             launchSingleTop = true
         }
-        lastTab = tabs.indexOfFirst { it.route == HomeRoute }.coerceAtLeast(0)
+        lastTab = 0
         nav.navigate(NovelRoute(novelId))
         app.seriesOpened()
     }
@@ -180,21 +207,33 @@ fun MainNavigation() {
     Scaffold(
         contentWindowInsets = WindowInsets(0),
         bottomBar = {
-            if (!wide) {
-                AnimatedVisibility(
-                    showTabs,
-                    // AnimatedVisibility's defaults, or none on e-ink.
-                    enter = if (eink) EnterTransition.None else fadeIn() + expandIn(),
-                    exit = if (eink) ExitTransition.None else shrinkOut() + fadeOut(),
-                ) {
-                    NavigationBar {
-                        tabs.forEach { tab ->
-                            NavigationBarItem(
-                                selected = isSelected(tab),
-                                onClick = { select(tab) },
-                                icon = { Icon(tab.icon, contentDescription = null) },
-                                label = { Text(tab.label) },
-                            )
+            // An audiobook loaded: the mini-player sits above the tabs (on tablets, at the bottom of the content).
+            Column {
+                val playing = nowPlaying
+                if (playing != null && showTabs) {
+                    MiniPlayer(
+                        playing,
+                        onOpen = { nav.navigate(PlayerRoute(playing.id)) { launchSingleTop = true } },
+                        // Without the tab bar below it (tablets), it keeps clear of the system navigation itself.
+                        modifier = if (wide) Modifier.navigationBarsPadding() else Modifier,
+                    )
+                }
+                if (!wide) {
+                    AnimatedVisibility(
+                        showTabs,
+                        // AnimatedVisibility's defaults, or none on e-ink.
+                        enter = if (eink) EnterTransition.None else fadeIn() + expandIn(),
+                        exit = if (eink) ExitTransition.None else shrinkOut() + fadeOut(),
+                    ) {
+                        NavigationBar {
+                            tabs.forEach { tab ->
+                                NavigationBarItem(
+                                    selected = isSelected(tab),
+                                    onClick = { select(tab) },
+                                    icon = { Icon(tab.icon, contentDescription = null) },
+                                    label = { Text(tab.label) },
+                                )
+                            }
                         }
                     }
                 }
@@ -256,6 +295,8 @@ private fun NovarrNavHost(nav: NavHostController) {
         composable<HighlightsRoute> { HighlightsScreen(nav, it.toRoute()) }
         composable<DownloadsRoute> { DownloadsScreen(nav) }
         composable<WantToReadRoute> { WantToReadScreen(nav) }
+        composable<AudiobooksRoute> { AudiobooksScreen(nav) }
+        composable<PlayerRoute> { PlayerScreen(nav, it.toRoute<PlayerRoute>().id) }
         composable<RequestsRoute> { RequestsScreen(nav, it.toRoute()) }
         composable<ReaderSettingsRoute> { ReaderSettingsScreen(nav) }
         composable<ChangeServerRoute> { ConnectScreen(initialSetup = false, onDone = { nav.popBackStack() }) }

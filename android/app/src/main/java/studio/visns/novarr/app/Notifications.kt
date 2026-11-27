@@ -38,10 +38,22 @@ object Notifications {
 
         /** The one combined "new chapters" notification (every series in it). */
         NEW_CHAPTERS("new-chapters", "New chapters", "Series you were caught up on that have something new to read.", NotificationManager.IMPORTANCE_DEFAULT),
+
+        /** An audiobook downloading for offline listening: silent progress. (Playback has Media3's own channel.) */
+        DOWNLOADS("downloads", "Downloads", "Audiobooks downloading for offline listening.", NotificationManager.IMPORTANCE_LOW),
     }
 
     /** The one "newer version" notification; a newer build replaces it. */
     const val APP_UPDATE_ID = 1
+
+    /**
+     * An audiobook download's progress: this plus the audiobook id (above the
+     * request notifications' range; Media3's playback notification is 1001).
+     */
+    const val AUDIOBOOK_DOWNLOAD_BASE_ID = 2_000_000
+
+    /** MainActivity's action for the playback notification: the full-screen player. */
+    const val ACTION_OPEN_PLAYER = "studio.visns.novarr.action.OPEN_PLAYER"
 
     /** The summary of several request notifications (one per item: [RequestFeed.notificationId]). */
     const val REQUESTS_SUMMARY_ID = 2

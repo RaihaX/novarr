@@ -81,7 +81,11 @@ import studio.visns.novarr.api.ChapterListItem
 import studio.visns.novarr.api.NovelDetail
 import studio.visns.novarr.api.NovelSummary
 import studio.visns.novarr.domain.ReadingLists
+import androidx.compose.material.icons.outlined.Headphones
+import androidx.compose.material3.OutlinedButton
+import studio.visns.novarr.domain.ListeningSync
 import studio.visns.novarr.ui.HighlightsRoute
+import studio.visns.novarr.ui.PlayerRoute
 import studio.visns.novarr.ui.ReaderRoute
 import studio.visns.novarr.ui.components.isWide
 import studio.visns.novarr.ui.components.CenteredProgress
@@ -117,6 +121,7 @@ fun NovelScreen(nav: NavController, novelId: Int) {
     var confirmRemove by remember { mutableStateOf(false) }
     var showLists by rememberSaveable { mutableStateOf(false) }
     val listsOffered by app.listsOffered.collectAsStateWithLifecycle()
+    val audiobooksOffered by app.audiobooksOffered.collectAsStateWithLifecycle()
     val listsState by app.lists.state.collectAsStateWithLifecycle()
     // The reader's own lists ("Want to read" has its own bookmark beside them).
     val ownLists = ReadingLists.own(listsState.lists)
@@ -224,6 +229,20 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                                 NovelHeader(summary, model.detail, wide)
                                 ProgressBlock(summary)
                                 PrimaryButton(summary, model.resumeChapterId, model.hasStarted) { id -> open(id) }
+                                // The book has an audiobook (and the server still offers them).
+                                val audiobook = summary.audiobook
+                                if (audiobooksOffered && audiobook != null) {
+                                    OutlinedButton(
+                                        onClick = { nav.navigate(PlayerRoute(audiobook.id)) },
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                    ) {
+                                        Icon(Icons.Outlined.Headphones, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                                        Text(
+                                            if (audiobook.durationMs > 0) "Listen · ${ListeningSync.length(audiobook.durationMs)}" else "Listen",
+                                            style = MaterialTheme.typography.titleSmall,
+                                        )
+                                    }
+                                }
                                 if (!summary.isBook) CheckForChaptersControl(novelId)
                                 DownloadBlock(model, reachable, onDownload = { model.download(it) }, onRemove = { confirmRemove = true })
                                 model.detail?.extras?.sourceUnavailable?.takeIf { it.count > 0 }?.let { unavailable ->

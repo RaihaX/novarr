@@ -275,6 +275,74 @@ class ApiClient(
     suspend fun wantToRead(): WantToReadEnvelope =
         get("want-to-read", WantToReadEnvelope.serializer(), query = mapOf("medium" to "all"), fresh = true)
 
+    // Audiobooks (meta `audiobooks`)
+
+    /** Every audiobook the reader can see (books' and standalone ones), a page at a time. */
+    suspend fun audiobooks(page: Int = 1, search: String? = null, status: String? = null): AudiobooksPage {
+        val query = buildMap {
+            put("page", page.toString())
+            search?.takeIf { it.isNotBlank() }?.let { put("search", it.trim()) }
+            status?.let { put("status", it) }
+        }
+        return get("audiobooks", AudiobooksPage.serializer(), query = query, fresh = true)
+    }
+
+    /** One audiobook with its (pre-signed) parts, chapters, bookmarks and progress. Fresh: the part URLs expire. */
+    suspend fun audiobook(id: Int): AudiobookDetail = get("audiobooks/$id", AudiobookEnvelope.serializer(), fresh = true).audiobook
+
+    /** Started and not finished, newest progress first (up to 12). */
+    suspend fun continueListening(): List<AudiobookSummary> =
+        get("audiobooks/continue", AudiobooksEnvelope.serializer(), fresh = true).audiobooks
+
+    /**
+     * Saves a whole-book position. [recordedAtIso] is when it was recorded on
+     * this device: the server keeps the newest by it and answers `stale` for an
+     * older one. Device headers like chapter progress.
+     */
+    suspend fun saveAudiobookProgress(
+        id: Int,
+        positionMs: Long,
+        speed: Float,
+        finished: Boolean,
+        recordedAtIso: String,
+    ): AudiobookProgressResult {
+        val body = audiobookProgressBody(positionMs, speed, finished, recordedAtIso)
+        val prepared = prepare("PUT", "audiobooks/$id/progress", body = body, headers = device?.headers.orEmpty())
+        return decode(AudiobookProgressResult.serializer(), execute(prepared))
+    }
+
+    /** 201 {bookmark}. */
+    suspend fun createAudiobookBookmark(id: Int, positionMs: Long, note: String?): AudiobookBookmark {
+        val body = buildJsonObject {
+            put("position_ms", positionMs.coerceAtLeast(0))
+            note?.trim()?.takeIf { it.isNotEmpty() }?.let { put("note", it.take(500)) }
+        }
+        return decode(AudiobookBookmarkEnvelope.serializer(), execute(prepare("POST", "audiobooks/$id/bookmarks", body = body))).bookmark
+    }
+
+    /** 204; already gone (404) counts as deleted. */
+    suspend fun deleteAudiobookBookmark(id: Int, bookmarkId: Int) {
+        try {
+            execute(prepare("DELETE", "audiobooks/$id/bookmarks/$bookmarkId"))
+        } catch (e: ApiError.Http) {
+            if (e.status != 404) throw e
+        }
+    }
+
+    /** Admin: the drop-in folder (waiting entries, failed ones with their reason). */
+    suspend fun audiobookInbox(): AudiobookInbox = get("audiobooks/inbox", AudiobookInbox.serializer(), fresh = true)
+
+    /** Admin: links an audiobook to a book ([novelId]) or leaves it standalone (null). */
+    suspend fun matchAudiobook(id: Int, novelId: Int?) {
+        val body = buildJsonObject { if (novelId != null) put("novel_id", novelId) else put("novel_id", JsonNull) }
+        execute(prepare("POST", "audiobooks/$id/match", body = body))
+    }
+
+    /** Admin: queues a scan of the drop-in folder now. */
+    suspend fun scanAudiobooks() {
+        execute(prepare("POST", "audiobooks/scan", body = JsonObject(emptyMap())))
+    }
+
     // Books sent from the app ("Share to Novarr")
 
     /** One ePub to send: [open] is called each time OkHttp writes the part (again on a retried connection). */
@@ -502,6 +570,14 @@ class ApiClient(
             // A look-up's mark: read, but not the series' latest position.
             if (write.lookup) put("lookup", true)
             put("age", age)
+        }
+
+        /** Speed is kept within the contract's 0.5–3.0 and rounded to two decimals (decimal 3,2). */
+        fun audiobookProgressBody(positionMs: Long, speed: Float, finished: Boolean, recordedAtIso: String): JsonObject = buildJsonObject {
+            put("position_ms", positionMs.coerceAtLeast(0))
+            put("speed", Math.round(speed.coerceIn(0.5f, 3.0f) * 100) / 100.0)
+            put("finished", finished)
+            put("recorded_at", recordedAtIso)
         }
 
         fun highlightBody(write: WriteKind.CreateHighlight): JsonObject = buildJsonObject {
