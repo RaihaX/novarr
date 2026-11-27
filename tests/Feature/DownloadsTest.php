@@ -477,6 +477,8 @@ class DownloadsTest extends TestCase
         $this->assertSame($novel->id, $request->novel_id);
         Mail::assertSent(RequestAvailable::class, fn($m) => $m->hasTo('sam@example.test'));
         Mail::assertSent(AdminAlertMail::class, fn($m) => str_starts_with($m->body, 'Added automatically: “The Quiet Orchard”'));
+        Mail::assertSent(AdminAlertMail::class, fn($m) => $m->details['title'] === 'The Quiet Orchard' && $m->details['button'] === 'Open the book'
+            && $m->details['tone'] === 'success' && str_contains($m->render(), 'Open the book'));
         $this->assertSame(['imported', 'book', $novel->id], [$grab->fresh()->status, $grab->fresh()->imported_type, $grab->fresh()->imported_id]);
         $this->assertTrue(DownloadEvent::where('event', DownloadEvent::AUTO_APPROVED)->exists());
     }
@@ -504,6 +506,7 @@ class DownloadsTest extends TestCase
         $this->assertTrue($request->fresh()->isPending());
         $this->assertNotNull($request->fresh()->upload_path);
         Mail::assertSent(AdminAlertMail::class, fn($m) => str_contains($m->body, "check it's the right book"));
+        Mail::assertSent(AdminAlertMail::class, fn($m) => $m->details['button'] === 'Review and match' && $m->details['tone'] === 'warning');
     }
 
     public function test_a_book_already_in_the_library_closes_the_request_as_it(): void
@@ -691,6 +694,8 @@ class DownloadsTest extends TestCase
         Artisan::call('downloads:search-wanted');
         Mail::assertSent(AdminAlertMail::class, 1);
         Mail::assertSent(AdminAlertMail::class, fn($m) => str_contains($m->body, '“The Quiet Orchard”') && str_ends_with((string) $m->url, '/downloads?tab=wanted'));
+        Mail::assertSent(AdminAlertMail::class, fn($m) => $m->details['button'] === 'Pick a result' && count($m->details['items']) === 1
+            && $m->details['items'][0]['title'] === 'The Quiet Orchard' && str_contains($m->render(), 'data-mail-item'));
 
         // The owner's manual grab overrides the profile.
         $search = $this->postJson('/downloads/search', ['kind' => 'ebook', 'request_id' => $row->novel_request_id])->json();

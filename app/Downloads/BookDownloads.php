@@ -9,6 +9,7 @@ use App\DownloadEvent;
 use App\DownloadGrab;
 use App\Novel;
 use App\NovelRequest;
+use App\Mail\AdminAlertMail;
 use App\Services\AdminAlert;
 use App\Services\DuplicateSeries;
 use App\Services\Requests\RequestNotifier;
@@ -124,7 +125,14 @@ class BookDownloads
                 DownloadEvent::log(DownloadEvent::AUTO_APPROVED, $grab->title, "Added to the library as “{$novel->name}”.", $grab);
                 $this->alert->send("Added automatically: {$novel->name}",
                     "Added automatically: \u{201C}{$novel->name}\u{201D}" . ($novel->author ? " by {$novel->author}" : '') . ' was downloaded and is in the library; the reader has been told.',
-                    RequestNotifier::adminBase() . route('novels.show', $novel->id, false));
+                    RequestNotifier::adminBase() . route('novels.show', $novel->id, false),
+                    self::bookMail($novel, [
+                        'heading' => 'Added automatically',
+                        'tone' => 'success',
+                        'intro' => "\u{201C}{$novel->name}\u{201D} was downloaded, matched the request, and is in the library. The reader who asked for it has been told.",
+                        'chip' => 'In the library',
+                        'button' => 'Open the book',
+                    ]));
 
                 return DownloadGrab::STATUS_IMPORTED;
             } catch (RequestRefused $e) {
@@ -133,12 +141,28 @@ class BookDownloads
         }
 
         DownloadEvent::log(DownloadEvent::IMPORTED, $grab->title, $wanted ? 'Waiting in review: check it is the right book.' : 'In the review queue.', $grab);
+        $meta = (array) ($result->upload_meta ?? []);
+        $author = implode(', ', (array) ($meta['authors'] ?? [])) ?: (string) $result->author;
         $this->alert->send(
             "Downloaded: {$title}",
             $wanted
                 ? "Your download of \u{201C}{$title}\u{201D} finished. Downloaded \u{2014} check it's the right book: review and add it."
                 : "Your download of \u{201C}{$title}\u{201D} finished: review and add it.",
             $reviewUrl,
+            [
+                'eyebrow' => 'Downloads',
+                'heading' => 'Download finished',
+                'tone' => $wanted ? 'warning' : 'info',
+                'intro' => $wanted
+                    ? "Your download of \u{201C}{$title}\u{201D} finished, but it is not a clear match to the request. Check it is the right book, then add it to the library."
+                    : "Your download of \u{201C}{$title}\u{201D} finished and is waiting in the review queue. Match its details and cover, then add it to the library.",
+                'cover' => AdminAlertMail::coverUrl($result->cover_url),
+                'title' => $title,
+                'meta' => implode(' · ', array_filter(['Book', $author])),
+                'chip' => 'Needs review',
+                'button' => 'Review and match',
+                'secondary' => ['text' => 'Open Downloads', 'url' => RequestNotifier::adminBase() . route('downloads.index', [], false)],
+            ],
         );
 
         return DownloadGrab::STATUS_IMPORTED;
@@ -227,9 +251,27 @@ class BookDownloads
         DownloadEvent::log(DownloadEvent::IMPORTED, $grab->title, "“{$existing->name}” was already in the library: the request is marked ready.", $grab);
         $this->alert->send("Already in the library: {$existing->name}",
             "\u{201C}{$existing->name}\u{201D} was already in the library, so the download was not needed: the request is marked ready.",
-            RequestNotifier::adminBase() . route('novels.show', $existing->id, false));
+            RequestNotifier::adminBase() . route('novels.show', $existing->id, false),
+            self::bookMail($existing, [
+                'heading' => 'Already in the library',
+                'intro' => "\u{201C}{$existing->name}\u{201D} was already in the library, so the download was not needed. The request is marked ready and the reader can read it now.",
+                'chip' => 'Already here',
+                'button' => 'Open the book',
+            ]));
 
         return DownloadGrab::STATUS_IMPORTED;
+    }
+
+    /** The owner's email about a library book: its cover, title and author on the card, the Downloads link beside the button. */
+    private static function bookMail(Novel $novel, array $details): array
+    {
+        return $details + [
+            'eyebrow' => 'Downloads',
+            'cover' => AdminAlertMail::coverOf($novel),
+            'title' => (string) $novel->name,
+            'meta' => implode(' · ', array_filter(['Book', (string) $novel->author])),
+            'secondary' => ['text' => 'Open Downloads', 'url' => RequestNotifier::adminBase() . route('downloads.index', [], false)],
+        ];
     }
 
     /** Imported as $type #$id; a usenet download leaves the inbox ($path null: already handled). */

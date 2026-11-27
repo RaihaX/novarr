@@ -71,7 +71,7 @@ class SendToKindle extends Command
         }
 
         try {
-            Mail::to($kindleEmail)->send(new SendToKindleMailable($epubPath, $novel->name, GenerateePub::epubFilename($novel)));
+            Mail::to($kindleEmail)->send(new SendToKindleMailable($epubPath, $novel->name, GenerateePub::epubFilename($novel), $novel->author));
         } catch (\Throwable $e) {
             $this->error('Failed to send: ' . $e->getMessage());
             \Log::error("Send to Kindle failed for novel {$novelId}: " . $e->getMessage());

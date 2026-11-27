@@ -222,6 +222,7 @@ final class RouteAccess
         'settings.users.disable', 'settings.users.destroy', 'settings.users.auth', 'settings.users.second_step.reset',
         'settings.users.invites.store', 'settings.users.invites.resend', 'settings.users.invites.destroy',
         'settings.users.history',
+        'mail_preview.index', 'mail_preview.show',
         'api.v1.discover', 'api.v1.discover.browse', 'api.v1.discover.searches.store', 'api.v1.discover.searches.show',
         'api.v1.novels.store',
         'api.v1.requests.approve', 'api.v1.requests.decline', 'api.v1.requests.rerank',

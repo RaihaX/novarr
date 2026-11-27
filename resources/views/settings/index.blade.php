@@ -126,6 +126,7 @@
                         <button type="button" id="testEmail" class="btn btn-secondary">Send test email</button>
                         <button type="button" id="testFlare" class="btn btn-secondary">Test FlareSolverr</button>
                         <button type="button" id="testNotify" class="btn btn-secondary">Test notification</button>
+                        <a href="{{ route('mail_preview.index') }}" class="btn btn-secondary" id="mailPreviews">Preview emails</a>
                     </div>
                 </form>
             </div>

@@ -42,6 +42,16 @@ class RequestCreated extends RequestMail
         return "{$this->requesterName} would like {$this->seriesTitle} ({$this->mediumLabel}) added to the library. Approve or decline it on the Requests page, from your home network.";
     }
 
+    public function eyebrow(): ?string
+    {
+        return $this->mediumLabel === 'book' ? 'Books' : 'Requests';
+    }
+
+    public function homeUrl(): string
+    {
+        return \App\Services\Requests\RequestNotifier::adminBase() . '/';
+    }
+
     public function footer(): string
     {
         return 'You get this email because you are the owner of this Novarr.';

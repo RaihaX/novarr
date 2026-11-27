@@ -265,6 +265,10 @@ Route::get('/settings/tailscale', [TailscaleController::class, 'status'])->name(
 Route::post('/settings/tailscale/serve', [TailscaleController::class, 'serve'])->name('settings.tailscale_serve');
 Route::post('/settings/tailscale/funnel', [TailscaleController::class, 'funnel'])->name('settings.tailscale_funnel');
 
+// Email previews: every mail with sample data (admin; App\Mail\MailPreviews). Nothing is sent.
+Route::get('/mail-preview', [\App\Http\Controllers\MailPreviewController::class, 'index'])->name('mail_preview.index');
+Route::get('/mail-preview/{name}', [\App\Http\Controllers\MailPreviewController::class, 'show'])->where('name', '[a-z0-9-]+')->name('mail_preview.show');
+
 Route::get('/logs', [LogController::class, 'index'])->name('logs.index');
 Route::get('/logs/{filename}/tail', [LogController::class, 'tail'])->name('logs.tail');
 Route::post('/logs/{filename}/clear', [LogController::class, 'clear'])->name('logs.clear');

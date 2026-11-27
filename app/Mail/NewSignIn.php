@@ -36,6 +36,7 @@ class NewSignIn extends Mailable
             ->with([
                 'when' => $this->at->copy()->timezone(config('app.timezone'))->format('j F Y, H:i T'),
                 'where' => $this->public ? 'the public address' : 'your home network',
+                'accountUrl' => NewChapters::readerUrl('account'),
             ]);
     }
 }
