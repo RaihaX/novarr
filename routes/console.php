@@ -271,6 +271,14 @@ $oneServer(Schedule::command('books:covers --limit=300')
     ->withoutOverlapping(120)
     ->runInBackground());
 
+// The download inboxes' tidy-up (App\Downloads\InboxTidy): imported downloads' leftovers
+// once no torrent in Transmission uses them, unreadable audiobook files after 30 days.
+$oneServer(Schedule::command('downloads:tidy')
+    ->dailyAt('05:40')
+    ->name('downloads_tidy')
+    ->withoutOverlapping(30)
+    ->runInBackground());
+
 // Series of the Books library (App\Books\BookSeries): nightly, Calibre-Web's
 // series for the books imported from it (when Calibre-Web is set up), then
 // the guesses from titles for the rest (App\Books\SeriesInference). A new

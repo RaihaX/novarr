@@ -19,6 +19,7 @@ class DownloadEvent extends Model
     public const BLOCKLISTED = 'blocklisted';
     public const NEEDS_CHOICE = 'needs_choice';
     public const SEARCHED = 'searched';
+    public const TIDIED = 'tidied';
 
     public const LABELS = [
         self::GRABBED => 'Grabbed',
@@ -30,6 +31,7 @@ class DownloadEvent extends Model
         self::BLOCKLISTED => 'Blocklisted',
         self::NEEDS_CHOICE => 'Needs your choice',
         self::SEARCHED => 'Searched',
+        self::TIDIED => 'Tidied up',
     ];
 
     public const UPDATED_AT = null;

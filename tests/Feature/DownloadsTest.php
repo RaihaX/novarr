@@ -64,6 +64,7 @@ class DownloadsTest extends TestCase
     /** Transmission's torrents by hash; its session id. */
     private array $torrents = [];
     private string $session = 'sess-1';
+    private bool $transmissionDown = false;
 
     private User $reader;
 
@@ -136,6 +137,9 @@ class DownloadsTest extends TestCase
                 return Http::response(['version' => '1.1', 'id' => $body['id'], 'result' => $result]);
             }
             if ($url === 'http://transmission.test:9091/transmission/rpc') {
+                if ($this->transmissionDown) {
+                    return Http::response('down', 503);
+                }
                 if (($request->header('X-Transmission-Session-Id')[0] ?? null) !== $this->session) {
                     return Http::response('<h1>409: Conflict</h1>', 409, ['X-Transmission-Session-Id' => $this->session]);
                 }
@@ -150,7 +154,9 @@ class DownloadsTest extends TestCase
                     return Http::response(['result' => 'success', 'arguments' => []]);
                 }
                 if ($body['method'] === 'torrent-get') {
-                    return Http::response(['result' => 'success', 'arguments' => ['torrents' => array_values(array_intersect_key($this->torrents, array_flip($body['arguments']['ids'])))]]);
+                    $all = !isset($body['arguments']['ids']);
+
+                    return Http::response(['result' => 'success', 'arguments' => ['torrents' => $all ? array_values($this->torrents) : array_values(array_intersect_key($this->torrents, array_flip($body['arguments']['ids'])))]]);
                 }
             }
             if (str_contains($url, 'googleapis.com')) {
@@ -594,6 +600,63 @@ class DownloadsTest extends TestCase
             ->assertOk()->assertJsonPath('asked', true);
         $this->assertNotNull(WantedList::audiobookFor($book->id));
         $this->asToken($this->tokenFor($reader))->postJson('/api/v1/novels/999999/audiobook/ask')->assertNotFound();
+    }
+
+    public function test_the_tidy_up_never_touches_what_a_torrent_uses(): void
+    {
+        $inbox = AudiobookLibrary::inbox();
+        $books = \App\Downloads\Downloads::booksInbox();
+        @mkdir($books, 0777, true);
+        $make = function (string $dir, string $name) { @mkdir("{$dir}/{$name}", 0777, true); file_put_contents("{$dir}/{$name}/a.m4b", 'x'); };
+
+        // Imported torrent, still in Transmission (any state): kept.
+        $make($inbox, 'Seeding Book');
+        $this->grab(['kind' => 'audiobook', 'protocol' => 'torrent', 'client' => 'transmission', 'client_ref' => 'abc0', 'status' => 'imported', 'completed_path' => 'Seeding Book']);
+        $this->torrents['abc0'] = ['hashString' => 'abc0', 'name' => 'Seeding Book', 'downloadDir' => '/downloads/Audiobooks', 'status' => 0];
+        // A torrent the owner added by hand (no grab), same folder: kept.
+        $make($inbox, 'Hand Added');
+        $this->torrents['zzz'] = ['hashString' => 'zzz', 'name' => 'Hand Added', 'downloadDir' => '/downloads/Audiobooks', 'status' => 6];
+        // Imported torrent the owner removed from Transmission: goes.
+        $make($inbox, 'Retired Book');
+        $this->grab(['kind' => 'audiobook', 'protocol' => 'torrent', 'client' => 'transmission', 'client_ref' => 'old1', 'status' => 'imported', 'completed_path' => 'Retired Book']);
+        // A usenet ebook left behind after import: goes.
+        $make($books, 'Usenet Leftover');
+        $this->grab(['kind' => 'ebook', 'protocol' => 'usenet', 'client' => 'nzbget', 'client_ref' => '7', 'status' => 'imported', 'completed_path' => 'Usenet Leftover']);
+        // Still downloading, and a file the owner dropped in: kept.
+        $make($inbox, 'In Progress');
+        $this->grab(['kind' => 'audiobook', 'protocol' => 'torrent', 'client' => 'transmission', 'client_ref' => 'new1', 'status' => 'downloading', 'completed_path' => 'In Progress']);
+        $make($inbox, 'Owner Dropped');
+        // _failed: old goes (with its reason), recent stays.
+        @mkdir("{$inbox}/_failed", 0777, true);
+        file_put_contents("{$inbox}/_failed/Old.mp3", 'x');
+        file_put_contents("{$inbox}/_failed/Old.mp3.reason.txt", 'bad');
+        touch("{$inbox}/_failed/Old.mp3", now()->subDays(40)->getTimestamp());
+        file_put_contents("{$inbox}/_failed/New.mp3", 'x');
+
+        // Dry run deletes nothing.
+        $this->artisan('downloads:tidy --dry-run')->assertSuccessful();
+        $this->assertDirectoryExists("{$inbox}/Retired Book");
+
+        $this->artisan('downloads:tidy')->expectsOutputToContain('3 deleted')->assertSuccessful();
+        foreach (['Seeding Book', 'Hand Added', 'In Progress', 'Owner Dropped'] as $kept) {
+            $this->assertDirectoryExists("{$inbox}/{$kept}", "{$kept} must be kept");
+        }
+        $this->assertDirectoryDoesNotExist("{$inbox}/Retired Book");
+        $this->assertDirectoryDoesNotExist("{$books}/Usenet Leftover");
+        $this->assertFileDoesNotExist("{$inbox}/_failed/Old.mp3");
+        $this->assertFileDoesNotExist("{$inbox}/_failed/Old.mp3.reason.txt");
+        $this->assertFileExists("{$inbox}/_failed/New.mp3");
+    }
+
+    public function test_the_tidy_up_deletes_nothing_when_transmission_cannot_be_asked(): void
+    {
+        $inbox = AudiobookLibrary::inbox();
+        @mkdir("{$inbox}/Retired Book", 0777, true);
+        $this->grab(['kind' => 'audiobook', 'protocol' => 'torrent', 'client' => 'transmission', 'client_ref' => 'old1', 'status' => 'imported', 'completed_path' => 'Retired Book']);
+        $this->transmissionDown = true;
+
+        $this->artisan('downloads:tidy')->expectsOutputToContain('nothing was deleted')->assertSuccessful();
+        $this->assertDirectoryExists("{$inbox}/Retired Book");
     }
 
     public function test_needs_you_and_seeding_tabs(): void

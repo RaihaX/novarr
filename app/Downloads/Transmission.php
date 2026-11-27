@@ -113,6 +113,21 @@ class Transmission
     }
 
     /** Finished downloading: everything wanted is there (it may go on seeding). */
+    /**
+     * Every torrent Transmission has, in any state (seeding, paused,
+     * stopped): name, download dir, hash. The tidy-up's safety list.
+     *
+     * @return list<array{hashString: string, name: string, downloadDir: string}>
+     *
+     * @throws DownloadFailed  not set up or unreachable (the caller then deletes nothing)
+     */
+    public function all(): array
+    {
+        $answer = $this->call('torrent-get', ['fields' => ['hashString', 'name', 'downloadDir']]);
+
+        return array_values(array_filter((array) ($answer['torrents'] ?? []), 'is_array'));
+    }
+
     public static function complete(array $torrent): bool
     {
         $status = (int) ($torrent['status'] ?? 0);
