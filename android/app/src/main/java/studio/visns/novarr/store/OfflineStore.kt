@@ -230,7 +230,7 @@ class OfflineStore(val root: File) {
         /** Marks the server directory as belonging to one signed-in user; holds their id. */
         const val OWNER_MARKER_FILE = ".owner-user-id"
         // Listening progress not sent yet is kept like the write queue.
-        private val KEEP = setOf(WRITE_QUEUE_FILE, OWNER_MARKER_FILE, ListeningStore.FILE)
+        private val KEEP = setOf(WRITE_QUEUE_FILE, OWNER_MARKER_FILE, ListeningStore.FILE, AudiobookUploadStore.FILE)
 
         fun sizeOf(dir: File): Long = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
 

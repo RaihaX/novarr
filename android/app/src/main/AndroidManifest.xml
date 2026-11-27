@@ -43,7 +43,8 @@
         </activity>
 
         <!-- "Share to Novarr" / "Open with Novarr" for ePubs: sent to the owner's approval queue.
-             octet-stream too, as many apps share ePubs that way; ShareEpubActivity keeps only .epub names. -->
+             octet-stream too, as many apps share ePubs that way; ShareEpubActivity keeps only .epub names.
+             Shared audio files (audio/*, or .m4b etc. as octet-stream) go to the audiobook upload instead. -->
         <activity
             android:name=".ShareEpubActivity"
             android:exported="true"
@@ -56,6 +57,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/epub+zip" />
                 <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="audio/*" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -86,11 +88,16 @@
             </intent-filter>
         </receiver>
 
-        <!-- WorkManager's foreground service runs audiobook downloads (a data sync on Android 14+). -->
+        <!-- WorkManager's foreground service runs audiobook downloads and uploads (a data sync on Android 14+). -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <!-- The audiobook upload notification's "Cancel" (also tells the server). -->
+        <receiver
+            android:name=".app.AudiobookUploadCancelReceiver"
+            android:exported="false" />
 
         <!-- The in-app update's install result (PackageInstaller calls it through our PendingIntent). -->
         <receiver

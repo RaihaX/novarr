@@ -246,6 +246,10 @@ fun SettingsScreen(nav: NavController) {
                         scope.launch { app.prefs.updateListening { it.copy(wifiOnlyDownloads = on) } }
                     }
                     Note("Audiobooks are large: on Wi-Fi only, a download waits for Wi-Fi. Applies to downloads started from now on.")
+                    SwitchRow("Upload audiobooks on Wi-Fi only", listeningPrefs.wifiOnlyUploads) { on ->
+                        scope.launch { app.prefs.updateListening { it.copy(wifiOnlyUploads = on) } }
+                    }
+                    Note("An audiobook you upload waits for Wi-Fi. Applies to uploads started from now on.")
                 }
 
                 Section("Offline")

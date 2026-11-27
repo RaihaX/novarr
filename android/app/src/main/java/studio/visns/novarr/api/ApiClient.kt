@@ -6,6 +6,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -30,6 +31,7 @@ import okio.BufferedSink
 import okio.ForwardingSink
 import okio.buffer
 import okio.source
+import studio.visns.novarr.domain.AudiobookUploads
 import studio.visns.novarr.store.WriteKind
 
 /**
@@ -419,6 +421,73 @@ class ApiClient(
             throw e
         }
         return decode(BookUploadResponse.serializer(), answer)
+    }
+
+    // Audiobooks uploaded by readers (chunked, resumable: playback/AudiobookUploads)
+
+    /**
+     * Starts an upload: `POST audiobook-uploads {files:[{name,size}], novel_id?, note?}`
+     * → 201 `{upload:{id, chunk_size}}`. 422 (limits, types, space, too many
+     * pending) and 404 (an older server) throw ApiError.Http.
+     */
+    suspend fun createAudiobookUpload(files: List<Pair<String, Long>>, novelId: Int?, note: String?): AudiobookUploads.ServerUpload {
+        val body = buildJsonObject {
+            put("files", JsonArray(files.map { (name, size) -> buildJsonObject { put("name", name); put("size", size) } }))
+            novelId?.let { put("novel_id", it) }
+            note?.trim()?.takeIf { it.isNotEmpty() }?.let { put("note", it.take(AudiobookUploads.NOTE_MAX)) }
+        }
+        val answer = execute(prepare("POST", "audiobook-uploads", body = body, timeout = 60, headers = device?.headers.orEmpty()))
+        val upload = AudiobookUploads.parseUpload(errorBody(answer)) ?: throw ApiError.Decoding("no upload")
+        if (upload.id == null || !SAFE_PATH_SEGMENT.matches(upload.id)) throw ApiError.Decoding("upload without a usable id")
+        return upload
+    }
+
+    /** Which chunks the server has, and the upload's status. Never from the HTTP cache. */
+    suspend fun audiobookUpload(id: String): AudiobookUploads.ServerUpload {
+        val answer = execute(prepare("GET", "audiobook-uploads/${uploadSegment(id)}", fresh = true))
+        return AudiobookUploads.parseUpload(errorBody(answer)) ?: throw ApiError.Decoding("no upload")
+    }
+
+    /**
+     * One chunk: `PUT audiobook-uploads/{id}/files/{file}/chunks/{n}` with the
+     * raw bytes, `Content-Range: bytes start-end/size` (and `?offset=`) → 204.
+     * Idempotent, so a retried chunk is harmless.
+     */
+    suspend fun putAudiobookChunk(id: String, chunk: AudiobookUploads.Chunk, body: RequestBody) {
+        val prepared = prepare(
+            "PUT",
+            "audiobook-uploads/${uploadSegment(id)}/files/${chunk.file}/chunks/${chunk.index}",
+            query = mapOf("offset" to chunk.offset.toString()),
+            headers = mapOf("Content-Range" to chunk.contentRange),
+            rawBody = body,
+            // 8 MB on a slow phone uplink; writes have their own (uploadHttp) timeout too.
+            timeout = 300,
+        )
+        execute(prepared, via = uploadHttp)
+    }
+
+    /**
+     * Every chunk is there: the server assembles, verifies and probes the
+     * files → 200 (pending, or still working) / 422 why not. Long timeout: it
+     * reads gigabytes.
+     */
+    suspend fun completeAudiobookUpload(id: String): AudiobookUploads.ServerUpload? {
+        val answer = execute(prepare("POST", "audiobook-uploads/${uploadSegment(id)}/complete", body = JsonObject(emptyMap()), timeout = 600), via = uploadHttp)
+        return AudiobookUploads.parseUpload(errorBody(answer))
+    }
+
+    /** The reader cancels (the server deletes the files): 204; already gone (404) counts as cancelled. */
+    suspend fun cancelAudiobookUpload(id: String) {
+        try {
+            execute(prepare("DELETE", "audiobook-uploads/${uploadSegment(id)}", timeout = 30))
+        } catch (e: ApiError.Http) {
+            if (e.status != 404) throw e
+        }
+    }
+
+    private fun uploadSegment(id: String): String {
+        if (!SAFE_PATH_SEGMENT.matches(id)) throw ApiError.Decoding("unusable upload id")
+        return id
     }
 
     private val uploadHttp: OkHttpClient by lazy {

@@ -1,5 +1,6 @@
 package studio.visns.novarr.ui.requests
 
+import studio.visns.novarr.ui.audiobooks.AudiobookUploadsList
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
@@ -580,6 +581,7 @@ private fun Synopsis(text: String?, key: String, lines: Int = 3) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MinePart(model: RequestsViewModel, online: Boolean, nav: NavController) {
+    val audiobooksOffered by LocalApp.current.audiobooksOffered.collectAsStateWithLifecycle()
     PullToRefreshBox(model.refreshing, onRefresh = { model.loadLists(pull = true) }, modifier = Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
             when {
@@ -588,6 +590,8 @@ private fun MinePart(model: RequestsViewModel, online: Boolean, nav: NavControll
                     LoadFailed("Can't reach your server", model.listsFailure.orEmpty()) { model.loadLists() }
                 }
                 else -> {
+                    // Audiobooks uploaded from this device (the server lists them on the website's My requests).
+                    if (audiobooksOffered) item(key = "audiobook-uploads") { AudiobookUploadsList(Modifier.readableWidth()) }
                     Requests.pendingLabel(model.mine, model.pendingLimit)?.let { label ->
                         item(key = "limit") {
                             Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.readableWidth().padding(horizontal = 16.dp, vertical = 6.dp))

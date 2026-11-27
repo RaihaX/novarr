@@ -35,8 +35,8 @@ android {
         applicationId = "studio.visns.novarr"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "1.14"
+        versionCode = 16
+        versionName = "1.15"
         buildConfigField("String", "DEFAULT_SERVER", "\"" + (releaseProps.getProperty("defaultServer") ?: "") + "\"")
     }
 

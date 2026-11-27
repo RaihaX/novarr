@@ -214,6 +214,9 @@ class AppModel(private val context: Context) {
     /** Audiobook downloads for offline listening (WorkManager). */
     val audiobookDownloads = AudiobookDownloads(context, this)
 
+    /** Audiobooks this account uploads to the server (WorkManager, chunked and resumable). */
+    val audiobookUploads = AudiobookUploadManager(context, this)
+
     init {
         updater.cleanUp()
         Notifications.ensureChannels(context)

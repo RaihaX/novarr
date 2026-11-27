@@ -95,6 +95,8 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material3.OutlinedButton
 import studio.visns.novarr.domain.ListeningSync
+import androidx.compose.material.icons.outlined.Upload
+import studio.visns.novarr.ui.AudiobookUploadRoute
 import studio.visns.novarr.ui.HighlightsRoute
 import studio.visns.novarr.ui.PlayerRoute
 import studio.visns.novarr.ui.ReaderRoute
@@ -263,7 +265,8 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                                     }
                                 }
                                 // A book without one: a reader can ask for its audiobook (the owner's wanted list).
-                                if (audiobooksOffered && audiobook == null && summary.isBook) {
+                                // Or upload one they have (the owner approves it first).
+                                if (audiobooksOffered && audiobook == null && summary.isBook) Row(Modifier.fillMaxWidth()) {
                                     var asking by remember { mutableStateOf(false) }
                                     TextButton(
                                         enabled = reachable && !asking,
@@ -281,10 +284,17 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                                                 snackbar.showSnackbar(message)
                                             }
                                         },
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier.weight(1f),
                                     ) {
                                         Icon(Icons.Outlined.Headphones, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                                         Text("Ask for the audiobook")
+                                    }
+                                    TextButton(
+                                        onClick = { nav.navigate(AudiobookUploadRoute(novelId, summary.name)) },
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Icon(Icons.Outlined.Upload, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                                        Text("Upload the audiobook")
                                     }
                                 }
                                 if (!summary.isBook) CheckForChaptersControl(novelId)

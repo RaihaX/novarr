@@ -52,6 +52,8 @@ data class ListeningPrefs(
     val boost: Boolean = false,
     /** Audiobook downloads wait for Wi-Fi (an unmetered network). */
     val wifiOnlyDownloads: Boolean = true,
+    /** Audiobook uploads wait for Wi-Fi (an unmetered network). */
+    val wifiOnlyUploads: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_SKIP_BACK = 15
@@ -230,6 +232,7 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
             skipSilence = p[A_SKIP_SILENCE] ?: false,
             boost = p[A_BOOST] ?: false,
             wifiOnlyDownloads = p[A_WIFI_ONLY] ?: true,
+            wifiOnlyUploads = p[A_WIFI_ONLY_UPLOADS] ?: true,
         )
     }
 
@@ -244,6 +247,7 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
             it[A_SKIP_SILENCE] = next.skipSilence
             it[A_BOOST] = next.boost
             it[A_WIFI_ONLY] = next.wifiOnlyDownloads
+            it[A_WIFI_ONLY_UPLOADS] = next.wifiOnlyUploads
         }
     }
 
@@ -340,6 +344,7 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         val A_SKIP_SILENCE = booleanPreferencesKey("listening.skipSilence")
         val A_BOOST = booleanPreferencesKey("listening.boost")
         val A_WIFI_ONLY = booleanPreferencesKey("listening.wifiOnlyDownloads")
+        val A_WIFI_ONLY_UPLOADS = booleanPreferencesKey("listening.wifiOnlyUploads")
         val A_NOTIFY_ASKED = booleanPreferencesKey("listening.notifyAsked")
 
         inline fun <reified E : Enum<E>> enumOr(raw: String?, default: E): E =

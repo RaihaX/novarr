@@ -41,6 +41,9 @@ object Notifications {
 
         /** An audiobook downloading for offline listening: silent progress. (Playback has Media3's own channel.) */
         DOWNLOADS("downloads", "Downloads", "Audiobooks downloading for offline listening.", NotificationManager.IMPORTANCE_LOW),
+
+        /** An audiobook the reader is uploading to the server: silent progress, then one line when it is sent. */
+        UPLOADS("uploads", "Uploads", "Audiobooks you are uploading to Novarr.", NotificationManager.IMPORTANCE_LOW),
     }
 
     /** The one "newer version" notification; a newer build replaces it. */
@@ -51,6 +54,9 @@ object Notifications {
      * request notifications' range; Media3's playback notification is 1001).
      */
     const val AUDIOBOOK_DOWNLOAD_BASE_ID = 2_000_000
+
+    /** An audiobook upload's progress (and its result): this plus a number from the upload's local id. */
+    const val AUDIOBOOK_UPLOAD_BASE_ID = 3_000_000
 
     /** MainActivity's action for the playback notification: the full-screen player. */
     const val ACTION_OPEN_PLAYER = "studio.visns.novarr.action.OPEN_PLAYER"

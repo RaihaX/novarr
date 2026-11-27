@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,6 +50,7 @@ import studio.visns.novarr.api.AudiobooksPage
 import studio.visns.novarr.api.rethrowIfCancellation
 import studio.visns.novarr.app.AppModel
 import studio.visns.novarr.store.OfflineStore
+import studio.visns.novarr.ui.AudiobookUploadRoute
 import studio.visns.novarr.ui.PlayerRoute
 import studio.visns.novarr.ui.components.CenteredProgress
 import studio.visns.novarr.ui.components.EmptyState
@@ -151,7 +153,19 @@ fun AudiobooksScreen(nav: NavController) {
     val wide = isWide()
     LaunchedEffect(Unit) { model.load() }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Audiobooks") }) }) { padding ->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Audiobooks") },
+                actions = {
+                    // Readers can upload an audiobook they have (the owner approves it).
+                    IconButton(onClick = { nav.navigate(AudiobookUploadRoute()) }) {
+                        Icon(Icons.Outlined.Upload, contentDescription = "Upload an audiobook")
+                    }
+                },
+            )
+        },
+    ) { padding ->
         PullToRefreshBox(
             isRefreshing = model.refreshing,
             onRefresh = { model.load(pull = true) },
@@ -184,6 +198,8 @@ fun AudiobooksScreen(nav: NavController) {
                 if (model.fromCache) {
                     item(span = full) { Box(contentAlignment = Alignment.Center) { OfflinePill() } }
                 }
+                // Uploads started on this device (nothing when there are none).
+                if (model.search.isBlank()) item(span = full) { AudiobookUploadsList(inset = 0.dp) }
                 if (model.search.isBlank() && model.continueItems.isNotEmpty()) {
                     item(span = full) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

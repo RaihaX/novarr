@@ -47,6 +47,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import kotlinx.serialization.Serializable
+import studio.visns.novarr.ui.audiobooks.AudiobookUploadScreen
+import studio.visns.novarr.ui.audiobooks.AudiobookUploadViewModel
 import studio.visns.novarr.ui.audiobooks.AudiobooksScreen
 import studio.visns.novarr.ui.audiobooks.MiniPlayer
 import studio.visns.novarr.ui.audiobooks.PlayerScreen
@@ -108,6 +110,9 @@ import studio.visns.novarr.ui.theme.LocalEink
 
 /** The full-screen audiobook player, opening audiobook [id] if another is loaded. */
 @Serializable data class PlayerRoute(val id: Int)
+
+/** "Upload an audiobook": for book [novelId] (0: none chosen, matched later), [title] shown with it. */
+@Serializable data class AudiobookUploadRoute(val novelId: Int = 0, val title: String = "")
 
 private data class Tab(val route: Any, val label: String, val icon: ImageVector)
 
@@ -297,6 +302,15 @@ private fun NovarrNavHost(nav: NavHostController) {
         composable<WantToReadRoute> { WantToReadScreen(nav) }
         composable<AudiobooksRoute> { AudiobooksScreen(nav) }
         composable<PlayerRoute> { PlayerScreen(nav, it.toRoute<PlayerRoute>().id) }
+        composable<AudiobookUploadRoute> { entry ->
+            val route = entry.toRoute<AudiobookUploadRoute>()
+            val app = LocalApp.current
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val model = androidx.lifecycle.viewmodel.compose.viewModel {
+                AudiobookUploadViewModel(app, context.applicationContext.contentResolver, emptyList(), route.novelId, route.title)
+            }
+            AudiobookUploadScreen(model, onClose = { nav.popBackStack() })
+        }
         composable<RequestsRoute> { RequestsScreen(nav, it.toRoute()) }
         composable<ReaderSettingsRoute> { ReaderSettingsScreen(nav) }
         composable<ChangeServerRoute> { ConnectScreen(initialSetup = false, onDone = { nav.popBackStack() }) }
