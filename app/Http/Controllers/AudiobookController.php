@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Audiobook;
+use App\Audiobooks\AudiobookEnricher;
 use App\Audiobooks\AudiobookInbox;
 use App\Audiobooks\AudiobookLibrary;
 use App\Audiobooks\AudiobookMatcher;
@@ -126,6 +127,34 @@ class AudiobookController extends Controller
         }
 
         return redirect()->route('audiobooks.manage')->with('success', "“{$name}” is back in the inbox: the next scan tries it again.");
+    }
+
+    /**
+     * "Look up on Audible": fill what the files leave out (AudiobookEnricher);
+     * cover=1 takes Audible's cover even when it has one. An unmatched one
+     * Audible finds is matched again with Audible's title and author too.
+     */
+    public function lookup(Request $request, AudiobookEnricher $enricher, AudiobookMatcher $matcher, int $id)
+    {
+        $audiobook = Audiobook::findOrFail($id);
+        $data = $request->validate(['cover' => 'sometimes|boolean']);
+        if (AudiobookEnricher::sources() === []) {
+            return redirect()->route('audiobooks.manage')->with('error', 'No audiobook catalogue is switched on (NOVARR_AUDIOBOOK_SOURCES).');
+        }
+        $result = $enricher->enrich($audiobook, ['cover' => !empty($data['cover'])]);
+        \App\Console\Commands\EnrichAudiobooksCommand::rematch($matcher, $audiobook, $result);
+
+        if (!$result['asked']) {
+            $message = ['error', 'Audible could not be reached. Try again later.'];
+        } elseif (!$result['matched']) {
+            $message = ['error', "“{$audiobook->title}” was not found on Audible (title, author and length compared)."
+                . (in_array('cover', $result['changed'], true) ? ' It has a cover from Apple Books now.' : '')];
+        } else {
+            $message = ['success', "“{$audiobook->title}” is {$result['asin']} on Audible: "
+                . ($result['changed'] === [] ? 'nothing was missing.' : implode(', ', array_diff($result['changed'], ['asin'])) . ' filled in.')];
+        }
+
+        return redirect()->route('audiobooks.manage')->with(...$message);
     }
 
     public function match(Request $request, AudiobookMatcher $matcher, int $id)

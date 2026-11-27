@@ -215,6 +215,7 @@ final class RouteAccess
         'novels.destroy', 'novels.toggle_pause', 'novels.toggle_frequent', 'novels.toggle_complete',
         'novels.attention_snooze', 'novels.sync_tags', 'tags.store', 'novels.remove_duplicates', 'novels.undo_conversion',
         'novels.metadata_candidates', 'novels.metadata_choose', 'novels.snapshots', 'novels.reading_mode',
+        'novels.covers', 'novels.covers.choose',
         'settings.index', 'settings.update', 'settings.test_email', 'settings.test_flaresolverr',
         'settings.test_notification', 'settings.tailscale_status', 'settings.tailscale_serve', 'settings.tailscale_funnel',
         'settings.users', 'settings.users.store', 'settings.users.update', 'settings.users.password',
@@ -227,7 +228,7 @@ final class RouteAccess
         'books.review', 'books.review.search', 'books.review.approve', 'books.review.decline', 'books.review.upload', 'books.review.use_existing', 'downloads.seed_forever',
         'books.calibre', 'books.calibre.import', 'books.calibre.cover',
         // Audiobooks: the inbox, matching, "Scan now"
-        'audiobooks.manage', 'audiobooks.manage.scan', 'audiobooks.manage.retry', 'audiobooks.manage.match',
+        'audiobooks.manage', 'audiobooks.manage.scan', 'audiobooks.manage.retry', 'audiobooks.manage.match', 'audiobooks.manage.lookup',
         'api.v1.audiobooks.inbox', 'api.v1.audiobooks.match', 'api.v1.audiobooks.scan',
         // Searching Usenet & torrents, grabbing, the Downloads page (App\Downloads)
         'downloads.index', 'downloads.search', 'downloads.grab', 'downloads.poll', 'downloads.settings',

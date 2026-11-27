@@ -40,7 +40,7 @@ class AudiobooksTest extends TestCase
 
     private const DETAIL_KEYS = [
         'id', 'novel_id', 'title', 'author', 'narrator', 'cover_url', 'duration_ms', 'progress',
-        'description', 'year', 'size_bytes', 'parts', 'chapters', 'bookmarks',
+        'description', 'year', 'size_bytes', 'parts', 'chapters', 'bookmarks', 'series', 'series_index', 'asin',
     ];
 
     private const PART_KEYS = ['index', 'url', 'mime', 'duration_ms', 'start_ms', 'size_bytes'];

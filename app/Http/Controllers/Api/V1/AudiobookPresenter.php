@@ -13,7 +13,7 @@ use App\Support\SignedUrls;
  * JSON shapes of the audiobooks API (the audiobooks contract, v1):
  *
  *   Summary  {id, novel_id, title, author, narrator, cover_url, duration_ms, progress}
- *   Detail   Summary + {description, year, size_bytes, parts, chapters, bookmarks}
+ *   Detail   Summary + {description, year, size_bytes, parts, chapters, bookmarks, series, series_index, asin}
  *   progress null | {position_ms, finished, updated_at}
  *
  * title / author / cover are the matched book's when it has one (the
@@ -82,6 +82,10 @@ class AudiobookPresenter
             'parts' => $parts,
             'chapters' => $chapters,
             'bookmarks' => collect($bookmarks)->map(fn(AudiobookBookmark $b) => static::bookmark($b))->values()->all(),
+            // From Audible (App\Audiobooks\AudiobookEnricher), null when not looked up or not found.
+            'series' => $audiobook->series ?: null,
+            'series_index' => $audiobook->series_index !== null ? (float) $audiobook->series_index : null,
+            'asin' => $audiobook->asin ?: null,
         ];
     }
 

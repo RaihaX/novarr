@@ -37,5 +37,12 @@
         <!-- No test reaches Have I Been Pwned or Cloudflare: the breach check is
              off unless a test turns it on (with Http::fake). -->
         <env name="NOVARR_PASSWORD_BREACH_CHECK" value="off"/>
+        <!-- The newer catalogues (Hardcover, Apple Books, Audible, Audnexus)
+             are off unless a test turns them on (with Http::fake): the tests
+             of Google Books / Open Library fake only those two. -->
+        <env name="NOVARR_BOOK_SOURCES" value="google,openlibrary"/>
+        <env name="NOVARR_HARDCOVER_TOKEN" value=""/>
+        <env name="NOVARR_HARDCOVER_INTERVAL_MS" value="0"/>
+        <env name="NOVARR_AUDIOBOOK_SOURCES" value=""/>
     </php>
 </phpunit>

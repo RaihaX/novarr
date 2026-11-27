@@ -1396,6 +1396,8 @@ class NovelController extends Controller
             $storedPath = $request->file('image')->store('', ['disk' => 'public']);
             @chmod(storage_path('app/public/' . $storedPath), 0644);
             $object->attachCover($storedPath, $request->file('image')->getClientOriginalName());
+            // The owner's cover: books:covers never replaces it (App\Books\BookCovers).
+            \Illuminate\Support\Facades\DB::table('novels')->where('id', $object->id)->update(['cover_source' => \App\Books\BookCovers::SOURCE_MANUAL]);
         }
 
         if ($request->has('tags')) {

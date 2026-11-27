@@ -188,6 +188,7 @@
                     <div class="ab-row-actions">
                         <a href="{{ route('audiobooks.manage', ['for' => $a->id]) }}#matchPanel" class="btn btn-sm btn-primary">Match to a book</a>
                         <a href="{{ route('audiobooks.show', $a->id) }}" class="btn btn-sm btn-ghost">Play</a>
+                        @include('audiobooks._lookup', ['a' => $a])
                     </div>
                 </li>
             @endforeach
@@ -214,11 +215,14 @@
                                 Standalone
                             @endif
                             · {{ $dur($a->duration_ms) }} · {{ $h($a->size_bytes) }}
+                            @if($a->series) · {{ $a->series }}@if($a->series_index !== null) #{{ \App\Books\BookSeries::formatIndex((float) $a->series_index) }}@endif @endif
+                            @if($a->asin) · Audible {{ $a->asin }}@endif
                         </span>
                     </div>
                     <div class="ab-row-actions">
                         <a href="{{ route('audiobooks.manage', ['for' => $a->id]) }}#matchPanel" class="btn btn-sm btn-ghost">Change book</a>
                         <a href="{{ route('audiobooks.show', $a->id) }}" class="btn btn-sm btn-ghost">Play</a>
+                        @include('audiobooks._lookup', ['a' => $a])
                     </div>
                 </li>
             @endforeach

@@ -123,6 +123,8 @@ Route::delete('/novels/{id}', [NovelController::class, 'destroy'])->name('novels
 Route::get('/novels/{id}/epub', [NovelController::class, 'download_epub'])->name('novels.download_epub');
 Route::get('/novels/{id}/metadata/candidates', [\App\Http\Controllers\MetadataController::class, 'candidates'])->name('novels.metadata_candidates');
 Route::post('/novels/{id}/metadata/choose', [\App\Http\Controllers\MetadataController::class, 'choose'])->name('novels.metadata_choose');
+Route::get('/novels/{id}/covers', [\App\Http\Controllers\BookCoverController::class, 'index'])->whereNumber('id')->name('novels.covers');
+Route::post('/novels/{id}/covers', [\App\Http\Controllers\BookCoverController::class, 'choose'])->whereNumber('id')->name('novels.covers.choose');
 Route::get('/novels/{id}/offline-manifest', [NovelController::class, 'offlineManifest'])->middleware($conditionalGet)->name('novels.offline_manifest');
 Route::get('/novels/{id}/chapters-json', [NovelController::class, 'chaptersJson'])->middleware($conditionalGet)->name('novels.chapters_json');
 Route::get('/novels/{id}/snapshots/{file?}', [\App\Http\Controllers\SnapshotController::class, 'show'])->where('file', '[0-9]+-[a-z_]+-[0-9_]+\.html\.gz')->name('novels.snapshots');
@@ -180,6 +182,7 @@ Route::post('/downloads/seed-forever', [\App\Http\Controllers\DownloadController
 Route::post('/audiobooks/manage/scan', [\App\Http\Controllers\AudiobookController::class, 'scan'])->name('audiobooks.manage.scan');
 Route::post('/audiobooks/manage/retry', [\App\Http\Controllers\AudiobookController::class, 'retry'])->name('audiobooks.manage.retry');
 Route::post('/audiobooks/manage/{id}/match', [\App\Http\Controllers\AudiobookController::class, 'match'])->whereNumber('id')->name('audiobooks.manage.match');
+Route::post('/audiobooks/manage/{id}/lookup', [\App\Http\Controllers\AudiobookController::class, 'lookup'])->whereNumber('id')->name('audiobooks.manage.lookup');
 Route::get('/audiobooks/{id}', [\App\Http\Controllers\AudiobookController::class, 'show'])->whereNumber('id')->name('audiobooks.show');
 
 // Searching Usenet & torrents and downloading (App\Downloads; owner only,
