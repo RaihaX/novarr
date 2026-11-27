@@ -106,7 +106,9 @@ class AudiobookMatcher
 
     /**
      * The (title, author) pairs tried, best first: the cleaned title with
-     * the tags' author, then an "Author - Title" name read both ways.
+     * the tags' author, then the catalogue's title / author (hints
+     * catalogue_title / catalogue_author: Audible's, AudiobookEnricher),
+     * then an "Author - Title" name read both ways.
      *
      * @return list<array{0: string, 1: ?string}>
      */
@@ -121,6 +123,20 @@ class AudiobookMatcher
         $out = [];
         foreach ($titles as $title) {
             $out[] = [$title, $author];
+        }
+        // Then the catalogue's (Audible's) canonical title and author, when it was found there.
+        $catalogueTitle = static::cleanTitle((string) ($hints['catalogue_title'] ?? ''));
+        if ($catalogueTitle !== '') {
+            $catalogueAuthor = $hints['catalogue_author'] ?? null;
+            $out[] = [$catalogueTitle, $catalogueAuthor ?: $author];
+            if ($catalogueAuthor && $author) {
+                $out[] = [$catalogueTitle, $author];
+            }
+            foreach ($titles as $title) {
+                if ($catalogueAuthor) {
+                    $out[] = [$title, $catalogueAuthor];
+                }
+            }
         }
 
         // "Brandon Sanderson - The Final Empire": no author tag, the name says it.

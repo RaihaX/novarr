@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\DB;
  * Who sets a series, strongest last (a weaker one never overwrites a
  * stronger one):
  *   inferred  SeriesInference, from titles and authors (re-run freely)
+ *   hardcover Hardcover's series for a book that has none or only a
+ *             guess (`books:series --hardcover`, each book asked once)
  *   epub      the ePub's own calibre:series / belongs-to-collection
  *   calibre   Calibre-Web's SERIES line, at import or by `books:series --calibre`
  *   manual    the owner, on the edit page; series '' = "no series", kept
@@ -21,6 +23,7 @@ class BookSeries
     public const CALIBRE = 'calibre';
     public const EPUB = 'epub';
     public const INFERRED = 'inferred';
+    public const HARDCOVER = 'hardcover';
     public const MANUAL = 'manual';
 
     /** Columns the inference reads. */
@@ -115,6 +118,60 @@ class BookSeries
     public static function inferFor(Novel $book): array
     {
         return self::infer(false, $book->author, true);
+    }
+
+    /**
+     * Series from Hardcover for the books without one (no series, or only
+     * a guess): at most $limit books not asked before (hardcover_checked_at
+     * null), oldest first. A book Hardcover knows in a series gets it
+     * (series_source 'hardcover'); asked, found or not, it is marked
+     * checked; a request that failed leaves it for the next run. Never
+     * touches a series from the ePub, Calibre or the owner (an owner's
+     * "no series" included).
+     *
+     * @return array{asked: int, found: int, updated: int, failed: int}
+     */
+    public static function backfillFromHardcover(Hardcover $hardcover, int $limit = 150, bool $dryRun = false): array
+    {
+        $counts = ['asked' => 0, 'found' => 0, 'updated' => 0, 'failed' => 0];
+        if (!Hardcover::enabled() || $limit < 1) {
+            return $counts;
+        }
+        $books = Novel::books()
+            ->whereNull('hardcover_checked_at')
+            ->where(fn($q) => $q->whereNull('series_source')->orWhere('series_source', '')->orWhere('series_source', self::INFERRED))
+            ->orderBy('id')
+            ->limit($limit)
+            ->get(self::COLUMNS);
+
+        foreach ($books as $book) {
+            $counts['asked']++;
+            $found = $hardcover->seriesFor((string) $book->name, $book->author);
+            if ($found === null) {
+                $counts['failed']++;
+                // Hardcover down or refusing the token: the rest would fail too.
+                if ($counts['failed'] >= 3 && $counts['found'] === 0 && $counts['failed'] === $counts['asked']) {
+                    break;
+                }
+
+                continue;
+            }
+            $values = ['hardcover_checked_at' => now()];
+            if (!empty($found['series'])) {
+                $counts['found']++;
+                $index = self::index($found['series_index'] ?? null);
+                if (!($book->series_source === self::HARDCOVER && $book->series === $found['series'] && self::index($book->series_index) === $index)) {
+                    $counts['updated']++;
+                    $values += ['series' => $found['series'], 'series_index' => $index, 'series_source' => self::HARDCOVER];
+                }
+            }
+            if (!$dryRun) {
+                // No updated_at: a looked-up series is no edit of the book.
+                DB::table('novels')->where('id', $book->id)->update($values);
+            }
+        }
+
+        return $counts;
     }
 
     /**

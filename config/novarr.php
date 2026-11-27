@@ -109,6 +109,23 @@ return [
         'webnovel_check_max_failures' => (int) env('NOVARR_BOOKS_WEBNOVEL_CHECK_MAX_FAILURES', 5),
         'google_books_key' => (string) env('NOVARR_GOOGLE_BOOKS_KEY', ''),
         'timeout' => (int) env('NOVARR_BOOKS_LOOKUP_TIMEOUT', 15),
+        // The catalogues asked (App\Books\BookLookup), any of google,
+        // openlibrary, hardcover, itunes (comma separated). Hardcover is
+        // asked only with a token. Each one down is skipped, never an error.
+        'sources' => array_values(array_filter(array_map('trim', explode(',', strtolower((string) env('NOVARR_BOOK_SOURCES', 'google,openlibrary,hardcover,itunes')))))),
+        // Hardcover's API token (hardcover.app → Settings → API; with or
+        // without its "Bearer " prefix). Empty = Hardcover off.
+        'hardcover_token' => (string) env('NOVARR_HARDCOVER_TOKEN', ''),
+        // Milliseconds between two Hardcover calls (it allows 60 a minute).
+        'hardcover_interval_ms' => (int) env('NOVARR_HARDCOVER_INTERVAL_MS', 1000),
+        // Books asked of Hardcover for a series per `books:series --hardcover` run.
+        'hardcover_series_limit' => (int) env('NOVARR_HARDCOVER_SERIES_LIMIT', 150),
+        // Apple Books' store searched (iTunes Search API country code).
+        'itunes_country' => (string) env('NOVARR_ITUNES_COUNTRY', 'us'),
+        // Hardcover, Apple Books, Audible and Audnexus: seconds per request,
+        // and hours an answer is kept (App\Books\CatalogueHttp).
+        'catalogue_timeout' => (int) env('NOVARR_CATALOGUE_TIMEOUT', 8),
+        'catalogue_cache_hours' => (float) env('NOVARR_CATALOGUE_CACHE_HOURS', 24),
         // "Send to Kindle" for Novarr: readers email ePubs to this address
         // (App\Books\BookInbox). Cloudflare Email Routing hands the email to
         // the Worker in cloudflare/books-inbox, which posts it to
@@ -162,6 +179,14 @@ return [
         'settle_seconds' => (int) env('NOVARR_AUDIOBOOKS_SETTLE_SECONDS', 120),
         // Seconds one ffprobe / ffmpeg call may take (a long m4b on a slow disk).
         'probe_timeout' => (int) env('NOVARR_AUDIOBOOKS_PROBE_TIMEOUT', 120),
+        // Metadata from the catalogues (App\Audiobooks\AudiobookEnricher), on
+        // import, "Look up on Audible" and `audiobooks:enrich`: any of
+        // audible (the Audible catalogue + Audnexus: ASIN, narrator,
+        // description, series, cover, chapters) and itunes (Apple Books: a
+        // fallback cover). Empty = off.
+        'sources' => array_values(array_filter(array_map('trim', explode(',', strtolower((string) env('NOVARR_AUDIOBOOK_SOURCES', 'audible,itunes')))))),
+        // Audible's store: us, ca, uk, au, de, fr, it, es, in, jp.
+        'audible_region' => (string) env('NOVARR_AUDIBLE_REGION', 'us'),
     ],
 
     /*

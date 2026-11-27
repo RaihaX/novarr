@@ -261,11 +261,21 @@ $oneServer(Schedule::command('books:webnovel-check --limit=200')
     ->withoutOverlapping(120)
     ->runInBackground());
 
+// Covers of the Books library (App\Books\BookCovers): nightly, up to 300
+// books not checked yet get a catalogue cover when theirs is missing, tiny
+// or a generated text card, or a much larger one of the same book. Never a
+// cover the owner chose. 04:15: after the web-novel check, before the series.
+$oneServer(Schedule::command('books:covers --limit=300')
+    ->dailyAt('04:15')
+    ->name('books_covers')
+    ->withoutOverlapping(120)
+    ->runInBackground());
+
 // Series of the Books library (App\Books\BookSeries): nightly, Calibre-Web's
 // series for the books imported from it (when Calibre-Web is set up), then
 // the guesses from titles for the rest (App\Books\SeriesInference). A new
 // book is grouped with its author's books as it arrives; this catches the rest.
-$oneServer(Schedule::command('books:series' . (\App\Books\CalibreWeb::enabled() ? ' --calibre' : ''))
+$oneServer(Schedule::command('books:series' . (\App\Books\CalibreWeb::enabled() ? ' --calibre' : '') . (\App\Books\Hardcover::enabled() ? ' --hardcover' : ''))
     ->dailyAt('04:45')
     ->name('books_series')
     ->withoutOverlapping(60)

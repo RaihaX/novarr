@@ -37,6 +37,7 @@ class Audiobook extends Model
     protected $fillable = [
         'novel_id', 'title', 'author', 'narrator', 'description', 'year', 'duration_ms', 'size_bytes',
         'cover_path', 'dir', 'status', 'match_note', 'source_name', 'fingerprint', 'added_at',
+        'asin', 'metadata_source', 'enriched_at', 'chapters_source', 'cover_source', 'series', 'series_index',
     ];
 
     protected $casts = [
@@ -45,6 +46,8 @@ class Audiobook extends Model
         'duration_ms' => 'integer',
         'size_bytes' => 'integer',
         'added_at' => 'datetime',
+        'enriched_at' => 'datetime',
+        'series_index' => 'float',
     ];
 
     protected static function booted(): void

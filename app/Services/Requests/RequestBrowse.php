@@ -42,9 +42,14 @@ class RequestBrowse
      * List id => name, in shelf order. A source offers some of them
      * (Source::discoverLists()): MangaDex popular / trending / top, the
      * novel catch-all (NovelPing) popular / new, the book catalogue
-     * (Open Library) popular / trending / classics.
+     * (Open Library) popular / trending / classics, and Hardcover's
+     * trending / popular when a Hardcover token is set.
      */
-    public const LISTS = ['popular' => 'Popular', 'trending' => 'New & popular', 'new' => 'New', 'top' => 'Top rated', 'classics' => 'Classics'];
+    public const LISTS = [
+        'popular' => 'Popular', 'trending' => 'New & popular', 'new' => 'New', 'top' => 'Top rated', 'classics' => 'Classics',
+        // Books, with a Hardcover token (App\Books\Hardcover::trending()).
+        'hardcover_trending' => 'Trending on Hardcover', 'hardcover_popular' => 'Popular on Hardcover',
+    ];
 
     /** A medium's own name for a list, where LISTS' would mislead. */
     public const LIST_NAMES = [

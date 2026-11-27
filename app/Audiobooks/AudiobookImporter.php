@@ -26,7 +26,11 @@ use Illuminate\Support\Facades\Storage;
  *     COPIED instead for a grabbed torrent, which keeps seeding);
  *     anything else in the folder goes to {root}/{id}/extras/. A move that
  *     fails half way puts back what it moved and fails the entry;
- *  5. the match to a book (App\Audiobooks\AudiobookMatcher::autoMatch()),
+ *  5. what the files leave out (ASIN, narrator, description, series, a
+ *     cover, Audible's chapter names when the files have only
+ *     placeholders) from Audible / Apple Books (App\Audiobooks\AudiobookEnricher;
+ *     off unless novarr.audiobooks.sources names them, failures skipped);
+ *  6. the match to a book (App\Audiobooks\AudiobookMatcher::autoMatch()),
  *     or the book a grabbed download was for (AudiobookMatcher::expected()).
  *
  * Chapters: the embedded ones (each part's, shifted to whole-book
@@ -41,7 +45,7 @@ class AudiobookImporter
     /** Bytes of each part read for the fingerprint. */
     public const FINGERPRINT_BYTES = 1048576;
 
-    public function __construct(private AudioProbe $probe, private AudiobookMatcher $matcher, private CoverThumbnails $thumbnails)
+    public function __construct(private AudioProbe $probe, private AudiobookMatcher $matcher, private CoverThumbnails $thumbnails, private AudiobookEnricher $enricher)
     {
     }
 
@@ -119,7 +123,7 @@ class AudiobookImporter
                 // The cover is read before the files move (the folder's picture moves too).
                 $cover = $this->storeCover($audiobook, $files, $probes, $isFolder ? $base : null, $entry['others']);
                 if ($cover !== null) {
-                    $audiobook->forceFill(['cover_path' => $cover])->save();
+                    $audiobook->forceFill(['cover_path' => $cover, 'cover_source' => 'files'])->save();
                 }
 
                 $start = 0;
@@ -144,6 +148,8 @@ class AudiobookImporter
                 foreach ($this->chapters($entry, $probes) as $idx => $chapter) {
                     AudiobookChapter::create(['audiobook_id' => $audiobook->id, 'idx' => $idx] + $chapter);
                 }
+                // The files' own chapters are never replaced; one per file / "Part 1" may be (AudiobookEnricher).
+                $audiobook->forceFill(['chapters_source' => static::hasEmbeddedChapters($probes) ? 'embedded' : 'files'])->save();
 
                 // Everything else in the folder goes along (nothing is left behind or deleted).
                 if ($isFolder) {
@@ -184,12 +190,24 @@ class AudiobookImporter
             $this->removeEmptyFolders($base);
         }
 
-        // 5. Its book: the one it was grabbed for, else the confident match.
+        // 5. What the files leave out, from Audible / Apple Books (never fails the import).
         $hints = [
             'title' => $meta['raw_title'],
             'author' => $meta['author'],
             'source_name' => $entry['name'],
         ];
+        try {
+            $enriched = $this->enricher->enrich($audiobook, ['title' => $meta['raw_title'], 'author' => $meta['author']]);
+            if ($enriched['product'] !== null) {
+                // Audible's own title and author are tried too when matching to a book.
+                $hints['catalogue_title'] = $enriched['product']['title'];
+                $hints['catalogue_author'] = implode(', ', $enriched['product']['authors']) ?: null;
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Audiobooks: looking up #{$audiobook->id} failed: " . $e->getMessage());
+        }
+
+        // 6. Its book: the one it was grabbed for, else the confident match.
         if (!empty($options['novel_id'])) {
             return $this->matcher->expected($audiobook->fresh(), (int) $options['novel_id'], $hints);
         }
@@ -319,6 +337,12 @@ class AudiobookImporter
         }
 
         return array_values(array_filter($out, fn($c) => $c['end_ms'] > $c['start_ms']));
+    }
+
+    /** Whether any part carries its own chapters (chapters() uses them). */
+    public static function hasEmbeddedChapters(array $probes): bool
+    {
+        return collect($probes)->contains(fn($p) => count($p['chapters'] ?? []) > 0);
     }
 
     /** A file's chapter title: its title tag (unless it is the book's), else its name. */

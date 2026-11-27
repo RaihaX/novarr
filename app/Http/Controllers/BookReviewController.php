@@ -111,7 +111,8 @@ class BookReviewController extends Controller
             'author' => ['nullable', 'string', 'max:250'],
             'description' => ['nullable', 'string', 'max:20000'],
             'genres' => ['nullable', 'string', 'max:500'],
-            'cover' => ['required', 'in:match,file,none'],
+            // match: the chosen match's cover; alt-N: its Nth other cover (another catalogue's, App\Books\BookLookup::merge()).
+            'cover' => ['required', 'string', 'regex:/^(?:match|file|none|alt-[1-9][0-9]?)$/'],
             'force' => ['nullable', 'boolean'],
         ]);
 
@@ -123,7 +124,11 @@ class BookReviewController extends Controller
             'author' => (string) ($data['author'] ?? ''),
             'description' => (string) ($data['description'] ?? ''),
             'genres' => array_values(array_filter(array_map('trim', explode(',', (string) ($data['genres'] ?? ''))))),
-            'cover_url' => $data['cover'] === 'match' ? ($chosen['cover_url'] ?? null) : null,
+            'cover_url' => match (true) {
+                $data['cover'] === 'match' => $chosen['cover_url'] ?? null,
+                str_starts_with($data['cover'], 'alt-') => $chosen['covers'][(int) substr($data['cover'], 4)]['url'] ?? null,
+                default => null,
+            },
             'file_cover' => $data['cover'] === 'file',
         ];
 
@@ -133,6 +138,10 @@ class BookReviewController extends Controller
             return back()->withInput()
                 ->withErrors(['approve' => $e->getMessage()])
                 ->with('duplicate', $e->errorCode === 'duplicate');
+        }
+        // Another catalogue's cover picked by hand: the owner's (books:covers never replaces it).
+        if (str_starts_with($data['cover'], 'alt-') && $novel->file()->exists()) {
+            \Illuminate\Support\Facades\DB::table('novels')->where('id', $novel->id)->update(['cover_source' => \App\Books\BookCovers::SOURCE_MANUAL]);
         }
 
         return $this->next($bookRequest, "“{$novel->name}” is in the library.", route('novels.show', $novel->id));

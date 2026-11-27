@@ -345,6 +345,9 @@
             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="novelMoreBtn">
                 @can('admin')
                 <li><a href="{{ route('novels.edit', $data->id) }}" class="dropdown-item"><x-icon name="pencil" :size="14" />Edit details</a></li>
+                @if($isBook)
+                <li><a href="{{ route('novels.covers', $data->id) }}" class="dropdown-item" id="findBetterCover"><x-icon name="search" :size="14" />Find a better cover</a></li>
+                @endif
                 @unless($isBook)
                 <li>
                     <button type="button" id="pauseToggle" class="dropdown-item" data-id="{{ $data->id }}" title="Paused novels are skipped by automatic downloads; manual commands still work">

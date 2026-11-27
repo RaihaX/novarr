@@ -152,6 +152,8 @@
                         'description' => ((string) ($c['description'] ?? '')) ?: (string) $book->description,
                         'genres' => implode(', ', (array) ($c['genres'] ?? [])) ?: $fileDetails['genres'],
                         'cover' => (string) ($c['cover_url'] ?? ''),
+                        // The other catalogues' covers of the same book (Apple Books' 1200 px, Open Library's…).
+                        'covers' => array_values(array_slice((array) ($c['covers'] ?? []), 1)),
                     ])
                     <li class="book-match {{ $form['match'] === $i ? 'is-chosen' : '' }}" data-match-row>
                         <div class="cover book-match-cover">
@@ -199,8 +201,16 @@
                         <legend class="form-label">Cover</legend>
                         <label class="book-cover-choice" data-cover-choice="match" @if(!$chosenCover) hidden @endif>
                             <span class="cover"><img src="{{ $chosenCover }}" alt="" referrerpolicy="no-referrer" data-match-cover></span>
-                            <span class="book-cover-caption"><input type="radio" name="cover" value="match" @checked($coverChoice === 'match' && $chosenCover)> The match’s</span>
+                            <span class="book-cover-caption"><input type="radio" name="cover" value="match" @checked($coverChoice === 'match' && $chosenCover)> The match’s<span data-match-cover-source>{{ !empty($chosen['covers'][0]['source_name']) ? ' (' . $chosen['covers'][0]['source_name'] . ')' : '' }}</span></span>
                         </label>
+                        <span data-alt-covers style="display: contents">
+                            @foreach(array_slice((array) ($chosen['covers'] ?? []), 1) as $n => $alt)
+                                <label class="book-cover-choice" data-alt-cover>
+                                    <span class="cover"><img src="{{ $alt['url'] }}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>
+                                    <span class="book-cover-caption"><input type="radio" name="cover" value="alt-{{ $n + 1 }}" @checked($coverChoice === 'alt-' . ($n + 1))> {{ $alt['source_name'] }}’s</span>
+                                </label>
+                            @endforeach
+                        </span>
                         @if($fileCover)
                             <label class="book-cover-choice">
                                 <span class="cover"><img src="{{ $fileCover }}" alt=""></span>
@@ -244,13 +254,35 @@
             const d = JSON.parse(link.dataset.matchDetails);
             field('match').value = link.dataset.match;
             ['title', 'author', 'description', 'genres'].forEach((k) => { field(k).value = d[k] || ''; });
+            const altChecked = !!form.querySelector('[data-alt-cover] input:checked');
             matchCover.hidden = !d.cover;
+            matchCover.querySelector('[data-match-cover-source]').textContent = '';
             if (d.cover) {
                 matchCover.querySelector('[data-match-cover]').src = d.cover;
                 matchCover.querySelector('input').checked = true;
-            } else if (matchCover.querySelector('input').checked) {
+            } else if (matchCover.querySelector('input').checked || altChecked) {
                 (form.querySelector('[name=cover][value=file]') || form.querySelector('[name=cover][value=none]')).checked = true;
             }
+            // The match's other covers (other catalogues of the same book): one choice each.
+            const alts = form.querySelector('[data-alt-covers]');
+            alts.replaceChildren();
+            (d.covers || []).forEach((alt, n) => {
+                const label = document.createElement('label');
+                label.className = 'book-cover-choice';
+                label.dataset.altCover = '';
+                const box = document.createElement('span');
+                box.className = 'cover';
+                const img = document.createElement('img');
+                img.src = alt.url; img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+                box.append(img);
+                const caption = document.createElement('span');
+                caption.className = 'book-cover-caption';
+                const input = document.createElement('input');
+                input.type = 'radio'; input.name = 'cover'; input.value = `alt-${n + 1}`;
+                caption.append(input, ` ${alt.source_name}’s`);
+                label.append(box, caption);
+                alts.append(label);
+            });
             document.querySelectorAll('[data-match-row]').forEach((row) => row.classList.toggle('is-chosen', row.contains(link)));
             field('title').focus({ preventScroll: true });
         }));

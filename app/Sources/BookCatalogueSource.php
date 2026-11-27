@@ -3,15 +3,17 @@
 namespace App\Sources;
 
 use App\Books\BookLookup;
+use App\Books\Hardcover;
 use App\Novel;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
- * The book catalogues (Google Books and Open Library, App\Books\BookLookup)
+ * The book catalogues (Google Books, Open Library, Hardcover, Apple Books: App\Books\BookLookup)
  * as the one "source" a reader's request search of medium 'book' asks
  * (App\Services\Requests\RequestSearch). Goodreads has had no public API
- * since 2020; these two cover the same books, with covers and ISBNs.
+ * since 2020; these cover the same books, with covers and ISBNs (Hardcover,
+ * its successor in spirit, with a token).
  *
  * Search only: it claims no novel and no URL, is not in the source registry
  * (so never on Discover, the health page or a scrape), and nothing is ever
@@ -21,7 +23,10 @@ use Illuminate\Support\Facades\Log;
  * It also lists Open Library's charts for the Requests page's Discover
  * shelf (App\Services\Requests\RequestBrowse): 'popular' (trending this
  * week), 'trending' (trending today) and 'classics' (the classics subject),
- * paged (PagedDiscover). RequestBrowse caches the pages.
+ * paged (PagedDiscover), and with a Hardcover token 'hardcover_trending'
+ * (the books most Hardcover readers finished this week) and
+ * 'hardcover_popular' (most finished of all time). RequestBrowse caches
+ * the pages.
  */
 class BookCatalogueSource extends AbstractSource implements PagedDiscover
 {
@@ -37,6 +42,16 @@ class BookCatalogueSource extends AbstractSource implements PagedDiscover
         'popular' => '/trending/weekly.json',
         'trending' => '/trending/daily.json',
         'classics' => '/subjects/classics.json',
+    ];
+
+    /**
+     * Shelf list id => Hardcover's books_trending window (App\Books\Hardcover::trending()):
+     * the books the most readers finished this week, and of all time. Offered
+     * only with a Hardcover token.
+     */
+    public const HARDCOVER_LISTS = [
+        'hardcover_trending' => 'week',
+        'hardcover_popular' => 'all',
     ];
 
     public function name(): string
@@ -66,12 +81,14 @@ class BookCatalogueSource extends AbstractSource implements PagedDiscover
 
     public function discoverHost(): string
     {
-        return 'Google Books and Open Library';
+        $names = array_map(fn($s) => BookLookup::SOURCE_NAMES[$s], BookLookup::sources());
+
+        return count($names) > 1 ? implode(', ', array_slice($names, 0, -1)) . ' and ' . end($names) : ($names[0] ?? 'Google Books and Open Library');
     }
 
     public function discoverLists(): array
     {
-        return ['search', ...array_keys(self::LISTS)];
+        return ['search', ...array_keys(self::LISTS), ...(BookLookup::sourceEnabled('hardcover') ? array_keys(self::HARDCOVER_LISTS) : [])];
     }
 
     public function tableOfContents(Novel $novel): array
@@ -87,7 +104,7 @@ class BookCatalogueSource extends AbstractSource implements PagedDiscover
     /** Discover-shaped items (name, author, cover, description, url), best match first. */
     public function discover(string $type, ?string $query = null): ?array
     {
-        if (isset(self::LISTS[$type])) {
+        if (isset(self::LISTS[$type]) || isset(self::HARDCOVER_LISTS[$type])) {
             $page = $this->discoverPage($type, null, 1);
 
             return $page === null ? null : $page['items'];
@@ -134,6 +151,14 @@ class BookCatalogueSource extends AbstractSource implements PagedDiscover
      */
     public function discoverPage(string $type, ?string $query, int $page): ?array
     {
+        if (isset(self::HARDCOVER_LISTS[$type])) {
+            if (!BookLookup::sourceEnabled('hardcover') || $page < 1 || $page > self::MAX_PAGE) {
+                return ['items' => [], 'has_more' => false];
+            }
+            $answer = app(Hardcover::class)->trending(self::HARDCOVER_LISTS[$type], $page, self::PAGE_SIZE);
+
+            return $answer === null ? null : ['items' => $answer['items'], 'has_more' => $answer['has_more'] && $page < self::MAX_PAGE];
+        }
         if (!isset(self::LISTS[$type]) || $page < 1 || $page > self::MAX_PAGE) {
             return ['items' => [], 'has_more' => false];
         }
