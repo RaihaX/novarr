@@ -91,6 +91,23 @@ T.it("statsLines: periods, streak and top series, read leniently", function()
     })
 end)
 
+T.it("statsLines: the server's real answer (headline, range_totals, top_series)", function()
+    local lines = F.statsLines({
+        today = "2026-11-27", range = 30,
+        headline = { chapters_read = 1234, words_read = 2500000, listening_seconds = 36000,
+            current_streak = 5, best_streak = 21, chapters_today = 3, words_today = 9000,
+            listening_seconds_today = 1200, chapters_week = 20, listening_seconds_week = 5400 },
+        range_totals = { days = 30, chapters = 126, words = 270015, listening_seconds = 22140, active_days = 18 },
+        top_series = { { id = 12, name = "Shadow Slave", chapters = 40, words = 120000 } },
+    })
+    T.eq(lines[1], "Today: 3 chapters · 9,000 words · 20 min")
+    T.eq(lines[2], "This week: 20 chapters · 1h 30m")
+    T.eq(lines[3], "Last 30 days: 126 chapters · 270,015 words · 6h 09m")
+    T.eq(lines[4], "All time: 1,234 chapters · 2,500,000 words · 10h 00m")
+    T.eq(lines[5], "Streak: 5 days (best 21)")
+    T.eq(lines[8], "1. Shadow Slave  ·  40 chapters · 120,000 words")
+end)
+
 T.it("statsLines: other spellings; nothing readable is nil", function()
     local lines = F.statsLines({ today = 1, this_week = { chapters_read = 5 }, total = { count = 9 }, streak = 1 })
     T.eq(lines, { "Today: 1 chapter", "This week: 5 chapters", "All time: 9 chapters", "Streak: 1 day" })

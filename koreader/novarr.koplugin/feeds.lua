@@ -199,7 +199,28 @@ function Feeds.statsLines(data, tr)
     if type(data) ~= "table" then return nil end
     local s = type(data.stats) == "table" and data.stats or data
     local lines = {}
-    local periods = {
+    -- The server's real answer (GET /api/v1/stats, App\\Http\\Controllers\\Api\\V1\\StatsController):
+    -- flat headline figures, the range totals, top_series. Read those first.
+    local h = type(s.headline) == "table" and s.headline or nil
+    if h then
+        local function secs(x) local v = num(x) return v and v / 60 or nil end
+        local rows = {
+            { tr("Today"), { chapters = num(h.chapters_today), words = num(h.words_today), minutes = secs(h.listening_seconds_today) } },
+            { tr("This week"), { chapters = num(h.chapters_week), minutes = secs(h.listening_seconds_week) } },
+        }
+        local rt = type(s.range_totals) == "table" and s.range_totals or nil
+        if rt then
+            table.insert(rows, { string.format(tr("Last %d days"), num(rt.days) or 30),
+                { chapters = num(rt.chapters), words = num(rt.words), minutes = secs(rt.listening_seconds) } })
+        end
+        table.insert(rows, { tr("All time"), { chapters = num(h.chapters_read), words = num(h.words_read), minutes = secs(h.listening_seconds) } })
+        for _i, r in ipairs(rows) do
+            local v = r[2]
+            if v.chapters or v.words or v.minutes then table.insert(lines, r[1] .. ": " .. periodText(v, tr)) end
+        end
+        s = { streak = { current = num(h.current_streak), best = num(h.best_streak) }, top_series = s.top_series }
+    end
+    local periods = h and {} or {
         { tr("Today"), s.today },
         { tr("This week"), s.week or s.this_week },
         { tr("This month"), s.month or s.this_month },
