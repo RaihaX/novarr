@@ -62,6 +62,11 @@ import { initDownloadFinders, teardownDownloadFinders } from './download-finder'
 document.addEventListener('turbo:load', initDownloadFinders);
 document.addEventListener('turbo:before-render', teardownDownloadFinders);
 
+// "Generate a cover" (AI covers) on a series page: queue, poll, swap the cover in; per visit.
+import { initGeneratedCover, teardownGeneratedCover } from './generated-cover';
+document.addEventListener('turbo:load', initGeneratedCover);
+document.addEventListener('turbo:before-render', teardownGeneratedCover);
+
 // Reader requests page (search, my requests, review); re-initialised per visit.
 import { initRequestsPage } from './requests';
 document.addEventListener('turbo:load', initRequestsPage);

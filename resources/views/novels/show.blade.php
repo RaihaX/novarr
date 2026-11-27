@@ -64,8 +64,19 @@
 {{-- Grid areas re-order it on phones (resources/css/_novel.scss).         --}}
 {{-- ===================================================================== --}}
 <div class="nv-hero">
-    <div class="nv-cover">
+    <div class="nv-cover" data-cover-slot>
         <x-cover :novel="$data" size="lg" :progress="$readPct" eager />
+        @can('admin')
+        {{-- An AI-painted cover (App\Covers): said to the owner only; the brief is in the tooltip. --}}
+        @if($data->cover_source === \App\Books\BookCovers::SOURCE_GENERATED)
+            @php $coverBrief = is_array($data->cover_brief) ? $data->cover_brief : []; @endphp
+            <p class="nv-cover-note" id="aiCoverNote" title="{{ trim(($coverBrief['key_scene'] ?? '') . (isset($coverBrief['style']) ? ' — ' . $coverBrief['style'] : '')) }}">AI cover{{ $data->cover_generated_at ? ' · ' . $data->cover_generated_at->format('j M Y') : '' }}{{ ($coverBrief['brief_source'] ?? '') === 'fallback' ? ' · from the genres' : '' }}</p>
+        @endif
+        @php $aiCoverStatus = \App\Covers\CoverGenerator::status((int) $data->id); @endphp
+        <p class="nv-cover-note" id="aiCoverStatus" role="status" aria-live="polite" hidden
+           data-status-url="{{ route('novels.covers.generate_status', $data->id) }}"
+           @if(in_array($aiCoverStatus['state'] ?? null, [\App\Covers\CoverGenerator::STATE_QUEUED, \App\Covers\CoverGenerator::STATE_PAINTING], true) && now()->getTimestamp() - (int) $aiCoverStatus['at'] < \App\Http\Controllers\GeneratedCoverController::STALE_AFTER) data-pending="{{ $aiCoverStatus['state'] }}" @endif></p>
+        @endcan
     </div>
 
     <div class="nv-head">
@@ -383,6 +394,17 @@
                 <li><a href="{{ route('novels.edit', $data->id) }}" class="dropdown-item"><x-icon name="pencil" :size="14" />Edit details</a></li>
                 @if($isBook)
                 <li><a href="{{ route('novels.covers', $data->id) }}" class="dropdown-item" id="findBetterCover"><x-icon name="search" :size="14" />Find a better cover</a></li>
+                @endif
+                @if(\App\Covers\CoverGenerator::enabled())
+                @php $aiCover = $data->cover_source === \App\Books\BookCovers::SOURCE_GENERATED; @endphp
+                {{-- AI cover (App\Covers): queued; the page polls and swaps the cover in (resources/js/generated-cover.js). --}}
+                <li>
+                    <button type="button" class="dropdown-item" id="generateCoverBtn" data-generate-cover data-url="{{ route('novels.covers.generate', $data->id) }}"
+                            data-confirm-text="{{ $aiCover ? 'Paint another AI cover for this series? It replaces the current one.' : 'Paint a cover for this series with AI? It replaces the current one; a real cover found later replaces it again.' }}"
+                            title="A local AI reads the story's opening and paints a cover that suits it (about a minute)">
+                        <x-icon name="image" :size="14" />{{ $aiCover ? 'Regenerate cover' : 'Generate a cover' }}
+                    </button>
+                </li>
                 @endif
                 @unless($isBook)
                 <li>

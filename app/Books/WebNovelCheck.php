@@ -571,8 +571,16 @@ class WebNovelCheck
             $novel->tags()->sync((array) ($snapshot['tags'] ?? []));
         });
 
-        if (!empty($snapshot['added_cover']) && ($file = File::find($snapshot['added_cover'])) !== null) {
-            $this->removeCover($file);
+        // The NovelUpdates cover and an AI cover painted since (App\Covers\CoverGenerator).
+        foreach (['added_cover', 'generated_cover'] as $added) {
+            if (!empty($snapshot[$added]) && ($file = File::find($snapshot[$added])) !== null) {
+                $this->removeCover($file);
+            }
+        }
+        if (!empty($snapshot['generated_cover'])) {
+            DB::table('novels')->where('id', $novel->id)->where('cover_source', BookCovers::SOURCE_GENERATED)
+                ->update(['cover_source' => null, 'cover_generated_at' => null]);
+            $novel->cover_source = $novel->cover_source === BookCovers::SOURCE_GENERATED ? null : $novel->cover_source;
         }
         $novel->unsetRelation('file');
 

@@ -279,3 +279,14 @@
 .book-existing-cover img { width: 100%; height: 100%; object-fit: cover; }
 .book-existing-main { min-width: 0; }
 .book-existing-title { font-size: $fs-body; font-weight: 600; margin: 0 0 $s-1; }
+
+// "Find a better cover": the AI option's empty 2:3 frame.
+.book-cover-ai {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 2 / 3;
+    border: 1px dashed $border;
+    border-radius: $radius;
+    color: $text-muted;
+}

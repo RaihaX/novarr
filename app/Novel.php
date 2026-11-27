@@ -107,6 +107,10 @@ class Novel extends Model
         'webfiction_checked_at' => 'datetime',
         'webnovel_kept_at' => 'datetime',
         'converted_snapshot' => 'array',
+        // AI covers (App\Covers): when the cover was painted, and the brief.
+        'cover_generated_at' => 'datetime',
+        'cover_brief' => 'array',
+        'cover_ai_checked_at' => 'datetime',
         'alternative_titles' => 'array',
     ];
 

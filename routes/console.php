@@ -261,6 +261,19 @@ $oneServer(Schedule::command('books:webnovel-check --limit=200')
     ->withoutOverlapping(120)
     ->runInBackground());
 
+// AI covers (App\Covers\CoverGenerator): nightly, up to 30 series without a
+// real cover (none, a text card, a blank page; books once books:covers found
+// nothing) get one painted on the homelab GPU. The GPU is shared with Frigate:
+// one painting at a time, a busy painter is waited for, the run stops after a
+// few failures in a row. 02:10: a quiet hour, before the TOC check (01:00 is
+// short) and long before books:covers. Only when the painter is set up.
+$oneServer(Schedule::command('covers:generate --limit=30')
+    ->dailyAt('02:10')
+    ->when(fn() => \App\Covers\CoverGenerator::enabled())
+    ->name('covers_generate')
+    ->withoutOverlapping(240)
+    ->runInBackground());
+
 // Covers of the Books library (App\Books\BookCovers): nightly, up to 300
 // books not checked yet get a catalogue cover when theirs is missing, tiny
 // or a generated text card, or a much larger one of the same book. Never a

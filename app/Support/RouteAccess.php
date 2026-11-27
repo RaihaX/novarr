@@ -229,7 +229,7 @@ final class RouteAccess
         'novels.destroy', 'novels.toggle_pause', 'novels.toggle_frequent', 'novels.toggle_complete',
         'novels.attention_snooze', 'novels.sync_tags', 'tags.store', 'novels.remove_duplicates', 'novels.undo_conversion',
         'novels.metadata_candidates', 'novels.metadata_choose', 'novels.snapshots', 'novels.reading_mode',
-        'novels.covers', 'novels.covers.choose',
+        'novels.covers', 'novels.covers.choose', 'novels.covers.generate', 'novels.covers.generate_status',
         'settings.index', 'settings.update', 'settings.test_email', 'settings.test_flaresolverr',
         'settings.test_notification', 'settings.tailscale_status', 'settings.tailscale_serve', 'settings.tailscale_funnel',
         'settings.users', 'settings.users.store', 'settings.users.update', 'settings.users.password',

@@ -33,6 +33,15 @@ $amber-text: var(--nv-amber-ink);
 }
 
 .nv-cover   { grid-area: cover; min-width: 0; }
+// Under the cover, owner only: "AI cover · 3 Dec 2026", and "Generate a cover"'s progress.
+.nv-cover-note {
+    margin: $s-2 0 0;
+    font-size: $fs-micro;
+    color: $text-muted;
+    text-align: center;
+
+    &.is-failed { color: $danger; }
+}
 .nv-head    { grid-area: head; min-width: 0; display: flex; flex-direction: column; gap: $s-3; }
 .nv-about   { grid-area: about; min-width: 0; display: flex; flex-direction: column; gap: $s-4; }
 .nv-actions { grid-area: actions; min-width: 0; }

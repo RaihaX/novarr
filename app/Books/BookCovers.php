@@ -18,7 +18,8 @@ use Illuminate\Support\Facades\Storage;
  * The current cover is a PLACEHOLDER (as good as none) when there is none,
  * it is under MIN_HEIGHT pixels tall, or it is a generated text card
  * (Calibre's default cover, FanFicFare / FicHub title pages: a flat
- * background with text; textCard()).
+ * background with text; textCard()), or a blank page with a little text
+ * (an ePub whose "cover" is its title page: blankPage()).
  *
  * Candidates come from every catalogue switched on (BookLookup): by the
  * book's ISBN (its ePub's) first, then by title and author; a catalogue's
@@ -32,7 +33,11 @@ use Illuminate\Support\Facades\Storage;
  * Replaced automatically when the current cover is a placeholder, or the
  * best is at least UPGRADE_FACTOR × its area (STRICT_UPGRADE_FACTOR × for a
  * cover of unknown origin, unless the candidate is the same edition by
- * ISBN). Never a cover the owner chose (novels.cover_source 'manual'). The
+ * ISBN). Never a cover the owner chose (novels.cover_source 'manual'). An
+ * AI-painted cover (cover_source 'generated', App\Covers) counts as a
+ * placeholder here: a real catalogue cover always replaces it (precedence
+ * generated < catalogue < manual), and a book with one is checked again every
+ * GENERATED_RECHECK_DAYS. The
  * new cover is attached like any other (Novel::attachCover(): new File row,
  * thumbnails); a book in Calibre is pushed to it (PushBookToCalibre).
  */
@@ -67,8 +72,24 @@ class BookCovers
     public const FLAT_BACKGROUND_SHARE = 0.55;
     public const CARD_MAX_COLOURS = 48;
 
+    /**
+     * The blank-page test (blankPage()): at least BLANK_LIGHT_SHARE of the
+     * SAMPLE × SAMPLE pixels near white (every channel ≥ BLANK_LIGHT_LEVEL)
+     * and at most BLANK_COLOURED_SHARE coloured (channels BLANK_CHROMA
+     * apart): black or grey text on white, nothing painted.
+     */
+    public const BLANK_LIGHT_LEVEL = 215;
+    public const BLANK_LIGHT_SHARE = 0.8;
+    public const BLANK_CHROMA = 60;
+    public const BLANK_COLOURED_SHARE = 0.03;
+
+    /** A book with an AI cover is asked of the catalogues again after this many days. */
+    public const GENERATED_RECHECK_DAYS = 30;
+
     public const SOURCE_MANUAL = 'manual';
     public const SOURCE_CATALOGUE = 'catalogue';
+    /** Painted by the AI cover pipeline (App\Covers\CoverGenerator): any real cover beats it. */
+    public const SOURCE_GENERATED = 'generated';
 
     public function __construct(private BookLookup $lookup)
     {
@@ -89,7 +110,20 @@ class BookCovers
             || ($stats['background_share'] >= self::FLAT_BACKGROUND_SHARE && $stats['colours'] <= self::CARD_MAX_COLOURS);
     }
 
-    /** @return ?array{colours: int, background_share: float} */
+    /**
+     * Whether image bytes are a mostly blank page with a little dark text
+     * (see the BLANK_ constants): a title or copyright page used as a cover.
+     */
+    public static function blankPage(string $bytes): bool
+    {
+        $stats = static::colourStats($bytes);
+
+        return $stats !== null
+            && $stats['light_share'] >= self::BLANK_LIGHT_SHARE
+            && $stats['coloured_share'] <= self::BLANK_COLOURED_SHARE;
+    }
+
+    /** @return ?array{colours: int, background_share: float, light_share: float, coloured_share: float} */
     public static function colourStats(string $bytes): ?array
     {
         if (!function_exists('imagecreatefromstring')) {
@@ -104,15 +138,21 @@ class BookCovers
         imagecopyresampled($small, $image, 0, 0, 0, 0, $n, $n, imagesx($image), imagesy($image));
         $shift = 8 - self::QUANT_BITS;
         $counts = [];
+        $light = 0;
+        $coloured = 0;
         for ($x = 0; $x < $n; $x++) {
             for ($y = 0; $y < $n; $y++) {
                 $rgb = imagecolorat($small, $x, $y);
-                $key = ((($rgb >> 16) & 0xFF) >> $shift) << (2 * self::QUANT_BITS) | ((($rgb >> 8) & 0xFF) >> $shift) << self::QUANT_BITS | (($rgb & 0xFF) >> $shift);
+                [$r, $g, $b] = [($rgb >> 16) & 0xFF, ($rgb >> 8) & 0xFF, $rgb & 0xFF];
+                $key = ($r >> $shift) << (2 * self::QUANT_BITS) | ($g >> $shift) << self::QUANT_BITS | ($b >> $shift);
                 $counts[$key] = ($counts[$key] ?? 0) + 1;
+                $light += min($r, $g, $b) >= self::BLANK_LIGHT_LEVEL ? 1 : 0;
+                $coloured += max($r, $g, $b) - min($r, $g, $b) >= self::BLANK_CHROMA ? 1 : 0;
             }
         }
+        $total = $n * $n;
 
-        return ['colours' => count($counts), 'background_share' => max($counts) / ($n * $n)];
+        return ['colours' => count($counts), 'background_share' => max($counts) / $total, 'light_share' => $light / $total, 'coloured_share' => $coloured / $total];
     }
 
     /**
@@ -135,6 +175,7 @@ class BookCovers
         }
         $reason = match (true) {
             $image['height'] < self::MIN_HEIGHT => 'too small (' . $image['width'] . '×' . $image['height'] . ')',
+            static::blankPage($image['bytes']) => 'a blank page with a little text',
             static::textCard($image['bytes']) => 'a generated text cover',
             default => null,
         };
@@ -224,6 +265,12 @@ class BookCovers
     public function check(Novel $book, string $mode = 'all', bool $dryRun = false): array
     {
         $current = $this->current($book);
+        // An AI cover is as good as none here: any real one of this book replaces it.
+        if ($book->cover_source === self::SOURCE_GENERATED && !$current['placeholder']) {
+            $current['placeholder'] = true;
+            $current['reason'] = 'an AI-painted cover';
+        }
+
         $out = fn(string $action, string $reason, ?array $best = null) => ['action' => $action, 'reason' => $reason, 'current' => $current, 'best' => $best !== null ? array_diff_key($best, ['bytes' => 1]) : null];
 
         if ($book->cover_source === self::SOURCE_MANUAL) {
@@ -275,7 +322,7 @@ class BookCovers
             return false;
         }
         // No updated_at: a cover is no edit of the book's text.
-        DB::table('novels')->where('id', $book->id)->update(['cover_source' => $source, 'cover_checked_at' => now()]);
+        DB::table('novels')->where('id', $book->id)->update(['cover_source' => $source, 'cover_checked_at' => now(), 'cover_generated_at' => null]);
         $book->forceFill(['cover_source' => $source]);
         try {
             CacheHelper::clearNovelCache($book->id);
@@ -299,7 +346,10 @@ class BookCovers
         if ($ids !== []) {
             $query->whereIn('id', $ids);
         } elseif (!$recheck) {
-            $query->whereNull('cover_checked_at');
+            // Never checked, or an AI cover not checked for a while.
+            $query->where(fn($q) => $q->whereNull('cover_checked_at')
+                ->orWhere(fn($g) => $g->where('cover_source', self::SOURCE_GENERATED)
+                    ->where('cover_checked_at', '<', now()->subDays(self::GENERATED_RECHECK_DAYS))));
         }
 
         return $query->limit(max(1, $limit))->get();

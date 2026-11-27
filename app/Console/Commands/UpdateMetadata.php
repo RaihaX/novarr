@@ -96,7 +96,9 @@ class UpdateMetadata extends Command
                     $coverPath = storage_path("app/" . $item->file->file_path);
                 }
                 if (file_exists($coverPath) && @getimagesize($coverPath)) {
-                    $hasValidCover = true;
+                    // An AI-painted cover (App\Covers) is only a stand-in:
+                    // the source's real cover replaces it (kept until one downloads).
+                    $hasValidCover = $item->cover_source !== \App\Books\BookCovers::SOURCE_GENERATED;
                 } else {
                     $this->warn("  Existing cover invalid or missing on disk — re-fetching.");
                     $item->file->delete();
@@ -172,6 +174,10 @@ class UpdateMetadata extends Command
 
                     if ($downloaded) {
                         $novel->attachCover($downloaded["filename"], $downloaded["basename"]);
+                        if ($novel->cover_source === \App\Books\BookCovers::SOURCE_GENERATED) {
+                            \Illuminate\Support\Facades\DB::table("novels")->where("id", $novel->id)->update(["cover_source" => null, "cover_generated_at" => null]);
+                            $novel->forceFill(["cover_source" => null, "cover_generated_at" => null]);
+                        }
                         $this->info("  Cover saved: {$downloaded['filename']}");
                         $saved = true;
                         break;

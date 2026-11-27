@@ -127,6 +127,9 @@ Route::get('/novels/{id}/metadata/candidates', [\App\Http\Controllers\MetadataCo
 Route::post('/novels/{id}/metadata/choose', [\App\Http\Controllers\MetadataController::class, 'choose'])->name('novels.metadata_choose');
 Route::get('/novels/{id}/covers', [\App\Http\Controllers\BookCoverController::class, 'index'])->whereNumber('id')->name('novels.covers');
 Route::post('/novels/{id}/covers', [\App\Http\Controllers\BookCoverController::class, 'choose'])->whereNumber('id')->name('novels.covers.choose');
+// AI covers (App\Covers\CoverGenerator): queue "Generate a cover", poll its progress.
+Route::post('/novels/{id}/covers/generate', [\App\Http\Controllers\GeneratedCoverController::class, 'store'])->whereNumber('id')->name('novels.covers.generate');
+Route::get('/novels/{id}/covers/generate', [\App\Http\Controllers\GeneratedCoverController::class, 'status'])->whereNumber('id')->name('novels.covers.generate_status');
 Route::get('/novels/{id}/offline-manifest', [NovelController::class, 'offlineManifest'])->middleware($conditionalGet)->name('novels.offline_manifest');
 Route::get('/novels/{id}/chapters-json', [NovelController::class, 'chaptersJson'])->middleware($conditionalGet)->name('novels.chapters_json');
 Route::get('/novels/{id}/snapshots/{file?}', [\App\Http\Controllers\SnapshotController::class, 'show'])->where('file', '[0-9]+-[a-z_]+-[0-9_]+\.html\.gz')->name('novels.snapshots');

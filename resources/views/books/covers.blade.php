@@ -31,6 +31,7 @@
                 no cover.
             @endif
             @if($book->cover_source === \App\Books\BookCovers::SOURCE_MANUAL) You chose it, so it is never replaced automatically.@endif
+            @if($book->cover_source === \App\Books\BookCovers::SOURCE_GENERATED) An AI painted it: any real cover of this book replaces it.@endif
         </p>
 
         <fieldset class="book-review-covers">
@@ -50,8 +51,17 @@
                     <button type="submit" class="btn btn-sm btn-primary">Use this</button>
                 </form>
             @empty
-                <p class="form-text" id="noCoverCandidates">No catalogue has a cover of this book (same title and author, or the same ISBN). Upload one on the edit page.</p>
+                <p class="form-text" id="noCoverCandidates">No catalogue has a cover of this book (same title and author, or the same ISBN). Upload one on the edit page{{ \App\Covers\CoverGenerator::enabled() ? ', or have one painted' : '' }}.</p>
             @endforelse
+            @if(\App\Covers\CoverGenerator::enabled())
+                {{-- The AI option (App\Covers): queued; the series page shows the progress. --}}
+                <form method="POST" action="{{ route('novels.covers.generate', $book->id) }}" class="book-cover-choice" id="generateCoverChoice">
+                    @csrf
+                    <span class="cover book-cover-ai" aria-hidden="true"><x-icon name="image" :size="24" /></span>
+                    <span class="book-cover-caption">{{ $book->cover_source === \App\Books\BookCovers::SOURCE_GENERATED ? 'Another AI cover' : 'AI cover' }} · painted from the story</span>
+                    <button type="submit" class="btn btn-sm btn-secondary">{{ $book->cover_source === \App\Books\BookCovers::SOURCE_GENERATED ? 'Regenerate' : 'Generate' }}</button>
+                </form>
+            @endif
         </fieldset>
     </section>
 </div>

@@ -881,4 +881,51 @@ return [
         'share_walk_seconds' => (float) env('NOVARR_STORAGE_SHARE_WALK_SECONDS', 120),
         'share_external' => env('NOVARR_STORAGE_SHARE_EXTERNAL'),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | AI covers (App\Covers, `covers:generate`, "Generate a cover")
+    |--------------------------------------------------------------------------
+    |
+    | A series without a real cover (none, a generated text card, a blank page
+    | with a little text) gets one painted on the homelab GPU: a local LLM
+    | (Ollama) reads the description and the first chapters and writes a
+    | short visual brief (App\Covers\CoverBrief), Stable Diffusion XL paints
+    | the artwork from it (App\Covers\CoverPainter, the "cover painter"
+    | service), and the title and author are set on it here
+    | (App\Covers\CoverComposer). Off until both URLs are set.
+    |
+    | ollama_url        Ollama's address (http://host:11434).
+    | brief_model       the model that writes the brief (qwen3:8b; gemma3:12b works too).
+    | brief_timeout     seconds for the brief (a cold model load is slow).
+    | brief_words       words of the opening chapters the model reads.
+    | painter_url       the cover painter's address (POST /generate, GET /health).
+    | paint_timeout     seconds for one painting.
+    | width, height,    what the painter is asked for (SDXL's 832×1216
+    | steps, guidance   portrait bucket, 30 steps, CFG 6.5).
+    | busy_retries      how many times a busy painter (503: the GPU is in use)
+    |                   is asked again, busy_wait seconds apart (doubling).
+    | max_failures      paintings failed in a row that end a `covers:generate` run.
+    | new_series_days   a series younger than this is left to its source's own
+    |                   cover first (the nightly run; "Generate a cover" does not wait).
+    |
+    */
+    'covers' => [
+        'ai' => [
+            'ollama_url' => rtrim((string) env('NOVARR_COVERS_AI_OLLAMA_URL', ''), '/'),
+            'brief_model' => (string) env('NOVARR_COVERS_AI_BRIEF_MODEL', 'qwen3:8b'),
+            'brief_timeout' => (int) env('NOVARR_COVERS_AI_BRIEF_TIMEOUT', 120),
+            'brief_words' => (int) env('NOVARR_COVERS_AI_BRIEF_WORDS', 3000),
+            'painter_url' => rtrim((string) env('NOVARR_COVERS_AI_PAINTER_URL', ''), '/'),
+            'paint_timeout' => (int) env('NOVARR_COVERS_AI_PAINT_TIMEOUT', 180),
+            'width' => (int) env('NOVARR_COVERS_AI_WIDTH', 832),
+            'height' => (int) env('NOVARR_COVERS_AI_HEIGHT', 1216),
+            'steps' => (int) env('NOVARR_COVERS_AI_STEPS', 30),
+            'guidance' => (float) env('NOVARR_COVERS_AI_GUIDANCE', 6.5),
+            'busy_retries' => (int) env('NOVARR_COVERS_AI_BUSY_RETRIES', 6),
+            'busy_wait' => (int) env('NOVARR_COVERS_AI_BUSY_WAIT', 20),
+            'max_failures' => (int) env('NOVARR_COVERS_AI_MAX_FAILURES', 3),
+            'new_series_days' => (int) env('NOVARR_COVERS_AI_NEW_SERIES_DAYS', 2),
+        ],
+    ],
 ];
