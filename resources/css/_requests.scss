@@ -109,6 +109,25 @@
     overflow-wrap: anywhere;
 }
 
+// A book read from a pasted link: "Scion #1".
+.req-series {
+    margin: 0;
+    font-size: $fs-caption;
+    color: $text-soft;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+
+    &[hidden] { display: none; }
+}
+
+// Under the search box: what a book search also takes (a pasted link).
+.req-search-hint {
+    margin-top: $s-1;
+    overflow-wrap: anywhere;
+
+    &[hidden] { display: none; }
+}
+
 .req-card-action {
     margin-top: 2px;
 

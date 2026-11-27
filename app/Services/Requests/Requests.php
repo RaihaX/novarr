@@ -180,15 +180,20 @@ class Requests
         ];
     }
 
+    /** A book's details a hit may carry (a pasted book link's, RequestSearch::askLink()), kept on its candidate when set. */
+    public const BOOK_DETAIL_FIELDS = ['isbn', 'isbn10', 'series', 'series_index', 'language', 'year'];
+
     /**
      * Result hits (RequestSearch::group()) → request candidates, at most
      * $limit. Also used by FindRequestCandidates for the other sources' hits.
+     * A hit's book details (BOOK_DETAIL_FIELDS) follow the usual fields, only
+     * when the hit has them, so other candidates keep their shape.
      */
     public static function candidatesFromHits(array $hits, int $limit): array
     {
         $candidates = [];
         foreach (array_slice(array_values($hits), 0, max(0, $limit)) as $hit) {
-            $candidates[] = [
+            $candidate = [
                 'source' => (string) $hit['source'],
                 'source_name' => (string) $hit['source_name'],
                 'url' => (string) $hit['url'],
@@ -197,6 +202,12 @@ class Requests
                 'chapters' => $hit['chapters'] ?? null,
                 'status' => $hit['status'] ?? null,
             ];
+            foreach (self::BOOK_DETAIL_FIELDS as $field) {
+                if (isset($hit[$field]) && $hit[$field] !== '') {
+                    $candidate[$field] = $hit[$field];
+                }
+            }
+            $candidates[] = $candidate;
         }
 
         return $candidates;

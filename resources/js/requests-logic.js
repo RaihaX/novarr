@@ -358,6 +358,31 @@ export function mediumNoun(medium) {
     return { book: 'books', novel: 'novels', manga: 'manga' }[medium] || 'series';
 }
 
+/**
+ * The search box for a medium: its placeholder, accessible label, hint line
+ * (null: no hint) and longest text. A book search also takes a pasted
+ * Goodreads / Amazon / … link (App\Books\BookLinkReader), so it is longer.
+ */
+export function searchBox(medium) {
+    if (medium === 'book') {
+        return {
+            placeholder: 'Title, author, ISBN — or paste a Goodreads / Amazon link',
+            label: 'Title, author or ISBN to search for, or a Goodreads, Amazon, Hardcover, Google Books or Open Library link',
+            hint: 'New release not found? Paste its Goodreads, Amazon, Hardcover, Google Books or Open Library page.',
+            maxLength: 2048,
+        };
+    }
+    return { placeholder: 'Title or author', label: 'Title or author to search for', hint: null, maxLength: 100 };
+}
+
+/** A result's series line: "Scion #1", "Riftwake" (no number), or '' (none). */
+export function seriesLine(result) {
+    const series = result && typeof result.series === 'string' ? result.series.trim() : '';
+    if (!series) return '';
+    const index = result.series_index === null || result.series_index === undefined ? '' : String(result.series_index).trim();
+    return index ? `${series} #${index}` : series;
+}
+
 // ---- My requests: filter, age, paging -------------------------------------------
 
 /** Rows shown at first, and added by each "Show more". */

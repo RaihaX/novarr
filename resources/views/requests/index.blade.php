@@ -64,8 +64,11 @@
         <h2 class="req-section-title" id="reqFindTitle">Find something to request</h2>
     </div>
     <form id="reqSearchForm" class="filter-bar req-search" role="search" novalidate>
-        <input type="search" id="reqQuery" name="q" class="form-control req-query" maxlength="100" autocomplete="off"
-               placeholder="Title or author" aria-label="Title or author to search for" enterkeyhint="search">
+        {{-- Books (the default) also take a pasted Goodreads / Amazon / … link; requests.js keeps these in step with the picker. --}}
+        <input type="search" id="reqQuery" name="q" class="form-control req-query" maxlength="2048" autocomplete="off"
+               placeholder="Title, author, ISBN — or paste a Goodreads / Amazon link"
+               aria-label="Title, author or ISBN to search for, or a Goodreads, Amazon, Hardcover, Google Books or Open Library link"
+               aria-describedby="reqSearchHint" enterkeyhint="search">
         <div class="btn-group segmented" role="group" aria-label="Kind" id="reqMedium">
             <button type="button" class="btn btn-secondary active" data-medium="book" aria-pressed="true">Books</button>
             <button type="button" class="btn btn-secondary" data-medium="novel" aria-pressed="false">Novels</button>
@@ -73,6 +76,7 @@
         </div>
         <button type="submit" class="btn btn-primary" id="reqSearchBtn">Search</button>
     </form>
+    <p id="reqSearchHint" class="req-muted-line req-search-hint">New release not found? Paste its Goodreads, Amazon, Hardcover, Google Books or Open Library page.</p>
     <p class="req-free-link">
         <button type="button" class="req-linkbtn" data-req-freetext>Can’t find it? Request by title</button>
     </p>
@@ -139,6 +143,7 @@
         </div>
         <span class="disc-title req-card-title"></span>
         <div class="disc-meta"><span class="disc-author"></span></div>
+        <p class="req-series" hidden></p>
         <p class="req-sources"></p>
         <p class="disc-synopsis"></p>
         <div class="req-card-action"></div>

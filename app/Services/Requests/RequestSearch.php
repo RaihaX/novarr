@@ -15,7 +15,11 @@ use Illuminate\Support\Facades\RateLimiter;
  * A reader's search for something to request (POST/GET
  * /api/v1/requests/searches): one query string sent to EVERY searchable
  * source of the medium — never a URL — run in the background by
- * RunRequestSearch after the POST's response, like DiscoverSearch.
+ * RunRequestSearch after the POST's response, like DiscoverSearch. The one
+ * exception: a book search whose text is a supported book page
+ * (App\Books\BookLinkReader: Goodreads, Amazon, …) reads that page for ONE
+ * result (askLink()), remembered under its own cache key (cacheKey()); a
+ * link that cannot be read fails the search with the reader's reason.
  *
  * Limits (config novarr.requests.*), checked in this order on start():
  *   - one running search per account                 → 429 search_running
@@ -61,6 +65,9 @@ use Illuminate\Support\Facades\RateLimiter;
 class RequestSearch
 {
     public const RECORD_TTL_MINUTES = 30;
+
+    /** The source key of a result read from a pasted book link (BookLinkReader). */
+    public const BOOK_LINK_SOURCE = 'book-link';
 
     /** Seconds a slot outlives the time budget (a source call already under way may overrun it). */
     public const SLOT_GRACE_SECONDS = 120;
@@ -137,6 +144,10 @@ class RequestSearch
 
     public static function cacheKey(string $medium, string $query): string
     {
+        // A pasted book link: by its canonical page, apart from any text search.
+        if (($link = static::bookLink($medium, $query)) !== null) {
+            return 'request_search_link_v1_' . sha1($link);
+        }
         // v2: hits are filtered for relevance (SearchRelevance).
         return 'request_search_results_v2_' . sha1($medium . '|' . static::normalizeQuery($query));
     }
@@ -480,7 +491,14 @@ class RequestSearch
 
         $medium = (string) $record['medium'];
         $query = (string) $record['query'];
-        $outcome = $this->askSources($medium, $query, $discover);
+        try {
+            $outcome = $this->askSources($medium, $query, $discover);
+        } catch (\App\Books\BookLinkFailed $e) {
+            // A pasted link that could not be read: the reason is the reader's message.
+            $this->finish($id, ['status' => 'failed', 'message' => $e->getMessage()]);
+
+            return;
+        }
 
         $this->finish($id, ['status' => 'done', 'message' => null] + $outcome);
         $this->remember($medium, $query, $outcome);
@@ -502,7 +520,11 @@ class RequestSearch
             return $remembered;
         }
 
-        $outcome = $this->askSources($medium, $query, $discover);
+        try {
+            $outcome = $this->askSources($medium, $query, $discover);
+        } catch (\App\Books\BookLinkFailed) {
+            return ['groups' => [], 'skipped_sources' => [], 'sources_asked' => []];
+        }
         $this->remember($medium, $query, $outcome);
 
         return $outcome;
@@ -516,6 +538,9 @@ class RequestSearch
      */
     private function askSources(string $medium, string $query, Discover $discover): array
     {
+        if (static::bookLink($medium, $query) !== null) {
+            return $this->askLink($query);
+        }
         $deadline = (int) now()->getPreciseTimestamp(3) + static::budgetSeconds() * 1000;
         $sources = $this->sources($discover, $medium);
         // The catalogue source is not in the registry a lane process loads: asked here.
@@ -543,8 +568,11 @@ class RequestSearch
                 continue;
             }
             $name = static::label($source, $key);
-            // Hits that don't resemble the query go (SearchRelevance).
-            foreach (SearchRelevance::filter($answer['items'], $query) as $item) {
+            // Hits that don't resemble the query go (SearchRelevance) — but
+            // not for an ISBN: no title resembles "978-0-…", the catalogue
+            // looked that exact book up.
+            $items = static::isIsbnQuery($medium, $query) ? $answer['items'] : SearchRelevance::filter($answer['items'], $query);
+            foreach ($items as $item) {
                 if (is_array($item)) {
                     $hits[] = ['key' => $key, 'name' => $name, 'item' => DiscoverController::item($item, $key)];
                 }
@@ -556,6 +584,72 @@ class RequestSearch
             'skipped_sources' => $skipped,
             'sources_asked' => $asked,
         ];
+    }
+
+    /**
+     * A book search for an ISBN ("978-0-306-40615-7", "030640615X"): ten or
+     * thirteen digits (a final X) with only spaces or hyphens between, as
+     * BookCatalogueSource looks one up. Pure.
+     */
+    public static function isIsbnQuery(string $medium, string $query): bool
+    {
+        if ($medium !== \App\Novel::MEDIUM_BOOK || !preg_match('/^[0-9X\s-]+$/i', trim($query))) {
+            return false;
+        }
+
+        return in_array(strlen(preg_replace('/[^0-9X]/', '', strtoupper($query)) ?? ''), [10, 13], true);
+    }
+
+    /**
+     * A book search whose text is a supported book page (BookLinkReader):
+     * the link's canonical URL, else null (another medium, plain text, or a
+     * link of another host — the controller refuses those).
+     */
+    public static function bookLink(string $medium, string $query): ?string
+    {
+        return $medium === \App\Novel::MEDIUM_BOOK ? \App\Books\BookLinkReader::canonical($query) : null;
+    }
+
+    /**
+     * The outcome of a pasted book link: ONE group, shaped as a catalogue
+     * hit's (group()), from source BOOK_LINK_SOURCE named after the site
+     * ("Goodreads"), its url the canonical page. The group and its hit also
+     * carry the book's series, series_index, isbn, isbn10, language and year
+     * (Requests::candidatesFromHits() keeps them on the request).
+     *
+     * @throws \App\Books\BookLinkFailed  the page could not be read
+     */
+    private function askLink(string $query): array
+    {
+        $book = app(\App\Books\BookLinkReader::class)->read($query);
+        $item = DiscoverController::item([
+            'name' => $book['title'],
+            'author' => implode(', ', array_slice($book['authors'], 0, 3)) ?: null,
+            'cover' => $book['cover_url'],
+            'description' => $book['description'],
+            'url' => $book['url'],
+            'status' => $book['year'] !== null ? (string) $book['year'] : null,
+        ], self::BOOK_LINK_SOURCE);
+        $groups = static::group([['key' => self::BOOK_LINK_SOURCE, 'name' => $book['site_name'], 'item' => $item]], \App\Novel::MEDIUM_BOOK, $book['title']);
+
+        $extra = [
+            'series' => $book['series'],
+            'series_index' => $book['series_index'],
+            'isbn' => $book['isbn'],
+            'isbn10' => $book['isbn10'],
+            'language' => $book['language'],
+            'year' => $book['year'],
+        ];
+        foreach ($groups as &$group) {
+            $group += ['series' => $book['series'], 'series_index' => $book['series_index'], 'isbn' => $book['isbn']];
+            foreach ($group['hits'] as &$hit) {
+                $hit += $extra;
+            }
+            unset($hit);
+        }
+        unset($group);
+
+        return ['groups' => $groups, 'skipped_sources' => [], 'sources_asked' => [self::BOOK_LINK_SOURCE]];
     }
 
     /** The runner the container gives (ProcessSearchRunner, or InlineSearchRunner). */
