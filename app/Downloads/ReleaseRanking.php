@@ -152,6 +152,22 @@ final class ReleaseRanking
             }
         }
 
+        // Another book of the series: "… - A Court of Thorns and Roses Book 6"
+        // names the series, not the book wanted (book 1). A number that is not
+        // the wanted book's is penalised; with no known number, any "Book N"
+        // past 1 is a warning (never grabbed by itself, still offered).
+        $numbers = self::bookNumbers((string) ($result['title'] ?? ''));
+        if ($numbers !== []) {
+            $index = isset($wanted['series_index']) && $wanted['series_index'] !== null && $wanted['series_index'] !== '' ? (float) $wanted['series_index'] : null;
+            if ($index !== null && !in_array($index, $numbers, true)) {
+                $score -= 50;
+                $warnings[] = 'says book ' . self::numberLabel($numbers[0]) . ' (this is book ' . self::numberLabel($index) . ')';
+            } elseif ($index === null && max($numbers) > 1) {
+                $score -= 15;
+                $warnings[] = 'says book ' . self::numberLabel(max($numbers)) . ' of a series';
+            }
+        }
+
         // Junk.
         $junk = array_values(array_filter(self::JUNK_WORDS, fn($w) => isset($wordSet[$w])));
         foreach (self::JUNK_PHRASES as $phrase) {
@@ -287,5 +303,31 @@ final class ReleaseRanking
             'ja' => 'Japanese', 'zh' => 'Chinese', 'ko' => 'Korean', 'hu' => 'Hungarian', 'cs' => 'Czech', 'tr' => 'Turkish',
             'en' => 'English',
         ][$code] ?? $code;
+    }
+
+    /**
+     * Book numbers a release name states: "Book 6", "Bk. 2", "Vol 3",
+     * "Volume 03", "#4", "Book Six" (one–twelve). Years and sizes are not
+     * numbers here (only 1–99 after one of those words).
+     *
+     * @return list<float>
+     */
+    public static function bookNumbers(string $title): array
+    {
+        $words = ['one' => 1, 'two' => 2, 'three' => 3, 'four' => 4, 'five' => 5, 'six' => 6, 'seven' => 7, 'eight' => 8, 'nine' => 9, 'ten' => 10, 'eleven' => 11, 'twelve' => 12];
+        $out = [];
+        if (preg_match_all('/(?:\bbook|\bbk|\bvol(?:ume)?|#)\.?\s*(\d{1,2}(?:\.\d)?|' . implode('|', array_keys($words)) . ')\b/i', $title, $m)) {
+            foreach ($m[1] as $n) {
+                $n = strtolower($n);
+                $out[] = (float) ($words[$n] ?? $n);
+            }
+        }
+
+        return array_values(array_unique($out, SORT_REGULAR));
+    }
+
+    private static function numberLabel(float $n): string
+    {
+        return rtrim(rtrim(number_format($n, 1, '.', ''), '0'), '.');
     }
 }

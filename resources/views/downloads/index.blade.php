@@ -12,8 +12,8 @@
 @section('content')
 @php
     $h = fn ($bytes) => \App\Support\Bytes::human($bytes);
-    $tabs = ['queue' => 'Queue', 'history' => 'History', 'wanted' => 'Wanted', 'blocklist' => 'Blocklist', 'settings' => 'Settings'];
-    $counts = ['queue' => $queue->count(), 'wanted' => $wanted->where('monitored', true)->count(), 'blocklist' => $blocklist->count()];
+    $tabs = ['attention' => 'Needs you', 'queue' => 'Queue', 'seeding' => 'Seeding', 'history' => 'History', 'wanted' => 'Wanted', 'blocklist' => 'Blocklist', 'settings' => 'Settings'];
+    $counts = ['attention' => \App\Http\Controllers\DownloadController::attentionCount($attention), 'queue' => $queue->count(), 'wanted' => $wanted->where('monitored', true)->count(), 'blocklist' => $blocklist->count()];
     $targetOf = function ($grab) {
         if ($grab->request) return ['Wanted: ' . $grab->request->title, route('books.review', $grab->request->id)];
         if ($grab->novel) return ['Audiobook of ' . $grab->novel->name, route('novels.show', $grab->novel->id)];
@@ -56,6 +56,143 @@
         </a>
     @endforeach
 </nav>
+
+@if($tab === 'attention')
+{{-- Sonarr's warnings + manual import: everything that waits for the owner, with the one action that settles it. --}}
+<section aria-labelledby="attentionTitle" class="dl-attention">
+    <h2 class="panel-title visually-hidden" id="attentionTitle">Needs you</h2>
+    @if(\App\Http\Controllers\DownloadController::attentionCount($attention) === 0)
+        <p class="ab-empty">Nothing needs you. Downloads are matched and added by themselves; anything Novarr is unsure about shows up here.</p>
+    @endif
+
+    @if($attention['unmatched']->isNotEmpty())
+        <h3 class="dl-attention-head">Audiobooks to match <span class="count-chip">{{ $attention['unmatched']->count() }}</span></h3>
+        <ul class="dl-grabs">
+            @foreach($attention['unmatched'] as $a)
+                <li class="dl-grab">
+                    <div class="dl-grab-body">
+                        <span class="dl-grab-title">{{ $a->title }}</span>
+                        <span class="dl-grab-meta">{{ $a->author ?: 'Unknown author' }}{{ $a->narrator ? ' · read by ' . $a->narrator : '' }} · added {{ $a->created_at?->diffForHumans() }}</span>
+                        <span class="dl-grab-status">{{ $a->match_note ?: 'Which book is it?' }}</span>
+                    </div>
+                    <a class="btn btn-sm btn-primary" href="{{ route('audiobooks.manage') }}#unmatchedTitle">Match it</a>
+                </li>
+            @endforeach
+        </ul>
+    @endif
+
+    @if($attention['review']->isNotEmpty())
+        <h3 class="dl-attention-head">Books to check and add <span class="count-chip">{{ $attention['review']->count() }}</span></h3>
+        <ul class="dl-grabs">
+            @foreach($attention['review'] as $r)
+                <li class="dl-grab">
+                    <div class="dl-grab-body">
+                        <span class="dl-grab-title">{{ $r->title }}</span>
+                        <span class="dl-grab-meta">{{ $r->author ?: 'Unknown author' }} · {{ $r->from_download ? 'downloaded' : 'uploaded by ' . ($r->requester?->name ?? 'a reader') }} · {{ $r->created_at?->diffForHumans() }}</span>
+                        <span class="dl-grab-status">{{ $r->from_download ? 'Downloaded — check it is the right book' : 'Waiting for your review' }}</span>
+                    </div>
+                    <a class="btn btn-sm btn-primary" href="{{ route('books.review', $r->id) }}">Review and match</a>
+                </li>
+            @endforeach
+        </ul>
+    @endif
+
+    @if($attention['choice']->isNotEmpty())
+        <h3 class="dl-attention-head">Pick a result <span class="count-chip">{{ $attention['choice']->count() }}</span></h3>
+        <ul class="dl-grabs">
+            @foreach($attention['choice'] as $w)
+                @php $url = $w->request ? route('books.review', $w->request->id) : ($w->novel ? route('novels.show', $w->novel->id) : null); @endphp
+                <li class="dl-grab">
+                    <div class="dl-grab-body">
+                        <span class="dl-grab-title">{{ $w->request?->title ?? $w->novel?->name ?? 'Wanted #' . $w->id }}</span>
+                        <span class="dl-grab-meta">{{ $w->kind === 'audiobook' ? 'Audiobook' : 'Ebook' }} · last searched {{ $w->last_searched_at?->diffForHumans() ?? 'never' }}</span>
+                        <span class="dl-grab-status">Results found, none clear enough to take by itself.</span>
+                    </div>
+                    @if($url)<a class="btn btn-sm btn-primary" href="{{ $url }}">Choose</a>@endif
+                </li>
+            @endforeach
+        </ul>
+    @endif
+
+    @if($attention['stuck']->isNotEmpty())
+        <h3 class="dl-attention-head">Finished but not imported <span class="count-chip">{{ $attention['stuck']->count() }}</span></h3>
+        <ul class="dl-grabs">
+            @foreach($attention['stuck'] as $grab)
+                <li class="dl-grab">
+                    <div class="dl-grab-body">
+                        <span class="dl-grab-title">{{ $grab->title }}</span>
+                        <span class="dl-grab-meta">{{ $grab->kind === 'audiobook' ? 'Audiobook' : 'Ebook' }} · in the inbox as “{{ $grab->completed_path }}” · {{ $grab->updated_at?->diffForHumans() }}</span>
+                    </div>
+                    <form method="POST" action="{{ route('downloads.grabs.import', $grab->id) }}" class="dl-import">
+                        @csrf
+                        <input type="number" min="1" class="form-control form-control-sm" name="{{ $grab->kind === 'audiobook' ? 'novel_id' : 'request_id' }}" value="{{ $grab->kind === 'audiobook' ? $grab->novel_id : $grab->novel_request_id }}" aria-label="{{ $grab->kind === 'audiobook' ? 'Book id' : 'Request id' }}">
+                        <button type="submit" class="btn btn-sm btn-secondary">Import</button>
+                    </form>
+                </li>
+            @endforeach
+        </ul>
+    @endif
+
+    @if($attention['failed']->isNotEmpty())
+        <h3 class="dl-attention-head">Failed this week <span class="count-chip">{{ $attention['failed']->count() }}</span></h3>
+        <ul class="dl-grabs">
+            @foreach($attention['failed'] as $grab)
+                @php [$targetLabel, $targetUrl] = $targetOf($grab); @endphp
+                <li class="dl-grab">
+                    <div class="dl-grab-body">
+                        <span class="dl-grab-title">{{ $grab->title }}</span>
+                        <span class="dl-grab-meta"><span class="dl-badge dl-badge-{{ $grab->protocol }}">{{ $grab->protocol === 'torrent' ? 'Torrent' : 'Usenet' }}</span> {{ $grab->indexer }} · {{ $grab->updated_at?->diffForHumans() }}@if($targetLabel) · <a href="{{ $targetUrl }}">{{ $targetLabel }}</a>@endif</span>
+                        <span class="dl-grab-status dl-status-failed">{{ $grab->error }}</span>
+                    </div>
+                    @if($targetUrl)<a class="btn btn-sm btn-secondary" href="{{ $targetUrl }}">Search again</a>@endif
+                </li>
+            @endforeach
+        </ul>
+    @endif
+</section>
+@endif
+
+@if($tab === 'seeding')
+<section aria-labelledby="seedingTitle">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+        <h2 class="panel-title mb-0" id="seedingTitle">Seeding</h2>
+        <form method="POST" action="{{ route('downloads.seed_forever') }}">
+            @csrf
+            <button type="submit" class="btn btn-sm btn-secondary">Seed all without limit</button>
+        </form>
+    </div>
+    <p class="form-text">Torrents Novarr grabbed, as Transmission reports them now. They seed with no ratio or idle limit (your other torrents keep Transmission's own limits). Imported files are copies, so the torrent's files stay in place.</p>
+    @if($seeding['error'])<div class="alert alert-warning" role="status">Transmission did not answer: {{ $seeding['error'] }}</div>@endif
+    @if($seeding['rows'] === [])
+        <p class="ab-empty">No torrents yet.</p>
+    @else
+        <div class="table-responsive">
+            <table class="table align-middle table-responsive-cards mb-0" id="seedingTable">
+                <thead><tr><th>Torrent</th><th>State</th><th class="stg-num">Ratio</th><th class="stg-num">Uploaded</th><th class="stg-num">Seeding for</th><th class="stg-num">Peers</th><th>Limit</th></tr></thead>
+                <tbody>
+                    @foreach($seeding['rows'] as $row)
+                        @php
+                            $t = $row['torrent']; $g = $row['grab'];
+                            $states = [0 => 'Stopped', 1 => 'Checking', 2 => 'Checking', 3 => 'Waiting', 4 => 'Downloading', 5 => 'Waiting to seed', 6 => 'Seeding'];
+                            $secs = (int) ($t['secondsSeeding'] ?? 0);
+                        @endphp
+                        <tr>
+                            <td class="cell-primary"><strong>{{ $t['name'] ?? $g->title }}</strong>
+                                <span class="stg-meta">{{ $g->indexer }} · {{ $g->kind === 'audiobook' ? 'Audiobook' : 'Ebook' }} · Novarr: {{ $g->status }}</span></td>
+                            <td data-label="State">{{ $t ? (($t['error'] ?? 0) ? 'Error: ' . ($t['errorString'] ?? '') : ($states[(int) ($t['status'] ?? 0)] ?? '?')) : 'Not in Transmission' }}</td>
+                            <td class="stg-num mono-figure" data-label="Ratio">{{ $t ? number_format(max(0, (float) ($t['uploadRatio'] ?? 0)), 2) : '—' }}</td>
+                            <td class="stg-num" data-label="Uploaded">{{ $t ? $h((int) ($t['uploadedEver'] ?? 0)) : '—' }}</td>
+                            <td class="stg-num" data-label="Seeding for">{{ $t ? ($secs >= 86400 ? floor($secs / 86400) . ' d ' : '') . floor(($secs % 86400) / 3600) . ' h' : '—' }}</td>
+                            <td class="stg-num" data-label="Peers">{{ $t ? (int) ($t['peersGettingFromUs'] ?? 0) : '—' }}</td>
+                            <td data-label="Limit">{{ $t ? ((int) ($t['seedRatioMode'] ?? 0) === 2 ? 'None' : 'Transmission default') : '—' }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    @endif
+</section>
+@endif
 
 @if($tab === 'queue')
 <section aria-labelledby="queueTitle" data-grab-watch>

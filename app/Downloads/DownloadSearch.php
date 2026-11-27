@@ -93,7 +93,7 @@ class DownloadSearch
             ];
         }
         if ($novel !== null) {
-            return ['title' => (string) $novel->name, 'author' => $novel->author, 'language' => null];
+            return ['title' => (string) $novel->name, 'author' => $novel->author, 'language' => null, 'series_index' => $novel->series_index];
         }
 
         return ['title' => null, 'author' => null, 'language' => null];

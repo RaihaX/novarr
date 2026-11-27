@@ -174,6 +174,7 @@ Route::post('/books/review/{id}/decline', [\App\Http\Controllers\BookReviewContr
 // saves through /api/v1/audiobooks…); the owner's inbox / matching page.
 Route::get('/audiobooks', [\App\Http\Controllers\AudiobookController::class, 'index'])->name('audiobooks.index');
 Route::get('/audiobooks/manage', [\App\Http\Controllers\AudiobookController::class, 'manage'])->name('audiobooks.manage');
+Route::post('/downloads/seed-forever', [\App\Http\Controllers\DownloadController::class, 'seedForever'])->name('downloads.seed_forever');
 Route::post('/audiobooks/manage/scan', [\App\Http\Controllers\AudiobookController::class, 'scan'])->name('audiobooks.manage.scan');
 Route::post('/audiobooks/manage/retry', [\App\Http\Controllers\AudiobookController::class, 'retry'])->name('audiobooks.manage.retry');
 Route::post('/audiobooks/manage/{id}/match', [\App\Http\Controllers\AudiobookController::class, 'match'])->whereNumber('id')->name('audiobooks.manage.match');

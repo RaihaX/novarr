@@ -208,6 +208,8 @@ return [
         'username' => (string) env('NOVARR_TRANSMISSION_USERNAME', ''),
         'password' => (string) env('NOVARR_TRANSMISSION_PASSWORD', ''),
         'dir_books' => (string) env('NOVARR_TRANSMISSION_DIR_BOOKS', '/downloads/Novarr-Books') ?: '/downloads/Novarr-Books',
+        // Novarr's torrents seed with no ratio / idle limit (Transmission's global limits stay for the rest).
+        'seed_forever' => (bool) env('NOVARR_TRANSMISSION_SEED_FOREVER', true),
         'dir_audiobooks' => (string) env('NOVARR_TRANSMISSION_DIR_AUDIOBOOKS', '/downloads/Audiobooks') ?: '/downloads/Audiobooks',
         'timeout' => (int) env('NOVARR_TRANSMISSION_TIMEOUT', 20),
     ],

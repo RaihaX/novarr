@@ -129,3 +129,12 @@
     gap: $s-2;
     margin: $s-3 0;
 }
+
+// The "Needs you" tab: one heading per kind of thing waiting.
+.dl-attention-head {
+    font-size: $fs-body;
+    font-weight: 600;
+    margin: $s-6 0 $s-2;
+
+    &:first-of-type { margin-top: 0; }
+}

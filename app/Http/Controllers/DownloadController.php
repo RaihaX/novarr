@@ -51,17 +51,21 @@ use Illuminate\Support\Facades\Gate;
  */
 class DownloadController extends Controller
 {
-    public const TABS = ['queue', 'history', 'wanted', 'blocklist', 'settings'];
+    public const TABS = ['attention', 'queue', 'seeding', 'history', 'wanted', 'blocklist', 'settings'];
 
     public function index(Request $request, WantedList $list)
     {
-        $tab = in_array($request->query('tab'), self::TABS, true) ? $request->query('tab') : 'queue';
+        $tab = in_array($request->query('tab'), self::TABS, true) ? $request->query('tab') : 'attention';
         if (Downloads::enabled()) {
             $list->sync();
         }
+        $attention = self::attention();
+        $seeding = $tab === 'seeding' ? self::seeding() : null;
 
         return view('downloads.index', [
             'tab' => $tab,
+            'attention' => $attention,
+            'seeding' => $seeding,
             'enabled' => Downloads::enabled(),
             'clients' => ['nzbget' => Downloads::nzbgetConfigured(), 'transmission' => Downloads::transmissionConfigured()],
             'queue' => DownloadGrab::with(['request', 'novel'])
@@ -327,5 +331,72 @@ class DownloadController extends Controller
         $novel = !empty($data['novel_id']) ? Novel::find((int) $data['novel_id']) : null;
 
         return [$bookRequest, $novel];
+    }
+
+    /**
+     * What needs the owner (the "Needs you" tab, Sonarr's warnings and
+     * manual import): audiobooks a download could not be matched to a book,
+     * downloaded or uploaded books waiting for review, searches that found
+     * results but none clear enough to take by itself, failed downloads of
+     * the last week, and finished downloads not imported after 30 minutes.
+     *
+     * @return array<string, \Illuminate\Support\Collection>
+     */
+    public static function attention(): array
+    {
+        $grabbedRequests = DownloadGrab::whereNotNull('novel_request_id')->pluck('novel_request_id')->unique()->all();
+
+        return [
+            'unmatched' => \App\Audiobook::where('status', \App\Audiobook::STATUS_UNMATCHED)->orderByDesc('id')->limit(50)->get(),
+            'review' => \App\NovelRequest::where('medium', \App\Novel::MEDIUM_BOOK)
+                ->where('status', \App\NovelRequest::STATUS_PENDING)
+                ->whereNotNull('upload_path')
+                ->orderBy('id')->limit(50)->get()
+                ->each(fn($r) => $r->setAttribute('from_download', in_array((int) $r->id, array_map('intval', $grabbedRequests), true))),
+            'choice' => DownloadWanted::with(['request', 'novel'])->where('monitored', true)->where('needs_choice', true)->orderBy('id')->get(),
+            'failed' => DownloadGrab::with(['request', 'novel'])->where('status', DownloadGrab::STATUS_FAILED)
+                ->where('updated_at', '>=', now()->subDays(7))->orderByDesc('updated_at')->limit(30)->get(),
+            'stuck' => DownloadGrab::with(['request', 'novel'])->where('status', DownloadGrab::STATUS_COMPLETED)
+                ->where('updated_at', '<', now()->subMinutes(30))->orderBy('id')->get(),
+        ];
+    }
+
+    public static function attentionCount(array $attention): int
+    {
+        return array_sum(array_map(fn($c) => $c->count(), $attention));
+    }
+
+    /**
+     * Novarr's torrents as Transmission sees them now (the Seeding tab):
+     * ratio, uploaded, seeding time, peers, and whether they seed without
+     * limit. Null entries for torrents Transmission no longer has.
+     *
+     * @return array{rows: list<array>, error: ?string}
+     */
+    public static function seeding(): array
+    {
+        $grabs = DownloadGrab::with(['request', 'novel'])->where('protocol', DownloadGrab::TORRENT)
+            ->whereNotNull('client_ref')->orderByDesc('id')->limit(200)->get();
+        $live = [];
+        $error = null;
+        if ($grabs->isNotEmpty() && Downloads::transmissionConfigured()) {
+            try {
+                $live = app(\App\Downloads\Transmission::class)->torrents($grabs->pluck('client_ref')->all());
+            } catch (\Throwable $e) {
+                $error = $e->getMessage();
+            }
+        }
+        $rows = $grabs->map(fn(DownloadGrab $g) => ['grab' => $g, 'torrent' => $live[strtolower((string) $g->client_ref)] ?? null])->all();
+
+        return ['rows' => $rows, 'error' => $error];
+    }
+
+    /** Make Novarr's torrents seed without limit (the Seeding tab's button). */
+    public function seedForever(\App\Downloads\Transmission $transmission)
+    {
+        $hashes = DownloadGrab::where('protocol', DownloadGrab::TORRENT)->whereNotNull('client_ref')->pluck('client_ref')->all();
+        $transmission->seedForever($hashes);
+
+        return redirect()->route('downloads.index', ['tab' => 'seeding'])->with('success', 'Novarr’s torrents now seed without a ratio or idle limit.');
     }
 }

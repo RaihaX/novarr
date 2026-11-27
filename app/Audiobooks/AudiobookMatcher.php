@@ -65,6 +65,22 @@ class AudiobookMatcher
      */
     public function expected(Audiobook $audiobook, int $novelId, array $hints = []): Audiobook
     {
+        // The files can overrule the grab: a download whose own title names
+        // ANOTHER book of the library ("A Court of Splintered Harmony",
+        // grabbed for "A Court of Thorns and Roses") is linked to that book.
+        // Tags that name no library book ("TFE Unabr") do not overrule it.
+        $expectedBook = \App\Novel::find($novelId);
+        $fileTitle = $hints['title'] ?? $audiobook->title;
+        if ($expectedBook !== null && !static::sameTitle($fileTitle, (string) $expectedBook->name)) {
+            [$other] = $this->find($audiobook, $hints);
+            if ($other !== null && (int) $other->id !== (int) $expectedBook->id) {
+                \Illuminate\Support\Facades\Log::info("Audiobooks: #{$audiobook->id} was grabbed for “{$expectedBook->name}”, but its files are “{$fileTitle}”, which the library has: linked to that book.");
+                $audiobook->forceFill(['novel_id' => (int) $other->id, 'status' => Audiobook::STATUS_READY, 'match_note' => null])->save();
+
+                return $audiobook->refresh();
+            }
+        }
+
         $refused = $this->match($audiobook, $novelId);
         if ($refused === null) {
             return $audiobook->refresh();
@@ -226,5 +242,22 @@ class AudiobookMatcher
             ->sortBy(fn(Novel $n) => (Str::startsWith(mb_strtolower($n->name), mb_strtolower($q)) ? '0' : '1') . mb_strtolower($n->name))
             ->take($limit)
             ->values();
+    }
+
+    /**
+     * Do two titles name the same book? Normalised (DuplicateSeries), the
+     * cleaned file title and the book's name equal, or one contains the
+     * other ("Project Hail Mary: A Novel" / "Project Hail Mary"). An empty
+     * title from the files cannot disagree.
+     */
+    public static function sameTitle(?string $fromFiles, string $bookName): bool
+    {
+        $files = \App\Services\DuplicateSeries::normalize(static::cleanTitle((string) $fromFiles));
+        $book = \App\Services\DuplicateSeries::normalize(static::cleanTitle($bookName));
+        if ($files === '' || $book === '') {
+            return true;
+        }
+
+        return $files === $book || str_contains($files, $book) || str_contains($book, $files);
     }
 }

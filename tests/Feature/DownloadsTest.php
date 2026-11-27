@@ -146,6 +146,9 @@ class DownloadsTest extends TestCase
 
                     return Http::response(['result' => 'success', 'arguments' => ['torrent-added' => ['id' => 1, 'hashString' => $hash, 'name' => $this->torrents[$hash]['name']]]]);
                 }
+                if ($body['method'] === 'torrent-set') {
+                    return Http::response(['result' => 'success', 'arguments' => []]);
+                }
                 if ($body['method'] === 'torrent-get') {
                     return Http::response(['result' => 'success', 'arguments' => ['torrents' => array_values(array_intersect_key($this->torrents, array_flip($body['arguments']['ids'])))]]);
                 }
@@ -324,7 +327,10 @@ class DownloadsTest extends TestCase
         $grab = app(Grabber::class)->grab($result, 'ebook');
 
         $calls = collect(Http::recorded())->map(fn($pair) => $pair[0])->filter(fn($r) => str_contains($r->url(), 'transmission'))->values();
-        $this->assertCount(2, $calls, 'the 409 is answered once with the session id');
+        // The 409 is answered once with the session id; then the new torrent is set to seed without limit.
+        $this->assertCount(3, $calls);
+        $this->assertSame('torrent-set', $calls[2]['method']);
+        $this->assertSame(['ids' => ['abc0'], 'seedRatioMode' => 2, 'seedIdleMode' => 2], json_decode($calls[2]->body(), true)['arguments']);
         $this->assertSame([], $calls[0]->header('X-Transmission-Session-Id'));
         $this->assertSame('sess-1', $calls[1]->header('X-Transmission-Session-Id')[0]);
         $this->assertSame('torrent-add', $calls[1]['method']);
@@ -540,6 +546,46 @@ class DownloadsTest extends TestCase
         $this->assertSame('seeding', app(AudiobookInbox::class)->status()['pending'][0]['state']);
     }
 
+    public function test_a_grab_whose_files_are_another_library_book_is_linked_to_that_book(): void
+    {
+        $wanted = $this->book('A Court of Thorns and Roses', 'Sarah J. Maas');
+        $actual = $this->book('A Court of Splintered Harmony', 'Sarah J. Maas');
+        $file = AudiobookLibrary::inbox() . '/06 - A Court of Splintered Harmony.m4b';
+        file_put_contents($file, FakeAudioProbe::audioFile(600000, ['title' => 'A Court of Splintered Harmony', 'album' => 'A Court of Splintered Harmony', 'artist' => 'Sarah J. Maas']));
+        $this->grab(['kind' => 'audiobook', 'protocol' => 'torrent', 'client' => 'transmission', 'client_ref' => 'abc0', 'novel_id' => $wanted->id,
+            'completed_path' => '06 - A Court of Splintered Harmony.m4b', 'status' => 'completed', 'completed_at' => now()]);
+
+        $this->assertSame(1, app(AudiobookInbox::class)->scan()['imported']);
+        $this->assertSame($actual->id, Audiobook::sole()->novel_id);
+    }
+
+    public function test_a_release_naming_another_book_of_the_series_is_never_taken_by_itself(): void
+    {
+        $wanted = ['kind' => 'audiobook', 'title' => 'A Court of Thorns and Roses', 'author' => 'Sarah J. Maas', 'series_index' => 1.0];
+        $other = \App\Downloads\ReleaseRanking::score(['title' => 'Sarah J Maas (Narrated by Elizabeth Evans) - A Court of Splintered Harmony - A Court of Thorns and Roses Book 6 [m4b]', 'size' => 700 * 1048576, 'protocol' => 'torrent', 'seeders' => 18], $wanted);
+        $right = \App\Downloads\ReleaseRanking::score(['title' => 'Sarah J. Maas - A Court of Thorns and Roses (Book 1) [m4b]', 'size' => 700 * 1048576, 'protocol' => 'torrent', 'seeders' => 18], $wanted);
+
+        $this->assertContains('says book 6 (this is book 1)', $other['warnings']);
+        $this->assertSame([], $right['warnings']);
+        $this->assertGreaterThan($other['score'], $right['score']);
+        $this->assertSame([6.0], \App\Downloads\ReleaseRanking::bookNumbers('ACOTAR Book Six'));
+        $this->assertSame([], \App\Downloads\ReleaseRanking::bookNumbers('Dune 1965 Retail 1080p'));
+    }
+
+    public function test_needs_you_and_seeding_tabs(): void
+    {
+        $book = $this->book('The Final Empire');
+        \App\Audiobook::create(['title' => 'Mystery Tape', 'status' => \App\Audiobook::STATUS_UNMATCHED, 'match_note' => 'no book in the library has this title and author', 'dir' => 'x', 'fingerprint' => 'fp1', 'duration_ms' => 1, 'size_bytes' => 1, 'added_at' => now()]);
+        $this->grab(['kind' => 'ebook', 'protocol' => 'usenet', 'client' => 'nzbget', 'client_ref' => '9', 'status' => 'failed', 'error' => 'Wrong book']);
+        $this->grab(['kind' => 'audiobook', 'protocol' => 'torrent', 'client' => 'transmission', 'client_ref' => 'abc0', 'novel_id' => $book->id, 'status' => 'imported']);
+        $this->torrents['abc0'] = ['hashString' => 'abc0', 'name' => 'Mistborn', 'percentDone' => 1, 'leftUntilDone' => 0, 'status' => 6, 'error' => 0, 'errorString' => '', 'uploadRatio' => 1.25, 'uploadedEver' => 1048576, 'secondsSeeding' => 90000, 'peersGettingFromUs' => 2, 'seedRatioMode' => 2];
+
+        $this->asSignedIn($this->owner())->get(route('downloads.index'))->assertOk()
+            ->assertSee('Needs you')->assertSee('Audiobooks to match')->assertSee('Mystery Tape')->assertSee('Failed this week')->assertSee('Wrong book');
+        $this->asSignedIn($this->owner())->get(route('downloads.index', ['tab' => 'seeding']))->assertOk()
+            ->assertSee('Mistborn')->assertSee('1.25')->assertSee('Seeding')->assertSee('None');
+    }
+
     public function test_a_usenet_audiobook_is_moved_as_usual_and_a_failed_import_is_recorded(): void
     {
         $book = $this->book('The Final Empire');
@@ -740,7 +786,8 @@ class DownloadsTest extends TestCase
         DownloadEvent::log(DownloadEvent::GRABBED, 'Some release', 'epub · 1.1 MB');
         DownloadBlock::create(['kind' => 'ebook', 'title' => 'Bad release', 'indexer' => 'NZBgeek', 'reason' => 'FAILURE/PAR']);
 
-        $this->get(route('downloads.index'))->assertOk()->assertSee('Downloading 43%')->assertSee('Mark failed &amp; search again', false)->assertSee('Wanted: The Quiet Orchard');
+        $this->get(route('downloads.index'))->assertOk()->assertSee('Needs you');
+        $this->get(route('downloads.index', ['tab' => 'queue']))->assertOk()->assertSee('Downloading 43%')->assertSee('Mark failed &amp; search again', false)->assertSee('Wanted: The Quiet Orchard');
         $this->get(route('downloads.index', ['tab' => 'history']))->assertOk()->assertSee('Some release');
         $this->get(route('downloads.index', ['tab' => 'wanted']))->assertOk()->assertSee('The Quiet Orchard')->assertSee('Search now')->assertSee('Unmonitor')->assertSee('Interactive search');
         $this->get(route('downloads.index', ['tab' => 'blocklist']))->assertOk()->assertSee('Bad release');

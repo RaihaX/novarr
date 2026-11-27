@@ -29,7 +29,9 @@ class Transmission
 {
     private const SESSION_KEY = 'downloads.transmission.session';
 
-    public const FIELDS = ['hashString', 'name', 'percentDone', 'leftUntilDone', 'status', 'error', 'errorString', 'downloadDir', 'sizeWhenDone', 'isFinished', 'eta'];
+    public const FIELDS = ['hashString', 'name', 'percentDone', 'leftUntilDone', 'status', 'error', 'errorString', 'downloadDir', 'sizeWhenDone', 'isFinished', 'eta',
+        // Seeding (the Downloads page's Seeding list: private trackers' ratio / credits).
+        'uploadRatio', 'uploadedEver', 'secondsSeeding', 'peersGettingFromUs', 'rateUpload', 'seedRatioMode', 'activityDate'];
 
     /** Local errors (error 3): the download itself cannot go on (disk full, no permission). */
     public const ERROR_LOCAL = 3;
@@ -61,7 +63,29 @@ class Transmission
             throw new DownloadFailed('Transmission did not say which torrent it added.');
         }
 
-        return ['hash' => strtolower((string) $torrent['hashString']), 'name' => (string) ($torrent['name'] ?? '')];
+        $hash = strtolower((string) $torrent['hashString']);
+        $this->seedForever([$hash]);
+
+        return ['hash' => $hash, 'name' => (string) ($torrent['name'] ?? '')];
+    }
+
+    /**
+     * Novarr's torrents keep seeding whatever Transmission's global limits
+     * (its ratio limit stops other torrents at 2.0): seedRatioMode and
+     * seedIdleMode 2 = unlimited, for these torrents only. Private trackers
+     * (TorrentDay) reward seeding. Config novarr.transmission.seed_forever.
+     * A failure here never fails the grab (logged).
+     */
+    public function seedForever(array $hashes): void
+    {
+        if ($hashes === [] || !config('novarr.transmission.seed_forever', true)) {
+            return;
+        }
+        try {
+            $this->call('torrent-set', ['ids' => array_values($hashes), 'seedRatioMode' => 2, 'seedIdleMode' => 2]);
+        } catch (\Throwable $e) {
+            Log::warning('Transmission: could not set unlimited seeding: ' . $e->getMessage());
+        }
     }
 
     /**
