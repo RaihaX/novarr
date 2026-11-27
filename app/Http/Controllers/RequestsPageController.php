@@ -36,6 +36,10 @@ class RequestsPageController extends Controller
             // The admin account on the public address: deciding is refused
             // there (Gate 'admin'), so the page explains instead.
             'ownerAway' => $user !== null && $user->isAdmin() && !Gate::allows('admin'),
+            // The reader's own audiobook uploads (App\Audiobooks\AudiobookUploads), newest first.
+            'audiobookUploads' => $user !== null && \App\Audiobooks\AudiobookUploads::enabled()
+                ? \App\AudiobookUpload::with('audiobook')->where('user_id', $user->id)->orderByDesc('id')->limit(30)->get()
+                : collect(),
         ]);
     }
 

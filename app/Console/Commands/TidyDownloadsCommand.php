@@ -20,13 +20,13 @@ class TidyDownloadsCommand extends Command
     public function handle(InboxTidy $tidy): int
     {
         $result = $tidy->run((bool) $this->option('dry-run'));
+        foreach ($result['deleted'] as $line) {
+            $this->line(($this->option('dry-run') ? 'would delete ' : 'deleted ') . $line);
+        }
         if ($result['problem'] !== null) {
             $this->warn($result['problem']);
 
             return self::SUCCESS;
-        }
-        foreach ($result['deleted'] as $line) {
-            $this->line(($this->option('dry-run') ? 'would delete ' : 'deleted ') . $line);
         }
         $this->info(($this->option('dry-run') ? '[dry run] ' : '') . count($result['deleted']) . ' deleted, ' . count($result['kept']) . ' kept.');
 

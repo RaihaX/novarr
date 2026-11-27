@@ -38,6 +38,12 @@ final class MailPreviews
             'request-declined' => $p('Requests', 'Declined (to the reader)', fn() => new RequestDeclined(
                 'Sam', 'Unwanted Saga', 'manga', self::cover('Unwanted Saga', 330), 'Not licensed in English yet.', "{$base}/requests",
             )),
+            'audiobook-upload-available' => $p('Requests', 'Uploaded audiobook added (to the reader)', fn() => new AudiobookUploadAvailable(
+                'Sam', 'The Final Empire', self::cover('The Final Empire', 20), "{$base}/audiobooks/7",
+            )),
+            'audiobook-upload-declined' => $p('Requests', 'Uploaded audiobook declined (to the reader)', fn() => new AudiobookUploadDeclined(
+                'Sam', 'The Final Empire', null, 'The sound is too poor (a phone recording).', "{$base}/requests",
+            )),
             'book-inbox-one' => $p('Books inbox', 'One book received (reader)', fn() => new BookInboxReply(
                 ['The Quiet Orchard'], [], false, self::cover('The Quiet Orchard', 140), "{$base}/requests",
             )),
@@ -108,6 +114,19 @@ final class MailPreviews
                     'meta' => 'Audiobook · Brandon Sanderson', 'chip' => 'Wanted', 'button' => 'Open Downloads',
                 ],
             )),
+            'alert-audiobook-upload' => $p('Owner alerts', 'Audiobook uploaded by a reader', function () {
+                $upload = new \App\AudiobookUpload([
+                    'status' => \App\AudiobookUpload::STATUS_PENDING, 'total_bytes' => 734003200, 'note' => 'The Graphic Audio edition, all 3 parts.',
+                    'files' => [['name' => 'The Final Empire.m4b', 'size' => 734003200, 'audio' => true]],
+                    'probe' => ['title' => 'The Final Empire', 'author' => 'Brandon Sanderson', 'duration_ms' => 89580000, 'parts' => 1],
+                ]);
+                $upload->id = 12;
+                $upload->setRelation('user', new \App\User(['name' => 'Sam']));
+                [$subject, $message, $url, $details] = \App\Audiobooks\AudiobookUploads::ownerAlert($upload);
+                $details['cover'] = self::cover('The Final Empire', 20);
+
+                return new AdminAlertMail($subject, $message, $url, $details);
+            }),
             'alert-source' => $p('Owner alerts', 'Health: a source is failing', function () {
                 $row = [
                     'key' => 'novelfull.test', 'name' => 'NovelFull',

@@ -184,6 +184,13 @@ Route::post('/audiobooks/manage/retry', [\App\Http\Controllers\AudiobookControll
 Route::post('/audiobooks/manage/{id}/match', [\App\Http\Controllers\AudiobookController::class, 'match'])->whereNumber('id')->name('audiobooks.manage.match');
 Route::post('/audiobooks/manage/{id}/lookup', [\App\Http\Controllers\AudiobookController::class, 'lookup'])->whereNumber('id')->name('audiobooks.manage.lookup');
 Route::get('/audiobooks/{id}', [\App\Http\Controllers\AudiobookController::class, 'show'])->whereNumber('id')->name('audiobooks.show');
+// Readers upload an audiobook (chunked through /api/v1/audiobook-uploads); the owner reviews it.
+Route::get('/audiobooks/upload', [\App\Http\Controllers\AudiobookUploadController::class, 'create'])->name('audiobooks.upload');
+Route::get('/audiobooks/uploads/{id}', [\App\Http\Controllers\AudiobookUploadController::class, 'review'])->whereNumber('id')->name('audiobooks.uploads.review');
+Route::post('/audiobooks/uploads/{id}/approve', [\App\Http\Controllers\AudiobookUploadController::class, 'approve'])->whereNumber('id')->name('audiobooks.uploads.approve');
+Route::post('/audiobooks/uploads/{id}/use-existing', [\App\Http\Controllers\AudiobookUploadController::class, 'useExisting'])->whereNumber('id')->name('audiobooks.uploads.use_existing');
+Route::post('/audiobooks/uploads/{id}/decline', [\App\Http\Controllers\AudiobookUploadController::class, 'decline'])->whereNumber('id')->name('audiobooks.uploads.decline');
+Route::get('/audiobooks/uploads/{id}/sample/{index}', [\App\Http\Controllers\AudiobookUploadController::class, 'sample'])->whereNumber(['id', 'index'])->name('audiobooks.uploads.sample');
 
 // Searching Usenet & torrents and downloading (App\Downloads; owner only,
 // except a reader's "Ask for the audiobook"): App\Http\Controllers\DownloadController.

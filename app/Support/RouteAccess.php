@@ -197,6 +197,14 @@ final class RouteAccess
         'api.v1.audiobooks.bookmarks.destroy',
         // Asking for a book's audiobook (App\Downloads\WantedList; the owner is told)
         'novels.audiobook_ask',
+        // Uploading an audiobook for the owner to approve (App\Audiobooks\AudiobookUploads):
+        // own uploads only, per AudiobookUploadController (anyone else's is 404)
+        'audiobooks.upload',
+        'api.v1.audiobook_uploads.store',
+        'api.v1.audiobook_uploads.show',
+        'api.v1.audiobook_uploads.chunk',
+        'api.v1.audiobook_uploads.complete',
+        'api.v1.audiobook_uploads.destroy',
     ];
 
     /**
@@ -232,6 +240,9 @@ final class RouteAccess
         // Audiobooks: the inbox, matching, "Scan now"
         'audiobooks.manage', 'audiobooks.manage.scan', 'audiobooks.manage.retry', 'audiobooks.manage.match', 'audiobooks.manage.lookup',
         'api.v1.audiobooks.inbox', 'api.v1.audiobooks.match', 'api.v1.audiobooks.scan',
+        // Reviewing readers' audiobook uploads (the sample streams the pending file)
+        'audiobooks.uploads.review', 'audiobooks.uploads.approve', 'audiobooks.uploads.use_existing',
+        'audiobooks.uploads.decline', 'audiobooks.uploads.sample',
         // Searching Usenet & torrents, grabbing, the Downloads page (App\Downloads)
         'downloads.index', 'downloads.search', 'downloads.grab', 'downloads.poll', 'downloads.settings',
         'downloads.grabs.show', 'downloads.grabs.fail', 'downloads.grabs.import',

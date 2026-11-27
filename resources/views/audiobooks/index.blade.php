@@ -20,6 +20,9 @@
     </div>
     <div class="page-head-actions">
         <a href="{{ route('novels.index', ['medium' => 'book']) }}" class="btn btn-secondary">Books</a>
+        @if(\App\Audiobooks\AudiobookUploads::enabled())
+            <a href="{{ route('audiobooks.upload') }}" class="btn btn-secondary" id="uploadAudiobookLink">Upload an audiobook</a>
+        @endif
         @can('admin')
             <a href="{{ route('audiobooks.manage') }}" class="btn btn-secondary" id="manageAudiobooksLink">Manage audiobooks</a>
         @endcan

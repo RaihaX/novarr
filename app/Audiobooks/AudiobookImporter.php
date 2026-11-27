@@ -50,12 +50,15 @@ class AudiobookImporter
     }
 
     /**
-     * @param  array{copy?: bool, novel_id?: ?int}  $options  for a grabbed download (App\Downloads\AudiobookGrabs::options()):
+     * @param  array{copy?: bool, novel_id?: ?int, match?: bool}  $options  for a grabbed download (App\Downloads\AudiobookGrabs::options()):
      *         copy      copy the files into the library instead of moving them
      *                   (a torrent keeps seeding from the inbox; nothing there
      *                   is touched);
      *         novel_id  the book it was grabbed for: linked to it
-     *                   (AudiobookMatcher::expected()) instead of guessed.
+     *                   (AudiobookMatcher::expected()) instead of guessed;
+     *         match     false: no matching at all (step 6 skipped, it stays
+     *                   unmatched): the caller links it (an owner-approved
+     *                   upload, App\Audiobooks\AudiobookUploads::approve()).
      */
     public function import(array $entry, array $options = []): Audiobook
     {
@@ -208,6 +211,9 @@ class AudiobookImporter
         }
 
         // 6. Its book: the one it was grabbed for, else the confident match.
+        if (($options['match'] ?? true) === false) {
+            return $audiobook->fresh();
+        }
         if (!empty($options['novel_id'])) {
             return $this->matcher->expected($audiobook->fresh(), (int) $options['novel_id'], $hints);
         }

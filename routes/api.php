@@ -147,6 +147,14 @@ Route::prefix('v1')
         Route::delete('/audiobooks/{id}/bookmarks/{bookmarkId}', [ApiV1\AudiobookController::class, 'destroyBookmark'])->whereNumber(['id', 'bookmarkId'])->name('audiobooks.bookmarks.destroy');
         Route::post('/audiobooks/{id}/match', [ApiV1\AudiobookController::class, 'match'])->whereNumber('id')->name('audiobooks.match');
 
+        // Readers upload audiobooks, chunked and resumable (App\Audiobooks\AudiobookUploads):
+        // create (limits checked) → PUT each chunk (idempotent) → complete → the owner decides.
+        Route::post('/audiobook-uploads', [ApiV1\AudiobookUploadController::class, 'store'])->middleware('throttle:novarr-audiobook-upload')->name('audiobook_uploads.store');
+        Route::get('/audiobook-uploads/{id}', [ApiV1\AudiobookUploadController::class, 'show'])->whereNumber('id')->name('audiobook_uploads.show');
+        Route::put('/audiobook-uploads/{id}/files/{index}/chunks/{n}', [ApiV1\AudiobookUploadController::class, 'chunk'])->whereNumber(['id', 'index', 'n'])->name('audiobook_uploads.chunk');
+        Route::post('/audiobook-uploads/{id}/complete', [ApiV1\AudiobookUploadController::class, 'complete'])->whereNumber('id')->name('audiobook_uploads.complete');
+        Route::delete('/audiobook-uploads/{id}', [ApiV1\AudiobookUploadController::class, 'destroy'])->whereNumber('id')->name('audiobook_uploads.destroy');
+
         // The KOReader plugin's "update over Wi-Fi".
         Route::get('/koreader/plugin', [ApiV1\KoreaderPluginController::class, 'manifest'])->name('koreader.plugin');
         Route::get('/koreader/plugin/files/{path}', [ApiV1\KoreaderPluginController::class, 'file'])->where('path', '.*')->name('koreader.plugin.file');

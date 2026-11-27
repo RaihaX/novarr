@@ -220,6 +220,31 @@ return [
         'sources' => array_values(array_filter(array_map('trim', explode(',', strtolower((string) env('NOVARR_AUDIOBOOK_SOURCES', 'audible,itunes')))))),
         // Audible's store: us, ca, uk, au, de, fr, it, es, in, jp.
         'audible_region' => (string) env('NOVARR_AUDIBLE_REGION', 'us'),
+        // Readers upload audiobooks (App\Audiobooks\AudiobookUploads): chunked
+        // and resumable, into {path}/_uploads/{upload id}/ (the big drive),
+        // then the owner approves them. Every limit is enforced by the server.
+        //   enabled                 the upload page, the API and the buttons
+        //   max_file_mb / max_total_mb / max_files   per file, per upload
+        //   max_pending_per_reader  a reader's uploads not yet decided
+        //   chunk_mb                one chunk (one PUT); fits nginx's 50 MB
+        //                           and the tunnel's 100 MB request limits
+        //   min_free_gb             free space left on the drive after it
+        //   inline_mb               uploads up to this size are checked
+        //                           (SHA-256 + ffprobe) during /complete;
+        //                           larger ones by a queued job (202)
+        //   abandoned_hours         an upload with no chunk for this long is
+        //                           deleted by the nightly downloads:tidy
+        'uploads' => [
+            'enabled' => (bool) env('NOVARR_AUDIOBOOK_UPLOADS', true),
+            'max_file_mb' => (int) env('NOVARR_AUDIOBOOK_UPLOAD_MAX_FILE_MB', 3072),
+            'max_total_mb' => (int) env('NOVARR_AUDIOBOOK_UPLOAD_MAX_TOTAL_MB', 6144),
+            'max_files' => (int) env('NOVARR_AUDIOBOOK_UPLOAD_MAX_FILES', 200),
+            'max_pending_per_reader' => (int) env('NOVARR_AUDIOBOOK_UPLOAD_MAX_PENDING', 5),
+            'chunk_mb' => (int) env('NOVARR_AUDIOBOOK_UPLOAD_CHUNK_MB', 8),
+            'min_free_gb' => (float) env('NOVARR_AUDIOBOOK_UPLOAD_MIN_FREE_GB', 5),
+            'inline_mb' => (int) env('NOVARR_AUDIOBOOK_UPLOAD_INLINE_MB', 256),
+            'abandoned_hours' => (int) env('NOVARR_AUDIOBOOK_UPLOAD_ABANDONED_HOURS', 48),
+        ],
     ],
 
     /*

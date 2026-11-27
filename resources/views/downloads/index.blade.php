@@ -65,6 +65,23 @@
         <p class="ab-empty">Nothing needs you. Downloads are matched and added by themselves; anything Novarr is unsure about shows up here.</p>
     @endif
 
+    @if($attention['uploads']->isNotEmpty())
+        <h3 class="dl-attention-head">Audiobooks to approve <span class="count-chip">{{ $attention['uploads']->count() }}</span></h3>
+        <ul class="dl-grabs" id="audiobookUploadsToApprove">
+            @foreach($attention['uploads'] as $u)
+                @php $uProbe = (array) ($u->probe ?? []); @endphp
+                <li class="dl-grab">
+                    <div class="dl-grab-body">
+                        <span class="dl-grab-title">{{ $u->displayTitle() }}</span>
+                        <span class="dl-grab-meta">{{ $uProbe['author'] ?? 'Unknown author' }}@if(!empty($uProbe['duration_ms'])) · {{ \App\Audiobooks\AudiobookLibrary::humanDuration((int) $uProbe['duration_ms']) }}@endif · {{ \App\Audiobooks\AudiobookUploads::human((int) $u->total_bytes) }} · uploaded by {{ $u->user?->name ?? 'a reader' }} · {{ $u->created_at?->diffForHumans() }}</span>
+                        <span class="dl-grab-status">{{ !empty($uProbe['duplicate_of']) ? 'Already in the library? Check it' : 'Waiting for your review' }}</span>
+                    </div>
+                    <a class="btn btn-sm btn-primary" href="{{ route('audiobooks.uploads.review', $u->id) }}">Review</a>
+                </li>
+            @endforeach
+        </ul>
+    @endif
+
     @if($attention['unmatched']->isNotEmpty())
         <h3 class="dl-attention-head">Audiobooks to match <span class="count-chip">{{ $attention['unmatched']->count() }}</span></h3>
         <ul class="dl-grabs">

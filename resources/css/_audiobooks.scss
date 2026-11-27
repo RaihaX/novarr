@@ -275,3 +275,81 @@
 
     img { width: 100%; height: 100%; object-fit: cover; display: block; }
 }
+
+// ---- Uploading an audiobook (/audiobooks/upload) and its review ------------
+
+.abu { display: grid; gap: $s-4; }
+
+.abu-drop {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    gap: $s-1;
+    padding: $s-6 $s-4;
+    border: 1px dashed $border;
+    border-radius: $radius;
+    background: $surface;
+    color: $text-muted;
+
+    &.is-over { border-color: $accent; background: $surface-alt; }
+    &.is-busy { opacity: .7; }
+}
+
+.abu-drop-title { color: $text; font-weight: 600; }
+
+.abu-pickers { display: flex; flex-wrap: wrap; gap: $s-2; justify-content: center; }
+
+.abu-summary { color: $text; font-size: 13px; }
+
+.abu-actions { display: flex; flex-wrap: wrap; gap: $s-2; }
+
+.abu-warning,
+.abu-status { margin: 0; font-size: 13px; color: $text-muted; }
+
+.abu-warning { color: $text; font-weight: 600; }
+
+.abu-resume { display: flex; flex-wrap: wrap; align-items: center; gap: $s-2; justify-content: space-between; }
+
+.abu-progress progress {
+    width: 100%;
+    height: 8px;
+    accent-color: $accent;
+}
+
+.abu-total-text { font-size: 13px; }
+
+.abu-files {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: $s-2;
+    max-height: 420px;
+    overflow-y: auto;
+}
+
+.abu-file {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px $s-3;
+    font-size: 13px;
+
+    .abu-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .abu-file-size { color: $text-muted; font-size: 12px; }
+    .abu-file-bar { grid-column: 1 / -1; height: 4px; }
+    &.is-done .abu-file-name { color: $text-muted; }
+}
+
+.abu-sample {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2;
+    margin: $s-2 0;
+
+    audio { max-width: 100%; height: 36px; }
+}
+
+.abu-decline { border-top: 1px solid $border; padding-top: $s-3; }
+
+.abu-mine { margin-bottom: $s-4; }
