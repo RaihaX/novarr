@@ -67,9 +67,13 @@ local function header(h, name)
     return h and (h[name] or h[name:lower()]) or nil
 end
 
-function Epub.download(session, novel_id, novel_name)
+--[[--
+opts.original (1.13.0): a book, whose EPUB is the file it came as: never
+rebuilt on the server (a "stale" one is fetched as it is).
+]]
+function Epub.download(session, novel_id, novel_name, opts)
     session:whenConnected(function()
-        Session.guard(Epub.run, session, novel_id, novel_name)
+        Session.guard(Epub.run, session, novel_id, novel_name, opts)
     end, function()
         UI.info(_("No network connection: the EPUB can't be downloaded now."))
     end)
@@ -84,7 +88,8 @@ local function offerOpen(session, text, path)
     })
 end
 
-function Epub.run(session, novel_id, novel_name)
+function Epub.run(session, novel_id, novel_name, opts)
+    opts = opts or {}
     local EpubFlow = require("novarr.epubflow")
     local epubs = session.store:getEpubs()
     local key = tostring(novel_id)
@@ -104,6 +109,7 @@ function Epub.run(session, novel_id, novel_name)
         unschedule = function(fn) UIManager:unschedule(fn) end,
         now = os.time,
         stored = epubs[key],
+        original = opts.original,
         on_up_to_date = function()
             closeLoading()
             offerOpen(session, T(_("The EPUB of %1 on this device is up to date."), novel_name or ""), epubs[key].path)

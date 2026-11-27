@@ -50,6 +50,7 @@ Session.DEFERRED_REPROBE_S = 5
 
 local DEFAULTS = {
     prefetch = 100,
+    manga_prefetch = 3, -- manga chapters (CBZ, a few MB each) fetched ahead while reading (1.13.0)
     wifi_auto_off = false, -- Wi-Fi stays on (1.7.0): the position reaches the server as it changes
     remove_after_reading = true,
     keep_read = 2,
@@ -264,6 +265,22 @@ function Session:noteMeta(meta, opts)
         self:set("server_books", books)
         log("Novarr: the server " .. (books and "has" or "has no") .. " books")
     end
+    -- What else it offers (1.13.0): lists, requests, feeds, stats, manga as CBZ.
+    if type(meta) == "table" then
+        local features = Api.features(meta)
+        local old = self:get("server_features")
+        local changed = type(old) ~= "table"
+        for k, v in pairs(features) do
+            if not changed and old[k] ~= v then changed = true end
+        end
+        if changed then
+            self:set("server_features", features)
+            local on = {}
+            for k, v in pairs(features) do if v then table.insert(on, k) end end
+            table.sort(on)
+            log("Novarr: the server offers: " .. (#on > 0 and table.concat(on, ", ") or "nothing new"))
+        end
+    end
 end
 
 --- The medium the library is asked for: "text" (novels and books) when the server has books, else nil.
@@ -271,10 +288,71 @@ function Session:textMedium()
     return Api.textMedium(self:get("server_books") == true)
 end
 
+--[[--
+The medium the library is asked for (1.13.0): "all" when the server sends
+manga as CBZ (manga can be read here), else textMedium.
+]]
+function Session:libraryMedium()
+    return Api.libraryMedium(self:get("server_books") == true, self:feature("manga_cbz"))
+end
+
+--[[--
+What the server offers (1.13.0, Api.features of its meta, kept per
+server): lists, want_to_read, favourites, requests, updates, stats,
+manga_cbz, audiobooks. Unknown (an older server, meta not asked yet): false.
+]]
+function Session:feature(name)
+    local f = self:get("server_features")
+    if type(f) ~= "table" then return false end
+    if name == "stats" and f.stats ~= true then
+        -- Not said by meta: found by trying GET stats (Session:probeStats).
+        return self:get("server_stats_found") == true
+    end
+    return f[name] == true
+end
+
+--[[--
+Whether a series is a manga (1.13.0): from its cached detail or the
+library, or its stored chapters (CBZ files).
+]]
+function Session:isManga(novel_id)
+    if not novel_id then return false end
+    local detail = self:cached("novel_" .. novel_id)
+    if detail and type(detail.novel) == "table" and detail.novel.medium then
+        return detail.novel.medium == "manga"
+    end
+    local summary = self:novelSummary(novel_id)
+    if summary and summary.medium then return summary.medium == "manga" end
+    for _k, entry in pairs(self.store:getIndex(novel_id).chapters) do
+        if entry.manga or ChapterDoc.isCbz(entry.file) then return true end
+    end
+    return false
+end
+
 --- Fetches the library (GET novels, with the medium this server supports) into the "novels" cache.
 function Session:fetchLibrary()
-    local medium = self:textMedium()
-    return self:fetchInto("novels", function(etag) return self.api:novels(etag, medium) end, true)
+    local medium = self:libraryMedium()
+    local data, e, started = self:fetchInto("novels", function(etag) return self.api:novels(etag, medium) end, true)
+    -- The server's summaries now carry the flags changed here.
+    if not e then self.novel_flags = {} end
+    return data, e, started
+end
+
+--[[--
+A series' flag (1.13.0: "want_to_read" | "favourite"): as changed on this
+device since the library was last fetched, else the summary's.
+]]
+function Session:novelFlag(novel_id, field, summary)
+    local f = self.novel_flags and self.novel_flags[novel_id]
+    if f and f[field] ~= nil then return f[field] end
+    summary = summary or self:novelSummary(novel_id) or {}
+    return summary[field] == true
+end
+
+function Session:setNovelFlag(novel_id, field, on)
+    self.novel_flags = self.novel_flags or {}
+    self.novel_flags[novel_id] = self.novel_flags[novel_id] or {}
+    self.novel_flags[novel_id][field] = on and true or false
 end
 
 --[[--
@@ -292,16 +370,18 @@ end
 --[[--
 Asks this server's meta (short timeouts) when sign-in is not known yet,
 while this Kindle is blocked waiting to be linked (the server may have
-switched sign-in off), or once per start while its instance id is not
-known or it has not said it has books (1.12.0). Called by user actions only (Home's refresh, Link).
+switched sign-in off), or once per KOReader start (its instance id, books,
+and since 1.13.0 what else it offers: Session:feature). Called by user
+actions only (Home's refresh, Link).
 Returns meta or nil.
 ]]
 function Session:refreshAuthState(force)
     local server = self:serverUrl()
     if not server then return nil end
-    -- Also once per KOReader start while the server's instance id is not known (Session:isSameServer),
-    -- or while it has not said it has books (it may have been updated since).
-    local instance_known = (self:get("server_instance") ~= nil and self:get("server_books") == true) or self.instance_asked
+    -- Also once per KOReader start: the server's instance id (Session:isSameServer)
+    -- and what it offers (books 1.12.0, lists, requests, manga... 1.13.0) may be
+    -- new since (the server was updated). One short GET meta.
+    local instance_known = self.instance_asked
     if not force and Auth.known(self.settings, server) and not self:needsLink() and instance_known then return nil end
     self.instance_asked = true
     local meta = self.api:meta({ block_timeout = 5, total_timeout = 8 })
@@ -549,7 +629,10 @@ function Session:errorText(e)
         self.auth_told = true
         return _("This Kindle isn't linked to your Novarr account (or the link was removed).\n\nLink it in Novarr → Settings → Link this Kindle. Your reading on this Kindle is kept and sent once it is linked.")
     elseif kind == "manga" then
-        return _("Manga can't be read on this device. Open it on the website or the Android app.")
+        if self:feature("manga_cbz") then
+            return e.message or _("This manga chapter can't be read here.")
+        end
+        return _("This Novarr server can't send manga to KOReader yet (Novarr needs updating). Open it on the website or the Android app.")
     elseif kind == "forbidden" then
         return e.message or _("Your Novarr account isn't allowed to do this.")
     elseif kind == "server" and e.message == "login page" then
@@ -1110,11 +1193,22 @@ end
 Fetches a chapter from the server and stores it. Returns path or nil plus
 a reason ("not_downloaded" or an API error table). opts.no_reprobe: the
 user is waiting for this chapter to open, so a pending re-probe of the home
-address runs afterwards, not in front of it (address.lua).
+address runs afterwards, not in front of it (address.lua). opts.novel_id:
+the chapter's series, when known (a manga goes straight to its CBZ).
 ]]
 function Session:downloadChapter(chapter_id, opts)
-    local data, e = self.api:chapter(chapter_id, { no_reprobe = opts and opts.no_reprobe or nil })
-    if not data then return nil, e end
+    opts = opts or {}
+    -- A manga chapter (1.13.0): its pages as a CBZ, when the server can send one.
+    if opts.novel_id and self:isManga(opts.novel_id) and self:feature("manga_cbz") then
+        return require("novarr.manga").download(self, chapter_id, opts)
+    end
+    local data, e = self.api:chapter(chapter_id, { no_reprobe = opts.no_reprobe })
+    if not data then
+        if e and e.kind == "manga" and self:feature("manga_cbz") then
+            return require("novarr.manga").download(self, chapter_id, opts)
+        end
+        return nil, e
+    end
     local ch = data.chapter
     if type(ch) ~= "table" or not ch.id or not ch.novel_id then
         return nil, Api.err("server", nil, "bad chapter")
@@ -1158,6 +1252,13 @@ local function isStyleKey(k)
     return type(k) == "string" and (STYLE_KEYS[k] or k:sub(1, 5) == "copt_")
 end
 
+-- Manga chapters (1.13.0: CBZ, a paging document) have their own look:
+-- zoom, contrast, page layout (KOReader's kopt_* settings), kept apart.
+local MANGA_STYLE_KEYS = { zoom_mode = true, zoom_factor = true, gamma = true, render_mode = true }
+local function isMangaStyleKey(k)
+    return type(k) == "string" and (MANGA_STYLE_KEYS[k] or k:sub(1, 5) == "kopt_")
+end
+
 --- Remembers the look of the Novarr chapter open in the reader, if any.
 function Session:captureStyle()
     if self:get("keep_style") == false then return end
@@ -1172,6 +1273,17 @@ function Session:captureStyle()
     if type(data) ~= "table" then return end
     -- The alt status bar Novarr switched on for "Reading info position: top"
     -- (reading.lua) is not the user's choice: not carried to other chapters.
+    if ChapterDoc.isCbz(file) then
+        local style, n = {}, 0
+        for k, v in pairs(data) do
+            if isMangaStyleKey(k) then
+                style[k] = v
+                n = n + 1
+            end
+        end
+        if n > 0 then self:set("manga_style", style) end
+        return
+    end
     local forced_top = data.novarr_top_bar == true
     local style, n = {}, 0
     for k, v in pairs(data) do
@@ -1191,7 +1303,7 @@ end
 --- Gives a chapter that KOReader has not opened yet the remembered look.
 function Session:applyStyle(path)
     if self:get("keep_style") == false then return end
-    local style = self:get("reading_style")
+    local style = self:get(ChapterDoc.isCbz(path) and "manga_style" or "reading_style")
     if type(style) ~= "table" or not next(style) then return end
     local DocSettings = require("docsettings")
     if DocSettings:hasSidecarFile(path) then return end
@@ -1283,7 +1395,7 @@ function Session:openChapter(novel_id, chapter_id, opts)
     end
     local function fetch()
         local closer = UI.loading(_("Fetching chapter…"))
-        local fetched, why, ch = self:downloadChapter(chapter_id, { no_reprobe = true })
+        local fetched, why, ch = self:downloadChapter(chapter_id, { no_reprobe = true, novel_id = novel_id })
         closer()
         if fetched then
             self.opened_from_novarr = true
@@ -1349,6 +1461,8 @@ its place in the reading order unknown, no space for the group file...).
 ]]
 function Session:openJoined(novel_id, chapter_id, opts)
     opts = opts or {}
+    -- A manga chapter is a comic archive of its own: never joined.
+    if self:isManga(novel_id) then return false end
     local cl = self:chapterList(novel_id)
     local mode, reason = Groups.openMode(self:get("join_chapters"), cl and cl.list, chapter_id)
     if mode ~= "joined" then
@@ -1673,7 +1787,7 @@ function Session:downloadMany(novel_id, ids, done)
             return
         end
         job.i = job.i + 1
-        local path, why = self:downloadChapter(ids[job.i])
+        local path, why = self:downloadChapter(ids[job.i], { novel_id = novel_id })
         if path then
             job.done = job.done + 1
         elseif why == "not_downloaded" or why == "empty" then
@@ -1737,6 +1851,11 @@ function Session:setServer(url, opts)
         self:unset("position_declined")
         self:unset("server_instance")
         self:unset("server_books")
+        -- 1.13.0: what it offers and the feeds' places belong to that server.
+        for _i, key in ipairs({ "server_features", "server_stats_found", "stats_probed_at",
+                "notifications_cursor", "notifications", "updates_cursor", "updates" }) do
+            self:unset(key)
+        end
         self:unset("auth_me_at")
         for _i, novel_id in ipairs(self.store:novelsWithDownloads()) do
             self:removeNovelDownloads(novel_id)

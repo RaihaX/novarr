@@ -706,6 +706,176 @@ function Api:revokeToken()
     return self:request("auth/token", { method = "DELETE", quiet_auth = true, block_timeout = 5, total_timeout = 8 })
 end
 
+-- ---------------------------------------------------------------- 1.13.0: features
+
+--[[--
+What a server's meta offers (1.13.0), each false on an older server that
+does not say so: lists (reading lists, GET lists), want_to_read (comes
+with lists), favourites, requests (search / request / notifications),
+updates (GET updates), stats (GET stats; may also be found by trying it,
+see Session), manga_cbz (GET chapters/{id}/cbz: manga readable here).
+]]
+function Api.features(meta)
+    local m = type(meta) == "table" and meta or {}
+    local function on(v) return v == true or (type(v) == "table" and v.enabled ~= false and next(v) ~= nil) end
+    return {
+        lists = m.lists == true,
+        want_to_read = m.lists == true,
+        favourites = m.favourites == true,
+        requests = m.requests == true,
+        updates = m.updates == true,
+        stats = on(m.stats),
+        manga_cbz = m.manga_cbz == true,
+        audiobooks = m.audiobooks == true,
+    }
+end
+
+--- The library medium to ask for: "all" (manga too) when the server serves manga as CBZ, else Api.textMedium.
+function Api.libraryMedium(books, manga)
+    if manga then return "all" end
+    return Api.textMedium(books)
+end
+
+-- ---------------------------------------------------------------- reading lists
+
+--- The reader's lists: {lists = [{id, name, count, novel_ids, kind}]}.
+function Api:lists()
+    return self:request("lists")
+end
+
+--- "Want to read" ({list, items = [{novel, added_at, started}]}), of one medium (nil: all).
+function Api:wantToRead(medium)
+    return self:request(withMedium("want-to-read", medium))
+end
+
+--- "Favourites" ({list, items = [{novel, added_at, started}]}).
+function Api:favourites(medium)
+    return self:request(withMedium("favourites", medium))
+end
+
+--- Puts a series on (on = true) or takes it off "Want to read". Returns {want_to_read, list} or nil, err.
+function Api:setWantToRead(novel_id, on)
+    return self:request(string.format("novels/%d/want-to-read", novel_id),
+        { method = on and "PUT" or "DELETE", headers = self:deviceHeaders() })
+end
+
+--- Favourite on / off. Returns {favourite, list} or nil, err.
+function Api:setFavourite(novel_id, on)
+    return self:request(string.format("novels/%d/favourite", novel_id),
+        { method = on and "PUT" or "DELETE", headers = self:deviceHeaders() })
+end
+
+--- Makes a list (POST lists {name}): 201 {list} or nil, err (422: a blank, too long or duplicate name).
+function Api:createList(name)
+    return self:request("lists", { method = "POST", body = { name = name } })
+end
+
+--- Adds a series to one of the reader's lists (on) or removes it. Returns {list} or nil, err.
+function Api:setInList(list_id, novel_id, on)
+    return self:request(string.format("lists/%d/novels/%d", list_id, novel_id),
+        { method = on and "PUT" or "DELETE", headers = self:deviceHeaders() })
+end
+
+-- ---------------------------------------------------------------- requests
+
+-- A request search asks every source of a medium: polled like Discover's.
+Api.REQUEST_POLL_TIMEOUT = 15
+
+local function requestSearch(data, e)
+    if not data then return nil, e end
+    if type(data.search) ~= "table" or not data.search.id then return nil, err("server", nil, "bad search") end
+    return data.search
+end
+
+--[[--
+Starts a request search (POST requests/searches {q, medium}): the search
+{id, status = "running", ...} or nil, err (invalid 422 with the server's
+message; invalid 429 while another search runs).
+]]
+function Api:requestSearchStart(q, medium)
+    return requestSearch(self:request("requests/searches", { method = "POST", body = { q = q, medium = medium } }))
+end
+
+--- A request search's state: {id, status = running|done|failed, message, query, medium, results, skipped_sources}.
+function Api:requestSearchStatus(id)
+    return requestSearch(self:request("requests/searches/" .. Api.urlEncode(id),
+        { block_timeout = 10, total_timeout = Api.REQUEST_POLL_TIMEOUT }))
+end
+
+--[[--
+Requests a search result (POST requests {search_id, key, note?}): data
+{request, joined} (joined: someone asked already, the reader now follows
+it: "Me too"), info.status 201|200, or nil, err.
+]]
+function Api:requestCreate(search_id, key, note)
+    local body = { search_id = search_id, key = key }
+    if note and note ~= "" then body.note = note end
+    local data, e, info = self:request("requests", { method = "POST", body = body })
+    if not data then return nil, e end
+    if type(data.request) ~= "table" then return nil, err("server", nil, "bad request") end
+    return data, nil, info
+end
+
+--- The reader's requests (own and joined), newest first: {requests, page, has_more}.
+function Api:requests(page)
+    return self:request("requests?" .. Api.query({ { "scope", "mine" }, { "page", page and tostring(page) } }))
+end
+
+--- Cancels an own pending request or leaves a joined one (DELETE, 204).
+function Api:requestCancel(id)
+    return self:request(string.format("requests/%d", id), { method = "DELETE" })
+end
+
+-- ---------------------------------------------------------------- feeds
+
+-- The feeds run while Home refreshes: short, never holding the screen long.
+Api.FEED_BLOCK_TIMEOUT = 5
+Api.FEED_TOTAL_TIMEOUT = 8
+
+--- The notification feed after `since` (opaque cursor): {cursor, has_more, items = [{id, kind, title, body, request_id, novel_id, at}]}.
+function Api:notifications(since)
+    local q = Api.query({ { "since", since } })
+    return self:request(q ~= "" and ("notifications?" .. q) or "notifications",
+        { block_timeout = Api.FEED_BLOCK_TIMEOUT, total_timeout = Api.FEED_TOTAL_TIMEOUT })
+end
+
+--- New chapters since `since`: {cursor, series = [{novel_id, name, medium, new_count, chapter_id, chapter_label, latest_at}]}.
+function Api:updates(since)
+    local q = Api.query({ { "since", since } })
+    return self:request(q ~= "" and ("updates?" .. q) or "updates",
+        { block_timeout = Api.FEED_BLOCK_TIMEOUT, total_timeout = Api.FEED_TOTAL_TIMEOUT })
+end
+
+--[[--
+The reader's stats (GET stats): the decoded answer, false when the server
+has none (404: an older server), or nil, err.
+]]
+function Api:stats()
+    local data, e = self:request("stats", { block_timeout = 8, total_timeout = 12 })
+    if not data then
+        if e and e.kind == "not_found" then return false end
+        return nil, e
+    end
+    return data
+end
+
+-- ---------------------------------------------------------------- manga (CBZ)
+
+--- A manga chapter's pages: {chapter = {id, novel_id, label, number, page_count, read, progress}, pages, prev, next, reading_mode}.
+function Api:chapterPages(id, opts)
+    return self:request(string.format("chapters/%d/pages", id), { no_reprobe = opts and opts.no_reprobe or nil })
+end
+
+--[[--
+The path (relative to the server base) of a manga chapter as a CBZ, scaled
+to max_width and greyed (e-ink): "/api/v1/chapters/5/cbz?max_width=1236&gray=1".
+]]
+function Api.cbzPath(id, max_width, gray)
+    local q = Api.query({ { "max_width", max_width and tostring(math.floor(max_width)) or nil },
+        { "gray", gray and "1" or nil } })
+    return string.format("/api/v1/chapters/%d/cbz", id) .. (q ~= "" and ("?" .. q) or "")
+end
+
 -- ---------------------------------------------------------------- plugin update
 
 --[[--

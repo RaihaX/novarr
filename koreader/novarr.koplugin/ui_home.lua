@@ -114,7 +114,7 @@ function Home:items()
         table.insert(items, { kind = "button", text = text, callback = cb })
     end
     -- Which buttons: auth.lua (readers get no Discover; Link instead of Sync while not linked).
-    for _i, id in ipairs(require("novarr.auth").homeButtons(s:role(), needs_link, Model.hasBooks(all))) do
+    for _i, id in ipairs(require("novarr.auth").homeButtons(s:role(), needs_link, Model.hasBooks(all), true)) do
         if id == "library" then
             button(_("Library"), function() require("novarr.ui_library").show(s, "novel") end)
         elseif id == "books" then
@@ -123,6 +123,10 @@ function Home:items()
             button(_("Discover"), function() require("novarr.ui_discover").show(s) end)
         elseif id == "downloads" then
             button(_("Downloads"), function() require("novarr.ui_downloads").show(s) end)
+        elseif id == "more" then
+            -- 1.13.0: lists, new chapters, requests, stats. A quiet dot when a request became ready.
+            local More = require("novarr.ui_more")
+            button(More.hasNews(s) and _("More •") or _("More"), function() More.show(s, self) end)
         elseif id == "sync" then
             local pending = s.queue:count()
             button(pending > 0 and T(_("Sync (%1)"), pending) or _("Sync"), function()
@@ -172,6 +176,8 @@ function Home:refresh(quiet)
             if hero then s:refreshChapterList(hero.id) end
         end
         if closer then closer() end
+        -- 1.13.0: what the server has to tell (ready requests, new chapters), short timeouts.
+        if not e then Session.guard(function() require("novarr.ui_feeds").poll(s) end) end
         if e and e.kind == "unauthenticated" then
             -- Signed out by the server just now: offer linking (once) instead of an error.
             if not s.auth_told then require("novarr.ui_auth").offerLink(s, function() self:refresh(true) end) end

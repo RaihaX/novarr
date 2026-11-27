@@ -130,3 +130,27 @@ T.it("gives up after 10 minutes of building", function()
     T.eq(w.clock, 600)
     T.eq(w.ng, 1 + 200)
 end)
+
+-- A book (1.13.0): its EPUB is the uploaded file, never rebuilt.
+local function original(get)
+    local log = {}
+    local flow = Flow.new({
+        get = function() table.insert(log, "GET") return get end,
+        post = function() table.insert(log, "POST") return { status = "building" } end,
+        schedule = function() end, unschedule = function() end, now = function() return 0 end,
+        stored = nil, original = true,
+        on_download = function(e) table.insert(log, "download:" .. tostring(e.generated_at)) end,
+        on_up_to_date = function() table.insert(log, "up_to_date") end,
+        on_waiting = function() table.insert(log, "waiting") end,
+        on_finish = function(kind, p) table.insert(log, "finish:" .. kind .. (p and p.message and (":" .. p.message) or "")) end,
+    })
+    flow:start()
+    return log
+end
+
+T.it("a book's original ePub: stale or not, downloaded as it is; missing says so, never builds", function()
+    T.eq(original({ status = "ready", stale = true, generated_at = "B1" }), { "GET", "download:B1" })
+    T.eq(original({ status = "ready", stale = false, generated_at = "B1" }), { "GET", "download:B1" })
+    T.eq(original({ status = "missing", message = "No file" }), { "GET", "finish:failed:No file" })
+    T.eq(original({ status = "failed" })[2]:sub(1, 14), "finish:failed:")
+end)

@@ -22,6 +22,9 @@ opts:
     schedule(secs, fn), unschedule(fn)
     now()            -> seconds
     stored           -> {generated_at, etag} of the copy on this device, or nil
+    original         -> true for a book (1.13.0): its EPUB is the uploaded
+                        file; "stale" means nothing then, and nothing is built
+                        (missing / failed: the server's message is shown)
     on_download(epub)          start the download
     on_up_to_date(epub)
     on_waiting()               show the "building" dialog
@@ -66,6 +69,16 @@ function EpubFlow:start()
     local epub, err = self.o.get()
     if not epub then return self:finish("error", err) end
     local status = epub.status
+    if self.o.original then
+        if status == "ready" then
+            if isUpToDate(epub, self.o.stored) then
+                self.state = "done"
+                return self.o.on_up_to_date(epub)
+            end
+            return self:download(epub)
+        end
+        return self:finish("failed", { message = epub.message or "This book's ePub file is missing on the server." })
+    end
     if status == "ready" and not epub.stale then
         if isUpToDate(epub, self.o.stored) then
             self.state = "done"

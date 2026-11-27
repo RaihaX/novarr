@@ -343,6 +343,56 @@ function Store:saveChapter(chapter, html)
     return path
 end
 
+--[[--
+Stores a manga chapter (1.13.0): the CBZ downloaded to `tmp` is moved into
+the novel's folder as <chapterId>_<slug>.cbz. `chapter` is the chapter
+object of GET chapters/{id}/pages (id, novel_id, label, number,
+page_count) plus prev/next ({id} tables) and novel_name. Returns the path
+or nil, err (tmp is removed on failure).
+]]
+function Store:saveChapterFile(chapter, tmp, size)
+    local novel_id, chapter_id = chapter.novel_id, chapter.id
+    local index = self:getIndex(novel_id)
+    local key = tostring(chapter_id)
+    local file = ChapterDoc.fileName(chapter_id, chapter.label, "cbz")
+    local dir = self:chaptersDir(novel_id)
+    local ok, merr = self:mkdirs(dir)
+    if not ok then
+        os.remove(tmp)
+        return nil, merr
+    end
+    local path = dir .. "/" .. file
+    local renamed, rerr = os.rename(tmp, path)
+    if not renamed then
+        os.remove(path)
+        renamed, rerr = os.rename(tmp, path)
+    end
+    if not renamed then
+        os.remove(tmp)
+        return nil, rerr
+    end
+    local old = index.chapters[key]
+    if old and old.file ~= file then
+        os.remove(dir .. "/" .. old.file)
+    end
+    index.novel_name = chapter.novel_name or index.novel_name
+    index.chapters[key] = {
+        id = chapter_id,
+        file = file,
+        label = chapter.label,
+        chapter = chapter.number,
+        prev = chapter.prev and chapter.prev.id or nil,
+        next = chapter.next and chapter.next.id or nil,
+        next_downloaded = chapter.next and chapter.next.downloaded,
+        saved_at = self.now(),
+        size = size,
+        pages = tonumber(chapter.page_count),
+        manga = true,
+    }
+    self:saveIndex(novel_id)
+    return path
+end
+
 --- Number of words in a list of paragraphs (nil when there are none).
 function Store.countWords(paragraphs)
     if type(paragraphs) ~= "table" then return nil end

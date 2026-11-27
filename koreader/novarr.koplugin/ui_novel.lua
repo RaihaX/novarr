@@ -2,7 +2,11 @@
 Novel screen: Continue/Start, Chapters, Highlights (ui_highlights.lua), reading stats (stats.lua), Check
 for new chapters (checks.lua) with its status, Download for offline,
 Remove downloads, Mark all as read, Download as EPUB, About (synopsis).
-A book (1.12.0: medium "book", complete) has no Check for new chapters.
+A book (1.12.0: medium "book", complete) has no Check for new chapters;
+its EPUB is the original file (1.13.0: never rebuilt).
+1.13.0: Want to read, Favourite and "Add to list…" (when the server has
+lists); a series with an audiobook says so (it plays in the Novarr app,
+not here); a manga (read as CBZ) has no highlights and no EPUB.
 ]]
 
 local UIManager = require("ui/uimanager")
@@ -58,10 +62,13 @@ function Novel:items()
         mandatory = string.format("%d/%d", math.max(0, math.min(read, total)), total),
         callback = function() s:showChapters(self.novel_id) end,
     })
-    table.insert(items, {
-        text = _("Highlights"),
-        callback = function() require("novarr.ui_highlights").show(s, self.novel_id, novel.name) end,
-    })
+    local manga = s:isManga(self.novel_id)
+    if not manga then
+        table.insert(items, {
+            text = _("Highlights"),
+            callback = function() require("novarr.ui_highlights").show(s, self.novel_id, novel.name) end,
+        })
+    end
     local left, secs = s:novelEstimate(self.novel_id)
     local left_text
     if left then
@@ -89,6 +96,7 @@ function Novel:items()
     for _i, line in ipairs(Stats.lines(s:novelStats(self.novel_id))) do
         table.insert(items, { text = line, dim = true, select_enabled = false, stats = true, callback = function() end })
     end
+    self:addCollectionRows(items, novel)
     local book = s:isBook(self.novel_id)
     -- A book is complete: it never gets new chapters, so no check.
     if not book then
@@ -150,17 +158,55 @@ function Novel:items()
             })
         end,
     })
-    local epub = s.store:getEpubs()[tostring(self.novel_id)]
-    table.insert(items, {
-        text = _("Download as EPUB"),
-        mandatory = epub and Model.formatBytes(epub.size) or nil,
-        callback = function() require("novarr.epub").download(s, self.novel_id, self:summary().name) end,
-    })
+    -- A manga has page images, not text: no EPUB (the server refuses one).
+    if not manga then
+        local epub = s.store:getEpubs()[tostring(self.novel_id)]
+        table.insert(items, {
+            -- A book's EPUB is the file it came as (1.13.0: never rebuilt from its chapters).
+            text = book and _("Download the original ePub") or _("Download as EPUB"),
+            mandatory = epub and Model.formatBytes(epub.size) or nil,
+            callback = function()
+                require("novarr.epub").download(s, self.novel_id, self:summary().name, { original = book })
+            end,
+        })
+    end
     table.insert(items, {
         text = book and _("About this book") or _("About this novel"),
         callback = function() self:showAbout() end,
     })
     return items
+end
+
+--[[--
+1.13.0: Want to read / Favourite (on and off), "Add to list…", and a line
+for a series that has an audiobook. Each only when the server has it.
+]]
+function Novel:addCollectionRows(items, novel)
+    local s = self.session
+    local Lists = require("novarr.ui_lists")
+    local function toggleRow(field, label)
+        local on = s:novelFlag(self.novel_id, field, novel)
+        table.insert(items, {
+            text = label,
+            mandatory = on and UI.MARK_READ or _("Add"),
+            callback = function() Lists.toggle(s, self.novel_id, field, function() self:rebuild() end) end,
+        })
+    end
+    if s:feature("want_to_read") then toggleRow("want_to_read", _("Want to read")) end
+    if s:feature("favourites") then toggleRow("favourite", _("Favourite")) end
+    if s:feature("lists") then
+        table.insert(items, {
+            text = _("Add to list…"),
+            callback = function() Lists.addToList(s, self.novel_id, novel.name) end,
+        })
+    end
+    local detail = s:cached("novel_" .. self.novel_id)
+    local full = detail and detail.novel or novel
+    if type(full.audiobook) == "table" then
+        -- No audio on a Kindle: it plays in the Novarr app.
+        table.insert(items, { text = _("Audiobook available: listen in the Novarr app"), dim = true,
+            select_enabled = false, callback = function() end })
+    end
 end
 
 function Novel:showAbout()
@@ -199,6 +245,16 @@ function Novel:askDownload()
         local ids = Model.downloadSelection(cl.list, mode, limit, resume, stored,
             function(c) return s:chapterState(self.novel_id, c.id) end)
         s:downloadMany(self.novel_id, ids)
+    end
+    if s:isManga(self.novel_id) then
+        -- A manga chapter is a few MB (its pages): smaller steps.
+        UI.choice(_("Download for offline reading"), {
+            { text = _("Next 3 unread chapters"), callback = function() start("unread", 3) end },
+            { text = _("Next 10 unread chapters"), callback = function() start("unread", 10) end },
+            { text = _("Next 25 unread chapters"), callback = function() start("unread", 25) end },
+            { text = _("All unread chapters"), callback = function() start("unread", nil) end },
+        })
+        return
     end
     UI.choice(_("Download for offline reading"), {
         { text = _("Next 10 unread chapters"), callback = function() start("unread", 10) end },

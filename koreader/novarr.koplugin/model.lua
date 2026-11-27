@@ -84,14 +84,29 @@ function Model.hasBooks(novels)
     return false
 end
 
---- The library's books ("book") or everything else ("novel", the default), in the API's order.
+--[[--
+The library's books ("book"), manga ("manga", 1.13.0: listed when the
+server sends them as CBZ) or web novels ("novel", the default), in the
+API's order.
+]]
 function Model.byMedium(novels, medium)
-    local want_book = medium == "book"
+    local want = (medium == "book" or medium == "manga") and medium or "novel"
     local out = {}
     for _i, n in ipairs(novels or {}) do
-        if type(n) == "table" and Model.isBook(n) == want_book then table.insert(out, n) end
+        if type(n) == "table" then
+            local m = (n.medium == "book" or n.medium == "manga") and n.medium or "novel"
+            if m == want then table.insert(out, n) end
+        end
     end
     return out
+end
+
+--- Whether the library holds at least one manga (1.13.0).
+function Model.hasManga(novels)
+    for _i, n in ipairs(novels or {}) do
+        if type(n) == "table" and n.medium == "manga" then return true end
+    end
+    return false
 end
 
 --[[--
@@ -104,7 +119,9 @@ function Model.homeNovels(novels, last_local)
     local out = {}
     for _i, n in ipairs(novels or {}) do
         if type(n) == "table" and n.id then
-            if not Model.isBook(n) or (tonumber(n.chapters_read) or 0) > 0 or last_local[n.id] ~= nil then
+            -- Manga (1.13.0) like books: on the shelf once started, else in Library > Manga.
+            local apart = Model.isBook(n) or n.medium == "manga"
+            if not apart or (tonumber(n.chapters_read) or 0) > 0 or last_local[n.id] ~= nil then
                 table.insert(out, n)
             end
         end
