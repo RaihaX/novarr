@@ -192,7 +192,7 @@ export function buildGroups(query, data, { nav = [], recents = [], searchUrl = '
         .map(({ t }) => ({ id: `theme:${t.value}`, kind: 'theme', value: t.value, title: t.title, icon: t.icon }));
 
     if (chapterItems.length) push('chapters', 'Chapters', chapterItems);
-    push('novels', 'Novels', novelItems);
+    push('novels', 'Web Novels', novelItems);
     push('commands', 'Commands', commandItems);
     if (!parsed) {
         push('nav', 'Go to', navItems(true).filter((_, i) => i < 6));

@@ -140,7 +140,7 @@
                 <caption class="visually-hidden">Most-read novels in the last {{ $window_days }} days</caption>
                 <thead>
                     <tr>
-                        <th>Novel</th>
+                        <th>Series</th>
                         <th class="text-end" style="width: 120px;">Chapters</th>
                         <th class="text-end" style="width: 170px;">Last read</th>
                     </tr>

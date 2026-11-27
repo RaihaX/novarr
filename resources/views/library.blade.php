@@ -8,7 +8,7 @@
     <div class="page-head-titles">
         <span class="page-head-kicker">On this device</span>
         <h1 class="page-title mb-0">Offline</h1>
-        <p class="page-head-sub mb-0">Novels cached in this browser — they open and read without a connection.</p>
+        <p class="page-head-sub mb-0">Series cached in this browser — they open and read without a connection.</p>
     </div>
     <div class="page-head-actions">
         <x-status state="attention" id="offlineBadge" class="d-none" label="Offline" />

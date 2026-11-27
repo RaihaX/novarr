@@ -481,6 +481,16 @@ class DownloadsTest extends TestCase
         $this->assertTrue(DownloadEvent::where('event', DownloadEvent::AUTO_APPROVED)->exists());
     }
 
+    public function test_an_automatically_added_book_keeps_the_series_its_request_knew(): void
+    {
+        $request = $this->wantedRequest();
+        $request->forceFill(['candidates' => [['source' => 'book-link', 'source_name' => 'Goodreads', 'url' => 'https://www.goodreads.com/book/show/1', 'title' => 'The Quiet Orchard', 'series' => 'Orchard Cycle', 'series_index' => 1.0]]])->save();
+
+        $details = \App\Downloads\BookDownloads::details($request->fresh());
+        $this->assertSame('Orchard Cycle', $details['series']);
+        $this->assertSame(1.0, (float) $details['series_index']);
+    }
+
     public function test_a_mismatched_epub_waits_in_review(): void
     {
         config(['novarr.downloads.auto_approve' => true]);

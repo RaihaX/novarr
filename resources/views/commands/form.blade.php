@@ -28,7 +28,7 @@
 
                     @if(in_array('novel_id', $config['params']))
                         <div class="form-row">
-                            <label for="novel_id" class="form-label">Novel</label>
+                            <label for="novel_id" class="form-label">Series</label>
                             <select name="novel_id" id="novel_id" class="form-select">
                                 @if(empty($config['requires_novel']))
                                     <option value="0">All novels</option>

@@ -42,7 +42,7 @@
     {{-- Novels: title / author matches, the same set the navbar suggests --}}
     @if($novels->isNotEmpty())
         <section class="search-section" aria-labelledby="searchNovelsTitle">
-            <h2 class="search-section-title" id="searchNovelsTitle">Novels <span class="count-chip">{{ $novels->count() }}</span></h2>
+            <h2 class="search-section-title" id="searchNovelsTitle">Series <span class="count-chip">{{ $novels->count() }}</span></h2>
             <div class="card stack-card mb-4">
                 @foreach($novels as $novel)
                     <a href="{{ route('novels.show', $novel->id) }}" class="stack-row search-novel-row">

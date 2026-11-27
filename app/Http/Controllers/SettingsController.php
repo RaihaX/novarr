@@ -214,7 +214,7 @@ class SettingsController extends Controller
         $hidden = array_flip($discover->hiddenKeys());
 
         $groups = [
-            Novel::MEDIUM_NOVEL => ['title' => 'Novels', 'rows' => []],
+            Novel::MEDIUM_NOVEL => ['title' => 'Web Novels', 'rows' => []],
             Novel::MEDIUM_MANGA => ['title' => 'Manga', 'rows' => []],
         ];
         foreach ($all as $key => $source) {

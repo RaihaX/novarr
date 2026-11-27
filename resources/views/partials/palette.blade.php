@@ -7,7 +7,7 @@
 @php
     $paletteNav = [
         ['title' => 'Home', 'url' => route('home'), 'icon' => 'house', 'keywords' => 'dashboard start continue reading'],
-        ['title' => 'Novels', 'url' => route('novels.index', ['medium' => 'novel']), 'icon' => 'library', 'keywords' => 'library novels books'],
+        ['title' => 'Web Novels', 'url' => route('novels.index', ['medium' => 'novel']), 'icon' => 'library', 'keywords' => 'library novels books'],
         ['title' => 'Manga', 'url' => route('novels.index', ['medium' => 'manga']), 'icon' => 'library', 'keywords' => 'library manga comics'],
         ['title' => 'Books', 'url' => route('novels.index', ['medium' => 'book']), 'icon' => 'library', 'keywords' => 'library books epub calibre'],
         ['title' => 'Upload a book', 'url' => route('books.upload'), 'icon' => 'plus', 'keywords' => 'upload epub book add calibre'],

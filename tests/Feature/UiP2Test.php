@@ -209,7 +209,7 @@ class UiP2Test extends TestCase
         $html = $this->get(route('novels.index'))->assertOk()->getContent();
 
         // Separate libraries: "Library" became "Novels" and "Manga" (same route, ?medium=).
-        $this->assertMatchesRegularExpression('#href="' . preg_quote(route('novels.index', ['medium' => 'novel']), '#') . '" data-nav-medium="novel">Novels</a>#', $html);
+        $this->assertMatchesRegularExpression('#href="' . preg_quote(route('novels.index', ['medium' => 'novel']), '#') . '" data-nav-medium="novel">Web Novels</a>#', $html);
         $this->assertMatchesRegularExpression('#href="' . preg_quote(route('novels.index', ['medium' => 'manga']), '#') . '" data-nav-medium="manga">Manga</a>#', $html);
         // Offline copies are "Offline" in the nav; "Downloads" is what the
         // scraper does (Activity). Same route and URL as before.
@@ -218,7 +218,7 @@ class UiP2Test extends TestCase
         $this->assertDoesNotMatchRegularExpression('#href="' . preg_quote(route('library'), '#') . '"[^>]*>Downloads#', $html);
         $this->assertMatchesRegularExpression('#href="' . preg_quote(route('downloads.index'), '#') . '" id="navDownloads">Downloads#', $html);
         $this->assertMatchesRegularExpression('#href="' . preg_quote(route('bookmarks.index'), '#') . '">Highlights</a>#', $html);
-        $this->assertStringContainsString('<title>Novels · ', $html);
+        $this->assertStringContainsString('<title>Web Novels · ', $html);
         $this->assertSame('/library', parse_url(route('library'), PHP_URL_PATH));
         $this->assertSame('/bookmarks', parse_url(route('bookmarks.index'), PHP_URL_PATH));
 

@@ -40,7 +40,7 @@ const RANK_POLL_MAX = 120;
 /** Pages of pending requests loaded for the review list (50 each). */
 const REVIEW_PAGES = 4;
 
-const MEDIUM_LABEL = { novel: 'Novel', manga: 'Manga', book: 'Book' };
+const MEDIUM_LABEL = { novel: 'Web Novel', manga: 'Manga', book: 'Book' };
 
 /** JSON API call with the session cookie: {ok, status, data, headers}. Throws only on network errors / abort. */
 async function api(method, url, body, signal) {

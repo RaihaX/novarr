@@ -71,7 +71,7 @@
                aria-describedby="reqSearchHint" enterkeyhint="search">
         <div class="btn-group segmented" role="group" aria-label="Kind" id="reqMedium">
             <button type="button" class="btn btn-secondary active" data-medium="book" aria-pressed="true">Books</button>
-            <button type="button" class="btn btn-secondary" data-medium="novel" aria-pressed="false">Novels</button>
+            <button type="button" class="btn btn-secondary" data-medium="novel" aria-pressed="false">Web Novels</button>
             <button type="button" class="btn btn-secondary" data-medium="manga" aria-pressed="false">Manga</button>
         </div>
         <button type="submit" class="btn btn-primary" id="reqSearchBtn">Search</button>
@@ -235,7 +235,7 @@
                     <legend class="form-label">Kind</legend>
                     <div class="req-radio-row">
                         <label class="req-radio"><input type="radio" name="medium" value="book" checked> Book</label>
-                        <label class="req-radio"><input type="radio" name="medium" value="novel"> Novel</label>
+                        <label class="req-radio"><input type="radio" name="medium" value="novel"> Web Novel</label>
                         <label class="req-radio"><input type="radio" name="medium" value="manga"> Manga</label>
                     </div>
                 </fieldset>

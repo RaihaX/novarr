@@ -75,7 +75,7 @@ class LibraryMedium
         return match ($medium) {
             Novel::MEDIUM_MANGA => 'manga',
             Novel::MEDIUM_BOOK => 'book',
-            default => 'novel',
+            default => 'web novel',
         };
     }
 
@@ -90,6 +90,11 @@ class LibraryMedium
     /** The plural, capitalised library title: "Novels" / "Manga" / "Books". */
     public static function title(string $medium): string
     {
+        // Novels are web novels (the Books library holds published ones).
+        if ($medium !== Novel::MEDIUM_MANGA && $medium !== Novel::MEDIUM_BOOK) {
+            return 'Web Novels';
+        }
+
         return ucfirst(self::plural($medium));
     }
 

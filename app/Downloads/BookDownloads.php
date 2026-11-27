@@ -165,6 +165,38 @@ class BookDownloads
     /** The request's catalogue details for BookUploads::approve(): its first match when that is the same title, else its own. */
     public static function details(NovelRequest $request): array
     {
+        return self::baseDetails($request) + self::seriesDetails($request);
+    }
+
+    /**
+     * The series the request already knows (a pasted Goodreads / Amazon link,
+     * a catalogue hit that carries one), else Hardcover's for its title and
+     * author (when a token is set). Empty: the ePub's own series, if any,
+     * is used by the import.
+     */
+    public static function seriesDetails(NovelRequest $request): array
+    {
+        foreach ($request->candidateList() as $candidate) {
+            if (trim((string) ($candidate['series'] ?? '')) !== '') {
+                return ['series' => trim((string) $candidate['series']), 'series_index' => $candidate['series_index'] ?? null];
+            }
+        }
+        if (\App\Books\Hardcover::enabled()) {
+            try {
+                $found = app(\App\Books\Hardcover::class)->seriesFor((string) $request->title, $request->author);
+                if (!empty($found['series'])) {
+                    return ['series' => (string) $found['series'], 'series_index' => $found['series_index'] ?? null];
+                }
+            } catch (\Throwable) {
+                // No series: the import keeps the ePub's own, the nightly run may find one.
+            }
+        }
+
+        return [];
+    }
+
+    private static function baseDetails(NovelRequest $request): array
+    {
         $match = (array) ($request->candidateList()[0] ?? []);
         if ($match !== [] && DuplicateSeries::normalize((string) ($match['title'] ?? '')) === DuplicateSeries::normalize((string) $request->title)) {
             return [

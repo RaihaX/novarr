@@ -54,7 +54,7 @@
                     @if($item['started'])
                         <span class="wtr-started">Started</span>
                     @else
-                        <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : 'Novel') }}</span>
+                        <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : 'Web Novel') }}</span>
                     @endif
                     <button type="button" class="btn btn-ghost btn-sm btn-icon nv-want is-wanted ms-auto" data-want-to-read data-novel="{{ $n->id }}" data-name="{{ $n->name }}" data-want-keep-title
                             aria-pressed="true" aria-label="Want to read: {{ $n->name }}" title="Take it off, or put it back">

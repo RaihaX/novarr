@@ -314,7 +314,7 @@
                         @if($item['started'])
                             <span class="home-tile-meta"><span class="wtr-started">Started</span></span>
                         @else
-                            <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : 'Novel') }}</span>
+                            <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : 'Web Novel') }}</span>
                         @endif
                     </a>
                 @endforeach

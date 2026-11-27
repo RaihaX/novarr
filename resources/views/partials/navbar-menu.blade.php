@@ -21,7 +21,7 @@
         : ($r->routeIs('books.*') && !$r->routeIs('books.review*', 'books.calibre*', 'books.upload*') ? 'book' : null);
 
     $libraryLinks = [];
-    foreach (['novel' => 'Novels', 'manga' => 'Manga', 'book' => 'Books'] as $navKey => $navLabel) {
+    foreach (['novel' => 'Web Novels', 'manga' => 'Manga', 'book' => 'Books'] as $navKey => $navLabel) {
         $libraryLinks[] = ['href' => route('novels.index', ['medium' => $navKey]), 'label' => $navLabel, 'on' => $navMedium === $navKey, 'medium' => $navKey];
     }
     $libraryLinks[] = ['href' => route('audiobooks.index'), 'label' => 'Audiobooks', 'on' => $r->routeIs('audiobooks.index', 'audiobooks.show')];

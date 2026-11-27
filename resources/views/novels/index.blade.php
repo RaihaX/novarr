@@ -121,7 +121,7 @@
         {{-- Library: Novels or Manga, remembered in the session; switching
              keeps the view and sort and starts the filters over. --}}
         <div class="btn-group segmented lib-medium" role="group" aria-label="Library">
-            @foreach(['novel' => 'Novels', 'manga' => 'Manga', 'book' => 'Books'] as $mKey => $mLabel)
+            @foreach(['novel' => 'Web Novels', 'manga' => 'Manga', 'book' => 'Books'] as $mKey => $mLabel)
                 <a href="{{ $mediumUrl($mKey) }}" data-medium="{{ $mKey }}"
                    class="btn btn-secondary {{ $medium === $mKey ? 'active' : '' }}" @if($medium === $mKey) aria-current="true" @endif>{{ $mLabel }}</a>
             @endforeach

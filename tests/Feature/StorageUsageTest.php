@@ -245,7 +245,7 @@ class StorageUsageTest extends TestCase
         // Not counted again under "Other" or the manga pages.
         $this->assertSame(0, (int) collect($report['buckets'])->firstWhere('key', 'manga_pages')['bytes']);
 
-        $this->get(route('health.storage'))->assertOk()->assertSee('Novels, manga and books')->assertSee('Book files');
+        $this->get(route('health.storage'))->assertOk()->assertSee('Web novels, manga and books')->assertSee('Book files');
     }
 
     public function test_missing_folders_measure_as_zero(): void

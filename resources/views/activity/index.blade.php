@@ -55,7 +55,7 @@
                 <table class="table table-hover table-compact align-middle">
                     <thead>
                         <tr>
-                            <th>Novel</th>
+                            <th>Series</th>
                             <th class="cell-num">Ch.</th>
                             <th>Label</th>
                         </tr>
@@ -108,7 +108,7 @@
                 <table class="table table-hover table-compact align-middle">
                     <thead>
                         <tr>
-                            <th>Novel</th>
+                            <th>Series</th>
                             <th class="cell-num">Ch.</th>
                             <th>Label</th>
                             <th class="cell-when">When</th>

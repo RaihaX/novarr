@@ -245,8 +245,8 @@ class DiscoverSourcePickerTest extends GoldenTestCase
         $this->hide(['novelarrow', 'empirenovel', 'novelfull', 'novelfire', 'royalroad']);
 
         $this->get(route('novels.discover', ['medium' => 'novel']))->assertOk()
-            ->assertSee('All novel sources are hidden.')
-            ->assertDontSee('No novel sources are set up.')
+            ->assertSee('All web novel sources are hidden.')
+            ->assertDontSee('No web novel sources are set up.')
             ->assertSee('Choose sources');
     }
 
@@ -275,7 +275,7 @@ class DiscoverSourcePickerTest extends GoldenTestCase
         $html = $this->get(route('settings.index'))->assertOk()->getContent();
         $this->assertStringContainsString('<fieldset class="form-fieldset" id="discover-sources">', $html);
         $this->assertStringContainsString('<legend>Sources when adding</legend>', $html);
-        $this->assertMatchesRegularExpression('#data-ds-group="novel">\s*<span class="form-label d-block">Novels</span>#', $html);
+        $this->assertMatchesRegularExpression('#data-ds-group="novel">\s*<span class="form-label d-block">Web Novels</span>#', $html);
         $this->assertMatchesRegularExpression('#data-ds-group="manga">\s*<span class="form-label d-block">Manga</span>#', $html);
 
         $this->assertSame([

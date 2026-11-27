@@ -89,7 +89,7 @@ class RequestsPageTest extends TestCase
             ->getContent();
         // The title follows the medium picker (requests.js); Books first and pressed.
         $this->assertStringContainsString('Discover <span id="reqDiscoverNoun">books</span>', $html);
-        $this->assertMatchesRegularExpression('/id="reqMedium">\s*<button[^>]*data-medium="book" aria-pressed="true">Books<\/button>\s*<button[^>]*data-medium="novel"[^>]*>Novels<\/button>\s*<button[^>]*data-medium="manga"/', $html);
+        $this->assertMatchesRegularExpression('/id="reqMedium">\s*<button[^>]*data-medium="book" aria-pressed="true">Books<\/button>\s*<button[^>]*data-medium="novel"[^>]*>Web Novels<\/button>\s*<button[^>]*data-medium="manga"/', $html);
         // My requests: the filter slot (built by JS) and Show more.
         $this->assertStringContainsString('id="reqMineFilters" hidden', $html);
         $this->assertStringContainsString('id="reqMineMore">Show more</button>', $html);

@@ -355,7 +355,7 @@ export function initialMedium(stored) {
 
 /** The Discover shelf's noun for a medium ("Discover books"). */
 export function mediumNoun(medium) {
-    return { book: 'books', novel: 'novels', manga: 'manga' }[medium] || 'series';
+    return { book: 'books', novel: 'web novels', manga: 'manga' }[medium] || 'series';
 }
 
 /**

@@ -92,8 +92,8 @@ class SeparateLibrariesTest extends TestCase
 
         $this->assertStringContainsString('Text Alpha', $html);
         $this->assertStringNotContainsString('Comic Beta', $html);
-        $this->assertStringContainsString('<title>Novels · ', $html);
-        $this->assertMatchesRegularExpression('#<h1 class="page-title mb-0">Novels</h1>#', $html);
+        $this->assertStringContainsString('<title>Web Novels · ', $html);
+        $this->assertMatchesRegularExpression('#<h1 class="page-title mb-0">Web Novels</h1>#', $html);
         $this->assertStringContainsString('placeholder="Search novels…"', $html);
         $this->assertMatchesRegularExpression('/data-medium="novel"\s+class="btn btn-secondary active"/', $html);
     }
@@ -156,7 +156,7 @@ class SeparateLibrariesTest extends TestCase
         NovelChapter::where('novel_id', $m->id)->where('chapter', 3)->update(['download_date' => now()]);
 
         $novels = $this->get(route('novels.index', ['medium' => 'novel']))->assertOk()->getContent();
-        $this->assertSame('2 novels · 2 chapters downloaded · 1 queued', $this->summary($novels));
+        $this->assertSame('2 web novels · 2 chapters downloaded · 1 queued', $this->summary($novels));
         $this->assertNull($this->chipCount($novels, 'new'));
 
         $manga = $this->get(route('novels.index', ['medium' => 'manga']))->assertOk()->getContent();
@@ -172,7 +172,7 @@ class SeparateLibrariesTest extends TestCase
         $b->delete();
         Cache::flush();
         Cache::put('dashboard_attention', [], 900);
-        $this->assertStringStartsWith('1 novel · ', $this->summary($this->get(route('novels.index', ['medium' => 'novel']))->getContent()));
+        $this->assertStringStartsWith('1 web novel · ', $this->summary($this->get(route('novels.index', ['medium' => 'novel']))->getContent()));
     }
 
     public function testOriginChipsAreOnlyInTheNovelsLibrary(): void
@@ -203,7 +203,7 @@ class SeparateLibrariesTest extends TestCase
         $this->assertStringContainsString('0 manga', $this->summary($manga));
 
         $novels = $this->get(route('novels.index', ['medium' => 'novel']))->assertOk()->getContent();
-        $this->assertStringContainsString('href="' . e(route('novels.discover', ['medium' => 'novel'])) . '" class="btn btn-primary">+ Add novel</a>', $novels);
+        $this->assertStringContainsString('href="' . e(route('novels.discover', ['medium' => 'novel'])) . '" class="btn btn-primary">+ Add web novel</a>', $novels);
 
         // A chip that matches nothing offers the medium's whole library back.
         $chip = $this->get(route('novels.index', ['medium' => 'manga', 'filter' => 'finished']))->assertOk()->getContent();
@@ -241,7 +241,7 @@ class SeparateLibrariesTest extends TestCase
 
         // Both items, neither active, elsewhere.
         $home = $this->get(route('stats.index'))->assertOk()->getContent();
-        $this->assertStringContainsString('data-nav-medium="novel">Novels</a>', $home);
+        $this->assertStringContainsString('data-nav-medium="novel">Web Novels</a>', $home);
         $this->assertStringContainsString('data-nav-medium="manga">Manga</a>', $home);
         $this->assertSame([], $this->activeNav($home));
     }
@@ -260,7 +260,7 @@ class SeparateLibrariesTest extends TestCase
         $this->assertSame(1, preg_match('#<script type="application/json" id="paletteNav">(.*?)</script>#s', $html, $m));
         $nav = collect(json_decode($m[1], true)['nav'])->keyBy('title');
 
-        $this->assertSame(route('novels.index', ['medium' => 'novel']), $nav['Novels']['url']);
+        $this->assertSame(route('novels.index', ['medium' => 'novel']), $nav['Web Novels']['url']);
         $this->assertSame(route('novels.index', ['medium' => 'manga']), $nav['Manga']['url']);
         $this->assertSame(route('novels.create', ['medium' => 'manga']), $nav['Add a manga']['url']);
         $this->assertTrue($nav->has('Add a novel'));
@@ -290,7 +290,7 @@ class SeparateLibrariesTest extends TestCase
         $novel = $this->get(route('novels.discover', ['medium' => 'novel']))->assertOk()->getContent();
         $this->assertStringContainsString('<option value="novelarrow">', $novel);
         $this->assertStringNotContainsString('<option value="mangadex">', $novel);
-        $this->assertStringContainsString('<h1 class="page-title mb-0">Add novel</h1>', $novel);
+        $this->assertStringContainsString('<h1 class="page-title mb-0">Add web novel</h1>', $novel);
     }
 
     public function testBrowseWithAMediumOnlyAcceptsThatMediumsSources(): void

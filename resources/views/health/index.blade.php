@@ -170,10 +170,10 @@
         </div>
         <div class="table-responsive">
             <table class="table align-middle table-responsive-cards">
-                <caption class="visually-hidden">Novels with chapters the source lists but does not serve, or no source has</caption>
+                <caption class="visually-hidden">Series with chapters the source lists but does not serve, or no source has</caption>
                 <thead>
                     <tr>
-                        <th>Novel</th>
+                        <th>Series</th>
                         <th>Chapters</th>
                         <th>Source answers</th>
                         <th>Next re-check</th>
