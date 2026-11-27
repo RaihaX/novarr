@@ -100,9 +100,24 @@ class AppServiceProvider extends ServiceProvider
                     $requestsPending = null; // not migrated yet: no badge
                 }
             }
+            // The admin's "Needs you" count on Manage › Downloads: the same
+            // lists as the Downloads page's first tab, cached for a minute.
+            $downloadsAttention = null;
+            if (Gate::allows('admin')) {
+                try {
+                    $downloadsAttention = (int) \Illuminate\Support\Facades\Cache::remember(
+                        \App\Http\Controllers\DownloadController::NAV_ATTENTION_CACHE,
+                        60,
+                        fn() => \App\Http\Controllers\DownloadController::attentionTotal(),
+                    );
+                } catch (\Illuminate\Database\QueryException $e) {
+                    $downloadsAttention = null; // not migrated yet: no badge
+                }
+            }
             $view->with([
                 'requestsOn' => $requestsOn,
                 'requestsPending' => $requestsPending,
+                'downloadsAttention' => $downloadsAttention,
                 'authOn' => $authOn,
                 // The signed-in account (sign-in on), else null.
                 'navUser' => $authOn && !$reader->isGuest() ? $reader->user() : null,

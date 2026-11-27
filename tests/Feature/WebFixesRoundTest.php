@@ -238,7 +238,9 @@ class WebFixesRoundTest extends TestCase
 
     public function test_offline_page_and_sign_in_copy(): void
     {
-        $this->get(route('offline'))->assertOk()->assertSee('Open Offline')->assertDontSee('Downloads');
+        // The page's own copy (the owner's nav has Manage › Downloads, the Usenet/torrent page).
+        $html = $this->get(route('offline'))->assertOk()->assertSee('Open Offline')->getContent();
+        $this->assertStringNotContainsString('Downloads', \Illuminate\Support\Str::between($html, 'id="main-content"', '</main>'));
 
         $this->enableSignIn();
         $this->asNobody()->get('/login')->assertOk()

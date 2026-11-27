@@ -94,7 +94,9 @@
         </div>
     </nav>
     @elseif(!$isChromeless)
-    {{-- Opens out from xl (1200px): ten items since Books no longer fit a 992px bar. --}}
+    {{-- Opens out from xl (1200px); the links are grouped (partials/navbar-menu).
+         Below xl the toggler carries the sum of the counts in the menu. --}}
+    @php $navMenuCount = (int) ($requestsPending ?? 0) + (int) ($downloadsAttention ?? 0); @endphp
     <nav class="navbar navbar-expand-xl">
         <div class="container d-flex align-items-center">
             {{-- Brand lockup: 28px mark + 15px wordmark (handoff §4) --}}
@@ -108,55 +110,12 @@
             @hasSection('nav-status')
                 <div class="navbar-status">@yield('nav-status')</div>
             @endif
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Menu">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Menu{{ $navMenuCount > 0 ? ', ' . $navMenuCount . ' waiting' : '' }}">
                 <span class="navbar-toggler-icon"></span>
+                @if($navMenuCount > 0)<span class="nav-count chip-mono chip-mono-pending navbar-toggler-count" aria-hidden="true">{{ $navMenuCount }}</span>@endif
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('home') ? 'active' : '' }}" @if(request()->routeIs('home')) aria-current="page" @endif href="{{ route('home') }}">Home</a>
-                    </li>
-                    {{-- Three libraries on one route: the item of the medium this
-                         page belongs to (LibraryMedium::current()) is active;
-                         uploading a book belongs to Books. --}}
-                    @php $navMedium = request()->routeIs('novels.*') ? \App\Http\Helpers\LibraryMedium::current() : (request()->routeIs('books.*') ? 'book' : null); @endphp
-                    @foreach(['novel' => 'Novels', 'manga' => 'Manga', 'book' => 'Books'] as $navKey => $navLabel)
-                        <li class="nav-item">
-                            <a class="nav-link {{ $navMedium === $navKey ? 'active' : '' }}" @if($navMedium === $navKey) aria-current="page" @endif href="{{ route('novels.index', ['medium' => $navKey]) }}" data-nav-medium="{{ $navKey }}">{{ $navLabel }}</a>
-                        </li>
-                    @endforeach
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('library') ? 'active' : '' }}" @if(request()->routeIs('library')) aria-current="page" @endif href="{{ route('library') }}" title="Novels saved on this device for offline reading">Offline</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('stats.*') ? 'active' : '' }}" @if(request()->routeIs('stats.*')) aria-current="page" @endif href="{{ route('stats.index') }}">Stats</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('bookmarks.*') ? 'active' : '' }}" @if(request()->routeIs('bookmarks.*')) aria-current="page" @endif href="{{ route('bookmarks.index') }}">Highlights</a>
-                    </li>
-                    {{-- Reader requests, for everyone while the feature is on; the
-                         admin at home sees how many wait for a decision. --}}
-                    @if($requestsOn ?? false)
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('requests.index') ? 'active' : '' }}" @if(request()->routeIs('requests.index')) aria-current="page" @endif href="{{ route('requests.index') }}" id="navRequests"><span>Requests</span>@if(!empty($requestsPending))<span class="nav-count chip-mono chip-mono-pending" data-requests-badge><span class="visually-hidden">, </span>{{ $requestsPending }}<span class="visually-hidden"> pending</span></span>@endif</a>
-                    </li>
-                    @endif
-                    @can('admin')
-                    @php $systemActive = request()->routeIs('commands.*') || request()->routeIs('logs.*') || request()->routeIs('health.*') || request()->routeIs('activity.*') || request()->routeIs('readers.*'); @endphp
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {{ $systemActive ? 'active' : '' }}" href="#" id="systemDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" @if($systemActive) aria-current="true" @endif>System</a>
-                        <ul class="dropdown-menu" aria-labelledby="systemDropdown">
-                            @foreach(['activity' => 'Activity', 'readers' => 'Readers', 'commands' => 'Commands', 'logs' => 'Logs', 'health' => 'Health'] as $sysRoute => $sysLabel)
-                                @php $sysOn = request()->routeIs($sysRoute . '.*'); @endphp
-                                <li><a class="dropdown-item {{ $sysOn ? 'active' : '' }}" @if($sysOn) aria-current="page" @endif href="{{ route($sysRoute . '.index') }}">{{ $sysLabel }}</a></li>
-                            @endforeach
-                        </ul>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('settings.*') ? 'active' : '' }}" @if(request()->routeIs('settings.*')) aria-current="page" @endif href="{{ route('settings.index') }}">Settings</a>
-                    </li>
-                    @endcan
-                </ul>
+                @include('partials.navbar-menu')
 
                 <div class="navbar-tools">
                     {{-- 240px search field. With JS it opens the command palette
@@ -183,6 +142,8 @@
                             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="accountMenuBtn">
                                 <li><span class="dropdown-item-text nav-account-meta">Signed in as <strong>{{ $navUser->username }}</strong></span></li>
                                 <li><a class="dropdown-item {{ request()->routeIs('account') ? 'active' : '' }}" href="{{ route('account') }}">Account</a></li>
+                                <li><a class="dropdown-item" href="{{ route('account') }}#link">Link a device</a></li>
+                                <li><hr class="dropdown-divider"></li>
                                 <li>
                                     <form method="POST" action="{{ route('logout') }}" data-turbo="false">
                                         @csrf
