@@ -265,6 +265,9 @@ private fun PlayerBody(
         Cover(summary.coverUrl, summary.title, Modifier.widthIn(max = 280.dp).fillMaxWidth(0.72f), corner = 12.dp)
         Spacer(Modifier.height(4.dp))
         Text(summary.title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        summary.seriesLabel?.let {
+            Text(it, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
         listOfNotNull(summary.authorOrNull, summary.narratorOrNull?.let { "read by $it" }).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 2)
         }

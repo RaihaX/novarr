@@ -44,8 +44,15 @@ data class AudiobookSummary(
     @SerialName("cover_url") val coverUrl: String? = null,
     @SerialName("duration_ms") val durationMs: Long = 0,
     @Serializable(with = AudiobookProgressOrNull::class) val progress: AudiobookProgress? = null,
+    // The detail's Audible fields (AudiobookPresenter::detail); a list item has none today.
+    @Serializable(with = LooseString::class) val series: String? = null,
+    @SerialName("series_index") @Serializable(with = LooseString::class) val seriesIndex: String? = null,
+    @Serializable(with = LooseString::class) val asin: String? = null,
 ) {
     val authorOrNull: String? get() = author?.takeIf { it.isNotBlank() }
+
+    /** "Series #N" (or just the series); null without one. */
+    val seriesLabel: String? get() = studio.visns.novarr.domain.Requests.seriesLabel(series, seriesIndex)
     val narratorOrNull: String? get() = narrator?.takeIf { it.isNotBlank() }
 
     /** 0..1 through the book; finished counts as all of it. */
@@ -148,12 +155,19 @@ data class AudiobookInbox(
 
 @Serializable
 data class AudiobookInboxEntry(
-    val name: String = "",
-    @SerialName("size_bytes") val sizeBytes: Long? = null,
-    val status: String? = null,
-    val reason: String? = null,
-    @SerialName("modified_at") val modifiedAt: String? = null,
-)
+    @Serializable(with = LooseString::class) val name: String? = null,
+    @SerialName("size_bytes") @Serializable(with = LooseString::class) val sizeBytesRaw: String? = null,
+    @Serializable(with = LooseString::class) val status: String? = null,
+    /** A pending entry's state: settling | copying | downloading | seeding | … (any new one is kept as text). */
+    @Serializable(with = LooseString::class) val state: String? = null,
+    @Serializable(with = LooseString::class) val kind: String? = null,
+    @Serializable(with = LooseString::class) val note: String? = null,
+    @Serializable(with = LooseString::class) val reason: String? = null,
+    @SerialName("modified_at") @Serializable(with = LooseString::class) val modifiedAt: String? = null,
+    @SerialName("failed_at") @Serializable(with = LooseString::class) val failedAt: String? = null,
+) {
+    val sizeBytes: Long? get() = sizeBytesRaw?.trim()?.toDoubleOrNull()?.toLong()
+}
 
 object AudiobookSummaryList : LossyListSerializer<AudiobookSummary>(AudiobookSummary.serializer())
 object AudiobookPartList : LossyListSerializer<AudiobookPart>(AudiobookPart.serializer())

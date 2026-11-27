@@ -27,7 +27,7 @@ object Requests {
      */
     data class SearchMemory(
         val query: String = "",
-        val medium: Medium = Medium.NOVEL,
+        val medium: Medium = Medium.DEFAULT,
         val search: RequestSearch? = null,
         val startedAt: Long = 0L,
         val blockedUntil: Long? = null,
@@ -46,14 +46,123 @@ object Requests {
     /** Longest search query (the server's limit). */
     const val QUERY_MAX = 100
 
+    /** The last Discover shelf page a reader may open (RequestBrowse::MAX_PAGE). */
+    const val BROWSE_MAX_PAGE = 10
+
+    /** Longest pasted book link a book search takes (the server's limit). */
+    const val LINK_MAX = 2048
+
+    /**
+     * The media a reader can request, in the picker's order (the web's):
+     * Books first and the default. Wire values stay as the server has them
+     * ("novel" is shown as "Web Novels").
+     */
     enum class Medium(val wire: String, val title: String, val singular: String) {
-        NOVEL("novel", "Novels", "Novel"),
+        BOOK("book", "Books", "Book"),
+        NOVEL("novel", "Web Novels", "Web Novel"),
         MANGA("manga", "Manga", "Manga");
 
         companion object {
-            fun from(raw: String?): Medium = entries.firstOrNull { it.wire == raw } ?: NOVEL
+            /** The picker's default, and what an unreadable saved choice falls back to. */
+            val DEFAULT = BOOK
+
+            /** The medium [raw] names; null for none or one this app doesn't know. */
+            fun fromOrNull(raw: String?): Medium? = raw?.trim()?.lowercase()?.let { w -> entries.firstOrNull { it.wire == w } }
+
+            /** The medium [raw] names, else [fallback]. A known medium is never mislabelled. */
+            fun from(raw: String?, fallback: Medium = DEFAULT): Medium = fromOrNull(raw) ?: fallback
         }
     }
+
+    /**
+     * A request's medium as a label ("Book", "Web Novel", "Manga"); a medium
+     * this app doesn't know yet is shown by its own name, never as another.
+     */
+    fun mediumLabel(raw: String?): String =
+        Medium.fromOrNull(raw)?.singular ?: raw?.trim()?.takeIf { it.isNotEmpty() }?.replaceFirstChar { it.uppercase() }.orEmpty()
+
+    // The search field
+
+    /** The search field's placeholder for [medium]. */
+    fun placeholder(medium: Medium): String = when (medium) {
+        Medium.BOOK -> "Title, author, ISBN — or paste a Goodreads / Amazon link"
+        Medium.NOVEL -> "A web novel to request"
+        Medium.MANGA -> "A manga to request"
+    }
+
+    /** Hosts a book link may be pasted from (the server's BookLinkReader::HOSTS, loosely). */
+    private val BOOK_HOSTS = listOf(
+        Regex("^(www\\.|m\\.)?goodreads\\.com$"),
+        Regex("^(www\\.|smile\\.)?amazon\\.[a-z.]{2,7}$"),
+        Regex("^(www\\.)?audible\\.[a-z.]{2,7}$"),
+        Regex("^(www\\.)?hardcover\\.app$"),
+        Regex("^books\\.google\\.[a-z.]{2,7}$"),
+        Regex("^(www\\.)?openlibrary\\.org$"),
+    )
+    private val SCHEME = Regex("^[a-z][a-z0-9+.-]*://", RegexOption.IGNORE_CASE)
+    private val BARE_HOST = Regex("^([a-z0-9-]+(\\.[a-z0-9-]+)*\\.[a-z]{2,})(/\\S*)?$", RegexOption.IGNORE_CASE)
+
+    /**
+     * Whether [text] is a link rather than a title, as the server decides
+     * (BookLinkReader::looksLikeUrl): no spaces, and a scheme, or a "www." /
+     * book-site host. "Dr.Stone/Reboot" stays a title.
+     */
+    fun looksLikeUrl(text: String): Boolean {
+        val t = text.trim()
+        if (t.isEmpty() || t.any { it.isWhitespace() }) return false
+        if (SCHEME.containsMatchIn(t)) return true
+        val host = BARE_HOST.matchEntire(t)?.groupValues?.get(1)?.lowercase() ?: return false
+        return host.startsWith("www.") || BOOK_HOSTS.any { it.matches(host) }
+    }
+
+    /** Whether [text] is an ISBN-10 or ISBN-13 (hyphens and spaces allowed, an "ISBN" prefix too; no checksum). */
+    fun looksLikeIsbn(text: String): Boolean {
+        var raw = text.trim()
+        if (raw.startsWith("isbn", ignoreCase = true)) raw = raw.substring(4).trimStart(':', ' ')
+        if (raw.isEmpty() || raw.any { !(it.isDigit() || it == '-' || it == ' ' || it == 'X' || it == 'x') }) return false
+        val digits = raw.filter { it != '-' && it != ' ' }
+        return when (digits.length) {
+            10 -> digits.take(9).all(Char::isDigit) && (digits.last().isDigit() || digits.last() in "Xx")
+            13 -> digits.all(Char::isDigit) && (digits.startsWith("978") || digits.startsWith("979"))
+            else -> false
+        }
+    }
+
+    /** How long the field may get for [text]: a pasted link up to [LINK_MAX], anything else [QUERY_MAX]. */
+    fun queryLimit(text: String): Int = if (looksLikeUrl(text)) LINK_MAX else QUERY_MAX
+
+    /** The text a search sends: trimmed, spaces collapsed, cut to its limit. */
+    fun searchText(text: String): String {
+        val t = text.trim().replace(Regex("\\s+"), " ")
+        return t.take(queryLimit(t))
+    }
+
+    /** The muted line under the search field for what is typed; null when there is nothing to say. */
+    fun queryHint(medium: Medium, text: String): String? = when {
+        looksLikeUrl(text) && medium == Medium.BOOK -> "Novarr reads the book from this page (Goodreads, Amazon, Hardcover, Google Books or Open Library)."
+        looksLikeUrl(text) -> "Links work for books only. Switch to Books, or type a title."
+        looksLikeIsbn(text) && medium == Medium.BOOK -> "Searching by ISBN."
+        else -> null
+    }
+
+    /**
+     * "Scion #1", "Scion #1.5", or just "Scion"; null without a series.
+     * [index] as sent: "1", "1.0" and 1.0 all read as 1.
+     */
+    fun seriesLabel(series: String?, index: String?): String? {
+        val name = series?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val number = index?.trim()?.takeIf { it.isNotEmpty() }?.let { raw ->
+            raw.toDoubleOrNull()?.takeIf { it.isFinite() }?.let { if (it == Math.floor(it)) it.toLong().toString() else it.toString() } ?: raw
+        }
+        return if (number == null) name else "$name #$number"
+    }
+
+    /** A wanted book request's line: no ePub yet, the owner is looking for it. */
+    const val WANTED_LINE = "Waiting for the owner to find it"
+
+    /** Whether a request shows [WANTED_LINE]: a wanted book still open (pending or approved, not yet available). */
+    fun showsWanted(request: ReaderRequest): Boolean =
+        request.wanted && status(request).let { it == Status.PENDING || it == Status.APPROVED }
 
     /** The screen's three parts; a notification names the one to open. */
     enum class Section { SEARCH, MINE, REVIEW;

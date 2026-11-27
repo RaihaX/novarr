@@ -50,6 +50,30 @@ data class SearchResult(
     @SerialName("in_library") val inLibrary: Boolean = false,
     @SerialName("novel_id") val novelId: Int? = null,
     @Serializable(with = ResultRequestedOrNull::class) val requested: ResultRequested? = null,
+    /** A book read from a pasted link (or a catalogue entry) may name its series; absent otherwise. */
+    @Serializable(with = LooseString::class) val series: String? = null,
+    /** "1", 1 or 1.5 on the wire: kept as text ([studio.visns.novarr.domain.Requests.seriesLabel]). */
+    @SerialName("series_index") @Serializable(with = LooseString::class) val seriesIndex: String? = null,
+)
+
+/** One list of the Discover shelf: `id` is what browse and a browse request send. */
+@Serializable
+data class BrowseList(val id: String, val name: String = "")
+
+/**
+ * GET /requests/browse: a page of one list of the medium's shelf. [lists]
+ * empty (and [list] null) when the shelf has nothing to show. Results are
+ * shaped like a search's (what the library has is left out by the server).
+ */
+@Serializable
+data class BrowsePage(
+    val medium: String = "manga",
+    @Serializable(with = BrowseListList::class) val lists: List<BrowseList> = emptyList(),
+    @Serializable(with = LooseString::class) val list: String? = null,
+    @SerialName("source_name") @Serializable(with = LooseString::class) val sourceName: String? = null,
+    val page: Int = 1,
+    @SerialName("has_more") val hasMore: Boolean = false,
+    @Serializable(with = SearchResultList::class) val results: List<SearchResult> = emptyList(),
 )
 
 /** A source the search couldn't ask ("Couldn't reach: X, Y."). */
@@ -143,6 +167,8 @@ data class ReaderRequest(
     @Serializable(with = LooseString::class) val mine: String? = null,
     /** The admin view: who joined it. */
     @Serializable(with = RequesterList::class) val followers: List<Requester> = emptyList(),
+    /** A book asked for by title: no ePub yet, the owner finds one. Absent on older servers. */
+    @Serializable(with = LooseFlag::class) val wanted: Boolean = false,
 ) {
     val isManga: Boolean get() = medium == "manga"
 
@@ -201,6 +227,19 @@ data class NotificationFeed(
     @Serializable(with = FeedItemList::class) val items: List<FeedItem> = emptyList(),
 )
 
+/** "Send to my Kindle / email" (GET / POST /novels/{id}/send): status null (none yet) | queued | sending | sent | failed. */
+@Serializable
+data class SendState(
+    @Serializable(with = LooseString::class) val status: String? = null,
+    @Serializable(with = LooseString::class) val message: String? = null,
+    @Serializable(with = LooseString::class) val to: String? = null,
+)
+
+@Serializable
+data class SendEnvelope(@Serializable(with = SendStateOrNull::class) val send: SendState? = null)
+
+object SendStateOrNull : OrNullSerializer<SendState>(SendState.serializer())
+object BrowseListList : LossyListSerializer<BrowseList>(BrowseList.serializer())
 object ResultSourceList : LossyListSerializer<ResultSource>(ResultSource.serializer())
 object SearchResultList : LossyListSerializer<SearchResult>(SearchResult.serializer())
 object SkippedSourceList : LossyListSerializer<SkippedSource>(SkippedSource.serializer())
@@ -245,6 +284,19 @@ object LooseCount : KSerializer<Int> {
     }
 
     override fun serialize(encoder: Encoder, value: Int) = encoder.encodeInt(value)
+}
+
+/** true, "true", 1 or "1" as true; anything else (null, objects, unreadable) false. */
+object LooseFlag : KSerializer<Boolean> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("LooseFlag", PrimitiveKind.BOOLEAN)
+
+    override fun deserialize(decoder: Decoder): Boolean {
+        val json = decoder as? JsonDecoder ?: return decoder.decodeBoolean()
+        val content = (json.decodeJsonElement() as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content?.trim()?.lowercase()
+        return content == "true" || content == "1"
+    }
+
+    override fun serialize(encoder: Encoder, value: Boolean) = encoder.encodeBoolean(value)
 }
 
 /** A string, number or boolean as text; null for null, objects and arrays. */

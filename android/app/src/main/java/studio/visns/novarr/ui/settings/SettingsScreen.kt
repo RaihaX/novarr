@@ -170,7 +170,7 @@ fun SettingsScreen(nav: NavController) {
                 Note(
                     when {
                         volumeKeys == false -> "The volume keys change the volume, also in the reader. Page, arrow and space keys still turn pages."
-                        volumeKeys == null && !eink -> "In the Pages mode for novels; switch off and on again to use them in every reading mode. Page, arrow and space keys always turn pages."
+                        volumeKeys == null && !eink -> "In the Pages mode for web novels; switch off and on again to use them in every reading mode. Page, arrow and space keys always turn pages."
                         else -> "Volume down goes to the next page and volume up to the previous one, in every reading mode. Page, arrow and space keys always turn pages."
                     },
                 )

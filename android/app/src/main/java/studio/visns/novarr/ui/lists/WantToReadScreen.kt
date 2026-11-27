@@ -128,7 +128,7 @@ fun WantToReadScreen(nav: NavController) {
                     shown.isEmpty() -> item(span = full) {
                         EmptyState(
                             "Nothing to read next yet",
-                            "Open a novel, manga or book and tap the bookmark at the top: it waits here, and on Home, until you get to it.",
+                            "Open a book, web novel or manga and tap the bookmark at the top: it waits here, and on Home, until you get to it.",
                             Icons.Outlined.BookmarkBorder,
                         )
                     }

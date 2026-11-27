@@ -194,6 +194,42 @@ class ApiClient(
         return decode(RequestEnvelope.serializer(), execute(prepare("POST", "requests", body = body))).request
     }
 
+    /**
+     * A page of the Discover shelf: [list] null is the medium's first list.
+     * 502 `browse_unavailable`, 503 `browse_busy` (+ Retry-After), 422 a list
+     * the shelf doesn't offer. Never from the HTTP cache (the app keeps its own copy).
+     */
+    suspend fun requestBrowse(medium: String, list: String?, page: Int = 1): BrowsePage {
+        val query = buildMap {
+            put("medium", medium)
+            if (list != null) put("list", list)
+            put("page", page.toString())
+        }
+        return get("requests/browse", BrowsePage.serializer(), query = query, timeout = 45, fresh = true)
+    }
+
+    /** Requests a shelf result: the same answers as [createRequest] (201 new, 200 joined). */
+    suspend fun createRequestFromBrowse(medium: String, list: String, page: Int, key: String, note: String?): CreatedRequest {
+        val body = buildJsonObject {
+            put("list", list)
+            put("page", page)
+            put("key", key)
+            put("medium", medium)
+            note?.let { put("note", it) }
+        }
+        return decode(CreatedRequest.serializer(), execute(prepare("POST", "requests", body = body)))
+    }
+
+    // Send to my Kindle / email
+
+    /** The last send of this series ({status: null} when none). */
+    suspend fun sendState(novelId: Int): SendState =
+        get("novels/$novelId/send", SendEnvelope.serializer(), fresh = true).send ?: SendState()
+
+    /** Starts a send: 202 queued. 422 `no_address` (with `account_url`) / `manga`, 429 `too_many`. */
+    suspend fun startSend(novelId: Int): SendState =
+        decode(SendEnvelope.serializer(), execute(prepare("POST", "novels/$novelId/send", body = JsonObject(emptyMap())))).send ?: SendState(status = "queued")
+
     /** Cancels a pending request (204); for a request this account joined, leaves it (204). */
     suspend fun cancelRequest(id: Int) {
         execute(prepare("DELETE", "requests/$id"))

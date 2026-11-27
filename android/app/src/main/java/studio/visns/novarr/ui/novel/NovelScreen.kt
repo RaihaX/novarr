@@ -81,6 +81,15 @@ import studio.visns.novarr.api.ChapterListItem
 import studio.visns.novarr.api.NovelDetail
 import studio.visns.novarr.api.NovelSummary
 import studio.visns.novarr.domain.ReadingLists
+import studio.visns.novarr.domain.SendToKindle
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material3.OutlinedButton
 import studio.visns.novarr.domain.ListeningSync
@@ -195,6 +204,14 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                                     text = { Text("Check for new chapters") },
                                     enabled = novelId !in running,
                                     onClick = { menu = false; app.startCheck(novelId) },
+                                )
+                            }
+                            // The series' ePub by email (a manga has none).
+                            if (model.summary != null && !model.isManga) {
+                                DropdownMenuItem(
+                                    text = { Text(SendToKindle.MENU_LABEL) },
+                                    enabled = reachable && model.send !is SendToKindle.UiState.Running,
+                                    onClick = { menu = false; model.sendToKindle() },
                                 )
                             }
                             HorizontalDivider()
@@ -340,6 +357,7 @@ fun NovelScreen(nav: NavController, novelId: Int) {
             dismissButton = { TextButton(onClick = { confirmBulk = null }) { Text("Cancel") } },
         )
     }
+    model.send?.let { SendDialog(it, onDismiss = model::dismissSend) }
     if (confirmRemove) {
         AlertDialog(
             onDismissRequest = { confirmRemove = false },
@@ -353,6 +371,49 @@ fun NovelScreen(nav: NavController, novelId: Int) {
             dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } },
         )
     }
+}
+
+/** "Send to my Kindle / email": progress, then the server's message (or where to add an address). */
+@Composable
+private fun SendDialog(state: SendToKindle.UiState, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(SendToKindle.MENU_LABEL) },
+        text = {
+            when (state) {
+                is SendToKindle.UiState.Running -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+                ) {
+                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                    Text(state.to?.takeIf { it.isNotBlank() }?.let { "Sending to $it…" } ?: "Sending…")
+                }
+                is SendToKindle.UiState.Sent -> Text(state.message, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                is SendToKindle.UiState.Failed -> Text(state.message, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                is SendToKindle.UiState.NoAddress -> Text(state.message)
+                is SendToKindle.UiState.StillSending -> Text(state.message)
+            }
+        },
+        confirmButton = {
+            if (state is SendToKindle.UiState.NoAddress && state.accountUrl != null) {
+                TextButton(onClick = {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(state.accountUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    } catch (_: ActivityNotFoundException) {
+                        Toast.makeText(context, "No app can open this link.", Toast.LENGTH_SHORT).show()
+                    }
+                    onDismiss()
+                }) { Text("Open Account page") }
+            } else {
+                TextButton(onClick = onDismiss) { Text(if (state is SendToKindle.UiState.Running) "Hide" else "OK") }
+            }
+        },
+        dismissButton = if (state is SendToKindle.UiState.NoAddress && state.accountUrl != null) {
+            { TextButton(onClick = onDismiss) { Text("Not now") } }
+        } else null,
+    )
 }
 
 /** List items above the first chapter row (for "jump to first unread"). */

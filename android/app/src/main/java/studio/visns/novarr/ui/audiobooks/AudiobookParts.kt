@@ -40,6 +40,9 @@ fun AudiobookTile(item: AudiobookSummary, modifier: Modifier = Modifier, onClick
             }
         }
         Text(item.title, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        item.seriesLabel?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
         Text(
             caption(item),
             style = MaterialTheme.typography.labelSmall,
