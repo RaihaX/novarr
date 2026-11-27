@@ -104,6 +104,8 @@ class Novel extends Model
         'series_index' => 'float',
         // Books that are web novels (App\Books\WebNovelCheck).
         'webnovel_checked_at' => 'datetime',
+        'webfiction_checked_at' => 'datetime',
+        'webnovel_kept_at' => 'datetime',
         'converted_snapshot' => 'array',
         'alternative_titles' => 'array',
     ];

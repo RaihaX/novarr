@@ -86,7 +86,19 @@ class Epub
      *
      * @return array{title: ?string, authors: string[], description: ?string, language: ?string,
      *               isbn: ?string, subjects: string[], publisher: ?string, year: ?int,
-     *               series: ?string, series_index: ?float}
+     *               series: ?string, series_index: ?float, source_urls: string[],
+     *               producers: string[], identifiers: array<int, array{value: string, scheme: ?string, id: ?string}>}
+     *
+     * source_urls  where the text came from: every dc:source, and every
+     *              dc:identifier that is a URL (opf:scheme "URL" or an
+     *              http(s) value), as written ("http://storiesonline.net/s/68384").
+     * producers    the tool that made the file: dc:contributor with role
+     *              "bkp" (book producer: "FanFicFare [https://…]",
+     *              "calibre (7.1.0) [https://calibre-ebook.com]") and
+     *              <meta name="generator"> values.
+     * identifiers  every dc:identifier with its opf:scheme and id attribute
+     *              ("fanficfare-uid:storiesonline.net-u123-s68384", scheme
+     *              "WLC-SOL-ID"…). App\Books\WebFictionEvidence reads these.
      */
     public function metadata(): array
     {
@@ -138,6 +150,73 @@ class Epub
             'year' => $year,
             'series' => $series,
             'series_index' => $seriesIndex,
+        ] + $this->provenance();
+    }
+
+    /**
+     * Where the file came from: source_urls, producers and identifiers
+     * (see metadata()).
+     *
+     * @return array{source_urls: string[], producers: string[], identifiers: array<int, array{value: string, scheme: ?string, id: ?string}>}
+     */
+    private function provenance(): array
+    {
+        $opfNs = 'http://www.idpf.org/2007/opf';
+        $attr = fn(DOMElement $node, string $name): ?string => (trim($node->getAttributeNS($opfNs, $name) ?: $node->getAttribute("opf:{$name}") ?: $node->getAttribute($name)) ?: null);
+        $isUrl = fn(string $value): bool => (bool) preg_match('#^https?://[^\s/]+\.[^\s/]+#i', $value);
+
+        $sources = [];
+        foreach ($this->opf->query("//*[local-name()='metadata']/*[local-name()='source']") as $node) {
+            /** @var DOMElement $node */
+            $value = EpubHtml::squash($node->textContent);
+            if ($value !== '') {
+                $sources[] = $value;
+            }
+        }
+
+        $identifiers = [];
+        foreach ($this->opf->query("//*[local-name()='metadata']/*[local-name()='identifier']") as $node) {
+            /** @var DOMElement $node */
+            $value = EpubHtml::squash($node->textContent);
+            if ($value === '') {
+                continue;
+            }
+            $scheme = $attr($node, 'scheme');
+            $id = $node->getAttribute('id') ?: null;
+            $identifiers[] = ['value' => $value, 'scheme' => $scheme, 'id' => $id];
+            $url = preg_replace('/^url:/i', '', $value) ?? $value;
+            if (strcasecmp((string) $scheme, 'URL') === 0 || $isUrl($url)) {
+                $sources[] = $url;
+            }
+        }
+
+        $producers = [];
+        foreach ($this->opf->query("//*[local-name()='metadata']/*[local-name()='contributor']") as $node) {
+            /** @var DOMElement $node */
+            $name = EpubHtml::squash($node->textContent);
+            if ($name === '') {
+                continue;
+            }
+            $roles = array_filter([$attr($node, 'role')]);
+            if ($roles === [] && $node->hasAttribute('id')) {
+                $roles = $this->refinesAll($node->getAttribute('id'), 'role');
+            }
+            if (in_array('bkp', array_map('strtolower', $roles), true)) {
+                $producers[] = $name;
+            }
+        }
+        foreach ($this->opf->query("//*[local-name()='metadata']/*[local-name()='meta'][@name='generator']") as $node) {
+            /** @var DOMElement $node */
+            $content = EpubHtml::squash($node->getAttribute('content'));
+            if ($content !== '') {
+                $producers[] = $content;
+            }
+        }
+
+        return [
+            'source_urls' => array_values(array_unique($sources)),
+            'producers' => array_values(array_unique($producers)),
+            'identifiers' => $identifiers,
         ];
     }
 
