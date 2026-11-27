@@ -162,6 +162,11 @@ final class RouteAccess
         'api.v1.lists.destroy',
         'api.v1.lists.novels.add',
         'api.v1.lists.novels.remove',
+        // Own "Want to read" (the built-in reading list)
+        'want_to_read',
+        'api.v1.want_to_read',
+        'api.v1.novels.want_to_read.add',
+        'api.v1.novels.want_to_read.remove',
         // Reader requests: the page, search, request, cancel own, the notification feed
         'requests.index',
         'api.v1.requests.searches.store',

@@ -53,7 +53,7 @@ class Presenter
      * the caches the Library page uses (plus the resume map): a fixed number
      * of statements when cold, none when warm.
      *
-     * @return array{reading: array, totals: array, aggregates: array, attention: array<int, true>, resume: array<int, int>}
+     * @return array{reading: array, totals: array, aggregates: array, attention: array<int, true>, resume: array<int, int>, want_to_read: array<int, true>}
      */
     public static function context(): array
     {
@@ -66,6 +66,8 @@ class Presenter
             'aggregates' => NovelController::libraryAggregates($userId),
             'attention' => NovelHealth::attentionIds(),
             'resume' => static::resumeChapterIds($userId),
+            // The reader's "Want to read" ids (one statement, no list made).
+            'want_to_read' => \App\Services\ReadingLists::wantToReadIds($userId),
         ];
     }
 
@@ -106,7 +108,46 @@ class Presenter
             // null when none ('' = the owner's "no series" is none too).
             'series' => (string) $novel->series !== '' ? (string) $novel->series : null,
             'series_index' => (string) $novel->series !== '' && $novel->series_index !== null ? (float) $novel->series_index : null,
+            // On the reader's "Want to read" (the built-in reading list).
+            'want_to_read' => isset($context['want_to_read'][$id]),
         ];
+    }
+
+    /**
+     * The reader's "Want to read" of $medium (MEDIA), newest first, the
+     * first $limit (null: all): [{novel: summary, added_at, started}].
+     * started: the reader has read a chapter of it or has progress in one
+     * (it stays on the list either way). A fixed number of statements.
+     *
+     * @return list<array{novel: array, added_at: ?string, started: bool}>
+     */
+    public static function wantToReadItems(int $userId, string $medium, ?int $limit = null, ?array $context = null): array
+    {
+        return static::wantToReadShelf($userId, $medium, $limit, $context)['items'];
+    }
+
+    /** wantToReadItems() and how many there are of $medium in all. @return array{count:int, items:list<array>} */
+    public static function wantToReadShelf(int $userId, string $medium, ?int $limit = null, ?array $context = null): array
+    {
+        $shelf = \App\Services\ReadingLists::wantToReadItems($userId, $medium === 'all' ? null : static::mediaFor($medium), $limit);
+        if ($shelf['items'] === []) {
+            return $shelf;
+        }
+        $context ??= static::context();
+        $novels = static::loadNovels(array_column($shelf['items'], 'novel_id'));
+
+        $items = [];
+        foreach ($shelf['items'] as $item) {
+            if ($novel = $novels->get($item['novel_id'])) {
+                $items[] = [
+                    'novel' => static::summary($novel, $context),
+                    'added_at' => static::timestamp($item['added_at']),
+                    'started' => $item['started'],
+                ];
+            }
+        }
+
+        return ['count' => $shelf['count'], 'items' => $items];
     }
 
     /**

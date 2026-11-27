@@ -14,6 +14,14 @@ use Illuminate\Support\Facades\DB;
  *
  * The name is unique per reader on name_key (key()): trimmed, inner
  * whitespace collapsed, lowercased.
+ *
+ * kind: null for the reader's own lists; KIND_WANT_TO_READ for the built-in
+ * "Want to read" list (one per reader, made on first use by
+ * App\Services\ReadingLists::wantToRead()): always first, never renamed or
+ * deleted, outside MAX_LISTS, its series newest first. Its name_key is
+ * SYSTEM_KEY, which no typed name can produce (clean() turns control
+ * characters into spaces), so a reader's own list called "Want to read"
+ * from before never clashes with it.
  */
 class ReadingList extends Model
 {
@@ -31,7 +39,16 @@ class ReadingList extends Model
     /** The one-tap starters offered before a reader has any list. */
     public const STARTERS = ['Favourites', 'To read', 'Finished'];
 
-    protected $fillable = ['user_id', 'name', 'name_key'];
+    /** The built-in "Want to read" list (kind). */
+    public const KIND_WANT_TO_READ = 'want_to_read';
+
+    /** Its name, as shown everywhere. */
+    public const WANT_TO_READ_NAME = 'Want to read';
+
+    /** Its name_key: a control character no clean()ed name can hold. */
+    public const SYSTEM_KEY = "\x01want_to_read";
+
+    protected $fillable = ['user_id', 'name', 'name_key', 'kind'];
 
     protected $casts = [
         'user_id' => 'integer',
@@ -43,6 +60,12 @@ class ReadingList extends Model
         static::deleted(function (self $list) {
             DB::table(self::PIVOT)->where('reading_list_id', $list->id)->delete();
         });
+    }
+
+    /** The built-in "Want to read" list (fixed name, never renamed or deleted). */
+    public function isWantToRead(): bool
+    {
+        return $this->kind === self::KIND_WANT_TO_READ;
     }
 
     /** "  Summer   reads " → "Summer reads": the name as stored. */

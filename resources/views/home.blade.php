@@ -254,6 +254,46 @@
         </section>
     @endif
 
+    {{-- Want to read: the reader's shortlist (the built-in reading list),
+         newest first, up to HomeController::WANT_TO_READ_SHELF covers. --}}
+    @php $wtr = $want_to_read ?? ['count' => 0, 'items' => []]; @endphp
+    <section class="home-section" aria-labelledby="wantToReadTitle" id="want-to-read-section">
+        <div class="home-section-head">
+            <h2 class="home-section-title" id="wantToReadTitle">Want to read</h2>
+            @if($wtr['count'] > 0)
+                <a href="{{ route('want_to_read') }}" class="home-section-link">See all<span class="visually-hidden"> {{ number_format($wtr['count']) }} in Want to read</span></a>
+            @endif
+        </div>
+        @if(count($wtr['items']) === 0)
+            <p class="home-quiet">Shortlist what to read next: tap <strong>Want to read</strong> on a series’ page and it waits here.</p>
+        @else
+            <div class="home-shelf">
+                @foreach($wtr['items'] as $item)
+                    @php $n = $item['novel']; @endphp
+                    <a href="{{ route('novels.show', $n->id) }}" class="home-tile" aria-label="{{ $n->name }}{{ $item['started'] ? ', started' : '' }}">
+                        <div class="home-cover{{ $n->isManga() ? ' has-chip' : '' }}">
+                            @if($cover = $n->coverUrl('sm'))
+                                @php $cover2x = $n->coverThumbnailUrl('md'); @endphp
+                                <img src="{{ $cover }}"{!! $cover2x ? ' srcset="' . e($cover) . ' 1x, ' . e($cover2x) . ' 2x"' : '' !!} alt="" loading="lazy" decoding="async">
+                            @else
+                                <span class="home-cover-title">{{ $n->name }}</span>
+                            @endif
+                            @if($n->isManga())
+                                <span class="cover-chip">MANGA</span>
+                            @endif
+                        </div>
+                        <span class="home-tile-title">{{ $n->name }}</span>
+                        @if($item['started'])
+                            <span class="home-tile-meta"><span class="wtr-started">Started</span></span>
+                        @else
+                            <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : 'Novel') }}</span>
+                        @endif
+                    </a>
+                @endforeach
+            </div>
+        @endif
+    </section>
+
     {{-- New chapters: novels you are reading, then novels not started yet --}}
     <section class="home-section" aria-labelledby="newTitle" id="new-section">
         <div class="home-section-head">

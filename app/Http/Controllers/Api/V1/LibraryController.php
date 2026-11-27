@@ -153,6 +153,12 @@ class LibraryController extends Controller
             'chapters_queued' => (int) $context['totals']['queued'],
         ];
 
+        // The reader's "Want to read" shelf (newest first, this medium), and
+        // how many it holds in all (the shelf's "See all").
+        $wanted = Presenter::wantToReadShelf(app(ReadState::class)->userId(), $medium, \App\Http\Controllers\HomeController::WANT_TO_READ_SHELF, $context);
+        $out['want_to_read'] = $wanted['items'];
+        $out['want_to_read_count'] = $wanted['count'];
+
         return response()->json($out);
     }
 

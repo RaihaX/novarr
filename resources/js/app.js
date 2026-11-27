@@ -40,6 +40,10 @@ document.addEventListener('turbo:load', initNovelPage);
 import { initLists } from './lists';
 document.addEventListener('turbo:load', initLists);
 
+// "Want to read" toggles: the novel page's bookmark, the Want to read page's tiles; per visit.
+import { initWantToRead } from './want-to-read';
+document.addEventListener('turbo:load', initWantToRead);
+
 // Reader requests page (search, my requests, review); re-initialised per visit.
 import { initRequestsPage } from './requests';
 document.addEventListener('turbo:load', initRequestsPage);

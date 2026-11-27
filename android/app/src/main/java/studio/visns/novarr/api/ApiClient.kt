@@ -271,6 +271,10 @@ class ApiClient(
         return decode(ListEnvelope.serializer(), execute(prepare(method, "lists/$listId/novels/$novelId", body = if (add) JsonObject(emptyMap()) else null))).list
     }
 
+    /** The whole "Want to read", every medium, newest first, each with started. */
+    suspend fun wantToRead(): WantToReadEnvelope =
+        get("want-to-read", WantToReadEnvelope.serializer(), query = mapOf("medium" to "all"), fresh = true)
+
     // Books sent from the app ("Share to Novarr")
 
     /** One ePub to send: [open] is called each time OkHttp writes the part (again on a retried connection). */

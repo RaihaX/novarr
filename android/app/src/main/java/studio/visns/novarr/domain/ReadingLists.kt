@@ -3,6 +3,7 @@ package studio.visns.novarr.domain
 import java.util.Locale
 import studio.visns.novarr.api.NovelSummary
 import studio.visns.novarr.api.ReadingList
+import studio.visns.novarr.api.WantToReadItem
 
 /**
  * Reading lists as pure logic: name checks that mirror the server's limits
@@ -17,6 +18,15 @@ object ReadingLists {
 
     /** One-tap lists offered while the reader has none. */
     val STARTERS = listOf("Favourites", "To read", "Finished")
+
+    /** The built-in list's name (the server's App\ReadingList::WANT_TO_READ_NAME): reserved. */
+    const val WANT_TO_READ = "Want to read"
+
+    /** The reader's own lists: everything but the built-in "Want to read". */
+    fun own(lists: List<ReadingList>): List<ReadingList> = lists.filterNot { it.isWantToRead }
+
+    /** The built-in "Want to read", once the server sent it (an older server has none). */
+    fun wantToRead(lists: List<ReadingList>): ReadingList? = lists.firstOrNull { it.isWantToRead }
 
     // Names
 
@@ -36,16 +46,17 @@ object ReadingLists {
         if (cleaned.isEmpty()) return "Enter a name."
         if (length(cleaned) > NAME_MAX) return "Names can be up to $NAME_MAX characters."
         val key = fold(cleaned)
+        if (key == fold(WANT_TO_READ)) return "“$WANT_TO_READ” is already one of your lists."
         if (lists.any { it.id != renaming && fold(it.name) == key }) return "You already have a list called “$cleaned”."
-        if (renaming == null && lists.size >= MAX_LISTS) return "You can have up to $MAX_LISTS lists."
+        if (renaming == null && own(lists).size >= MAX_LISTS) return "You can have up to $MAX_LISTS lists."
         return null
     }
 
     /** The starters not already taken, so a tap can't hit a duplicate. */
     fun starters(lists: List<ReadingList>): List<String> =
-        STARTERS.filter { starter -> lists.none { fold(it.name) == fold(starter) } }
+        STARTERS.filter { starter -> own(lists).none { fold(it.name) == fold(starter) } }
 
-    private fun fold(name: String): String = clean(name).lowercase(Locale.ROOT)
+    private fun fold(name: String): String = clean(name).lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
 
     // Membership, optimistic
 
@@ -86,12 +97,15 @@ object ReadingLists {
     fun fail(state: State, toggle: Toggle): State =
         State(apply(state.lists, toggle.copy(add = !toggle.add)), state.inFlight - toggle)
 
-    /** Adds or removes a series in one list, keeping its count in step. */
+    /** Adds or removes a series in one list, keeping its count in step ("Want to read" is newest first: added at the front). */
     fun apply(lists: List<ReadingList>, toggle: Toggle): List<ReadingList> = lists.map { list ->
         if (list.id != toggle.listId) return@map list
         val has = toggle.novelId in list
         when {
-            toggle.add && !has -> list.copy(novelIds = list.novelIds + toggle.novelId, count = list.count + 1)
+            toggle.add && !has -> list.copy(
+                novelIds = if (list.isWantToRead) listOf(toggle.novelId) + list.novelIds else list.novelIds + toggle.novelId,
+                count = list.count + 1,
+            )
             !toggle.add && has -> list.copy(novelIds = list.novelIds - toggle.novelId, count = (list.count - 1).coerceAtLeast(0))
             else -> list
         }
@@ -101,9 +115,13 @@ object ReadingLists {
     fun replace(lists: List<ReadingList>, answer: ReadingList): List<ReadingList> =
         if (lists.any { it.id == answer.id }) lists.map { if (it.id == answer.id) answer else it } else lists + answer
 
-    /** In name order, as the sheets show them. */
+    /** "Want to read" first, then in name order, as the sheets show them. */
     fun sorted(lists: List<ReadingList>): List<ReadingList> =
-        lists.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it: ReadingList -> it.name }.thenBy { it.id })
+        lists.sortedWith(
+            compareBy<ReadingList> { !it.isWantToRead }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
+                .thenBy { it.id },
+        )
 
     /** The lists [novelId] is in. */
     fun containing(lists: List<ReadingList>, novelId: Int): List<ReadingList> = lists.filter { novelId in it }
@@ -138,6 +156,36 @@ object ReadingLists {
             else -> Empty.Filtered
         }
     }
+
+    // Want to read
+
+    /** Whether [novelId] is on "Want to read" (false while the list is unknown). */
+    fun isWanted(lists: List<ReadingList>, novelId: Int): Boolean = wantToRead(lists)?.let { novelId in it } ?: false
+
+    /**
+     * The server's items as shown, given the local copy of the list: a series
+     * taken off since (here or on another screen) goes at once; with no local
+     * copy, the server's items as they are.
+     */
+    fun shown(items: List<WantToReadItem>, list: ReadingList?): List<WantToReadItem> {
+        if (list == null) return items
+        val ids = list.novelIds.toSet()
+        return items.filter { it.novel.id in ids }
+    }
+
+    /**
+     * Whether the local list holds a series the server's items (its first
+     * [limit]) don't have yet — added since they were fetched, so they need
+     * fetching again to show it. Removals never need a fetch ([shown] hides them).
+     */
+    fun needsRefetch(items: List<WantToReadItem>, list: ReadingList?, limit: Int = Int.MAX_VALUE): Boolean {
+        if (list == null) return false
+        val have = items.map { it.novel.id }.toSet()
+        return list.novelIds.take(limit).any { it !in have }
+    }
+
+    /** "Started" under a cover: the server's word, or reading seen here since (a chapter read). */
+    fun started(item: WantToReadItem): Boolean = item.started || item.novel.chaptersRead > 0
 
     /** The remembered list choice, if that list still exists. */
     fun selected(lists: List<ReadingList>, listId: Int?): ReadingList? = listId?.let { id -> lists.firstOrNull { it.id == id } }

@@ -213,11 +213,20 @@
         {{-- Reading lists: the reader's own (every account; the owner when
              sign-in is off). A tick saves at once through /api/v1/lists…
              (resources/js/lists.js); with no lists yet, one-tap starters. --}}
+        {{-- Want to read: the reader's built-in list, one click (resources/js/want-to-read.js).
+             The label stays; aria-pressed (and the filled bookmark) says it is on the list. --}}
+        @php $wanted = (bool) ($want_to_read ?? false); @endphp
+        <button type="button" id="wantToReadBtn" class="btn btn-secondary btn-icon-label nv-want {{ $wanted ? 'is-wanted' : '' }}" data-want-to-read data-novel="{{ $data->id }}" data-name="{{ $data->name }}"
+                aria-pressed="{{ $wanted ? 'true' : 'false' }}" title="{{ $wanted ? 'On your Want to read list — click to remove it' : 'Add to your Want to read list' }}">
+            <x-icon name="bookmark" :size="14" />
+            <span>Want to read</span>
+        </button>
+        <p class="visually-hidden" data-want-status role="status" aria-live="polite"></p>
         @php $inLists = collect($reading_lists ?? [])->where('in', true)->count(); @endphp
         <div class="dropdown nv-lists" data-lists-menu data-novel="{{ $data->id }}">
             <button type="button" id="listsBtn" class="btn btn-secondary btn-icon-label {{ $inLists ? 'is-listed' : '' }}" data-lists-toggle data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-controls="listsMenu"
                     aria-label="{{ $inLists ? 'Lists, in ' . $inLists . ' ' . Str::plural('list', $inLists) : 'Lists' }}">
-                <x-icon name="bookmark" :size="14" />
+                <x-icon name="list" :size="14" />
                 <span>Lists</span>
                 <span class="lists-btn-count" data-lists-count @if(!$inLists) hidden @endif>{{ $inLists ?: '' }}</span>
                 <x-icon name="chevron-down" :size="14" class="icon caret" />

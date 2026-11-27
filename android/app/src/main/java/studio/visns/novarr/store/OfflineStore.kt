@@ -16,6 +16,7 @@ import studio.visns.novarr.api.NovelDetail
 import studio.visns.novarr.api.NovelSummary
 import studio.visns.novarr.api.ReadingList
 import studio.visns.novarr.api.ServerUrl
+import studio.visns.novarr.api.WantToReadEnvelope
 
 /**
  * On-disk cache for one (server, user): list responses as JSON plus chapter
@@ -23,7 +24,7 @@ import studio.visns.novarr.api.ServerUrl
  * dir) so the system never purges chapters the user downloaded on purpose.
  *
  * Layout under [root]:
- *   novels.json, home.json, lists.json, pending-writes.json
+ *   novels.json, home.json, lists.json, want-to-read.json, pending-writes.json
  *   novels/<id>/detail.json, novels/<id>/chapters.json, novels/<id>/highlights.json
  *   novels/<id>/content/<chapterId>.json          a text chapter
  *   novels/<id>/content/<chapterId>.manga/        a manga chapter: page images,
@@ -38,6 +39,9 @@ class OfflineStore(val root: File) {
 
             /** The reader's lists, saved with each library refresh so they show offline (read-only). */
             val lists = Key("lists.json", ListSerializer(ReadingList.serializer()))
+
+            /** The whole "Want to read" (its screen), so it shows offline too. */
+            val wantToRead = Key("want-to-read.json", WantToReadEnvelope.serializer())
             fun novel(id: Int) = Key("novels/$id/detail.json", NovelDetail.serializer())
             fun chapters(id: Int) = Key("novels/$id/chapters.json", ListSerializer(ChapterListItem.serializer()))
 

@@ -37,6 +37,8 @@ export function nameError(name, lists = [], exceptId = null) {
     if (clean === '') return 'Give the list a name.';
     if ([...clean].length > MAX_NAME) return `A list name can be up to ${MAX_NAME} characters.`;
     const key = clean.toLowerCase();
+    // The built-in list's name (App\ReadingList::WANT_TO_READ_NAME) is reserved.
+    if (key === 'want to read') return '“Want to read” is already one of your lists.';
     const taken = lists.some((l) => l.id !== exceptId && nameKey(l.name) === key);
     return taken ? `You already have a list called “${clean}”.` : null;
 }

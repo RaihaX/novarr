@@ -3,14 +3,75 @@
 // (resources/js/lists.js). Theme tokens only, so light and dark follow.
 // ===========================================================================
 
+// ---- Novel page: the Want to read button -----------------------------------
+// On the list (aria-pressed): the bookmark fills with the brand amber
+// (bookmarks only). resources/js/want-to-read.js.
+.nv-want {
+    > .icon { transition: color $transition, fill $transition; }
+
+    &[aria-pressed="true"] > .icon {
+        color: $brand-amber;
+        fill: $brand-amber;
+    }
+
+    &[aria-busy="true"] { cursor: progress; }
+}
+
+// ---- Want to read: Home's shelf and the page (want-to-read.blade.php) ------
+// Tiles are Home's (.home-tile); the page lays them out as a wrapping grid.
+.wtr-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: $s-6 $s-5;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.wtr-item {
+    display: flex;
+    flex-direction: column;
+    gap: $s-2;
+    min-width: 0;
+    transition: opacity $transition;
+
+    // Taken off on this page: dimmed, so a second click puts it back.
+    &.is-removed .home-tile { opacity: 0.45; }
+}
+
+.wtr-actions {
+    display: flex;
+    align-items: center;
+    gap: $s-2;
+
+    .btn { min-height: 32px; font-size: 12px; }
+}
+
+// "Started": the reader has begun it (it stays on the list).
+.wtr-started {
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    padding: 1px 6px;
+    @include status($accent);
+}
+
+.wtr-empty {
+    max-width: 52ch;
+    color: $text-muted;
+    font-size: 13px;
+
+    .icon { color: $brand-amber; vertical-align: -2px; }
+}
+
 // ---- Novel page: the Lists button and menu --------------------------------
 .nv-lists { display: inline-flex; }
 
 #listsBtn {
     .caret { opacity: 0.7; margin-left: -2px; }
 
-    // In at least one list: the bookmark takes the brand amber (bookmarks only).
-    &.is-listed > .icon:first-child { color: $brand-amber; }
+    // In at least one list: the icon takes the accent (amber is the
+    // Want to read bookmark's, next to it).
+    &.is-listed > .icon:first-child { color: $accent; }
 
     .lists-btn-count {
         font-family: $font-mono;

@@ -25,6 +25,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
 import androidx.compose.material.icons.automirrored.outlined.PlaylistAddCheck
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.DownloadDone
@@ -40,7 +42,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -74,6 +80,7 @@ import studio.visns.novarr.api.BulkReadRequest
 import studio.visns.novarr.api.ChapterListItem
 import studio.visns.novarr.api.NovelDetail
 import studio.visns.novarr.api.NovelSummary
+import studio.visns.novarr.domain.ReadingLists
 import studio.visns.novarr.ui.HighlightsRoute
 import studio.visns.novarr.ui.ReaderRoute
 import studio.visns.novarr.ui.components.isWide
@@ -111,7 +118,12 @@ fun NovelScreen(nav: NavController, novelId: Int) {
     var showLists by rememberSaveable { mutableStateOf(false) }
     val listsOffered by app.listsOffered.collectAsStateWithLifecycle()
     val listsState by app.lists.state.collectAsStateWithLifecycle()
-    val inAnyList = listsState.lists.any { novelId in it }
+    // The reader's own lists ("Want to read" has its own bookmark beside them).
+    val ownLists = ReadingLists.own(listsState.lists)
+    val inAnyList = ownLists.any { novelId in it }
+    val wantToRead = ReadingLists.wantToRead(listsState.lists)
+    val wanted = ReadingLists.isWanted(listsState.lists, novelId)
+    val snackbar = remember { SnackbarHostState() }
     // Opened from Home before Library ever loaded: the icon shows whether it is in a list.
     LaunchedEffect(listsOffered) { if (listsOffered && !app.lists.loaded.value) app.lists.refresh() }
     val wide = isWide()
@@ -134,12 +146,27 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                     IconButton(onClick = { nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
+                    // "Want to read": one tap, shown at once, undone (with a snackbar) on failure.
+                    // Only once the server sent the built-in list (an older server has none).
+                    if (listsOffered && wantToRead != null) {
+                        IconToggleButton(
+                            checked = wanted,
+                            onCheckedChange = { add -> scope.launch { app.lists.toggleWantToRead(novelId, add)?.let { snackbar.showSnackbar(it) } } },
+                            enabled = reachable && !listsState.busy(wantToRead.id, novelId),
+                        ) {
+                            Icon(
+                                if (wanted) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                                contentDescription = "Want to read",
+                                tint = if (wanted) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                            )
+                        }
+                    }
                     // Only on servers with reading lists (meta `lists`).
                     if (listsOffered) {
                         IconButton(onClick = { showLists = true }) {
                             Icon(
                                 if (inAnyList) Icons.AutoMirrored.Outlined.PlaylistAddCheck else Icons.AutoMirrored.Outlined.PlaylistAdd,
-                                contentDescription = if (inAnyList) "Lists (in ${listsState.lists.count { novelId in it }})" else "Lists",
+                                contentDescription = if (inAnyList) "Lists (in ${ownLists.count { novelId in it }})" else "Lists",
                             )
                         }
                     }
@@ -180,6 +207,7 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = model.refreshing,

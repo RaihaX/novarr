@@ -372,7 +372,7 @@ private fun LibraryEmpty(model: LibraryViewModel, list: ReadingList?) {
         )
         list != null && listReason == ReadingLists.Empty.NoSeries -> EmptyState(
             "“${list.name}” is empty",
-            "Open a series and tap Lists at the top to add it here.",
+            if (list.isWantToRead) "Open a series and tap the bookmark at the top to add it here." else "Open a series and tap Lists at the top to add it here.",
             Icons.AutoMirrored.Outlined.List,
         )
         list != null && listReason is ReadingLists.Empty.OtherShelf -> EmptyState(
