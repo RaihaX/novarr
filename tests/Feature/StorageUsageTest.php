@@ -245,7 +245,7 @@ class StorageUsageTest extends TestCase
         // Not counted again under "Other" or the manga pages.
         $this->assertSame(0, (int) collect($report['buckets'])->firstWhere('key', 'manga_pages')['bytes']);
 
-        $this->get(route('health.storage'))->assertOk()->assertSee('Web novels, manga and books')->assertSee('Book files');
+        $this->get(route('health.storage'))->assertOk()->assertSee('Web novels, manga, books and audiobooks')->assertSee('Book files');
     }
 
     public function test_missing_folders_measure_as_zero(): void
@@ -480,5 +480,346 @@ class StorageUsageTest extends TestCase
 
         // The page shows the warning.
         $this->get(route('health.storage'))->assertOk()->assertSee('Low space')->assertSee('data-low="1"', false);
+    }
+
+    // ---- audiobooks ----------------------------------------------------------------------------
+
+    private const MIB = 1048576;
+
+    /** The audiobook library on the big drive (inside the manga mount, as in production) and two inboxes. */
+    private function audioPlaces(): array
+    {
+        $places = [
+            'library' => $this->manga . '/novarr-audiobooks',
+            'ab_inbox' => $this->tmp . '/share/audiobooks-inbox',
+            'books_inbox' => $this->tmp . '/share/books-inbox',
+        ];
+        config([
+            'novarr.audiobooks.path' => $places['library'],
+            'novarr.audiobooks.inbox' => $places['ab_inbox'],
+            'novarr.books.download_inbox' => $places['books_inbox'],
+        ]);
+        File::makeDirectory($places['library'], 0755, true);
+
+        return $places;
+    }
+
+    /** An audiobook with files on disk: $parts = [[bytes, duration_ms], …]. */
+    private function audiobook(string $title, array $parts, ?Novel $novel = null, ?string $cover = null, ?string $narrator = null): \App\Audiobook
+    {
+        $audiobook = \App\Audiobook::create([
+            'novel_id' => $novel?->id, 'title' => $title, 'narrator' => $narrator, 'dir' => 'tmp',
+            'duration_ms' => array_sum(array_column($parts, 1)), 'size_bytes' => array_sum(array_column($parts, 0)),
+            'status' => $novel ? \App\Audiobook::STATUS_READY : \App\Audiobook::STATUS_UNMATCHED,
+            'fingerprint' => sha1($title), 'cover_path' => $cover,
+        ]);
+        $audiobook->forceFill(['dir' => (string) $audiobook->id])->save();
+        $start = 0;
+        foreach ($parts as $i => [$bytes, $ms]) {
+            $name = sprintf('part-%03d.m4b', $i + 1);
+            $this->putFile($audiobook->directory() . '/' . $name, $bytes);
+            \App\AudiobookPart::create(['audiobook_id' => $audiobook->id, 'idx' => $i, 'path' => $name, 'mime' => 'audio/mp4',
+                'duration_ms' => $ms, 'size_bytes' => $bytes, 'start_ms' => $start]);
+            $start += $ms;
+        }
+
+        return $audiobook;
+    }
+
+    private function audiobookRow(array $result, int $id): array
+    {
+        foreach ($result['rows'] as $row) {
+            if ($row['scope'] === StorageUsage::SCOPE_AUDIOBOOK && $row['key'] === (string) $id) {
+                return $row;
+            }
+        }
+        $this->fail("No audiobook row for {$id}");
+    }
+
+    /** Transmission's torrent list, faked (null = it cannot be asked). */
+    private function fakeTransmission(?array $names): void
+    {
+        config(['novarr.transmission.url' => 'http://transmission.test:9091']);
+        $this->app->instance(\App\Downloads\Transmission::class, new class($names) extends \App\Downloads\Transmission {
+            public function __construct(private ?array $names)
+            {
+            }
+
+            public function all(): array
+            {
+                if ($this->names === null) {
+                    throw new \App\Downloads\DownloadFailed('Transmission could not be reached. Is it running?');
+                }
+
+                return array_map(fn($n) => ['hashString' => sha1($n), 'name' => $n, 'downloadDir' => '/downloads/Audiobooks'], $this->names);
+            }
+        });
+    }
+
+    public function test_each_audiobook_is_measured_with_its_parts_and_cover(): void
+    {
+        $this->audioPlaces();
+        $book = $this->novel('Mistborn', Novel::MEDIUM_BOOK);
+        $this->putFile(GenerateePub::epubPath($book), 1000);
+        // Two parts (1 + 2 MiB), 30 minutes in all; a cover with both thumbnails.
+        $this->putFile("{$this->storage}/app/public/audiobook-covers/mb.jpg", 300);
+        $this->putFile("{$this->storage}/app/public/covers/sm/mb.jpg", 20);
+        $this->putFile("{$this->storage}/app/public/covers/md/mb.jpg", 30);
+        $audiobook = $this->audiobook('Mistborn (Unabridged)', [[self::MIB, 600_000], [2 * self::MIB, 1_200_000]], $book, 'audiobook-covers/mb.jpg', 'Michael Kramer');
+        // A removed standalone one: its file is still on disk, so it counts (flagged).
+        $gone = $this->audiobook('Old Rip', [[self::MIB, 3_600_000]]);
+        $gone->delete();
+        // A part whose file has gone: counted as missing, not as bytes.
+        $broken = $this->audiobook('Broken', [[self::MIB, 1_800_000]]);
+        @unlink($broken->directory() . '/part-001.m4b');
+
+        $usage = app(StorageUsage::class);
+        $result = $usage->measure();
+
+        $row = $this->audiobookRow($result, $audiobook->id);
+        $this->assertSame(StorageUsage::MEDIUM_AUDIOBOOK, $row['medium']);
+        $this->assertSame($book->id, $row['novel_id']);
+        $this->assertSame(3 * self::MIB + 350, $row['bytes']);
+        $this->assertSame(5, $row['files'], 'two parts + the cover and its two thumbnails');
+        $this->assertSame(2, $row['meta']['parts']);
+        $this->assertSame(3 * self::MIB, $row['meta']['parts_bytes']);
+        $this->assertSame(350, $row['meta']['cover_bytes']);
+        $this->assertSame(1_800_000, $row['meta']['duration_ms']);
+        $this->assertSame('Mistborn', $row['meta']['novel_name']);
+        $this->assertTrue($this->audiobookRow($result, $gone->id)['meta']['deleted']);
+        $this->assertSame(self::MIB, $this->audiobookRow($result, $gone->id)['bytes']);
+        $this->assertSame(1, $this->audiobookRow($result, $broken->id)['meta']['missing_parts']);
+        $this->assertSame(0, $this->audiobookRow($result, $broken->id)['bytes']);
+        // The library bucket is the folder (no cover: covers are on the public disk), not the manga pages.
+        $this->assertSame(4 * self::MIB, $this->bucket($result, 'audiobooks')['bytes']);
+        $this->assertSame(0, $this->bucket($result, 'manga_pages')['bytes']);
+
+        $usage->store($result);
+        $report = $usage->report();
+
+        // The Audiobooks medium: count, hours, MB per listening hour.
+        $audio = $report['mediums'][StorageUsage::MEDIUM_AUDIOBOOK];
+        $this->assertSame(3, $audio['series']);
+        $this->assertSame(4, $audio['chapters'], 'parts');
+        $this->assertSame(4 * self::MIB + 350, $audio['bytes']);
+        $this->assertSame(4 * self::MIB, $audio['content_bytes']);
+        $this->assertSame(350, $audio['cover_bytes']);
+        $this->assertSame(2.0, $audio['hours']); // 0.5 + 1 + 0.5 h
+        $this->assertSame(2.7, $audio['mb_per_hour']); // 4 MiB over 1.5 h (the broken one left out)
+        $this->assertSame(1, $audio['deleted']);
+        $this->assertSame(1, $audio['missing_parts']);
+        // Medium totals never count the audiobook twice: Books is the book alone.
+        $this->assertSame(1000, $report['mediums'][Novel::MEDIUM_BOOK]['bytes']);
+
+        // The Audiobooks tab: biggest first, the empty one left out.
+        $top = $report['top'][StorageUsage::MEDIUM_AUDIOBOOK];
+        $this->assertSame([$audiobook->id, $gone->id], array_column($top, 'audiobook_id'));
+        $this->assertSame('Michael Kramer', $top[0]['narrator']);
+        $this->assertSame(6.0, $top[0]['mb_per_hour']); // 3 MiB in half an hour
+        $this->assertSame(0.5, $top[0]['hours']);
+
+        // The book's figures carry its audiobook.
+        $series = StorageUsage::forSeries($book->id);
+        $this->assertSame(1000, $series['bytes']);
+        $this->assertSame(3 * self::MIB + 350, $series['audiobook_bytes']);
+        $this->assertSame(3 * self::MIB + 1350, $series['total_bytes']);
+
+        $page = $this->get(route('health.storage'))->assertOk();
+        $page->assertSee('Web novels, manga, books and audiobooks')
+            ->assertSee('data-medium="audiobook"', false)
+            ->assertSee('data-top="audiobook"', false)
+            ->assertSee('data-top-table="audiobook"', false)
+            ->assertSee('data-audiobook="' . $audiobook->id . '"', false)
+            ->assertSee('Michael Kramer')
+            ->assertSee('6.0 MB/h')
+            ->assertSee('2.7 MB/h')
+            ->assertSee('2.0 h of listening', false)
+            ->assertSee('standalone (no book)')
+            ->assertSee('1 part missing on disk')
+            ->assertSee('Audiobook library');
+
+        $this->get(route('novels.show', $book->id))->assertOk()
+            ->assertSee('3.0 MB')
+            ->assertSee('audiobook 3.0 MB');
+    }
+
+    public function test_a_book_and_its_audiobook_are_ranked_together_with_the_split_shown(): void
+    {
+        $this->audioPlaces();
+        // The novel's own files are bigger than the book's, but not than the book + its audiobook.
+        $novel = $this->novel('Big Text Novel');
+        $this->putFile(GenerateePub::epubPath($novel), 5000);
+        $book = $this->novel('Small Book', Novel::MEDIUM_BOOK);
+        $this->putFile(GenerateePub::epubPath($book), 1000);
+        $this->audiobook('Small Book Audio', [[6000, 60_000], [4000, 60_000]], $book);
+
+        $usage = app(StorageUsage::class);
+        $usage->store($usage->measure());
+        $report = $usage->report();
+
+        $this->assertSame([$book->id, $novel->id], array_column($report['top']['all'], 'novel_id'));
+        $this->assertSame(11000, $report['top']['all'][0]['total_bytes']);
+        $this->assertSame(1000, $report['top']['all'][0]['bytes']);
+        $this->assertSame(10000, $report['top']['all'][0]['audiobook_bytes']);
+        $this->assertSame([$book->id], array_column($report['top'][Novel::MEDIUM_BOOK], 'novel_id'));
+
+        $this->get(route('health.storage'))->assertOk()
+            ->assertSeeInOrder(['data-top-table="all"', 'data-series="' . $book->id . '"', 'data-series="' . $novel->id . '"'], false)
+            ->assertSee('audiobook 9.8 KB')
+            ->assertSee('10.7 KB')
+            ->assertSee('Book + audiobook');
+    }
+
+    public function test_uploads_and_download_inboxes_are_their_own_buckets_not_double_counted(): void
+    {
+        $places = $this->audioPlaces();
+        config(['novarr.storage.share_external' => true]); // the inboxes are the Unraid share
+        $this->audiobook('In The Library', [[1000, 60_000]]);
+        // Part 1's uploads waiting for the owner: inside the library folder, not the library.
+        $this->putFile("{$places['library']}/_uploads/7/files/0.part", 400);
+        // The inboxes: a torrent still seeding, a usenet download, an unreadable file, an ebook torrent.
+        $this->putFile("{$places['ab_inbox']}/Torrent Book/part1.mp3", 1500);
+        $this->putFile("{$places['ab_inbox']}/Torrent Book/part2.mp3", 500);
+        $this->putFile("{$places['ab_inbox']}/Usenet Book.m4b", 700);
+        $this->putFile("{$places['ab_inbox']}/_failed/bad.mp3", 50);
+        $this->putFile("{$places['books_inbox']}/Some Ebook.epub", 300);
+        $this->fakeTransmission(['Torrent Book', ' some ebook.epub ', 'Elsewhere']);
+
+        $usage = app(StorageUsage::class);
+        $result = $usage->measure();
+
+        $this->assertSame(1000, $this->bucket($result, 'audiobooks')['bytes'], 'the uploads are not in the library');
+        $this->assertSame(1, $this->bucket($result, 'audiobooks')['files']);
+        $this->assertSame(400, $this->bucket($result, 'audiobook_uploads')['bytes']);
+        $this->assertSame(0, $this->bucket($result, 'manga_pages')['bytes'], 'nor in the manga pages');
+        $inboxes = $this->bucket($result, 'download_inboxes');
+        $this->assertSame(1500 + 500 + 700 + 50 + 300, $inboxes['bytes']);
+        $this->assertSame(5, $inboxes['files']);
+        $this->assertTrue($inboxes['meta']['external']);
+        $this->assertFalse($inboxes['meta']['partial']);
+        $this->assertSame('ok', $inboxes['meta']['seeding']['status']);
+        $this->assertSame(2000 + 300, $inboxes['meta']['seeding']['bytes']);
+        $this->assertSame(2, $inboxes['meta']['seeding']['entries']);
+
+        $usage->store($result);
+        $report = $usage->report();
+        // Out of Novarr's buckets and total, in the share's list.
+        $this->assertNotContains('download_inboxes', array_column($report['buckets'], 'key'));
+        $this->assertSame(['download_inboxes'], array_column($report['share_buckets'], 'key'));
+        $this->assertContains('audiobook_uploads', array_column($report['buckets'], 'key'));
+
+        $this->get(route('health.storage'))->assertOk()
+            ->assertSee('id="storageShare"', false)
+            ->assertSee('data-bucket="audiobook_uploads"', false)
+            ->assertSee('Audiobook uploads waiting')
+            ->assertSee('kept for seeding')
+            ->assertSee('2.2 KB')                // the seeding part
+            ->assertSee('On the Unraid Download share (NFS)', false)
+            ->assertSeeInOrder(['id="storageBuckets"', 'Where it goes', 'id="storageShare"', 'data-bucket="download_inboxes"'], false);
+
+        // The same inboxes on Novarr's own disk (as in development): a normal bucket, counted.
+        config(['novarr.storage.share_external' => false]);
+        $usage->store($usage->measure());
+        $this->assertContains('download_inboxes', array_column($usage->report()['buckets'], 'key'));
+        $this->assertSame([], $usage->report()['share_buckets']);
+    }
+
+    public function test_the_seeding_share_is_unknown_when_transmission_cannot_be_asked(): void
+    {
+        $places = $this->audioPlaces();
+        $this->putFile("{$places['ab_inbox']}/Torrent Book.m4b", 900);
+        $this->fakeTransmission(null);
+
+        $usage = app(StorageUsage::class);
+        $result = $usage->measure();
+        $seeding = $this->bucket($result, 'download_inboxes')['meta']['seeding'];
+
+        $this->assertSame('unknown', $seeding['status']);
+        $this->assertSame(0, $seeding['bytes']);
+        $this->assertSame(900, $this->bucket($result, 'download_inboxes')['bytes'], 'still measured');
+
+        $usage->store($result);
+        $this->get(route('health.storage'))->assertOk()
+            ->assertSee('data-seeding="unknown"', false)
+            ->assertSee('Seeding share unknown');
+    }
+
+    public function test_the_inbox_walk_is_time_boxed(): void
+    {
+        $places = $this->audioPlaces();
+        $this->putFile("{$places['ab_inbox']}/A.m4b", 100);
+        $this->putFile("{$places['ab_inbox']}/B/b.mp3", 100);
+
+        // A deadline already passed: nothing counted, marked partial.
+        $walk = app(StorageUsage::class)->walk($places['ab_inbox'], [], microtime(true) - 1);
+        $this->assertTrue($walk['partial']);
+        $this->assertSame(0, $walk['files']);
+        $this->assertFalse(app(StorageUsage::class)->walk($places['ab_inbox'])['partial']);
+
+        config(['novarr.storage.share_walk_seconds' => 0]);
+        $usage = app(StorageUsage::class);
+        $usage->store($usage->measure());
+        $bucket = collect($usage->report()['share_buckets'] ?: $usage->report()['buckets'])->firstWhere('key', 'download_inboxes');
+
+        $this->assertTrue($bucket['meta']['partial']);
+        $this->get(route('health.storage'))->assertOk()->assertSee('data-partial="1"', false)->assertSee('Partial:');
+    }
+
+    public function test_the_unraid_share_has_its_own_disk_line_and_is_in_the_low_space_alert(): void
+    {
+        $places = $this->audioPlaces();
+        File::makeDirectory($places['ab_inbox'], 0755, true);
+        File::makeDirectory($places['books_inbox'], 0755, true);
+        config(['novarr.storage.share_external' => true]);
+
+        $volumes = app(StorageUsage::class)->volumes();
+        $shares = array_values(array_filter($volumes, fn($v) => !empty($v['meta']['share'])));
+        $this->assertCount(1, $shares, 'both inboxes on the same share: one line');
+        $this->assertSame(StorageUsage::SHARE_LABEL, $shares[0]['meta']['title']);
+        $this->assertSame([$places['ab_inbox'], $places['books_inbox']], $shares[0]['meta']['paths']);
+        $this->assertGreaterThan(0, $shares[0]['meta']['total']);
+        $this->assertNotNull($shares[0]['meta']['free']);
+        // Novarr's own disks do not name the inboxes.
+        foreach (array_filter($volumes, fn($v) => empty($v['meta']['share'])) as $v) {
+            $this->assertNotContains('Download inboxes', $v['meta']['labels']);
+        }
+
+        // Low on the share: the owner is told about it.
+        $alert = $this->captureAlerts();
+        config(['novarr.storage.low_free_percent' => 100]);
+        $this->artisan('storage:measure')->assertExitCode(0);
+        $this->assertCount(1, $alert->sent);
+        $this->assertStringContainsString(StorageUsage::SHARE_LABEL . ' has', $alert->sent[0]['message']);
+        $this->assertContains(StorageUsage::SHARE_LABEL, array_column($alert->sent[0]['mail']['items'], 'title'));
+        $this->assertStringContainsString('downloads fail', $alert->sent[0]['mail']['intro']);
+
+        $this->get(route('health.storage'))->assertOk()
+            ->assertSee('data-share="1"', false)
+            ->assertSee('Unraid Download share')
+            ->assertSee('not one of Novarr\'s disks', false);
+    }
+
+    public function test_an_unmounted_share_is_told_and_never_low(): void
+    {
+        $this->audioPlaces(); // the inbox folders do not exist (the NFS mount is not there)
+        config(['novarr.storage.low_free_percent' => 100]);
+
+        $shares = array_values(array_filter(app(StorageUsage::class)->volumes(), fn($v) => !empty($v['meta']['share'])));
+
+        $this->assertCount(1, $shares);
+        $this->assertTrue($shares[0]['meta']['missing']);
+        $this->assertFalse($shares[0]['meta']['low']);
+        $this->assertNull($shares[0]['meta']['total']);
+
+        $this->artisan('storage:measure')->assertExitCode(0);
+        $this->get(route('health.storage'))->assertOk()->assertSee('Not mounted');
+    }
+
+    public function test_the_big_drive_is_named_by_what_is_on_it(): void
+    {
+        $this->assertSame('Big drive: manga, audiobooks, Calibre books, backups',
+            StorageUsage::volumeTitle(['Manga pages', 'Audiobooks', 'Calibre books', 'Backups']));
+        $this->assertSame('App storage + Manga pages', StorageUsage::volumeTitle(['App storage', 'Manga pages']));
+        $this->assertSame('Backups', StorageUsage::volumeTitle(['Backups']));
     }
 }

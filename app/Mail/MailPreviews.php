@@ -124,7 +124,8 @@ final class MailPreviews
             }),
             'alert-storage' => $p('Owner alerts', 'Health: disk space low', function () {
                 $low = [
-                    ['labels' => ['Library', 'Covers'], 'free' => 7.5 * 1024 ** 3, 'total' => 500 * 1024 ** 3, 'free_percent' => 1.5],
+                    ['labels' => ['Manga pages', 'Audiobooks', 'Backups'], 'title' => 'Big drive: manga, audiobooks, backups', 'free' => 7.5 * 1024 ** 3, 'total' => 500 * 1024 ** 3, 'free_percent' => 1.5],
+                    ['labels' => [\App\Services\StorageUsage::SHARE_LABEL], 'title' => \App\Services\StorageUsage::SHARE_LABEL, 'share' => true, 'free' => 120 * 1024 ** 3, 'total' => 12 * 1024 ** 4, 'free_percent' => 1.0],
                 ];
                 [$subject, $message] = MeasureStorage::message($low);
 

@@ -746,8 +746,8 @@
             <div class="qa-label">Storage</div>
             <p class="text-muted mb-0">
                 @if($storage)
-                    <strong class="mono-figure">{{ \App\Support\Bytes::human($storage['bytes']) }}</strong>
-                    ({{ $storage['pages_bytes'] > 0 ? 'pages ' . \App\Support\Bytes::human($storage['pages_bytes']) . ', ' : '' }}{{ $storage['text_bytes'] > 0 ? 'text ' . ($storage['text_estimated'] ? '≈ ' : '') . \App\Support\Bytes::human($storage['text_bytes']) . ', ' : '' }}cover {{ \App\Support\Bytes::human($storage['cover_bytes']) }}, ePub {{ \App\Support\Bytes::human($storage['epub_bytes']) }})
+                    <strong class="mono-figure">{{ \App\Support\Bytes::human($storage['total_bytes']) }}</strong>
+                    ({{ $storage['pages_bytes'] > 0 ? 'pages ' . \App\Support\Bytes::human($storage['pages_bytes']) . ', ' : '' }}{{ $storage['text_bytes'] > 0 ? 'text ' . ($storage['text_estimated'] ? '≈ ' : '') . \App\Support\Bytes::human($storage['text_bytes']) . ', ' : '' }}cover {{ \App\Support\Bytes::human($storage['cover_bytes']) }}, ePub {{ \App\Support\Bytes::human($storage['epub_bytes']) }}{{ $storage['audiobook_bytes'] > 0 ? ', audiobook ' . \App\Support\Bytes::human($storage['audiobook_bytes']) : '' }})
                     · measured {{ $storage['measured_at']?->diffForHumans() }}
                 @else
                     Not measured yet.

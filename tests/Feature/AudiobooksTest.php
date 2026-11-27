@@ -860,7 +860,7 @@ class AudiobooksTest extends TestCase
         $usage->store($usage->measure());
         $bucket = collect($usage->report()['buckets'])->firstWhere('key', 'audiobooks');
 
-        $this->assertSame('Audiobooks', $bucket['label']);
+        $this->assertSame('Audiobook library', $bucket['label']);
         $this->assertSame($size, $bucket['bytes']);
         $this->assertSame(1, $bucket['files']);
     }
