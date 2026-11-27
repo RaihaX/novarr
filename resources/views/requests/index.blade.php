@@ -4,10 +4,11 @@
     Reader requests (RequestsPageController). The page is a frame: every list
     and action goes through the JSON API (/api/v1/requests…) from
     resources/js/requests.js, with the session cookie. Three areas:
-      A. find something to request (a search across every source of a medium),
-         and under it the Discover manga shelf (popular / new / top-rated
-         lists, hidden until the browse call answers with lists)
-      B. my requests
+      A. find something to request (a search across every source of a medium;
+         the picker starts on Books, or the reader's last choice), and under
+         it the Discover shelf of that medium (popular / new / … lists,
+         hidden until the browse call answers with lists)
+      B. my requests (compact rows, filtered by state, ten at a time)
       C. requests to review — only when the list call answers can_decide
          (the admin, at home); the admin on the public address gets an
          explanation instead.
@@ -24,7 +25,7 @@
     <div class="page-head-titles">
         <span class="page-head-kicker">Requests</span>
         <h1 class="page-title mb-0">Request a series</h1>
-        <p class="page-head-sub mb-0">Ask for a novel or manga that isn’t in the library yet, or send a book you have as an ePub. The owner decides; you’ll see here when it’s ready to read.</p>
+        <p class="page-head-sub mb-0">Ask for a book, novel or manga that isn’t in the library yet, or send a book you have as an ePub. The owner decides; you’ll see here when it’s ready to read.</p>
     </div>
     <div class="page-head-actions">
         <a href="{{ route('books.upload') }}" class="btn btn-secondary" id="reqUploadBook">Upload a book</a>
@@ -53,7 +54,7 @@
     <p id="reqReviewStatus" class="library-status req-status" role="status" aria-live="polite"></p>
     <ul id="reqReviewList" class="req-list" role="list" aria-labelledby="reqReviewTitle"></ul>
     <div class="req-more" hidden id="reqReviewMoreWrap">
-        <button type="button" class="btn btn-secondary" id="reqReviewMore">Load more</button>
+        <button type="button" class="btn btn-secondary" id="reqReviewMore">Show more</button>
     </div>
 </section>
 
@@ -66,9 +67,9 @@
         <input type="search" id="reqQuery" name="q" class="form-control req-query" maxlength="100" autocomplete="off"
                placeholder="Title or author" aria-label="Title or author to search for" enterkeyhint="search">
         <div class="btn-group segmented" role="group" aria-label="Kind" id="reqMedium">
-            <button type="button" class="btn btn-secondary active" data-medium="novel" aria-pressed="true">Novels</button>
+            <button type="button" class="btn btn-secondary active" data-medium="book" aria-pressed="true">Books</button>
+            <button type="button" class="btn btn-secondary" data-medium="novel" aria-pressed="false">Novels</button>
             <button type="button" class="btn btn-secondary" data-medium="manga" aria-pressed="false">Manga</button>
-            <button type="button" class="btn btn-secondary" data-medium="book" aria-pressed="false">Books</button>
         </div>
         <button type="submit" class="btn btn-primary" id="reqSearchBtn">Search</button>
     </form>
@@ -83,11 +84,11 @@
     <p id="reqSkipped" class="req-muted-line" hidden></p>
 </section>
 
-{{-- A2. Discover manga: a shelf of popular lists (GET /api/v1/requests/browse).
+{{-- A2. Discover: a shelf of the picked medium's lists (GET /api/v1/requests/browse?medium=).
      Hidden until the call answers with at least one list. --}}
 <section class="req-section req-discover" id="reqDiscover" aria-labelledby="reqDiscoverTitle" hidden>
     <div class="req-section-head">
-        <h2 class="req-section-title" id="reqDiscoverTitle">Discover manga</h2>
+        <h2 class="req-section-title" id="reqDiscoverTitle">Discover <span id="reqDiscoverNoun">books</span></h2>
         {{-- One button per list, built from the answer's `lists`; left out with one list. --}}
         <div class="btn-group segmented req-discover-tabs" role="group" aria-label="Lists" id="reqDiscoverTabs" hidden></div>
     </div>
@@ -109,7 +110,7 @@
         <span class="req-discover-error-text"></span>
         <button type="button" class="btn btn-sm btn-secondary" id="reqDiscoverRetry">Retry</button>
     </div>
-    <ul id="reqRail" class="req-rail" role="list" aria-label="Manga to request"></ul>
+    <ul id="reqRail" class="req-rail" role="list" aria-label="Books to request"></ul>
 </section>
 
 {{-- B. My requests --}}
@@ -118,10 +119,13 @@
         <h2 class="req-section-title" id="reqMineTitle">My requests</h2>
         <span class="req-section-note" id="reqPendingUsed" aria-live="polite"></span>
     </div>
+    {{-- By state, with counts (built by requests.js once the list is loaded). --}}
+    <div class="btn-group segmented req-mine-filters" role="group" aria-label="Show requests" id="reqMineFilters" hidden></div>
     <p id="reqMineStatus" class="library-status req-status" role="status" aria-live="polite">Loading…</p>
-    <ul id="reqMine" class="req-list" role="list" aria-labelledby="reqMineTitle"></ul>
+    <ul id="reqMine" class="req-list req-list-compact" role="list" aria-labelledby="reqMineTitle"></ul>
     <div class="req-more" hidden id="reqMineMoreWrap">
-        <button type="button" class="btn btn-secondary" id="reqMineMore">Load more</button>
+        <button type="button" class="btn btn-secondary" id="reqMineMore">Show more</button>
+        <button type="button" class="btn btn-ghost" id="reqMineOlder" hidden>Show older</button>
     </div>
 </section>
 
@@ -225,9 +229,9 @@
                 <fieldset class="mb-3">
                     <legend class="form-label">Kind</legend>
                     <div class="req-radio-row">
-                        <label class="req-radio"><input type="radio" name="medium" value="novel" checked> Novel</label>
+                        <label class="req-radio"><input type="radio" name="medium" value="book" checked> Book</label>
+                        <label class="req-radio"><input type="radio" name="medium" value="novel"> Novel</label>
                         <label class="req-radio"><input type="radio" name="medium" value="manga"> Manga</label>
-                        <label class="req-radio"><input type="radio" name="medium" value="book"> Book</label>
                     </div>
                 </fieldset>
                 <div class="mb-3">

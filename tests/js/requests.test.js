@@ -8,6 +8,9 @@ import {
     isFollower, mineAction, alsoWantedLine, requestedAfterLeaving,
     browseUrl, browseState, browseLoadingLine, shelfMetaLine, newResults, requestBody,
     SLOW_AFTER_MS, DEFAULT_RETRY_SECONDS, MAX_RETRY_SECONDS, BROWSE_SLOW_AFTER_MS,
+    MEDIA, initialMedium, mediumNoun,
+    MINE_PAGE, MINE_STALE_DAYS, MINE_FILTERS, mineGroup, inMineFilter, mineCounts, defaultMineFilter,
+    mineFilterLabel, isStale, mineView, mineEmptyLine,
 } from '../../resources/js/requests-logic.js';
 
 const NOW = Date.parse('2026-11-19T12:00:00Z');
@@ -241,4 +244,98 @@ test('the request body follows where the card came from', () => {
     assert.deepEqual(requestBody({ type: 'shelf', list: 'top', page: 2 }, 'k2'), { list: 'top', page: 2, key: 'k2' });
     assert.deepEqual(requestBody({ type: 'shelf', list: 'top', page: 3 }, 'k2', 'hi'), { list: 'top', page: 3, key: 'k2', note: 'hi' });
     assert.deepEqual(requestBody({ type: 'shelf', list: 'popular' }, 'k3', '   '), { list: 'popular', page: 1, key: 'k3' }, 'blank note left out');
+});
+
+test('the shelf asks for the picked medium, and a shelf request names it', () => {
+    assert.equal(browseUrl({ medium: 'book' }), '/api/v1/requests/browse?medium=book');
+    assert.equal(browseUrl({ medium: 'novel', list: 'new', page: 2 }), '/api/v1/requests/browse?medium=novel&list=new&page=2');
+    assert.equal(browseUrl({ medium: '' }), '/api/v1/requests/browse');
+    assert.deepEqual(requestBody({ type: 'shelf', medium: 'book', list: 'classics', page: 1 }, 'k'), { medium: 'book', list: 'classics', page: 1, key: 'k' });
+});
+
+test('the medium picker starts on books unless the reader chose another', () => {
+    assert.deepEqual(MEDIA, ['book', 'novel', 'manga']);
+    assert.equal(initialMedium(null), 'book');
+    assert.equal(initialMedium('manga'), 'manga');
+    assert.equal(initialMedium('novel'), 'novel');
+    assert.equal(initialMedium('audiobook'), 'book', 'an unknown stored value');
+    assert.equal(mediumNoun('book'), 'books');
+    assert.equal(mediumNoun('manga'), 'manga');
+    assert.equal(mediumNoun('x'), 'series');
+});
+
+const DAY = 86_400_000;
+const ago = (days) => new Date(NOW - days * DAY).toISOString();
+const MINE = [
+    { id: 1, status: 'pending', created_at: ago(1) },
+    { id: 2, status: 'approved', created_at: ago(2), decided_at: ago(1) },
+    { id: 3, status: 'available', created_at: ago(5), decided_at: ago(4), available_at: ago(3) },
+    { id: 4, status: 'available', created_at: ago(90), decided_at: ago(80), available_at: ago(40) },
+    { id: 5, status: 'declined', created_at: ago(60), decided_at: ago(45) },
+    { id: 6, status: 'declined', created_at: ago(3), decided_at: ago(2) },
+    { id: 7, status: 'pending', created_at: ago(70) },
+];
+
+test('my requests group by state with counts', () => {
+    assert.deepEqual(MINE.map(mineGroup), ['waiting', 'approved', 'ready', 'ready', 'declined', 'declined', 'waiting']);
+    assert.equal(mineGroup({ status: 'weird' }), 'other');
+    assert.equal(mineGroup(null), 'other');
+    assert.deepEqual(mineCounts(MINE), { active: 3, waiting: 2, approved: 1, ready: 2, declined: 2, all: 7 });
+    assert.deepEqual(mineCounts(null), { active: 0, waiting: 0, approved: 0, ready: 0, declined: 0, all: 0 });
+    assert.ok(inMineFilter(MINE[1], 'active'));
+    assert.ok(!inMineFilter(MINE[2], 'active'));
+    assert.ok(inMineFilter(MINE[2], 'ready'));
+    assert.ok(inMineFilter(MINE[4], 'declined'));
+    assert.ok(inMineFilter(MINE[4], 'all'));
+    assert.deepEqual(MINE_FILTERS.map((f) => f.id), ['active', 'ready', 'declined', 'all']);
+});
+
+test('the filter opens on what needs attention', () => {
+    assert.equal(defaultMineFilter(mineCounts(MINE)), 'active');
+    assert.equal(defaultMineFilter(mineCounts([MINE[2], MINE[4]])), 'ready');
+    assert.equal(defaultMineFilter(mineCounts([MINE[4]])), 'all');
+    assert.equal(defaultMineFilter(mineCounts([])), 'all');
+    assert.equal(mineFilterLabel('active', mineCounts(MINE)), 'In progress (3)');
+    assert.equal(mineFilterLabel('all', mineCounts(MINE), true), 'All (7+)');
+    assert.equal(mineFilterLabel('declined', mineCounts([MINE[0]]), true), 'Declined', 'no count at 0');
+});
+
+test('ready and declined requests settled over a month ago are older', () => {
+    assert.equal(MINE_STALE_DAYS, 30);
+    assert.deepEqual(MINE.map((r) => isStale(r, NOW)), [false, false, false, true, true, false, false], 'an old pending one is never older');
+    // Ready: by available_at first.
+    assert.equal(isStale({ status: 'available', decided_at: ago(60), available_at: ago(10) }, NOW), false);
+    assert.equal(isStale({ status: 'declined' }, NOW), false, 'no dates');
+});
+
+test('the view shows ten at a time and keeps older ones behind All', () => {
+    assert.equal(MINE_PAGE, 10);
+    const active = mineView(MINE, 'active', { now: NOW });
+    assert.deepEqual(active.items.map((r) => r.id), [1, 2, 7]);
+    assert.equal(active.older, 0);
+    assert.equal(active.more, false);
+    // Ready / Declined show every one of theirs, old too.
+    assert.deepEqual(mineView(MINE, 'ready', { now: NOW }).items.map((r) => r.id), [3, 4]);
+    assert.deepEqual(mineView(MINE, 'declined', { now: NOW }).items.map((r) => r.id), [5, 6]);
+    // All: the older ones collapsed, until asked for.
+    const all = mineView(MINE, 'all', { now: NOW });
+    assert.deepEqual(all.items.map((r) => r.id), [1, 2, 3, 6, 7]);
+    assert.equal(all.older, 2);
+    assert.deepEqual(mineView(MINE, 'all', { now: NOW, showOld: true }).items.map((r) => r.id), [1, 2, 3, 4, 5, 6, 7]);
+    // Paging.
+    const many = Array.from({ length: 23 }, (_, i) => ({ id: i + 1, status: 'pending', created_at: ago(i) }));
+    const first = mineView(many, 'active', { now: NOW });
+    assert.equal(first.items.length, 10);
+    assert.equal(first.more, true);
+    assert.equal(first.total, 23);
+    assert.equal(mineView(many, 'active', { now: NOW, limit: 20 }).items[19].id, 20);
+    assert.equal(mineView(many, 'active', { now: NOW, limit: 30 }).more, false);
+    assert.deepEqual(mineView(null, 'all').items, []);
+});
+
+test('an empty filter says what to do', () => {
+    assert.equal(mineEmptyLine('active', mineCounts([])).title, 'No requests yet.');
+    assert.match(mineEmptyLine('active', mineCounts([MINE[2]])).body, /Ready to read/);
+    assert.equal(mineEmptyLine('ready', mineCounts([MINE[0]])).title, 'Nothing ready yet.');
+    assert.equal(mineEmptyLine('declined', mineCounts([MINE[0]])).body, null);
 });

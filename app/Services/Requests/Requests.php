@@ -356,7 +356,8 @@ class Requests
         static::forgetPendingCount();
         $this->notify(fn() => $this->notifier->created($request), $request);
 
-        if (!empty($fields['from_browse'])) {
+        if (!empty($fields['from_browse']) && $request->medium !== Novel::MEDIUM_BOOK) {
+            // (A book has one source, the catalogue: nothing more to find.)
             // One candidate so far: the other sources first, then the ranking.
             $this->queueFindCandidates($request, (array) ($fields['alt_titles'] ?? []));
         } elseif ($request->medium === Novel::MEDIUM_MANGA && $request->candidateList() !== []) {
