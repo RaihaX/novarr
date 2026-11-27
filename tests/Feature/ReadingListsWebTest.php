@@ -65,12 +65,12 @@ class ReadingListsWebTest extends TestCase
     public function test_the_novel_page_ticks_the_lists_the_series_is_in(): void
     {
         $novel = $this->novel('Ticked');
-        $fav = $this->listWith('Favourites', [$novel]);
+        $fav = $this->listWith('Classics', [$novel]);
         $later = $this->listWith('To read', []);
 
         $html = $this->get("/novels/{$novel->id}")->assertOk()->getContent();
 
-        $this->assertMatchesRegularExpression('/data-list-id="' . $fav->id . '" data-list-name="Favourites"\s+checked>/', $html);
+        $this->assertMatchesRegularExpression('/data-list-id="' . $fav->id . '" data-list-name="Classics"\s+checked>/', $html);
         $this->assertMatchesRegularExpression('/data-list-id="' . $later->id . '" data-list-name="To read"\s*>/', $html);
         $this->assertStringContainsString('aria-label="Lists, in 1 list"', $html);
         // Starters only before the first list.
@@ -103,20 +103,20 @@ class ReadingListsWebTest extends TestCase
         $b = $this->novel('Bravo');
         $c = $this->novel('Charlie');
         $manga = $this->novel('Manga One', Novel::MEDIUM_MANGA);
-        $list = $this->listWith('Favourites', [$a, $c, $manga]);
+        $list = $this->listWith('Classics', [$a, $c, $manga]);
 
         // No list chosen: everything, and the filter is offered with this library's count.
         $all = $this->get('/novels?medium=novel&view=grid');
         $this->assertSame([$a->id, $b->id, $c->id], $this->shownIds($all));
         $this->assertStringContainsString('<select name="list"', $all->getContent());
-        $this->assertStringContainsString('>List: Favourites (2)</option>', $all->getContent());
+        $this->assertStringContainsString('>List: Classics (2)</option>', $all->getContent());
 
         $response = $this->get("/novels?medium=novel&view=grid&list={$list->id}")->assertOk();
         $this->assertSame([$a->id, $c->id], $this->shownIds($response));
         $html = $response->getContent();
-        $this->assertMatchesRegularExpression('/<option value="' . $list->id . '"[^>]*selected>List: Favourites/', $html);
+        $this->assertMatchesRegularExpression('/<option value="' . $list->id . '"[^>]*selected>List: Classics/', $html);
         $this->assertStringContainsString('data-list-bar data-list-id="' . $list->id . '"', $html);
-        $this->assertStringContainsString('data-list-title>Favourites</h2>', $html);
+        $this->assertStringContainsString('data-list-title>Classics</h2>', $html);
         $this->assertStringContainsString('data-list-delete', $html);
         $this->assertStringContainsString('data-list-rename', $html);
         // A flat list (no Reading / Not started shelves) and the "showing" count.
@@ -138,12 +138,12 @@ class ReadingListsWebTest extends TestCase
     {
         $a = $this->novel('Alpha');
         $gone = $this->novel('Gone');
-        $list = $this->listWith('Favourites', [$a, $gone]);
+        $list = $this->listWith('Classics', [$a, $gone]);
         $gone->delete();
 
         $response = $this->get("/novels?medium=novel&list={$list->id}");
         $this->assertSame([$a->id], $this->shownIds($response));
-        $this->assertStringContainsString('List: Favourites (1)', $response->getContent());
+        $this->assertStringContainsString('List: Classics (1)', $response->getContent());
     }
 
     public function test_someone_elses_or_an_unknown_list_is_ignored(): void

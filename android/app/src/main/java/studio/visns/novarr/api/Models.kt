@@ -53,6 +53,8 @@ data class ServerMeta(
     @SerialName("book_uploads") val bookUploads: BookUploadsMeta? = null,
     /** Audiobooks (`/audiobooks`, the player); absent on older servers, and the app then hides them entirely. */
     val audiobooks: Boolean = false,
+    /** The built-in "Favourites" list (`/favourites`, `favourite` on summaries); absent on older servers, and the app then hides it. */
+    val favourites: Boolean = false,
 ) {
     /** Only an explicit `auth.required: true` turns sign-in on. */
     val requiresSignIn: Boolean get() = auth?.required == true
@@ -153,6 +155,8 @@ data class NovelSummary(
     @SerialName("want_to_read") val wantToRead: Boolean = false,
     /** The book's audiobook (`{id, duration_ms}`); null without one, or from a server that predates audiobooks. */
     @Serializable(with = AudiobookRefOrNull::class) val audiobook: AudiobookRef? = null,
+    /** On the reader's "Favourites" (an older server sends none: false). */
+    val favourite: Boolean = false,
 ) {
     val isManga: Boolean get() = medium.equals(Medium.MANGA, ignoreCase = true)
 

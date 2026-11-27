@@ -16,17 +16,26 @@ object ReadingLists {
     const val NAME_MAX = 40
     const val MAX_LISTS = 30
 
-    /** One-tap lists offered while the reader has none. */
-    val STARTERS = listOf("Favourites", "To read", "Finished")
+    /** One-tap lists offered while the reader has none ("Favourites" is built in now). */
+    val STARTERS = listOf("To read", "Finished")
 
     /** The built-in list's name (the server's App\ReadingList::WANT_TO_READ_NAME): reserved. */
     const val WANT_TO_READ = "Want to read"
 
-    /** The reader's own lists: everything but the built-in "Want to read". */
-    fun own(lists: List<ReadingList>): List<ReadingList> = lists.filterNot { it.isWantToRead }
+    /** The other built-in list's name (App\ReadingList::FAVOURITES_NAME): reserved on servers that have it. */
+    const val FAVOURITES = "Favourites"
+
+    /** The reader's own lists: everything but the built-ins ("Want to read", "Favourites"). */
+    fun own(lists: List<ReadingList>): List<ReadingList> = lists.filterNot { it.isBuiltIn }
 
     /** The built-in "Want to read", once the server sent it (an older server has none). */
     fun wantToRead(lists: List<ReadingList>): ReadingList? = lists.firstOrNull { it.isWantToRead }
+
+    /** The built-in "Favourites", once the server sent it (an older server has none). */
+    fun favourites(lists: List<ReadingList>): ReadingList? = lists.firstOrNull { it.isFavourites }
+
+    /** Whether [novelId] is a favourite (false while the list is unknown). */
+    fun isFavourite(lists: List<ReadingList>, novelId: Int): Boolean = favourites(lists)?.let { novelId in it } ?: false
 
     // Names
 
@@ -47,6 +56,7 @@ object ReadingLists {
         if (length(cleaned) > NAME_MAX) return "Names can be up to $NAME_MAX characters."
         val key = fold(cleaned)
         if (key == fold(WANT_TO_READ)) return "“$WANT_TO_READ” is already one of your lists."
+        if (key == fold(FAVOURITES) && lists.any { it.isFavourites }) return "“$FAVOURITES” is already one of your lists."
         if (lists.any { it.id != renaming && fold(it.name) == key }) return "You already have a list called “$cleaned”."
         if (renaming == null && own(lists).size >= MAX_LISTS) return "You can have up to $MAX_LISTS lists."
         return null
@@ -103,7 +113,8 @@ object ReadingLists {
         val has = toggle.novelId in list
         when {
             toggle.add && !has -> list.copy(
-                novelIds = if (list.isWantToRead) listOf(toggle.novelId) + list.novelIds else list.novelIds + toggle.novelId,
+                // The built-ins are newest first: added at the front.
+                novelIds = if (list.isBuiltIn) listOf(toggle.novelId) + list.novelIds else list.novelIds + toggle.novelId,
                 count = list.count + 1,
             )
             !toggle.add && has -> list.copy(novelIds = list.novelIds - toggle.novelId, count = (list.count - 1).coerceAtLeast(0))
@@ -115,10 +126,10 @@ object ReadingLists {
     fun replace(lists: List<ReadingList>, answer: ReadingList): List<ReadingList> =
         if (lists.any { it.id == answer.id }) lists.map { if (it.id == answer.id) answer else it } else lists + answer
 
-    /** "Want to read" first, then in name order, as the sheets show them. */
+    /** "Want to read" first, then "Favourites", then in name order, as the sheets show them. */
     fun sorted(lists: List<ReadingList>): List<ReadingList> =
         lists.sortedWith(
-            compareBy<ReadingList> { !it.isWantToRead }
+            compareBy<ReadingList> { if (it.isWantToRead) 0 else if (it.isBuiltIn) 1 else 2 }
                 .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
                 .thenBy { it.id },
         )

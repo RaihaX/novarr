@@ -107,6 +107,16 @@ class ListsModel(private val app: AppModel) {
         return toggle(list.id, novelId, add)
     }
 
+    /** The built-in "Favourites" (null on a server without it, or before the first fetch). */
+    val favourites: ReadingList? get() = ReadingLists.favourites(lists)
+
+    /** The heart: [toggle] on the built-in "Favourites", fetched first if this session hasn't yet. */
+    suspend fun toggleFavourite(novelId: Int, add: Boolean): String? {
+        if (favourites == null) refresh()
+        val list = favourites ?: return "Favourites isn't available on this server yet."
+        return toggle(list.id, novelId, add)
+    }
+
     /** Creates a list (and puts [addNovel] in it); the new list, or the message why not. */
     suspend fun create(name: String, addNovel: Int? = null): Result<ReadingList> {
         val session = app.active ?: return Result.failure(IllegalStateException("No session"))

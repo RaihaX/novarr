@@ -37,7 +37,7 @@ class NavGroupsTest extends TestCase
 
         $library = $this->group($html, 'library');
         $this->assertNotNull($library);
-        foreach (['Web Novels', 'Manga', 'Books', 'Audiobooks', 'Want to read', 'Highlights', 'Stats', 'Offline', 'Upload a book'] as $label) {
+        foreach (['Web Novels', 'Manga', 'Books', 'Audiobooks', 'Want to read', 'Favourites', 'Highlights', 'Stats', 'Offline', 'Upload a book'] as $label) {
             $this->assertStringContainsString('>' . $label . '</a>', $library, "reader Library lacks {$label}");
         }
         $this->assertStringContainsString('id="navRequests"', $html);
@@ -79,6 +79,7 @@ class NavGroupsTest extends TestCase
     {
         $cases = [
             route('want_to_read') => ['library', route('want_to_read')],
+            route('favourites') => ['library', route('favourites')],
             route('audiobooks.index') => ['library', route('audiobooks.index')],
             route('stats.index') => ['library', route('stats.index')],
             route('audiobooks.manage') => ['manage', route('audiobooks.manage')],

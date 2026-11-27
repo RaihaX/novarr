@@ -142,6 +142,31 @@ object AudiobookUploads {
 
     fun bytesOf(chunks: List<Chunk>): Long = chunks.sumOf { it.length }
 
+    /** The codes of a 422 from complete that mean "send these chunks again", not "refused". */
+    val RESEND_CODES = setOf("checksum", "incomplete")
+
+    /**
+     * A 422 from `POST /complete` with code `checksum` (a chunk arrived
+     * damaged; the upload is back to uploading) or `incomplete` (some never
+     * arrived), carrying `missing: {"<file index>": [chunk numbers]}`: those
+     * chunks, to send (again) before completing once more. Null for any other
+     * answer, or when nothing readable is listed (then it is a real refusal).
+     */
+    fun resendAfterComplete(status: Int, code: String?, body: JsonObject?): Map<Int, Set<Int>>? {
+        if (status != 422 || code?.lowercase() !in RESEND_CODES) return null
+        val missing = body?.get("missing") ?: (body?.get("errors") as? JsonObject)?.get("missing")
+        val byFile: Map<Int, Set<Int>> = when (missing) {
+            is JsonObject -> missing.mapNotNull { (k, v) -> k.trim().toIntOrNull()?.takeIf { it >= 0 }?.let { it to chunkSet(v) } }.toMap()
+            is JsonArray -> if (missing.all { it is JsonArray || it is JsonObject }) missing.mapIndexed { i, v -> i to chunkSet(v) }.toMap() else emptyMap()
+            else -> emptyMap()
+        }.filterValues { it.isNotEmpty() }
+        return byFile.ifEmpty { null }
+    }
+
+    /** The planned chunks named in [named] (file index → chunk numbers): what to re-send, even if the server lists them as present. */
+    fun named(plan: List<Chunk>, named: Map<Int, Set<Int>>): List<Chunk> =
+        plan.filter { it.index in named[it.file].orEmpty() }
+
     fun percent(done: Long, total: Long): Int = if (total <= 0) 0 else ((done * 100) / total).toInt().coerceIn(0, 100)
 
     // Retries

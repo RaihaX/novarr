@@ -178,6 +178,10 @@ class AppModel(private val context: Context) {
     val lists = ListsModel(this)
 
     /** Whether the current server has audiobooks (meta `audiobooks`; saved, so known offline). Without it they are hidden. */
+    /** The built-in "Favourites" list (meta `favourites`): the heart, the Favourites screen and the car's folder. */
+    private val _favouritesOffered = MutableStateFlow(false)
+    val favouritesOffered: StateFlow<Boolean> = _favouritesOffered.asStateFlow()
+
     private val _audiobooksOffered = MutableStateFlow(false)
     val audiobooksOffered: StateFlow<Boolean> = _audiobooksOffered.asStateFlow()
 
@@ -238,6 +242,7 @@ class AppModel(private val context: Context) {
                 _updatesOffered.value = prefs.featureOffered(server, FEATURE_UPDATES) == true
                 _listsOffered.value = prefs.featureOffered(server, FEATURE_LISTS) == true
                 _audiobooksOffered.value = prefs.featureOffered(server, FEATURE_AUDIOBOOKS) == true
+                _favouritesOffered.value = prefs.featureOffered(server, FEATURE_FAVOURITES) == true
                 configure(server, notice = null)
                 // Learn whether the server now wants a sign-in (it may have turned auth on
                 // since last time) and whether it publishes a newer app.
@@ -264,6 +269,7 @@ class AppModel(private val context: Context) {
         _updatesOffered.value = meta.updates
         _listsOffered.value = meta.lists
         _audiobooksOffered.value = meta.audiobooks
+        _favouritesOffered.value = meta.favourites
         noteRequestsOffered(server, meta.requests)
         noteFeaturesOffered(server, meta)
         configure(server, notice = null)
@@ -424,8 +430,10 @@ class AppModel(private val context: Context) {
             _updatesOffered.value = meta.updates
             _listsOffered.value = meta.lists
             _audiobooksOffered.value = meta.audiobooks
+            _favouritesOffered.value = meta.favourites
         }
         prefs.setFeatureOffered(server, FEATURE_LISTS, meta.lists)
+        prefs.setFeatureOffered(server, FEATURE_FAVOURITES, meta.favourites)
         prefs.setFeatureOffered(server, FEATURE_AUDIOBOOKS, meta.audiobooks)
         if (prefs.featureOffered(server, FEATURE_UPDATES) == meta.updates) return
         prefs.setFeatureOffered(server, FEATURE_UPDATES, meta.updates)
@@ -758,7 +766,11 @@ class AppModel(private val context: Context) {
     suspend fun clearCaches() {
         active?.store?.clearAll()
         clearHttpCache()
-        withContext(Dispatchers.IO) { coverCacheDir().deleteRecursively() }
+        withContext(Dispatchers.IO) {
+            coverCacheDir().deleteRecursively()
+            // The car's copies of covers (playback.Artwork); fetched again when next shown.
+            File(context.filesDir, "artwork").deleteRecursively()
+        }
         downloads.contentChanged()
     }
 
@@ -775,5 +787,6 @@ class AppModel(private val context: Context) {
         const val FEATURE_UPDATES = "updates"
         const val FEATURE_LISTS = "lists"
         const val FEATURE_AUDIOBOOKS = "audiobooks"
+        const val FEATURE_FAVOURITES = "favourites"
     }
 }

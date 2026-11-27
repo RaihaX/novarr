@@ -1167,6 +1167,8 @@ class NovelController extends Controller
             'reading_lists' => \App\Services\ReadingLists::forNovel(app(\App\Support\CurrentReader::class)->id(), (int) $data->id),
             // On the reader's "Want to read" (the header's bookmark button).
             'want_to_read' => \App\Services\ReadingLists::isWanted(app(\App\Support\CurrentReader::class)->id(), (int) $data->id),
+            // In the reader's "Favourites" (the header's heart button).
+            'favourite' => \App\Services\ReadingLists::isFavourite(app(\App\Support\CurrentReader::class)->id(), (int) $data->id),
             // Its audiobook and where the reader is in it (the Listen panel), or null.
             'audiobook' => $this->audiobookPanel((int) $data->id),
         ]);

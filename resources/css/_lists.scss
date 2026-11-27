@@ -17,6 +17,20 @@
     &[aria-busy="true"] { cursor: progress; }
 }
 
+// ---- Novel page: the Favourites heart --------------------------------------
+// In Favourites (aria-pressed): the heart fills with the danger red, the
+// colour of a heart. resources/js/want-to-read.js.
+.nv-favourite {
+    > .icon { transition: color $transition, fill $transition; }
+
+    &[aria-pressed="true"] > .icon {
+        color: $danger;
+        fill: $danger;
+    }
+
+    &[aria-busy="true"] { cursor: progress; }
+}
+
 // ---- Want to read: Home's shelf and the page (want-to-read.blade.php) ------
 // Tiles are Home's (.home-tile); the page lays them out as a wrapping grid.
 .wtr-grid {

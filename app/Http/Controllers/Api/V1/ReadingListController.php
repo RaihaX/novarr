@@ -15,7 +15,7 @@ use Illuminate\Http\Response;
  * unknown series, answers 404 (never 403, which would say it exists).
  *
  *   GET    /api/v1/lists                          {lists: [{id, name, count, novel_ids, kind}]},
- *                                                  "Want to read" first (made on first use), then by name
+ *                                                  "Want to read", "Favourites" (both made on first use), then by name
  *   POST   /api/v1/lists {name}                   201 {list}
  *   PATCH  /api/v1/lists/{list} {name}            {list}
  *   DELETE /api/v1/lists/{list}                   204
@@ -26,10 +26,14 @@ use Illuminate\Http\Response;
  *   PUT    /api/v1/novels/{novel}/want-to-read    {want_to_read: true, list} (idempotent)
  *   DELETE /api/v1/novels/{novel}/want-to-read    {want_to_read: false, list} (idempotent)
  *
+ *   GET    /api/v1/favourites[?medium=]           {list, items: [{novel, added_at, started}]}, newest first
+ *   PUT    /api/v1/novels/{novel}/favourite       {favourite: true, list} (idempotent)
+ *   DELETE /api/v1/novels/{novel}/favourite       {favourite: false, list} (idempotent)
+ *
  * A blank, too long (> 40) or duplicate name (case and spacing ignored), a
  * 31st list or a 2,001st series: 422 {message, errors}. kind is null for the
- * reader's own lists and "want_to_read" for the built-in one, which can't be
- * renamed or deleted (422) and doesn't count towards the 30.
+ * reader's own lists, "want_to_read" or "favourites" for the built-in ones,
+ * which can't be renamed or deleted (422) and don't count towards the 30.
  */
 class ReadingListController extends Controller
 {
@@ -107,6 +111,39 @@ class ReadingListController extends Controller
         $list = ReadingLists::setWantToRead(static::readerId(), $novel, $want);
 
         return response()->json(['want_to_read' => $want, 'list' => ReadingLists::present($list)]);
+    }
+
+    /**
+     * The whole "Favourites", newest first, of one medium (?medium=, as
+     * /novels; default all): as wantToRead().
+     */
+    public function favourites(Request $request): JsonResponse
+    {
+        $request->validate(['medium' => 'nullable|in:' . implode(',', Presenter::MEDIA)]);
+        $medium = $request->query('medium') ?: 'all';
+        $readerId = static::readerId();
+
+        return response()->json([
+            'list' => ReadingLists::present(ReadingLists::favourites($readerId)),
+            'items' => Presenter::favouriteItems($readerId, $medium),
+        ]);
+    }
+
+    public function addFavourite($novel): JsonResponse
+    {
+        return static::setFavourite($novel, true);
+    }
+
+    public function removeFavourite($novel): JsonResponse
+    {
+        return static::setFavourite($novel, false);
+    }
+
+    private static function setFavourite($novel, bool $favourite): JsonResponse
+    {
+        $list = ReadingLists::setFavourite(static::readerId(), $novel, $favourite);
+
+        return response()->json(['favourite' => $favourite, 'list' => ReadingLists::present($list)]);
     }
 
     /** The current reader, resolved per request. */

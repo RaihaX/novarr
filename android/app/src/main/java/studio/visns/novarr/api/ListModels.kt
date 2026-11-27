@@ -13,7 +13,7 @@ data class ReadingList(
     val name: String = "",
     val count: Int = 0,
     @SerialName("novel_ids") val novelIds: List<Int> = emptyList(),
-    /** null: the reader's own list; "want_to_read": the built-in one (never renamed or deleted, newest first). */
+    /** null: the reader's own list; "want_to_read" / "favourites": the built-in ones (never renamed or deleted, newest first). */
     val kind: String? = null,
 ) {
     /** Membership by the ids the server sent (count can lag a series that was removed from the library). */
@@ -22,10 +22,21 @@ data class ReadingList(
     /** The built-in "Want to read" list. */
     val isWantToRead: Boolean get() = kind == KIND_WANT_TO_READ
 
+    /** The built-in "Favourites" list. */
+    val isFavourites: Boolean get() = kind == KIND_FAVOURITES
+
+    /** A built-in list (any kind, including one a newer server adds): not the reader's own. */
+    val isBuiltIn: Boolean get() = kind != null
+
     companion object {
         const val KIND_WANT_TO_READ = "want_to_read"
+        const val KIND_FAVOURITES = "favourites"
     }
 }
+
+/** PUT/DELETE /novels/{id}/favourite: {favourite, list}. */
+@Serializable
+data class FavouriteAnswer(val favourite: Boolean = false, val list: ReadingList? = null)
 
 /** One series on "Want to read" (GET /want-to-read, Home's shelf): when it was added, and whether the reader has begun it. */
 @Serializable

@@ -64,6 +64,9 @@ class LibraryController extends Controller
                 'max_files' => BookUploadController::maxFiles(),
                 'email' => \App\Books\BookInbox::enabled() ? \App\Books\BookInbox::address() : null,
             ],
+            // The built-in "Favourites" list (GET /api/v1/favourites, PUT / DELETE
+            // /api/v1/novels/{id}/favourite, `favourite` on novel summaries) is offered.
+            'favourites' => true,
         ]);
     }
 

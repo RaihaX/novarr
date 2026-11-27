@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import studio.visns.novarr.api.ApiError
 import studio.visns.novarr.api.AudiobookBookmark
 import studio.visns.novarr.api.AudiobookDetail
@@ -614,6 +615,53 @@ class ListeningModel(private val context: Context, private val app: AppModel) {
     suspend fun resumption(): MediaSession.MediaItemsWithStartPosition? {
         val session = app.active ?: return null
         if (_nowPlaying.value == null) restoreLast(session)
+        return currentItems(session)
+    }
+
+    /**
+     * For a controller asking to play [audiobookId] (Android Auto, a voice
+     * request): loads it at its resume position — the newer of this device's
+     * and the server's, as [open] — and hands back its parts for the session
+     * to put on the player. A download starts from its saved detail without
+     * waiting long for the network (a car's comes and goes). Null when it
+     * can't play (unknown, no session, nothing cached offline).
+     */
+    suspend fun itemsFor(audiobookId: Int): MediaSession.MediaItemsWithStartPosition? {
+        val session = app.active ?: return null
+        val current = _nowPlaying.value
+        if (current != null && current.id == audiobookId) {
+            refreshFromPlayer()
+            return currentItems(session)
+        }
+        // Leaving another book: its position is saved first.
+        if (current != null) {
+            refreshFromPlayer()
+            record()
+        }
+        val cached = session.store.load(OfflineStore.Key.audiobook(audiobookId))
+        val files = session.store.audiobookFiles(audiobookId)
+        val downloaded = cached != null && files.isNotEmpty() && files.size == cached.parts.size
+        val fresh = try {
+            withTimeoutOrNull(if (downloaded) 3_000L else 10_000L) { session.client.audiobook(audiobookId) }
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            null
+        }
+        val detail = fresh ?: cached ?: return null
+        if (fresh != null) {
+            session.store.save(fresh, OfflineStore.Key.audiobook(audiobookId))
+            detailFetchedAt = System.currentTimeMillis()
+        } else {
+            detailFetchedAt = 0
+        }
+        if (app.active?.id != session.id) return null
+        lastError.value = null
+        load(session, detail, play = false)
+        return currentItems(session)
+    }
+
+    /** The loaded audiobook's parts at its position, marked as on the player (the session sets them). */
+    private suspend fun currentItems(session: Session.Active): MediaSession.MediaItemsWithStartPosition? {
         val now = _nowPlaying.value ?: return null
         val files = session.store.audiobookFiles(now.id)
         if (files.size != now.detail.parts.size && System.currentTimeMillis() - detailFetchedAt > URL_MAX_AGE_MS) {
@@ -621,10 +669,39 @@ class ListeningModel(private val context: Context, private val app: AppModel) {
         }
         val current = _nowPlaying.value ?: return null
         if (current.detail.parts.isEmpty()) return null
+        val local = files.isNotEmpty() && files.size == current.detail.parts.size
         val part = current.timeline.toPart(current.positionMs)
         preparedFor = current.id
+        _nowPlaying.value = current.copy(local = local, error = null)
         startTicker()
         return MediaSession.MediaItemsWithStartPosition(mediaItems(current.detail, files), part.partIndex, part.offsetMs)
+    }
+
+    /** This device's last recorded position for [audiobookId] (the car's progress marks). */
+    suspend fun localRecord(audiobookId: Int): ListeningRecord? = app.active?.let { storeFor(it) }?.latest(audiobookId)
+
+    /** The audiobook last played on this device (kept across launches). */
+    suspend fun lastAudiobookId(): Int? = app.active?.let { storeFor(it) }?.lastAudiobookId()
+
+    /** For the car's speed button: the next preset up from the current speed, wrapping round. */
+    fun cycleSpeed() {
+        val current = _nowPlaying.value?.speed ?: prefs.speed
+        val next = ListeningPrefs.SPEED_PRESETS.firstOrNull { it > current + 0.01f } ?: ListeningPrefs.SPEED_PRESETS.first()
+        setSpeed(next)
+    }
+
+    /** For the car's sleep button: off → 15 → 30 → 60 min → end of chapter → off. */
+    fun cycleSleep() {
+        when (val sleep = _nowPlaying.value?.sleep ?: return) {
+            SleepTimer.Off -> sleepIn(15)
+            is SleepTimer.Duration -> when {
+                sleep.minutes < 30 -> sleepIn(30)
+                sleep.minutes < 60 -> sleepIn(60)
+                else -> sleepAtChapterEnd()
+            }
+            is SleepTimer.EndOfChapter -> cancelSleep()
+        }
+        startTicker()
     }
 
     companion object {
@@ -641,7 +718,8 @@ class ListeningModel(private val context: Context, private val app: AppModel) {
                 .setArtist(summary.authorOrNull)
                 .setAlbumTitle(summary.title)
                 .setAlbumArtist(summary.authorOrNull)
-                .setArtworkUri(summary.coverUrl?.takeIf { it.isNotBlank() }?.let(Uri::parse))
+                // Through ArtworkProvider: the car, the lock screen and the notification load a local copy.
+                .setArtworkUri(Artwork.uri(summary.coverUrl) ?: summary.coverUrl?.takeIf { it.isNotBlank() }?.let(Uri::parse))
                 .setIsPlayable(true)
                 .setIsBrowsable(false)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_AUDIO_BOOK_CHAPTER)

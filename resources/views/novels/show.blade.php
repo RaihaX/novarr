@@ -299,6 +299,13 @@
             <x-icon name="bookmark" :size="14" />
             <span>Want to read</span>
         </button>
+        {{-- Favourites: the reader's second built-in list, the heart (resources/js/want-to-read.js).
+             aria-pressed (and the filled heart) says it is in; the label names what a click does. --}}
+        @php $favourite = (bool) ($favourite ?? false); @endphp
+        <button type="button" id="favouriteBtn" class="btn btn-secondary btn-icon nv-favourite {{ $favourite ? 'is-favourite' : '' }}" data-favourite data-novel="{{ $data->id }}" data-name="{{ $data->name }}"
+                aria-pressed="{{ $favourite ? 'true' : 'false' }}" aria-label="{{ $favourite ? 'Remove from favourites' : 'Favourite' }}" title="{{ $favourite ? 'In your Favourites — click to remove it' : 'Add to your Favourites' }}">
+            <x-icon name="heart" :size="14" />
+        </button>
         <p class="visually-hidden" data-want-status role="status" aria-live="polite"></p>
         @php $inLists = collect($reading_lists ?? [])->where('in', true)->count(); @endphp
         <div class="dropdown nv-lists" data-lists-menu data-novel="{{ $data->id }}">

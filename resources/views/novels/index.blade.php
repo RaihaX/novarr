@@ -182,17 +182,18 @@
 @if($activeList)
     {{-- The chosen reading list: its name and count, Rename (inline) and
          Delete (confirmation dialog) — resources/js/lists.js. The built-in
-         "Want to read" has neither (it can't be renamed or deleted). --}}
+         "Want to read" and "Favourites" have neither (they can't be renamed
+         or deleted), but link to their every-medium page. --}}
     @php $builtInList = ($activeList['kind'] ?? null) !== null; @endphp
     <section class="lib-listbar" {!! $builtInList ? '' : 'data-list-bar ' !!}data-list-id="{{ $activeList['id'] }}" aria-labelledby="libListTitle">
         <div class="lib-listbar-head">
-            <x-icon name="bookmark" :size="16" class="lib-listbar-icon" />
+            <x-icon :name="($activeList['kind'] ?? null) === \App\ReadingList::KIND_FAVOURITES ? 'heart' : 'bookmark'" :size="16" class="lib-listbar-icon" />
             <h2 class="lib-listbar-title" id="libListTitle" data-list-title>{{ $activeList['name'] }}</h2>
             <span class="lib-listbar-count"><span class="mono-num">{{ number_format($activeList['count']) }}</span> {{ LibraryMedium::countNoun($medium, $activeList['count']) }}</span>
         </div>
         <div class="lib-listbar-actions">
             @if($builtInList)
-            <a href="{{ route('want_to_read') }}" class="btn btn-ghost btn-sm">Every medium</a>
+            <a href="{{ route($activeList['kind'] === \App\ReadingList::KIND_FAVOURITES ? 'favourites' : 'want_to_read') }}" class="btn btn-ghost btn-sm">Every medium</a>
             @else
             <button type="button" class="btn btn-ghost btn-sm" data-list-rename aria-expanded="false" aria-controls="libListRename">
                 <x-icon name="pencil" :size="13" />Rename

@@ -53,12 +53,15 @@ class Presenter
      * the caches the Library page uses (plus the resume map): a fixed number
      * of statements when cold, none when warm.
      *
-     * @return array{reading: array, totals: array, aggregates: array, attention: array<int, true>, resume: array<int, int>, want_to_read: array<int, true>, audiobooks: array<int, array{id: int, duration_ms: int}>}
+     * @return array{reading: array, totals: array, aggregates: array, attention: array<int, true>, resume: array<int, int>, want_to_read: array<int, true>, favourites: array<int, true>, audiobooks: array<int, array{id: int, duration_ms: int}>}
      */
     public static function context(): array
     {
         $userId = app(ReadState::class)->userId();
         $reading = NovelController::libraryReading($userId);
+        // The reader's built-in lists' ids, "Want to read" and "Favourites"
+        // (one statement for both, no list made).
+        $builtIn = \App\Services\ReadingLists::builtInIds($userId);
 
         return [
             'reading' => $reading['reading'],
@@ -66,8 +69,8 @@ class Presenter
             'aggregates' => NovelController::libraryAggregates($userId),
             'attention' => NovelHealth::attentionIds(),
             'resume' => static::resumeChapterIds($userId),
-            // The reader's "Want to read" ids (one statement, no list made).
-            'want_to_read' => \App\Services\ReadingLists::wantToReadIds($userId),
+            'want_to_read' => $builtIn[\App\ReadingList::KIND_WANT_TO_READ],
+            'favourites' => $builtIn[\App\ReadingList::KIND_FAVOURITES],
             // Books' audiobooks: novel id => {id, duration_ms} (cached until an audiobook changes).
             'audiobooks' => \App\Audiobooks\AudiobookLibrary::novelMap(),
         ];
@@ -114,6 +117,8 @@ class Presenter
             'want_to_read' => isset($context['want_to_read'][$id]),
             // Its audiobook (App\Audiobook), or null: {id, duration_ms}.
             'audiobook' => ($context['audiobooks'] ?? \App\Audiobooks\AudiobookLibrary::novelMap())[$id] ?? null,
+            // In the reader's "Favourites" (the built-in reading list, the heart).
+            'favourite' => isset($context['favourites'][$id]),
         ];
     }
 
@@ -133,7 +138,24 @@ class Presenter
     /** wantToReadItems() and how many there are of $medium in all. @return array{count:int, items:list<array>} */
     public static function wantToReadShelf(int $userId, string $medium, ?int $limit = null, ?array $context = null): array
     {
-        $shelf = \App\Services\ReadingLists::wantToReadItems($userId, $medium === 'all' ? null : static::mediaFor($medium), $limit);
+        return static::builtInShelf($userId, \App\ReadingList::KIND_WANT_TO_READ, $medium, $limit, $context);
+    }
+
+    /** The reader's "Favourites" of $medium, newest first: as wantToReadItems(). */
+    public static function favouriteItems(int $userId, string $medium, ?int $limit = null, ?array $context = null): array
+    {
+        return static::builtInShelf($userId, \App\ReadingList::KIND_FAVOURITES, $medium, $limit, $context)['items'];
+    }
+
+    /**
+     * A built-in reading list of $kind (App\ReadingList::BUILT_IN) of
+     * $medium, newest first, as summaries, and how many there are in all.
+     *
+     * @return array{count:int, items:list<array{novel: array, added_at: ?string, started: bool}>}
+     */
+    public static function builtInShelf(int $userId, string $kind, string $medium, ?int $limit = null, ?array $context = null): array
+    {
+        $shelf = \App\Services\ReadingLists::itemsOfKind($userId, $kind, $medium === 'all' ? null : static::mediaFor($medium), $limit);
         if ($shelf['items'] === []) {
             return $shelf;
         }

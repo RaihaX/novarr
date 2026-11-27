@@ -93,7 +93,7 @@ class WantToReadTest extends TestCase
         // Listed first among the reader's lists, same order.
         $this->postJson('/api/v1/lists', ['name' => 'Aardvarks'])->assertCreated();
         $lists = $this->getJson('/api/v1/lists')->assertOk()->json('lists');
-        $this->assertSame(['want_to_read', null], array_column($lists, 'kind'));
+        $this->assertSame(['want_to_read', 'favourites', null], array_column($lists, 'kind'));
         $this->assertSame([$novel->id, $book->id, $manga->id], $lists[0]['novel_ids']);
 
         // The whole list (default: every medium), and one medium at a time.
@@ -300,7 +300,7 @@ class WantToReadTest extends TestCase
         $this->assertMatchesRegularExpression('/id="wantToReadBtn" class="[^"]*is-wanted[^"]*"[^>]*aria-pressed="true"/', $html);
 
         // The Lists menu holds the reader's own lists only: still the starters.
-        $this->assertStringContainsString('data-starter="Favourites"', $html);
+        $this->assertStringContainsString('data-starter="To read"', $html);
         $this->assertStringNotContainsString('data-list-name="Want to read"', $html);
     }
 

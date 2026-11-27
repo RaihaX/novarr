@@ -68,16 +68,30 @@
             </intent-filter>
         </activity>
 
-        <!-- The audiobook player: owns ExoPlayer and its media session (notification, lock screen, Bluetooth). -->
+        <!-- Android Auto: Novarr is a media app (res/xml/automotive_app_desc.xml); the car browses PlaybackService. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
+        <!-- The audiobook player: owns ExoPlayer and its media session (notification, lock screen, Bluetooth),
+             and the media library Android Auto browses (MediaLibraryService; MediaBrowserService for older cars). -->
         <service
             android:name=".playback.PlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
                 <action android:name="androidx.media3.session.MediaSessionService" />
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+        <!-- Covers as content:// for the car, the lock screen and the notification (read-only; only covers the app registered). -->
+        <provider
+            android:name=".playback.ArtworkProvider"
+            android:authorities="${applicationId}.artwork"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
 
         <!-- A headset's play button after the app was killed: resumes the last audiobook (onPlaybackResumption). -->
         <receiver

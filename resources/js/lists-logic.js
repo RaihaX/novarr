@@ -12,7 +12,10 @@
 export const MAX_NAME = 40;
 
 /** The one-tap starters offered before a reader has any list. */
-export const STARTERS = ['Favourites', 'To read', 'Finished'];
+export const STARTERS = ['To read', 'Finished'];
+
+/** The built-in lists' names (App\ReadingList::BUILT_IN): reserved. */
+export const BUILT_IN_NAMES = ['Want to read', 'Favourites'];
 
 /** "  Summer \t reads " → "Summer reads". */
 export function cleanName(name) {
@@ -37,8 +40,9 @@ export function nameError(name, lists = [], exceptId = null) {
     if (clean === '') return 'Give the list a name.';
     if ([...clean].length > MAX_NAME) return `A list name can be up to ${MAX_NAME} characters.`;
     const key = clean.toLowerCase();
-    // The built-in list's name (App\ReadingList::WANT_TO_READ_NAME) is reserved.
-    if (key === 'want to read') return '“Want to read” is already one of your lists.';
+    // The built-in lists' names (App\ReadingList::BUILT_IN) are reserved.
+    const builtIn = BUILT_IN_NAMES.find((n) => nameKey(n) === key);
+    if (builtIn) return `“${builtIn}” is already one of your lists.`;
     const taken = lists.some((l) => l.id !== exceptId && nameKey(l.name) === key);
     return taken ? `You already have a list called “${clean}”.` : null;
 }

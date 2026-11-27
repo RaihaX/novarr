@@ -26,6 +26,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
 import androidx.compose.material.icons.automirrored.outlined.PlaylistAddCheck
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.CloudDownload
@@ -141,6 +143,9 @@ fun NovelScreen(nav: NavController, novelId: Int) {
     val inAnyList = ownLists.any { novelId in it }
     val wantToRead = ReadingLists.wantToRead(listsState.lists)
     val wanted = ReadingLists.isWanted(listsState.lists, novelId)
+    val favouritesOffered by app.favouritesOffered.collectAsStateWithLifecycle()
+    val favourites = ReadingLists.favourites(listsState.lists)
+    val favourite = ReadingLists.isFavourite(listsState.lists, novelId)
     val snackbar = remember { SnackbarHostState() }
     // Opened from Home before Library ever loaded: the icon shows whether it is in a list.
     LaunchedEffect(listsOffered) { if (listsOffered && !app.lists.loaded.value) app.lists.refresh() }
@@ -164,6 +169,20 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                     IconButton(onClick = { nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
+                    // "Favourites": the heart, like the bookmark beside it; only on servers with the built-in list.
+                    if (listsOffered && favouritesOffered && favourites != null) {
+                        IconToggleButton(
+                            checked = favourite,
+                            onCheckedChange = { add -> scope.launch { app.lists.toggleFavourite(novelId, add)?.let { snackbar.showSnackbar(it) } } },
+                            enabled = reachable && !listsState.busy(favourites.id, novelId),
+                        ) {
+                            Icon(
+                                if (favourite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = if (favourite) "Remove from favourites" else "Favourite",
+                                tint = if (favourite) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                            )
+                        }
+                    }
                     // "Want to read": one tap, shown at once, undone (with a snackbar) on failure.
                     // Only once the server sent the built-in list (an older server has none).
                     if (listsOffered && wantToRead != null) {

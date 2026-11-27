@@ -79,7 +79,7 @@ class WantToReadTest {
         assertEquals("You can have up to 30 lists.", ReadingLists.nameProblem("One more", thirty + wanted))
         assertNull(ReadingLists.nameProblem("One more", thirty.drop(1) + wanted))
         // Starters are offered while the reader has none of their own.
-        assertEquals(listOf("Favourites", "To read", "Finished"), ReadingLists.starters(listOf(wanted)))
+        assertEquals(listOf("To read", "Finished"), ReadingLists.starters(listOf(wanted)))
     }
 
     @Test

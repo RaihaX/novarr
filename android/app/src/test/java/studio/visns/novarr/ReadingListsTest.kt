@@ -56,7 +56,7 @@ class ReadingListsTest {
 
     @Test
     fun startersSkipTakenNames() {
-        assertEquals(listOf("Favourites", "To read", "Finished"), ReadingLists.starters(emptyList()))
+        assertEquals(listOf("To read", "Finished"), ReadingLists.starters(emptyList()))
         assertEquals(listOf("Finished"), ReadingLists.starters(listOf(favourites, toRead.copy(name = "to read"))))
     }
 

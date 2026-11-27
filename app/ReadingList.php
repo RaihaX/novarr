@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
 /**
- * A reader's reading list ("Favourites", "To read", …): a named group of
+ * A reader's reading list ("To read", "Finished", …): a named group of
  * series, private to its reader (user_id; with sign-in off the owner, see
  * App\Support\CurrentReader). A series can be in several lists. Members are
  * rows of reading_list_novel (no model: read and written through
@@ -22,6 +22,12 @@ use Illuminate\Support\Facades\DB;
  * SYSTEM_KEY, which no typed name can produce (clean() turns control
  * characters into spaces), so a reader's own list called "Want to read"
  * from before never clashes with it.
+ *
+ * KIND_FAVOURITES is the second built-in list, "Favourites" (the heart),
+ * with the same rules (ReadingLists::favourites()): listed right after
+ * "Want to read", name_key FAVOURITES_KEY. A reader's own list called
+ * "Favourites" from before was turned into it (migration
+ * 2026_12_13_000001_convert_favourites_lists).
  */
 class ReadingList extends Model
 {
@@ -37,7 +43,7 @@ class ReadingList extends Model
     public const MAX_NOVELS = 2000;
 
     /** The one-tap starters offered before a reader has any list. */
-    public const STARTERS = ['Favourites', 'To read', 'Finished'];
+    public const STARTERS = ['To read', 'Finished'];
 
     /** The built-in "Want to read" list (kind). */
     public const KIND_WANT_TO_READ = 'want_to_read';
@@ -47,6 +53,21 @@ class ReadingList extends Model
 
     /** Its name_key: a control character no clean()ed name can hold. */
     public const SYSTEM_KEY = "\x01want_to_read";
+
+    /** The built-in "Favourites" list (kind). */
+    public const KIND_FAVOURITES = 'favourites';
+
+    /** Its name, as shown everywhere. */
+    public const FAVOURITES_NAME = 'Favourites';
+
+    /** Its name_key, like SYSTEM_KEY. */
+    public const FAVOURITES_KEY = "\x01favourites";
+
+    /** The built-in lists in their order: kind => [name, name_key]. */
+    public const BUILT_IN = [
+        self::KIND_WANT_TO_READ => [self::WANT_TO_READ_NAME, self::SYSTEM_KEY],
+        self::KIND_FAVOURITES => [self::FAVOURITES_NAME, self::FAVOURITES_KEY],
+    ];
 
     protected $fillable = ['user_id', 'name', 'name_key', 'kind'];
 
@@ -66,6 +87,18 @@ class ReadingList extends Model
     public function isWantToRead(): bool
     {
         return $this->kind === self::KIND_WANT_TO_READ;
+    }
+
+    /** The built-in "Favourites" list (fixed name, never renamed or deleted). */
+    public function isFavourites(): bool
+    {
+        return $this->kind === self::KIND_FAVOURITES;
+    }
+
+    /** One of the built-in lists ("Want to read", "Favourites"). */
+    public function isBuiltIn(): bool
+    {
+        return $this->kind !== null;
     }
 
     /** "  Summer   reads " → "Summer reads": the name as stored. */

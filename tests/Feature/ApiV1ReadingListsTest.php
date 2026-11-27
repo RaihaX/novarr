@@ -31,16 +31,17 @@ class ApiV1ReadingListsTest extends TestCase
 
     public function test_create_list_rename_and_delete(): void
     {
-        $response = $this->postJson('/api/v1/lists', ['name' => '  Favourites  '])->assertCreated();
+        $response = $this->postJson('/api/v1/lists', ['name' => '  Classics  '])->assertCreated();
         $id = $response->json('list.id');
-        $this->assertSame(['list' => ['id' => $id, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => null]], $response->json());
+        $this->assertSame(['list' => ['id' => $id, 'name' => 'Classics', 'count' => 0, 'novel_ids' => [], 'kind' => null]], $response->json());
 
         $this->postJson('/api/v1/lists', ['name' => 'To read'])->assertCreated();
 
-        // "Want to read" is made on first use (this listing) and always first.
+        // "Want to read" and "Favourites" are made on first use (this listing) and always first.
         $this->getJson('/api/v1/lists')->assertOk()->assertExactJson(['lists' => [
             ['id' => $id + 2, 'name' => 'Want to read', 'count' => 0, 'novel_ids' => [], 'kind' => 'want_to_read'],
-            ['id' => $id, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => null],
+            ['id' => $id + 3, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => 'favourites'],
+            ['id' => $id, 'name' => 'Classics', 'count' => 0, 'novel_ids' => [], 'kind' => null],
             ['id' => $id + 1, 'name' => 'To read', 'count' => 0, 'novel_ids' => [], 'kind' => null],
         ]]);
 
@@ -48,7 +49,7 @@ class ApiV1ReadingListsTest extends TestCase
             ->assertJsonPath('list.name', 'Zzz best')->assertJsonPath('list.id', $id);
         // Ordered by name, case-insensitively.
         $this->postJson('/api/v1/lists', ['name' => 'abc'])->assertCreated();
-        $this->assertSame(['Want to read', 'abc', 'To read', 'Zzz best'], array_column($this->getJson('/api/v1/lists')->json('lists'), 'name'));
+        $this->assertSame(['Want to read', 'Favourites', 'abc', 'To read', 'Zzz best'], array_column($this->getJson('/api/v1/lists')->json('lists'), 'name'));
 
         $this->deleteJson("/api/v1/lists/{$id}")->assertNoContent();
         $this->assertNull(ReadingList::find($id));
@@ -57,7 +58,7 @@ class ApiV1ReadingListsTest extends TestCase
 
     public function test_names_are_validated_with_readable_messages(): void
     {
-        $this->postJson('/api/v1/lists', ['name' => 'Favourites'])->assertCreated();
+        $this->postJson('/api/v1/lists', ['name' => 'Classics'])->assertCreated();
 
         $cases = [
             [['name' => ''], 'Give the list a name.'],
@@ -65,8 +66,9 @@ class ApiV1ReadingListsTest extends TestCase
             [[], 'Give the list a name.'],
             [['name' => ['x']], 'The list name must be text.'],
             [['name' => str_repeat('a', 41)], 'A list name can be up to 40 characters.'],
-            [['name' => ' FAVOURITES '], 'You already have a list called “FAVOURITES”.'],
-            [['name' => 'favourites'], 'You already have a list called “favourites”.'],
+            [['name' => ' CLASSICS '], 'You already have a list called “CLASSICS”.'],
+            [['name' => 'classics'], 'You already have a list called “classics”.'],
+            [['name' => ' favourites '], '“Favourites” is already one of your lists.'],
         ];
         foreach ($cases as [$body, $message]) {
             $this->postJson('/api/v1/lists', $body)
@@ -84,14 +86,14 @@ class ApiV1ReadingListsTest extends TestCase
 
     public function test_rename_keeps_its_own_name_and_refuses_another_lists(): void
     {
-        $fav = $this->makeList('Favourites');
+        $fav = $this->makeList('Classics');
         $this->makeList('To read');
 
-        $this->patchJson("/api/v1/lists/{$fav->id}", ['name' => 'FAVOURITES'])->assertOk()->assertJsonPath('list.name', 'FAVOURITES');
+        $this->patchJson("/api/v1/lists/{$fav->id}", ['name' => 'CLASSICS'])->assertOk()->assertJsonPath('list.name', 'CLASSICS');
         $this->patchJson("/api/v1/lists/{$fav->id}", ['name' => 'to read'])->assertStatus(422)
             ->assertJsonPath('message', 'You already have a list called “to read”.');
         $this->patchJson("/api/v1/lists/{$fav->id}", ['name' => ''])->assertStatus(422);
-        $this->assertSame('FAVOURITES', $fav->fresh()->name);
+        $this->assertSame('CLASSICS', $fav->fresh()->name);
     }
 
     public function test_thirty_lists_per_reader(): void
@@ -110,12 +112,12 @@ class ApiV1ReadingListsTest extends TestCase
 
     public function test_adding_and_removing_series_is_idempotent(): void
     {
-        $list = $this->makeList('Favourites');
+        $list = $this->makeList('Classics');
         $a = $this->novel('A');
         $b = $this->novel('B');
 
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$b->id}")->assertOk()
-            ->assertExactJson(['list' => ['id' => $list->id, 'name' => 'Favourites', 'count' => 1, 'novel_ids' => [$b->id], 'kind' => null]]);
+            ->assertExactJson(['list' => ['id' => $list->id, 'name' => 'Classics', 'count' => 1, 'novel_ids' => [$b->id], 'kind' => null]]);
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$b->id}")->assertOk()->assertJsonPath('list.count', 1);
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$a->id}")->assertOk()
             ->assertJsonPath('list.novel_ids', [$a->id, $b->id]);
@@ -129,7 +131,7 @@ class ApiV1ReadingListsTest extends TestCase
         // A series can be in several lists.
         $other = $this->makeList('To read');
         $this->putJson("/api/v1/lists/{$other->id}/novels/{$a->id}")->assertOk();
-        $this->assertSame([[], [$a->id], [$a->id]], array_column($this->getJson('/api/v1/lists')->json('lists'), 'novel_ids'));
+        $this->assertSame([[], [], [$a->id], [$a->id]], array_column($this->getJson('/api/v1/lists')->json('lists'), 'novel_ids'));
 
         // Deleting a list removes its rows only.
         $this->deleteJson("/api/v1/lists/{$list->id}")->assertNoContent();
@@ -138,7 +140,7 @@ class ApiV1ReadingListsTest extends TestCase
 
     public function test_unknown_series_or_list_is_404(): void
     {
-        $list = $this->makeList('Favourites');
+        $list = $this->makeList('Classics');
 
         $this->putJson("/api/v1/lists/{$list->id}/novels/999")->assertNotFound()->assertJsonPath('message', 'Series not found.');
         $this->deleteJson("/api/v1/lists/{$list->id}/novels/999")->assertNotFound();
@@ -177,19 +179,19 @@ class ApiV1ReadingListsTest extends TestCase
 
     public function test_a_soft_deleted_series_is_hidden_and_a_hard_deleted_one_leaves(): void
     {
-        $list = $this->makeList('Favourites');
+        $list = $this->makeList('Classics');
         $kept = $this->novel('Kept');
         $gone = $this->novel('Gone');
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$kept->id}")->assertOk();
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$gone->id}")->assertOk();
 
         $gone->delete();
-        $this->getJson('/api/v1/lists')->assertJsonPath('lists.1.novel_ids', [$kept->id])->assertJsonPath('lists.1.count', 1);
+        $this->getJson('/api/v1/lists')->assertJsonPath('lists.2.novel_ids', [$kept->id])->assertJsonPath('lists.2.count', 1);
         // It cannot be added or removed while deleted…
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$gone->id}")->assertNotFound();
         // …and comes back with a restore.
         $gone->restore();
-        $this->getJson('/api/v1/lists')->assertJsonPath('lists.1.count', 2);
+        $this->getJson('/api/v1/lists')->assertJsonPath('lists.2.count', 2);
 
         $gone->forceDelete();
         $this->assertSame(0, DB::table('reading_list_novel')->where('novel_id', $gone->id)->count());
@@ -204,16 +206,18 @@ class ApiV1ReadingListsTest extends TestCase
         $readerToken = $this->tokenFor($reader);
         $novel = $this->novel();
 
-        $mine = $this->asToken($readerToken)->postJson('/api/v1/lists', ['name' => 'Favourites'])->assertCreated()->json('list.id');
+        $mine = $this->asToken($readerToken)->postJson('/api/v1/lists', ['name' => 'Classics'])->assertCreated()->json('list.id');
         // Same name for another reader is fine.
-        $theirs = $this->asToken($ownerToken)->postJson('/api/v1/lists', ['name' => 'Favourites'])->assertCreated()->json('list.id');
+        $theirs = $this->asToken($ownerToken)->postJson('/api/v1/lists', ['name' => 'Classics'])->assertCreated()->json('list.id');
         $this->asToken($ownerToken)->putJson("/api/v1/lists/{$theirs}/novels/{$novel->id}")->assertOk();
 
-        $wanted = $this->asToken($readerToken)->getJson('/api/v1/lists')->assertOk()->json('lists.0.id');
+        $builtIn = $this->asToken($readerToken)->getJson('/api/v1/lists')->assertOk()->json('lists');
+        [$wanted, $favourites] = [$builtIn[0]['id'], $builtIn[1]['id']];
         $this->asToken($readerToken)->getJson('/api/v1/lists')->assertOk()
             ->assertExactJson(['lists' => [
                 ['id' => $wanted, 'name' => 'Want to read', 'count' => 0, 'novel_ids' => [], 'kind' => 'want_to_read'],
-                ['id' => $mine, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => null],
+                ['id' => $favourites, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => 'favourites'],
+                ['id' => $mine, 'name' => 'Classics', 'count' => 0, 'novel_ids' => [], 'kind' => null],
             ]]);
 
         // Someone else's list: 404 for every action, nothing changes.
@@ -221,18 +225,18 @@ class ApiV1ReadingListsTest extends TestCase
         $this->asToken($readerToken)->deleteJson("/api/v1/lists/{$theirs}")->assertNotFound();
         $this->asToken($readerToken)->putJson("/api/v1/lists/{$theirs}/novels/{$novel->id}")->assertNotFound();
         $this->asToken($readerToken)->deleteJson("/api/v1/lists/{$theirs}/novels/{$novel->id}")->assertNotFound();
-        $this->assertSame('Favourites', ReadingList::find($theirs)->name);
-        $this->asToken($ownerToken)->getJson('/api/v1/lists')->assertJsonPath('lists.1.novel_ids', [$novel->id]);
+        $this->assertSame('Classics', ReadingList::find($theirs)->name);
+        $this->asToken($ownerToken)->getJson('/api/v1/lists')->assertJsonPath('lists.2.novel_ids', [$novel->id]);
 
         // Web session works too (the web UI's own calls).
         $cookies = $this->webSignIn('sam', self::READER_PASSWORD);
-        $this->withBrowser($cookies)->getJson('/api/v1/lists')->assertOk()->assertJsonPath('lists.1.id', $mine);
+        $this->withBrowser($cookies)->getJson('/api/v1/lists')->assertOk()->assertJsonPath('lists.2.id', $mine);
     }
 
     public function test_unauthenticated_calls_are_refused_with_sign_in_on(): void
     {
         $this->enableSignIn();
-        $list = $this->makeList('Favourites');
+        $list = $this->makeList('Classics');
         $novel = $this->novel();
 
         $this->asNobody();
@@ -248,7 +252,7 @@ class ApiV1ReadingListsTest extends TestCase
 
     public function test_with_sign_in_off_the_lists_are_the_owners(): void
     {
-        $id = $this->postJson('/api/v1/lists', ['name' => 'Favourites'])->assertCreated()->json('list.id');
+        $id = $this->postJson('/api/v1/lists', ['name' => 'Classics'])->assertCreated()->json('list.id');
         $this->assertSame($this->owner()->id, ReadingList::find($id)->user_id);
     }
 
@@ -259,17 +263,17 @@ class ApiV1ReadingListsTest extends TestCase
         $reader = $this->makeReader();
         $token = $this->tokenFor($reader);
 
-        $this->asToken($token)->postJson('http://read.example.test/api/v1/lists', ['name' => 'Favourites'])->assertCreated();
-        // Theirs and the built-in "Want to read".
-        $this->asToken($token)->getJson('http://read.example.test/api/v1/lists')->assertOk()->assertJsonCount(2, 'lists');
+        $this->asToken($token)->postJson('http://read.example.test/api/v1/lists', ['name' => 'Classics'])->assertCreated();
+        // Theirs and the built-in "Want to read" and "Favourites".
+        $this->asToken($token)->getJson('http://read.example.test/api/v1/lists')->assertOk()->assertJsonCount(3, 'lists');
     }
 
     public function test_deleting_an_account_removes_its_lists(): void
     {
         $reader = $this->makeReader();
         $novel = $this->novel();
-        $theirs = $this->makeList('Favourites', $reader);
-        $mine = $this->makeList('Favourites');
+        $theirs = $this->makeList('Classics', $reader);
+        $mine = $this->makeList('Classics');
         DB::table('reading_list_novel')->insert([
             ['reading_list_id' => $theirs->id, 'novel_id' => $novel->id, 'added_at' => now()],
             ['reading_list_id' => $mine->id, 'novel_id' => $novel->id, 'added_at' => now()],
@@ -288,7 +292,7 @@ class ApiV1ReadingListsTest extends TestCase
 
     public function test_the_novels_payload_is_unchanged(): void
     {
-        $list = $this->makeList('Favourites');
+        $list = $this->makeList('Classics');
         $novel = $this->novel();
         $before = $this->getJson('/api/v1/novels')->json();
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$novel->id}")->assertOk();

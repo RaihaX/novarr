@@ -781,7 +781,8 @@ class AudiobooksTest extends TestCase
         $audiobook = $this->imported();
 
         $novels = collect($this->getJson('/api/v1/novels?medium=book')->assertOk()->json('novels'))->keyBy('id');
-        $this->assertSame('audiobook', array_key_last($novels[$book->id]));
+        // Right before `favourite`, the summary's last key.
+        $this->assertSame(['audiobook', 'favourite'], array_slice(array_keys($novels[$book->id]), -2));
         $this->assertSame(['id' => $audiobook->id, 'duration_ms' => 600000], $novels[$book->id]['audiobook']);
         $this->assertNull($novels[$plain->id]['audiobook']);
 
