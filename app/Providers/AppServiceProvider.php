@@ -188,6 +188,9 @@ class AppServiceProvider extends ServiceProvider
         // under Octane and per job in queue workers (scoped, never a singleton).
         $this->app->scoped(\App\Support\CurrentReader::class);
 
+        // Audiobooks read their files through ffprobe / ffmpeg (tests bind a fake).
+        $this->app->bind(\App\Audiobooks\AudioProbe::class, \App\Audiobooks\FfmpegProbe::class);
+
         // How a reader-request search asks its sources: lanes in parallel
         // PHP processes, or (parallelism 1, or no way to start a process)
         // one after another in this process. Tests bind the inline runner.

@@ -254,6 +254,34 @@
         </section>
     @endif
 
+    {{-- Continue listening: audiobooks part way through, newest first (only when there are some). --}}
+    @if(count($continue_listening ?? []) > 0)
+        <section class="home-section" aria-labelledby="continueListeningTitle" id="continue-listening-section">
+            <div class="home-section-head">
+                <h2 class="home-section-title" id="continueListeningTitle">Continue listening</h2>
+                <a href="{{ route('audiobooks.index') }}" class="home-section-link">Audiobooks</a>
+            </div>
+            <div class="home-shelf">
+                @foreach($continue_listening as $c)
+                    @php $cp = $c['duration_ms'] > 0 ? (int) min(100, round($c['progress']['position_ms'] / $c['duration_ms'] * 100)) : 0; @endphp
+                    <a href="{{ route('audiobooks.show', $c['id']) }}" class="home-tile" aria-label="Continue listening to {{ $c['title'] }}, {{ $cp }}% listened">
+                        <div class="home-cover has-chip">
+                            @if($c['cover_url'])
+                                <img src="{{ $c['cover_url'] }}" alt="" loading="lazy" decoding="async">
+                            @else
+                                <span class="home-cover-title">{{ $c['title'] }}</span>
+                            @endif
+                            <span class="ab-chip"><x-icon name="headphones" :size="11" />Audio</span>
+                            <span class="home-cover-edge"><i style="width: {{ $cp }}%"></i></span>
+                        </div>
+                        <span class="home-tile-title">{{ $c['title'] }}</span>
+                        <span class="home-tile-meta">{{ \App\Audiobooks\AudiobookLibrary::humanDuration(max(0, $c['duration_ms'] - $c['progress']['position_ms'])) }} left</span>
+                    </a>
+                @endforeach
+            </div>
+        </section>
+    @endif
+
     {{-- Want to read: the reader's shortlist (the built-in reading list),
          newest first, up to HomeController::WANT_TO_READ_SHELF covers. --}}
     @php $wtr = $want_to_read ?? ['count' => 0, 'items' => []]; @endphp

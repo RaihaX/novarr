@@ -38,6 +38,10 @@
     if ($isBooks) {
         unset($chips['new'], $chips['attention']);
     }
+    // Books with an audiobook (App\Audiobooks).
+    if ($isBooks) {
+        $chips['audiobooks'] = ['Audiobooks', $chipCounts['audiobooks'] ?? null, null];
+    }
     // Translated / Original only exist in the Novels library.
     foreach (['translated' => 'Translated', 'original' => 'Original'] as $originKey => $originLabel) {
         if (in_array($originKey, $originChips, true)) {
@@ -74,6 +78,11 @@
                 @if(\App\Books\CalibreWeb::enabled())
                     <a href="{{ route('books.calibre') }}" class="btn btn-secondary">Import from Calibre</a>
                 @endif
+            @endcan
+            {{-- Every audiobook (books' and standalone ones); the owner's inbox / matching page. --}}
+            <a href="{{ route('audiobooks.index') }}" class="btn btn-secondary" id="audiobooksLink"><x-icon name="headphones" :size="14" /> Audiobooks</a>
+            @can('admin')
+                <a href="{{ route('audiobooks.manage') }}" class="btn btn-secondary">Manage audiobooks</a>
             @endcan
             <a href="{{ route('books.upload') }}" class="btn btn-primary">+ Upload a book</a>
         @else

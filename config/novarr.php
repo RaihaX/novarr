@@ -121,6 +121,42 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Audiobooks (App\Audiobooks)
+    |--------------------------------------------------------------------------
+    |
+    | inbox           the drop-in folder: an .m4b/.m4a/.mp3/… file is one
+    |                 audiobook, a folder of them is one audiobook whose files
+    |                 (natural order, CD1/CD2 sub-folders flattened) are its
+    |                 parts. `audiobooks:scan` (every 10 minutes) moves what
+    |                 it imports out of here; what it cannot read goes to
+    |                 {inbox}/_failed with a .reason.txt (never deleted).
+    | path            the library: {path}/{audiobook id}/part-001.m4b …
+    |                 (the big disk: /mnt/manga/novarr-audiobooks in production).
+    | ffprobe/ffmpeg  the binaries (on PATH by default). Without ffprobe
+    |                 nothing is imported: the scan says so and leaves the
+    |                 inbox as it is.
+    | settle_seconds  an entry is imported once its files' sizes and times
+    |                 have not changed for this long (a copy may still be
+    |                 running); 0 = at once.
+    | Relative paths are taken from the app's folder.
+    |
+    */
+    'audiobooks' => [
+        'inbox' => ($abInbox = trim((string) env('NOVARR_AUDIOBOOKS_INBOX', ''))) === ''
+            ? storage_path('app/audiobooks-inbox')
+            : (str_starts_with($abInbox, '/') ? $abInbox : base_path($abInbox)),
+        'path' => ($abPath = trim((string) env('NOVARR_AUDIOBOOKS_PATH', ''))) === ''
+            ? storage_path('app/audiobooks')
+            : (str_starts_with($abPath, '/') ? $abPath : base_path($abPath)),
+        'ffprobe' => (string) env('NOVARR_FFPROBE', 'ffprobe') ?: 'ffprobe',
+        'ffmpeg' => (string) env('NOVARR_FFMPEG', 'ffmpeg') ?: 'ffmpeg',
+        'settle_seconds' => (int) env('NOVARR_AUDIOBOOKS_SETTLE_SECONDS', 120),
+        // Seconds one ffprobe / ffmpeg call may take (a long m4b on a slow disk).
+        'probe_timeout' => (int) env('NOVARR_AUDIOBOOKS_PROBE_TIMEOUT', 120),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Calibre-Web (App\Books\CalibreWeb, App\Books\CalibreImport)
     |--------------------------------------------------------------------------
     |

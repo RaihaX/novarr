@@ -317,12 +317,16 @@ class NovelController extends Controller
                 array_keys($reading)
             ));
         }
+        // Books with an audiobook (App\Audiobooks): the Books library's Audiobooks chip.
+        if ($isBooks) {
+            $sets['audiobooks'] = array_values(array_intersect(array_keys(\App\Audiobooks\AudiobookLibrary::novelMap()), array_keys($memberIds)));
+        }
         $chipCounts = array_map('count', $sets) + ['all' => count($reading)];
 
         // Chip filter. "Offline" lives in this browser's IndexedDB, so the
         // page script resolves it and comes back with ?filter=offline&ids=….
         $filter = $request->query('filter');
-        if (!in_array($filter, ['reading', 'new', 'attention', 'offline', 'finished', ...$originChips], true)) {
+        if (!in_array($filter, ['reading', 'new', 'attention', 'offline', 'finished', ...$originChips, ...($isBooks ? ['audiobooks'] : [])], true)) {
             $filter = 'all';
         }
         $offlinePending = false;
@@ -1145,7 +1149,32 @@ class NovelController extends Controller
             'reading_lists' => \App\Services\ReadingLists::forNovel(app(\App\Support\CurrentReader::class)->id(), (int) $data->id),
             // On the reader's "Want to read" (the header's bookmark button).
             'want_to_read' => \App\Services\ReadingLists::isWanted(app(\App\Support\CurrentReader::class)->id(), (int) $data->id),
+            // Its audiobook and where the reader is in it (the Listen panel), or null.
+            'audiobook' => $this->audiobookPanel((int) $data->id),
         ]);
+    }
+
+    /**
+     * The book page's Listen panel: its audiobook (App\Audiobook) and the
+     * reader's progress row, or null when it has none. Read from the
+     * cached novel map first, so a book without one costs no query.
+     *
+     * @return array{audiobook: \App\Audiobook, progress: ?object}|null
+     */
+    private function audiobookPanel(int $novelId): ?array
+    {
+        if (!isset(\App\Audiobooks\AudiobookLibrary::novelMap()[$novelId])) {
+            return null;
+        }
+        $audiobook = \App\Audiobooks\AudiobookLibrary::forNovel($novelId);
+        if ($audiobook === null) {
+            return null;
+        }
+
+        return [
+            'audiobook' => $audiobook,
+            'progress' => app(\App\Audiobooks\ListeningProgress::class)->get(app(\App\Support\CurrentReader::class)->id(), (int) $audiobook->id),
+        ];
     }
 
     /**

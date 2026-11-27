@@ -1,0 +1,277 @@
+// ---------------------------------------------------------------------------
+// Audiobooks: the shelf (/audiobooks), the player (/audiobooks/{id}), the
+// owner's page (/audiobooks/manage) and the book page's Listen panel.
+// Existing tokens only.
+// ---------------------------------------------------------------------------
+
+.ab-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: $s-6 $s-5;
+    list-style: none;
+    margin: 0 0 $s-6;
+    padding: 0;
+}
+
+.ab-chip {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: $radius;
+    background: $surface;
+    color: $text;
+    font-size: $fs-micro;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.ab-empty {
+    max-width: 60ch;
+    color: $text-muted;
+    font-size: 13px;
+
+    code { font-size: 12px; }
+}
+
+.ab-search {
+    display: flex;
+    gap: $s-2;
+    max-width: 420px;
+    margin-bottom: $s-5;
+}
+
+// ---- Player ---------------------------------------------------------------
+
+.ab-player {
+    display: grid;
+    grid-template-columns: minmax(160px, 240px) 1fr;
+    gap: $s-6;
+    align-items: start;
+    margin-bottom: $s-6;
+
+    @media (max-width: 767.98px) {
+        grid-template-columns: 1fr;
+        gap: $s-5;
+    }
+}
+
+.ab-cover {
+    position: relative;
+    aspect-ratio: 2 / 3;
+    border-radius: $radius-tile;
+    overflow: hidden;
+    background: $surface-alt;
+    border: 1px solid $border;
+
+    img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .ab-cover-title {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        padding: $s-4;
+        text-align: center;
+        color: $text-muted;
+        font-weight: 600;
+    }
+
+    @media (max-width: 767.98px) {
+        max-width: 200px;
+    }
+}
+
+.ab-meta {
+    color: $text-muted;
+    font-size: 13px;
+    margin-bottom: $s-4;
+}
+
+.ab-now {
+    font-weight: 600;
+    min-height: 1.4em;
+    margin-bottom: $s-2;
+    overflow-wrap: anywhere;
+}
+
+.ab-scrubber {
+    width: 100%;
+    accent-color: $accent;
+    margin: 0;
+}
+
+.ab-times {
+    display: flex;
+    justify-content: space-between;
+    color: $text-muted;
+    font-size: $fs-caption;
+    margin-bottom: $s-4;
+}
+
+.ab-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2;
+    margin-bottom: $s-4;
+}
+
+.ab-play {
+    min-width: 3.25rem;
+    justify-content: center;
+
+    .ab-icon-pause { display: none; }
+    &.is-playing {
+        .ab-icon-play { display: none; }
+        .ab-icon-pause { display: inline-block; }
+    }
+}
+
+.ab-options {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-4;
+    margin-bottom: $s-4;
+
+    label { color: $text-muted; font-size: $fs-caption; margin-right: $s-1; }
+    .form-select { width: auto; display: inline-block; }
+}
+
+.ab-sleep-status {
+    color: $text-muted;
+    font-size: $fs-caption;
+}
+
+.ab-panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: $s-6;
+
+    @media (max-width: 991.98px) {
+        grid-template-columns: 1fr;
+    }
+}
+
+.ab-chapters,
+.ab-bookmarks {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 420px;
+    overflow-y: auto;
+    border: 1px solid $border;
+    border-radius: $radius;
+}
+
+.ab-chapter button,
+.ab-bookmark-jump {
+    display: flex;
+    gap: $s-3;
+    width: 100%;
+    padding: $s-2 $s-3;
+    border: 0;
+    background: transparent;
+    color: $text;
+    text-align: left;
+    font-size: 13px;
+
+    &:hover { background: $surface-alt; }
+    &:focus-visible { @include focus-ring; }
+}
+
+.ab-chapter + .ab-chapter,
+.ab-bookmark + .ab-bookmark {
+    border-top: 1px solid $border;
+}
+
+.ab-chapter.is-current button {
+    font-weight: 600;
+    color: $accent-ink;
+    background: $surface-alt;
+}
+
+.ab-chapter-time,
+.ab-bookmark-time {
+    margin-left: auto;
+    color: $text-muted;
+    flex-shrink: 0;
+}
+
+.ab-bookmark {
+    display: flex;
+    align-items: center;
+
+    .ab-bookmark-jump { flex: 1; min-width: 0; }
+    .ab-bookmark-time { margin-left: 0; order: -1; }
+    .ab-bookmark-label { overflow-wrap: anywhere; }
+}
+
+.ab-bookmark-form {
+    display: flex;
+    gap: $s-2;
+    margin-bottom: $s-3;
+}
+
+// ---- Book page: Listen panel ----------------------------------------------
+
+.nv-listen {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-3;
+    padding: $s-3 $s-4;
+    margin-bottom: $s-4;
+    border: 1px solid $border;
+    border-radius: $radius;
+    background: $surface;
+
+    .nv-listen-meta { color: $text-muted; font-size: 13px; }
+}
+
+// ---- Owner's page ---------------------------------------------------------
+
+.ab-manage-totals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-5;
+    color: $text-muted;
+    font-size: 13px;
+    margin-bottom: $s-5;
+}
+
+.ab-list {
+    list-style: none;
+    margin: 0 0 $s-6;
+    padding: 0;
+}
+
+.ab-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-3;
+    padding: $s-3 0;
+    border-bottom: 1px solid $border;
+
+    .ab-row-body { flex: 1; min-width: 200px; }
+    .ab-row-title { font-weight: 600; overflow-wrap: anywhere; }
+    .ab-row-meta { display: block; color: $text-muted; font-size: $fs-caption; overflow-wrap: anywhere; }
+    .ab-row-actions { display: flex; flex-wrap: wrap; gap: $s-2; }
+}
+
+.ab-row-cover {
+    width: 40px;
+    aspect-ratio: 2 / 3;
+    border-radius: 4px;
+    overflow: hidden;
+    background: $surface-alt;
+    flex-shrink: 0;
+
+    img { width: 100%; height: 100%; object-fit: cover; display: block; }
+}

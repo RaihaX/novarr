@@ -160,8 +160,9 @@ class WordCountAndHomeQueriesTest extends TestCase
         // (App\Services\ResumePoint): its anchors statement adds one, also
         // fixed (the targets statement replaced the old read-from UNION).
         // The "Want to read" shelf adds one (the reader's list, never used
-        // here; a used one adds its members, started, novels and covers).
-        $this->assertLessThanOrEqual(25, $count, "Home ran {$count} queries on an empty cache");
+        // here; a used one adds its members, started, novels and covers),
+        // and Continue listening one (the reader's audiobook progress).
+        $this->assertLessThanOrEqual(26, $count, "Home ran {$count} queries on an empty cache");
     }
 
     public function test_home_query_count_holds_with_not_started_novels_in_new_chapters(): void
@@ -189,8 +190,9 @@ class WordCountAndHomeQueriesTest extends TestCase
 
         $response->assertSee('6 novels not started yet')->assertSee('In novels you are reading');
         // As above: 22, plus the admin's pending-requests nav badge (cached)
-        // and the resume rule's anchors statement, and the "Want to read" shelf's list.
-        $this->assertLessThanOrEqual(25, $count, "Home ran {$count} queries on an empty cache");
+        // and the resume rule's anchors statement, and the "Want to read" shelf's list,
+        // and Continue listening's progress statement.
+        $this->assertLessThanOrEqual(26, $count, "Home ran {$count} queries on an empty cache");
     }
 
     public function test_continue_reading_picks_the_same_chapters_as_before(): void

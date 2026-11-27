@@ -37,6 +37,7 @@
         'cache' => 'var(--nv-text-muted)',
         'other' => 'var(--nv-muted)',
         'books' => 'var(--nv-amber-ink)',
+        'audiobooks' => 'var(--nv-series-3)',
     ];
     $mediumLabel = [\App\Novel::MEDIUM_NOVEL => 'Novel', \App\Novel::MEDIUM_MANGA => 'Manga', \App\Novel::MEDIUM_BOOK => 'Book'];
     $fmtPct = fn ($v) => rtrim(rtrim(number_format((float) $v, 1), '0'), '.') . '%';

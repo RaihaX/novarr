@@ -270,3 +270,14 @@ $oneServer(Schedule::command('books:series' . (\App\Books\CalibreWeb::enabled() 
     ->name('books_series')
     ->withoutOverlapping(60)
     ->runInBackground());
+
+// Audiobooks dropped into the inbox folder (App\Audiobooks\AudiobookInbox):
+// every 10 minutes, the entries whose files have settled (not changed for
+// novarr.audiobooks.settle_seconds) are probed, moved into the library and
+// matched to their book. The command also takes its own lock ("Scan now"
+// from the Audiobooks page queues the same command).
+$oneServer(Schedule::command('audiobooks:scan')
+    ->everyTenMinutes()
+    ->name('audiobooks_scan')
+    ->withoutOverlapping(60)
+    ->runInBackground());

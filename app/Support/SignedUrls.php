@@ -41,6 +41,25 @@ final class SignedUrls
         return URL::signedRoute($name, $parameters, null, false);
     }
 
+    /**
+     * route() with an expiry: the URL stops working at $expires (an
+     * audiobook part's URL, valid a day, for <audio> and ExoPlayer). The
+     * expiry is rounded up to the hour, so the URL stays the same for an
+     * hour (players and caches see one URL per part, not one per request).
+     * With sign-in off the plain route, as route().
+     */
+    public static function temporaryRoute(string $name, array $parameters = [], int $hours = 24): string
+    {
+        if (!AuthMode::required()) {
+            return route($name, $parameters);
+        }
+
+        $parameters[self::READER_PARAM] = app(CurrentReader::class)->id();
+        $expires = now()->startOfHour()->addHours($hours + 1);
+
+        return URL::temporarySignedRoute($name, $expires, $parameters, false);
+    }
+
     /** The enabled user a signed request names, or null when the signature or user is not valid. */
     public static function userFor(Request $request): ?User
     {

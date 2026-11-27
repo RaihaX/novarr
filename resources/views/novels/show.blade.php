@@ -167,6 +167,27 @@
         @endif
     </div>
 
+    {{-- Listen: the book's audiobook (App\Audiobook), where the reader is in it, and the player. --}}
+    @if(!empty($audiobook))
+        @php
+            $ab = $audiobook['audiobook'];
+            $abProgress = $audiobook['progress'];
+            $abFinished = $abProgress && $abProgress->finished_at !== null;
+            $abStarted = $abProgress && (int) $abProgress->position_ms > 0 && !$abFinished;
+            $abPercent = $abStarted && $ab->duration_ms > 0 ? (int) min(100, round($abProgress->position_ms / $ab->duration_ms * 100)) : 0;
+        @endphp
+        <div class="nv-listen" id="listenPanel">
+            <x-icon name="headphones" :size="16" />
+            <span class="nv-listen-meta">
+                Audiobook · {{ \App\Audiobooks\AudiobookLibrary::humanDuration((int) $ab->duration_ms) }}@if($ab->narrator) · read by {{ $ab->narrator }}@endif
+                @if($abFinished) · finished @elseif($abStarted) · {{ $abPercent }}% listened, {{ \App\Audiobooks\AudiobookLibrary::humanDuration(max(0, (int) $ab->duration_ms - (int) $abProgress->position_ms)) }} left @endif
+            </span>
+            <a href="{{ route('audiobooks.show', $ab->id) }}" class="btn btn-primary btn-sm ms-auto" id="listenBtn">
+                <x-icon name="play" :size="13" /> {{ $abStarted ? 'Continue listening' : 'Listen' }}
+            </a>
+        </div>
+    @endif
+
     {{-- Actions: one primary, Download for offline, and the overflow menu. --}}
     <div class="nv-actions">
         @if($continue_chapter_id)
