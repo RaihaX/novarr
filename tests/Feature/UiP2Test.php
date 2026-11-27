@@ -214,7 +214,9 @@ class UiP2Test extends TestCase
         // Offline copies are "Offline" in the nav; "Downloads" is what the
         // scraper does (Activity). Same route and URL as before.
         $this->assertMatchesRegularExpression('#href="' . preg_quote(route('library'), '#') . '" title="[^"]*">Offline</a>#', $html);
-        $this->assertStringNotContainsString('>Downloads</a>', $html);
+        // (The owner's Manage › Downloads is the Usenet/torrent page, not offline copies.)
+        $this->assertDoesNotMatchRegularExpression('#href="' . preg_quote(route('library'), '#') . '"[^>]*>Downloads#', $html);
+        $this->assertMatchesRegularExpression('#href="' . preg_quote(route('downloads.index'), '#') . '" id="navDownloads">Downloads#', $html);
         $this->assertMatchesRegularExpression('#href="' . preg_quote(route('bookmarks.index'), '#') . '">Highlights</a>#', $html);
         $this->assertStringContainsString('<title>Novels · ', $html);
         $this->assertSame('/library', parse_url(route('library'), PHP_URL_PATH));

@@ -348,14 +348,69 @@ hr { border-top-color: $border; }
     .nav-search { width: 100%; }
 }
 
-// Ten nav items since Books: between the bar opening out (xl) and wide screens
-// the links tighten and the search narrows, so the bar stays one line and the
-// theme toggle stays on screen.
+// Between the bar opening out (xl) and wide screens the search narrows, so
+// the bar stays one line with the owner's six items and the account menu.
 @media (min-width: 1200px) and (max-width: 1399.98px) {
-    .navbar .navbar-nav { gap: 0; }
-    .navbar .nav-link { padding-left: $s-2; padding-right: $s-2; }
-    .nav-search { width: 180px; }
+    .nav-search { width: 200px; }
     .nav-search .nav-search-kbd { display: none; }
+}
+
+// ---------------------------------------------------------------------------
+// Nav groups (partials/navbar-menu): Library / Manage / System dropdowns.
+// ---------------------------------------------------------------------------
+.navbar {
+    .nav-group .dropdown-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0;
+        white-space: nowrap;
+
+        // Bootstrap's caret, smaller and after the count.
+        &::after {
+            order: 2;
+            margin-left: 6px;
+            border-top-width: 4px;
+            border-right-width: 4px;
+            border-left-width: 4px;
+            opacity: .7;
+        }
+    }
+
+    .nav-group .dropdown-menu { min-width: 200px; }
+
+    .dropdown-item .nav-count { margin-left: $s-2; }
+
+    .navbar-toggler-count { margin-left: 0; }
+}
+
+// Collapsed (< xl): each group opens in the flow under its toggle, as an
+// indented list on the bar's ground: tap to expand, no hover behaviour.
+@include media-breakpoint-down(xl) {
+    // The toggler's count: the sum of the menu's (Requests, Downloads).
+    .navbar .navbar-toggler {
+        display: inline-flex;
+        align-items: center;
+        gap: $s-2;
+    }
+    .navbar .navbar-nav {
+        align-items: stretch;
+        padding-top: $s-2;
+    }
+    .navbar .nav-group .dropdown-toggle {
+        width: 100%;
+        justify-content: flex-start;
+
+        &::after { margin-left: auto; }
+    }
+    .navbar .nav-group .dropdown-menu {
+        margin: 0 0 $s-2 $s-4;
+        padding: 0 0 0 $s-2;
+        border: 0;
+        border-left: $hairline solid $border;
+        border-radius: 0;
+        background: transparent;
+    }
+    .navbar .navbar-tools { padding-top: $s-3; }
 }
 
 // ---------------------------------------------------------------------------

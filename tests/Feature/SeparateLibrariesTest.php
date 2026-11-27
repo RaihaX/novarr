@@ -76,7 +76,7 @@ class SeparateLibrariesTest extends TestCase
 
     private function activeNav(string $html): array
     {
-        preg_match_all('#<a class="nav-link active"[^>]*data-nav-medium="(\w+)"#', $html, $m);
+        preg_match_all('#<a class="(?:nav-link|dropdown-item) active"[^>]*data-nav-medium="(\w+)"#', $html, $m);
 
         return $m[1];
     }
@@ -229,9 +229,10 @@ class SeparateLibrariesTest extends TestCase
 
         $this->assertSame(['novel'], $this->activeNav($this->get(route('novels.index', ['medium' => 'novel']))->getContent()));
         $this->assertSame(['manga'], $this->activeNav($this->get(route('novels.index', ['medium' => 'manga']))->getContent()));
-        $this->assertSame(['manga'], $this->activeNav($this->get(route('novels.discover'))->getContent()), 'remembered');
-        $this->assertSame(['novel'], $this->activeNav($this->get(route('novels.discover', ['medium' => 'novel']))->getContent()));
-        $this->assertSame(['manga'], $this->activeNav($this->get(route('novels.create', ['medium' => 'manga']))->getContent()));
+        // Discover is its own nav item and adding a series is under Manage
+        // (partials/navbar-menu): no library is marked there.
+        $this->assertSame([], $this->activeNav($this->get(route('novels.discover'))->getContent()));
+        $this->assertSame([], $this->activeNav($this->get(route('novels.create', ['medium' => 'manga']))->getContent()));
 
         // A series page: its own medium, whatever library was last shown.
         $this->assertSame(['manga'], $this->activeNav($this->get(route('novels.show', $manga->id))->getContent()));

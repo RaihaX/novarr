@@ -53,6 +53,9 @@ class DownloadController extends Controller
 {
     public const TABS = ['attention', 'queue', 'seeding', 'history', 'wanted', 'blocklist', 'settings'];
 
+    /** The nav's "Needs you" count (layouts.app, 60 s): attentionTotal(). */
+    public const NAV_ATTENTION_CACHE = 'downloads_nav_attention_count';
+
     public function index(Request $request, WantedList $list)
     {
         $tab = in_array($request->query('tab'), self::TABS, true) ? $request->query('tab') : 'attention';
@@ -60,6 +63,8 @@ class DownloadController extends Controller
             $list->sync();
         }
         $attention = self::attention();
+        // The page knows the count fresh: the nav badge on it says the same.
+        \Illuminate\Support\Facades\Cache::put(self::NAV_ATTENTION_CACHE, self::attentionCount($attention), 60);
         $seeding = $tab === 'seeding' ? self::seeding() : null;
 
         return view('downloads.index', [
@@ -359,6 +364,29 @@ class DownloadController extends Controller
             'stuck' => DownloadGrab::with(['request', 'novel'])->where('status', DownloadGrab::STATUS_COMPLETED)
                 ->where('updated_at', '<', now()->subMinutes(30))->orderBy('id')->get(),
         ];
+    }
+
+    /**
+     * attentionCount(attention()) in one query (the nav badge, layouts.app):
+     * the same five lists, counted, each capped as attention() caps it.
+     */
+    public static function attentionTotal(): int
+    {
+        $parts = [
+            'unmatched' => [\App\Audiobook::where('status', \App\Audiobook::STATUS_UNMATCHED), 50],
+            'review' => [\App\NovelRequest::where('medium', \App\Novel::MEDIUM_BOOK)
+                ->where('status', \App\NovelRequest::STATUS_PENDING)->whereNotNull('upload_path'), 50],
+            'choice' => [DownloadWanted::where('monitored', true)->where('needs_choice', true), null],
+            'failed' => [DownloadGrab::where('status', DownloadGrab::STATUS_FAILED)->where('updated_at', '>=', now()->subDays(7)), 30],
+            'stuck' => [DownloadGrab::where('status', DownloadGrab::STATUS_COMPLETED)->where('updated_at', '<', now()->subMinutes(30)), null],
+        ];
+        $row = \Illuminate\Support\Facades\DB::query();
+        foreach ($parts as $key => [$query, $cap]) {
+            $row->selectSub($query->toBase()->selectRaw('count(*)'), $key);
+        }
+        $row = (array) $row->first();
+
+        return array_sum(array_map(fn($key) => $parts[$key][1] === null ? (int) $row[$key] : min((int) $row[$key], $parts[$key][1]), array_keys($parts)));
     }
 
     public static function attentionCount(array $attention): int
