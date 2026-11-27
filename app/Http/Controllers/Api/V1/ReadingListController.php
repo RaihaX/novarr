@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\ReadingList;
 use App\Services\ReadingLists;
 use App\Support\CurrentReader;
 use Illuminate\Http\JsonResponse;
@@ -14,10 +15,14 @@ use Illuminate\Http\Response;
  * Each reader sees and changes only their own: someone else's list, like an
  * unknown series, answers 404 (never 403, which would say it exists).
  *
- *   GET    /api/v1/lists                          {lists: [{id, name, count, novel_ids, kind}]},
+ *   GET    /api/v1/lists                          {lists: [{id, name, count, novel_ids, kind, position, hidden_on_home}]},
+ *                                                  in the reader's order (position, 0 first); before they reorder:
  *                                                  "Want to read", "Favourites" (both made on first use), then by name
  *   POST   /api/v1/lists {name}                   201 {list}
- *   PATCH  /api/v1/lists/{list} {name}            {list}
+ *   PATCH  /api/v1/lists/{list} {name?, hidden_on_home?}  {list} (a built-in list: hidden_on_home only)
+ *   PATCH  /api/v1/lists/order {ids: [...]}       {lists} — these first, in this order, the rest after as they were
+ *   PUT    /api/v1/lists/memberships {novel_ids, add, remove}  {lists} — many series in / out of many
+ *                                                  lists in one go (built-ins too; idempotent)
  *   DELETE /api/v1/lists/{list}                   204
  *   PUT    /api/v1/lists/{list}/novels/{novel}    {list} (idempotent)
  *   DELETE /api/v1/lists/{list}/novels/{novel}    {list} (idempotent)
@@ -37,6 +42,9 @@ use Illuminate\Http\Response;
  */
 class ReadingListController extends Controller
 {
+    /** Series in one multi-select call (memberships, NovelBulkController). */
+    public const MAX_BULK = 500;
+
     public function index(): JsonResponse
     {
         return response()->json(['lists' => ReadingLists::forReader(static::readerId())]);
@@ -49,11 +57,48 @@ class ReadingListController extends Controller
         return response()->json(['list' => ReadingLists::present($list)], 201);
     }
 
+    /** Rename (name), and/or show or hide on Home (hidden_on_home); at least one. */
     public function update(Request $request, $list): JsonResponse
     {
-        $list = ReadingLists::rename(ReadingLists::find(static::readerId(), $list), $request->input('name'));
+        $request->validate(['hidden_on_home' => 'nullable|boolean']);
+        $list = ReadingLists::find(static::readerId(), $list);
+        // Without hidden_on_home it is a rename, as it always was (a missing name: 422).
+        if ($request->has('name') || !$request->filled('hidden_on_home')) {
+            $list = ReadingLists::rename($list, $request->input('name'));
+        }
+        if ($request->filled('hidden_on_home')) {
+            $list = ReadingLists::setHiddenOnHome($list, $request->boolean('hidden_on_home'));
+        }
 
         return response()->json(['list' => ReadingLists::present($list)]);
+    }
+
+    /** PATCH /api/v1/lists/order {ids}: the reader's order of their categories. */
+    public function order(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'ids' => 'present|array|max:' . (ReadingList::MAX_LISTS + count(ReadingList::BUILT_IN)),
+            'ids.*' => 'integer',
+        ]);
+        ReadingLists::reorder(static::readerId(), $data['ids']);
+
+        return response()->json(['lists' => ReadingLists::forReader(static::readerId())]);
+    }
+
+    /** PUT /api/v1/lists/memberships {novel_ids, add, remove}: the multi-select "Set categories". */
+    public function memberships(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'novel_ids' => 'required|array|min:1|max:' . self::MAX_BULK,
+            'novel_ids.*' => 'integer',
+            'add' => 'present|array|max:' . (ReadingList::MAX_LISTS + count(ReadingList::BUILT_IN)),
+            'add.*' => 'integer',
+            'remove' => 'present|array|max:' . (ReadingList::MAX_LISTS + count(ReadingList::BUILT_IN)),
+            'remove.*' => 'integer',
+        ]);
+        ReadingLists::setMemberships(static::readerId(), $data['novel_ids'], $data['add'], $data['remove']);
+
+        return response()->json(['lists' => ReadingLists::forReader(static::readerId())]);
     }
 
     public function destroy($list): Response

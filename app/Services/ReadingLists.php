@@ -51,21 +51,204 @@ class ReadingLists
             ->get(['m.reading_list_id', 'm.novel_id', 'm.added_at'])
             ->groupBy('reading_list_id');
 
-        return $lists->map(fn(ReadingList $list) => static::shape(
+        return $lists->values()->map(fn(ReadingList $list, int $position) => static::shape(
             $list,
-            static::memberIds($list, $members->get($list->id) ?? collect())
-        ))->values()->all();
+            static::memberIds($list, $members->get($list->id) ?? collect()),
+            $position
+        ))->all();
     }
 
-    /** One list in the API's shape. */
+    /** One list in the API's shape (its position among the reader's lists: one more statement). */
     public static function present(ReadingList $list): array
     {
         $rows = static::liveMembers()
             ->where('m.reading_list_id', $list->id)
             ->orderBy('m.novel_id')
             ->get(['m.novel_id', 'm.added_at']);
+        $position = static::ordered((int) $list->user_id)->values()->search(fn(ReadingList $l) => (int) $l->id === (int) $list->id);
 
-        return static::shape($list, static::memberIds($list, $rows));
+        return static::shape($list, static::memberIds($list, $rows), $position === false ? 0 : (int) $position);
+    }
+
+    // --- Order, Home visibility, many series at once (Categories) ----------
+
+    /**
+     * Put the reader's lists in this order: $ids first as given, then the
+     * rest in their current order; every list gets its position. 404 when an
+     * id is not one of the reader's lists (nothing changes); duplicates
+     * count once.
+     *
+     * @param  array<mixed>  $ids
+     */
+    public static function reorder(int $userId, array $ids): void
+    {
+        $lists = static::ordered($userId);
+        $byId = $lists->keyBy(fn(ReadingList $l) => (int) $l->id);
+        $first = [];
+        foreach ($ids as $id) {
+            if (!is_numeric($id) || !$byId->has((int) $id)) {
+                throw new NotFoundHttpException('List not found.');
+            }
+            $first[(int) $id] = true;
+        }
+        $order = array_merge(
+            array_keys($first),
+            $lists->map(fn(ReadingList $l) => (int) $l->id)->reject(fn(int $id) => isset($first[$id]))->values()->all()
+        );
+
+        DB::transaction(function () use ($order, $byId) {
+            foreach ($order as $position => $id) {
+                if ($byId->get($id)->position !== $position) {
+                    ReadingList::whereKey($id)->update(['position' => $position]);
+                }
+            }
+        });
+    }
+
+    /** Show the list on Home, or take it off (built-in lists too). */
+    public static function setHiddenOnHome(ReadingList $list, bool $hidden): ReadingList
+    {
+        if ((bool) $list->hidden_on_home !== $hidden) {
+            $list->forceFill(['hidden_on_home' => $hidden])->save();
+        }
+
+        return $list;
+    }
+
+    /**
+     * Put many series in some of the reader's lists and take them out of
+     * others, in one go (the apps' multi-select "Set categories"). Built-in
+     * lists included. Idempotent. 404 for a list that is not the reader's
+     * or an unknown series (or a soft-deleted one); 422 when a list is in
+     * both $add and $remove, or would hold more than MAX_NOVELS. Nothing
+     * changes on an error.
+     *
+     * @param  array<mixed>  $novelIds
+     * @param  array<mixed>  $add  list ids
+     * @param  array<mixed>  $remove  list ids
+     */
+    public static function setMemberships(int $userId, array $novelIds, array $add, array $remove): void
+    {
+        $add = array_values(array_unique(array_map('intval', $add)));
+        $remove = array_values(array_unique(array_map('intval', $remove)));
+        if (array_intersect($add, $remove) !== []) {
+            throw ValidationException::withMessages(['add' => 'A category can’t be added and removed at once.']);
+        }
+        $addLists = array_map(fn(int $id) => static::find($userId, $id), $add);
+        $removeLists = array_map(fn(int $id) => static::find($userId, $id), $remove);
+
+        $novelIds = array_values(array_unique(array_map(fn($id) => is_numeric($id) ? (int) $id : 0, $novelIds)));
+        $known = $novelIds === [] ? [] : Novel::query()->whereIn('id', $novelIds)->pluck('id')->all();
+        if (count($known) !== count($novelIds)) {
+            throw new NotFoundHttpException('Series not found.');
+        }
+        if ($novelIds === []) {
+            return;
+        }
+
+        foreach ($addLists as $list) {
+            $present = DB::table(ReadingList::PIVOT)->where('reading_list_id', $list->id)->whereIn('novel_id', $novelIds)->pluck('novel_id')->map(fn($id) => (int) $id)->all();
+            $new = count(array_diff($novelIds, $present));
+            if ($new > 0 && static::liveMembers()->where('m.reading_list_id', $list->id)->count() + $new > ReadingList::MAX_NOVELS) {
+                throw ValidationException::withMessages([
+                    'novel' => '“' . $list->name . '” can hold up to ' . number_format(ReadingList::MAX_NOVELS) . ' series.',
+                ]);
+            }
+        }
+
+        DB::transaction(function () use ($addLists, $removeLists, $novelIds) {
+            $now = now();
+            foreach ($addLists as $list) {
+                // insertOrIgnore: a series already there keeps its added_at.
+                $inserted = DB::table(ReadingList::PIVOT)->insertOrIgnore(array_map(fn(int $id) => [
+                    'reading_list_id' => $list->id,
+                    'novel_id' => $id,
+                    'added_at' => $now,
+                ], $novelIds));
+                if ($inserted > 0) {
+                    $list->touch();
+                }
+            }
+            foreach ($removeLists as $list) {
+                if (DB::table(ReadingList::PIVOT)->where('reading_list_id', $list->id)->whereIn('novel_id', $novelIds)->delete() > 0) {
+                    $list->touch();
+                }
+            }
+        });
+    }
+
+    /**
+     * For each of these series, the ids of the reader's lists it is in, in
+     * the reader's order (series in none are left out). Two statements.
+     *
+     * @param  list<int>  $novelIds
+     * @return array<int, list<int>>
+     */
+    public static function listIdsByNovel(int $userId, array $novelIds): array
+    {
+        if ($novelIds === []) {
+            return [];
+        }
+        $rank = static::ordered($userId)->values()->mapWithKeys(fn(ReadingList $l, int $i) => [(int) $l->id => $i])->all();
+        $rows = DB::table(ReadingList::PIVOT . ' as m')
+            ->join('reading_lists as l', 'l.id', '=', 'm.reading_list_id')
+            ->where('l.user_id', $userId)
+            ->whereIn('m.novel_id', $novelIds)
+            ->get(['m.novel_id', 'm.reading_list_id']);
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(int) $row->novel_id][] = (int) $row->reading_list_id;
+        }
+        foreach ($out as &$ids) {
+            usort($ids, fn(int $a, int $b) => ($rank[$a] ?? PHP_INT_MAX) <=> ($rank[$b] ?? PHP_INT_MAX));
+        }
+        unset($ids);
+
+        return $out;
+    }
+
+    /** The reader's lists in their order (models: id, name, kind, position, hidden_on_home). */
+    public static function inOrder(int $userId)
+    {
+        return static::ordered($userId);
+    }
+
+    /**
+     * Home's "summary of the categories": for each of $lists (models from
+     * inOrder(), the reader's own) how many live series it holds and the
+     * newest $limit of them (novel ids, newest first). Two statements
+     * whatever the number of lists; none for no lists.
+     *
+     * @return array<int, array{count:int, novel_ids: list<int>}>  by list id
+     */
+    public static function shelves($lists, int $limit): array
+    {
+        $ids = collect($lists)->map(fn(ReadingList $l) => (int) $l->id)->values()->all();
+        if ($ids === []) {
+            return [];
+        }
+        $out = array_fill_keys($ids, ['count' => 0, 'novel_ids' => []]);
+        foreach (static::liveMembers()->whereIn('m.reading_list_id', $ids)->groupBy('m.reading_list_id')
+            ->get(['m.reading_list_id', DB::raw('COUNT(*) AS c')]) as $row) {
+            $out[(int) $row->reading_list_id]['count'] = (int) $row->c;
+        }
+
+        // The newest $limit per list in one statement (a window function:
+        // SQLite 3.25+, MariaDB 10.2+, MySQL 8).
+        $ranked = static::liveMembers()
+            ->whereIn('m.reading_list_id', $ids)
+            ->select(['m.reading_list_id', 'm.novel_id', 'm.added_at'])
+            ->selectRaw('ROW_NUMBER() OVER (PARTITION BY m.reading_list_id ORDER BY m.added_at DESC, m.novel_id DESC) AS rn');
+        $rows = DB::query()->fromSub($ranked, 'r')
+            ->where('r.rn', '<=', max(1, $limit))
+            ->orderBy('r.reading_list_id')
+            ->orderBy('r.rn')
+            ->get(['r.reading_list_id', 'r.novel_id']);
+        foreach ($rows as $row) {
+            $out[(int) $row->reading_list_id]['novel_ids'][] = (int) $row->novel_id;
+        }
+
+        return $out;
     }
 
     // --- Built-in lists ("Want to read", "Favourites") ---------------------
@@ -352,10 +535,14 @@ class ReadingLists
         }
         static::assertFree($userId, $name);
 
+        // Once the reader has ordered their lists, a new one goes last.
+        $last = ReadingList::where('user_id', $userId)->max('position');
+
         return static::saving($name, fn() => ReadingList::create([
             'user_id' => $userId,
             'name' => $name,
             'name_key' => ReadingList::key($name),
+            'position' => $last !== null ? (int) $last + 1 : null,
         ]));
     }
 
@@ -439,6 +626,7 @@ class ReadingLists
                 'count' => $here,
                 'other' => (int) $rows->sum('c') - $here,
                 'kind' => $list->kind,
+                'hidden_on_home' => (bool) $list->hidden_on_home,
             ];
         })->values()->all();
     }
@@ -484,14 +672,20 @@ class ReadingLists
 
     // ---------------------------------------------------------------------
 
-    /** The reader's lists: "Want to read", "Favourites", then their own by name. */
+    /**
+     * The reader's lists in their order: by position once they reordered
+     * them; those without one after: "Want to read", "Favourites", then
+     * their own by name.
+     */
     private static function ordered(int $userId)
     {
         return ReadingList::where('user_id', $userId)
+            ->orderByRaw('CASE WHEN position IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('position')
             ->orderByRaw('CASE kind WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END', [ReadingList::KIND_WANT_TO_READ, ReadingList::KIND_FAVOURITES])
             ->orderBy('name_key')
             ->orderBy('id')
-            ->get(['id', 'name', 'kind']);
+            ->get(['id', 'user_id', 'name', 'kind', 'position', 'hidden_on_home']);
     }
 
     /** A list's member ids from its rows: by id, a built-in list's newest first. */
@@ -512,7 +706,7 @@ class ReadingLists
             ->whereNull('n.deleted_at');
     }
 
-    private static function shape(ReadingList $list, array $novelIds): array
+    private static function shape(ReadingList $list, array $novelIds, int $position): array
     {
         return [
             'id' => (int) $list->id,
@@ -521,6 +715,9 @@ class ReadingLists
             'novel_ids' => $novelIds,
             // null: the reader's own list; 'want_to_read' / 'favourites': a built-in one.
             'kind' => $list->kind,
+            // Categories: where it is in the reader's order (0 first), and whether it is off Home.
+            'position' => $position,
+            'hidden_on_home' => (bool) $list->hidden_on_home,
         ];
     }
 

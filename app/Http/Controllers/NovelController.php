@@ -855,14 +855,15 @@ class NovelController extends Controller
      */
     public function bulk(Request $request)
     {
-        // One route, three actions: "mark read" is the reader's own state;
-        // delete / complete change the library (admin; App\Support\RouteAccess).
-        if ($request->input('action') !== 'read') {
+        // One route, four actions: "mark read" / "mark unread" are the
+        // reader's own state; delete / complete change the library (admin;
+        // App\Support\RouteAccess).
+        if (!in_array($request->input('action'), ['read', 'unread'], true)) {
             \Illuminate\Support\Facades\Gate::authorize('admin');
         }
 
         $data = $request->validate([
-            'action' => 'required|in:delete,complete,read',
+            'action' => 'required|in:delete,complete,read,unread',
             'ids' => 'required|array|min:1',
             'ids.*' => 'integer|exists:novels,id',
         ]);
@@ -884,13 +885,20 @@ class NovelController extends Controller
                 onlyUnread: true,
                 client: \App\Support\ReadingClient::from($request)
             );
+        } elseif ($data['action'] === 'unread') {
+            // Every chapter of the selected series becomes unread for this reader.
+            $marked = $this->readState->markMany(
+                NovelChapter::whereIn('novel_id', $data['ids'])->where('blacklist', 0),
+                false,
+                now()
+            );
         } else {
             Novel::whereIn('id', $data['ids'])
                 ->where('status', 0)
                 ->update(['status' => 1, 'completed_at' => now()]);
         }
 
-        if ($data['action'] !== 'read') {
+        if (!in_array($data['action'], ['read', 'unread'], true)) {
             foreach ($data['ids'] as $id) {
                 CacheHelper::clearNovelCache($id);
             }

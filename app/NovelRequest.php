@@ -57,6 +57,7 @@ class NovelRequest extends Model
     {
         static::deleted(function (self $request) {
             NovelRequestFollower::where('novel_request_id', $request->id)->delete();
+            \App\Services\Requests\RequestCategories::forgetRequest((int) $request->id);
             // A cancelled book upload takes its parked file and cover with it.
             \App\Books\BookUploads::discard($request);
         });

@@ -35,7 +35,7 @@
                 <a href="{{ route('novels.index', ['medium' => $medium]) }}" class="btn btn-ghost">Show all {{ $mediumPlural }}</a>
             </div>
         @else
-            <p class="novels-empty-body">Open a series and use its <strong>Lists</strong> button to add it here.</p>
+            <p class="novels-empty-body">Open a series and use its <strong>Categories</strong> button to add it here.</p>
             <div class="novels-empty-actions">
                 <a href="{{ route('novels.index', ['medium' => $medium]) }}" class="btn btn-secondary">Show all {{ $mediumPlural }}</a>
             </div>

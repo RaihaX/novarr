@@ -55,7 +55,76 @@
     </a>
 @endif
 
-<div class="home">
+{{-- Categories first (docs/plans/categories-and-home.md): once the reader
+     has a category, Home is a summary of them, then New chapters. The 1.16
+     shelves (Continue, Continue listening, Favourites, Want to read) are
+     still rendered but hidden (data-home-optional) unless the reader turned
+     them back on under "Customise Home" (resources/js/home-layout.js, kept
+     in this browser). Until then Home keeps its old layout. --}}
+@php $categoriesFirst = (bool) ($categories_first ?? false); @endphp
+<div class="home{{ $categoriesFirst ? ' is-categories-first' : '' }}" data-home>
+
+    @unless($categoriesFirst)
+        <section class="home-first-category" aria-labelledby="firstCategoryTitle" id="first-category">
+            <div class="home-first-category-body">
+                <h2 class="home-first-category-title" id="firstCategoryTitle">Sort your library into categories</h2>
+                <p class="home-quiet">Make a category (“Manhwa”, “Finished”…) and Home becomes a summary of them. In the Library, choose <strong>Select</strong> to put series in one.</p>
+            </div>
+            <form class="home-first-category-form" data-home-first-category>
+                <label class="visually-hidden" for="firstCategoryName">Category name</label>
+                <input type="text" id="firstCategoryName" name="name" class="form-control" maxlength="40" placeholder="Category name" required>
+                <button type="submit" class="btn btn-primary">Create your first category</button>
+                <p class="home-first-category-error" role="alert" hidden></p>
+            </form>
+        </section>
+    @endunless
+
+    @if($categoriesFirst)
+        {{-- The summary of the categories, in the reader's order. --}}
+        <section class="home-section home-categories" aria-labelledby="categoriesTitle" id="categories-section">
+            <div class="home-section-head">
+                <h2 class="home-section-title" id="categoriesTitle">Categories</h2>
+                <a href="{{ route('novels.index') }}" class="home-section-link">Manage categories</a>
+            </div>
+            @if(count($categories) === 0)
+                <p class="home-quiet">Your categories are empty. In the Library, choose <strong>Select</strong>, pick some series and <strong>Set categories</strong>.</p>
+            @endif
+            @foreach($categories as $cat)
+                @php
+                    $catUrl = match ($cat['kind']) {
+                        \App\ReadingList::KIND_FAVOURITES => route('favourites'),
+                        \App\ReadingList::KIND_WANT_TO_READ => route('want_to_read'),
+                        default => route('novels.index', ['list' => $cat['id']]),
+                    };
+                @endphp
+                <div class="home-category" data-category="{{ $cat['id'] }}">
+                    <div class="home-section-head">
+                        <h3 class="home-category-title" id="category{{ $cat['id'] }}Title">{{ $cat['name'] }} <span class="home-category-count mono-num">{{ number_format($cat['count']) }}</span></h3>
+                        <a href="{{ $catUrl }}" class="home-section-link">See all<span class="visually-hidden"> {{ number_format($cat['count']) }} in {{ $cat['name'] }}</span></a>
+                    </div>
+                    <div class="home-shelf" aria-labelledby="category{{ $cat['id'] }}Title">
+                        @foreach($cat['items'] as $n)
+                            <a href="{{ route('novels.show', $n->id) }}" class="home-tile" aria-label="{{ $n->name }}">
+                                <div class="home-cover{{ $n->isManga() ? ' has-chip' : '' }}">
+                                    @if($cover = $n->coverUrl('sm'))
+                                        @php $cover2x = $n->coverThumbnailUrl('md'); @endphp
+                                        <img src="{{ $cover }}"{!! $cover2x ? ' srcset="' . e($cover) . ' 1x, ' . e($cover2x) . ' 2x"' : '' !!} alt="" loading="lazy" decoding="async">
+                                    @else
+                                        <span class="home-cover-title">{{ $n->name }}</span>
+                                    @endif
+                                    @if($n->isManga())
+                                        <span class="cover-chip">MANGA</span>
+                                    @endif
+                                </div>
+                                <span class="home-tile-title">{{ $n->name }}</span>
+                                <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : 'Web Novel') }}</span>
+                            </a>
+                        @endforeach
+                    </div>
+                </div>
+            @endforeach
+        </section>
+    @endif
 
     <div class="home-top">
         {{-- Hero: the current book --}}
@@ -67,7 +136,7 @@
                 $chapterNo = $ch($chapter->chapter);
                 $position = 'Chapter ' . number_format($hero['index']) . ' of ' . number_format($hero['total']);
             @endphp
-            <section class="home-hero" aria-labelledby="nowReadingTitle" id="nowReading">
+            <section class="home-hero" aria-labelledby="nowReadingTitle" id="nowReading" data-home-optional="continue">
                 <a href="{{ $resumeUrl }}" class="home-hero-cover" tabindex="-1" aria-hidden="true">
                     {{-- Novel progress shows once, on the bar below: no cover edge here. --}}
                     <div class="home-cover home-cover-lg{{ ($hero['manga'] ?? false) ? ' has-chip' : '' }}">
@@ -138,7 +207,7 @@
                 </div>
             </section>
         @else
-            <section class="home-empty" aria-labelledby="nothingReadingTitle" id="nothingReading">
+            <section class="home-empty" aria-labelledby="nothingReadingTitle" id="nothingReading" data-home-optional="continue">
                 <x-icon name="book-open" :size="20" class="icon icon-amber" />
                 <div class="home-empty-body">
                     <h1 class="home-empty-title" id="nothingReadingTitle">Nothing in progress</h1>
@@ -216,7 +285,7 @@
 
     {{-- Continue: the next six in-progress novels --}}
     @if(count($shelf) > 0)
-        <section class="home-section" aria-labelledby="continueTitle" id="continue-section">
+        <section class="home-section" aria-labelledby="continueTitle" id="continue-section" data-home-optional="continue">
             <div class="home-section-head">
                 <h2 class="home-section-title" id="continueTitle">Continue</h2>
                 <a href="{{ route('novels.index') }}" class="home-section-link">Library</a>
@@ -256,7 +325,7 @@
 
     {{-- Continue listening: audiobooks part way through, newest first (only when there are some). --}}
     @if(count($continue_listening ?? []) > 0)
-        <section class="home-section" aria-labelledby="continueListeningTitle" id="continue-listening-section">
+        <section class="home-section" aria-labelledby="continueListeningTitle" id="continue-listening-section" data-home-optional="listening">
             <div class="home-section-head">
                 <h2 class="home-section-title" id="continueListeningTitle">Continue listening</h2>
                 <a href="{{ route('audiobooks.index') }}" class="home-section-link">Audiobooks</a>
@@ -287,7 +356,7 @@
          Only once there is one: the heart on a series page fills it. --}}
     @php $favs = $favourites ?? ['count' => 0, 'items' => []]; @endphp
     @if(count($favs['items']) > 0)
-        <section class="home-section" aria-labelledby="favouritesTitle" id="favourites-section">
+        <section class="home-section" aria-labelledby="favouritesTitle" id="favourites-section" data-home-optional="favourites">
             <div class="home-section-head">
                 <h2 class="home-section-title" id="favouritesTitle">Favourites</h2>
                 <a href="{{ route('favourites') }}" class="home-section-link">See all<span class="visually-hidden"> {{ number_format($favs['count']) }} in Favourites</span></a>
@@ -318,7 +387,7 @@
     {{-- Want to read: the reader's shortlist (the built-in reading list),
          newest first, up to HomeController::WANT_TO_READ_SHELF covers. --}}
     @php $wtr = $want_to_read ?? ['count' => 0, 'items' => []]; @endphp
-    <section class="home-section" aria-labelledby="wantToReadTitle" id="want-to-read-section">
+    <section class="home-section" aria-labelledby="wantToReadTitle" id="want-to-read-section" data-home-optional="want_to_read">
         <div class="home-section-head">
             <h2 class="home-section-title" id="wantToReadTitle">Want to read</h2>
             @if($wtr['count'] > 0)
@@ -429,5 +498,19 @@
             </div>
         @endif
     </section>
+
+    @if($categoriesFirst)
+        {{-- Bring back the shelves Home had before categories (this browser). --}}
+        <details class="home-customise" data-home-customise>
+            <summary>Customise Home</summary>
+            <fieldset>
+                <legend class="visually-hidden">Also show on Home</legend>
+                <label><input type="checkbox" class="form-check-input" data-home-toggle="continue"> Continue reading</label>
+                <label><input type="checkbox" class="form-check-input" data-home-toggle="listening"> Continue listening</label>
+                <label><input type="checkbox" class="form-check-input" data-home-toggle="favourites"> Favourites</label>
+                <label><input type="checkbox" class="form-check-input" data-home-toggle="want_to_read"> Want to read</label>
+            </fieldset>
+        </details>
+    @endif
 </div>
 @endsection

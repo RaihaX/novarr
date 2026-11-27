@@ -295,7 +295,7 @@ class Requests
             ->whereNull('available_at')
             ->update(['available_at' => now()]);
         if ($updated === 1) {
-            $this->notify(fn() => $this->notifier->available($request->fresh()), $request);
+            $this->becameAvailable($request);
         }
     }
 
@@ -452,6 +452,8 @@ class Requests
      */
     public function leave(NovelRequest $request, User $user): bool
     {
+        RequestCategories::forgetReader((int) $request->id, (int) $user->id);
+
         return NovelRequestFollower::where('novel_request_id', $request->id)->where('user_id', (int) $user->id)->delete() > 0;
     }
 
@@ -470,6 +472,8 @@ class Requests
                 if ($next === null) {
                     return false;
                 }
+                // The leaving requester's chosen categories go with them.
+                RequestCategories::forgetReader((int) $request->id, (int) $request->user_id);
                 $request->forceFill(['user_id' => (int) $next->user_id])->save();
                 $next->delete();
 
@@ -609,6 +613,7 @@ class Requests
     {
         RequestNotification::where('novel_request_id', $request->id)->delete();
         NovelRequestFollower::where('novel_request_id', $request->id)->delete();
+        RequestCategories::forgetRequest((int) $request->id);
         $request->delete();
         static::forgetPendingCount();
     }
@@ -675,10 +680,26 @@ class Requests
                 continue;
             }
             $count++;
-            $this->notify(fn() => $this->notifier->available($request->fresh()), $request);
+            $this->becameAvailable($request);
         }
 
         return $count;
+    }
+
+    /**
+     * Once, as a request becomes available (markAvailable(),
+     * markAvailableNow()): the series goes into the categories its readers
+     * chose (RequestCategories), then they are told.
+     */
+    private function becameAvailable(NovelRequest $request): void
+    {
+        $fresh = $request->fresh() ?? $request;
+        try {
+            RequestCategories::apply($fresh);
+        } catch (\Throwable $e) {
+            Log::warning("Request {$request->id}: the chosen categories were not applied: " . $e->getMessage());
+        }
+        $this->notify(fn() => $this->notifier->available($fresh), $request);
     }
 
     /** A notification never fails the request (each channel also guards itself). */

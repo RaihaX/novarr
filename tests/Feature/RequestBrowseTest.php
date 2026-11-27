@@ -109,7 +109,7 @@ class RequestBrowseTest extends TestCase
         $results = $response->json('results');
         // A series already in the library is left out of the shelf.
         $this->assertSame(['Solo Leveling', 'Omniscient Reader'], array_column($results, 'title'));
-        $this->assertSame(['key', 'title', 'author', 'cover_url', 'description', 'medium', 'sources', 'in_library', 'novel_id', 'requested'], array_keys($results[0]));
+        $this->assertSame(['key', 'title', 'author', 'cover_url', 'description', 'medium', 'sources', 'in_library', 'novel_id', 'requested', 'in_categories', 'requested_categories'], array_keys($results[0]));
         $this->assertSame(self::key('Solo Leveling'), $results[0]['key']);
         $this->assertSame('Chugong', $results[0]['author']);
         $this->assertSame('Hunters.', $results[0]['description']);

@@ -55,10 +55,10 @@ object ReadingLists {
         if (cleaned.isEmpty()) return "Enter a name."
         if (length(cleaned) > NAME_MAX) return "Names can be up to $NAME_MAX characters."
         val key = fold(cleaned)
-        if (key == fold(WANT_TO_READ)) return "“$WANT_TO_READ” is already one of your lists."
-        if (key == fold(FAVOURITES) && lists.any { it.isFavourites }) return "“$FAVOURITES” is already one of your lists."
-        if (lists.any { it.id != renaming && fold(it.name) == key }) return "You already have a list called “$cleaned”."
-        if (renaming == null && own(lists).size >= MAX_LISTS) return "You can have up to $MAX_LISTS lists."
+        if (key == fold(WANT_TO_READ)) return "“$WANT_TO_READ” is already one of your categories."
+        if (key == fold(FAVOURITES) && lists.any { it.isFavourites }) return "“$FAVOURITES” is already one of your categories."
+        if (lists.any { it.id != renaming && fold(it.name) == key }) return "You already have a category called “$cleaned”."
+        if (renaming == null && own(lists).size >= MAX_LISTS) return "You can have up to $MAX_LISTS categories."
         return null
     }
 
@@ -126,9 +126,14 @@ object ReadingLists {
     fun replace(lists: List<ReadingList>, answer: ReadingList): List<ReadingList> =
         if (lists.any { it.id == answer.id }) lists.map { if (it.id == answer.id) answer else it } else lists + answer
 
-    /** "Want to read" first, then "Favourites", then in name order, as the sheets show them. */
+    /**
+     * The reader's order (`position`, set in Manage categories). A server
+     * from before positions sends none (all 0): then "Want to read" first,
+     * then "Favourites", then in name order, as 1.16 showed them.
+     */
     fun sorted(lists: List<ReadingList>): List<ReadingList> =
-        lists.sortedWith(
+        if (lists.any { it.position != 0 }) lists.sortedWith(compareBy<ReadingList> { it.position }.thenBy { it.id })
+        else lists.sortedWith(
             compareBy<ReadingList> { if (it.isWantToRead) 0 else if (it.isBuiltIn) 1 else 2 }
                 .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
                 .thenBy { it.id },

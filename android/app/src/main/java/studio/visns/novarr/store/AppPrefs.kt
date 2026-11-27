@@ -78,11 +78,20 @@ data class ListeningPrefs(
 /** Which tab the app opens on (Settings › Home). */
 enum class StartOn(val title: String) { HOME("Home"), LIBRARY("Library"), LISTEN("Listen") }
 
-/** Home's choices: the compact Continue strip's two halves (Settings › Home) and the start tab. */
+/**
+ * Home's choices (Settings › Home): the start tab, and 1.16's shelves that
+ * 1.18's category-first Home leaves out unless turned back on — the compact
+ * Continue strip (with its two halves), Favourites, Want to read, and
+ * Reading & listening.
+ */
 data class HomeLayout(
     val continueReading: Boolean = true,
     val continueListening: Boolean = true,
     val startOn: StartOn = StartOn.HOME,
+    val showContinue: Boolean = false,
+    val showFavourites: Boolean = false,
+    val showWantToRead: Boolean = false,
+    val showInProgress: Boolean = false,
 )
 
 enum class ReaderTheme(val title: String) { SYSTEM("System"), LIGHT("Light"), SEPIA("Sepia"), DARK("Dark"), BLACK("Black") }
@@ -272,6 +281,10 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
             continueReading = p[H_CONTINUE_READING] ?: true,
             continueListening = p[H_CONTINUE_LISTENING] ?: true,
             startOn = enumOr(p[H_START_ON], StartOn.HOME),
+            showContinue = p[H_SHOW_CONTINUE] ?: false,
+            showFavourites = p[H_SHOW_FAVOURITES] ?: false,
+            showWantToRead = p[H_SHOW_WANT_TO_READ] ?: false,
+            showInProgress = p[H_SHOW_IN_PROGRESS] ?: false,
         )
     }
 
@@ -281,6 +294,10 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
             it[H_CONTINUE_READING] = next.continueReading
             it[H_CONTINUE_LISTENING] = next.continueListening
             it[H_START_ON] = next.startOn.name
+            it[H_SHOW_CONTINUE] = next.showContinue
+            it[H_SHOW_FAVOURITES] = next.showFavourites
+            it[H_SHOW_WANT_TO_READ] = next.showWantToRead
+            it[H_SHOW_IN_PROGRESS] = next.showInProgress
         }
     }
 
@@ -378,6 +395,10 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         val H_CONTINUE_READING = booleanPreferencesKey("home.continueReading")
         val H_CONTINUE_LISTENING = booleanPreferencesKey("home.continueListening")
         val H_START_ON = stringPreferencesKey("home.startOn")
+        val H_SHOW_CONTINUE = booleanPreferencesKey("home.showContinue")
+        val H_SHOW_FAVOURITES = booleanPreferencesKey("home.showFavourites")
+        val H_SHOW_WANT_TO_READ = booleanPreferencesKey("home.showWantToRead")
+        val H_SHOW_IN_PROGRESS = booleanPreferencesKey("home.showInProgress")
 
         inline fun <reified E : Enum<E>> enumOr(raw: String?, default: E): E =
             raw?.let { name -> enumValues<E>().firstOrNull { it.name == name } } ?: default

@@ -28,6 +28,11 @@ use Illuminate\Support\Facades\DB;
  * "Want to read", name_key FAVOURITES_KEY. A reader's own list called
  * "Favourites" from before was turned into it (migration
  * 2026_12_13_000001_convert_favourites_lists).
+ *
+ * Everywhere a reader sees them these are "Categories" (Mihon-style): the
+ * reader orders them (position: null until first reordered, those follow
+ * the ordered ones in the old order) and may hide any, built-ins included,
+ * from Home (hidden_on_home).
  */
 class ReadingList extends Model
 {
@@ -69,17 +74,23 @@ class ReadingList extends Model
         self::KIND_FAVOURITES => [self::FAVOURITES_NAME, self::FAVOURITES_KEY],
     ];
 
-    protected $fillable = ['user_id', 'name', 'name_key', 'kind'];
+    protected $fillable = ['user_id', 'name', 'name_key', 'kind', 'position', 'hidden_on_home'];
 
     protected $casts = [
         'user_id' => 'integer',
+        'position' => 'integer',
+        'hidden_on_home' => 'boolean',
     ];
+
+    /** Categories a request remembers for a reader (App\Services\Requests\RequestCategories). */
+    public const REQUEST_CATEGORIES = 'novel_request_categories';
 
     protected static function booted(): void
     {
         // Members go with their list (no foreign keys, as chapter_reads).
         static::deleted(function (self $list) {
             DB::table(self::PIVOT)->where('reading_list_id', $list->id)->delete();
+            DB::table(self::REQUEST_CATEGORIES)->where('reading_list_id', $list->id)->delete();
         });
     }
 
@@ -121,6 +132,7 @@ class ReadingList extends Model
     {
         $ids = static::where('user_id', $userId)->pluck('id');
         DB::table(self::PIVOT)->whereIn('reading_list_id', $ids)->delete();
+        DB::table(self::REQUEST_CATEGORIES)->where('user_id', $userId)->delete();
         static::whereIn('id', $ids)->delete();
     }
 

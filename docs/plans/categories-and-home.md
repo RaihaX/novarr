@@ -1,6 +1,6 @@
 # Plan: categories (Mihon-style) + a category-first Home
 
-Status: **planned, not started** (2026-11-27). Source: a reader's two screen-recorded videos
+Status: **implemented** (2026-11-27): server, web parity and Android 1.18 (19). Web Home toggles are per browser (localStorage); Android's in Settings › Home. Source: a reader's two screen-recorded videos
 (transcribed locally with the homelab's Whisper, subgen). He compares Novarr with his manga app
 (Mihon/Tachiyomi-style **categories**). His words, condensed:
 

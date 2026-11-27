@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.update
 import studio.visns.novarr.api.ApiError
 import studio.visns.novarr.api.ReadingList
 import studio.visns.novarr.api.rethrowIfCancellation
+import studio.visns.novarr.domain.Categories
 import studio.visns.novarr.domain.ReadingLists
 import studio.visns.novarr.store.OfflineStore
 
@@ -89,7 +90,7 @@ class ListsModel(private val app: AppModel) {
             if (app.active?.id == session.id) _state.update { ReadingLists.fail(it, toggle) }
             // A list deleted elsewhere: drop it from here too.
             if (error is ApiError.Http && error.status == 404) refresh()
-            failure(error, if (add) "Couldn't add it to the list." else "Couldn't remove it from the list.")
+            failure(error, if (add) "Couldn't add it to the category." else "Couldn't remove it from the category.")
         }
     }
 
@@ -132,7 +133,7 @@ class ListsModel(private val app: AppModel) {
                         _state.update { it.copy(lists = ReadingLists.replace(it.lists, list)) }
                         save()
                     }
-                    return Result.failure(ListProblem(failure(ApiError.from(e), "The list was made, but the series couldn't be added.")))
+                    return Result.failure(ListProblem(failure(ApiError.from(e), "The category was made, but the series couldn't be added.")))
                 }
             }
             if (app.active?.id == session.id) {
@@ -144,7 +145,7 @@ class ListsModel(private val app: AppModel) {
             e.rethrowIfCancellation()
             val error = ApiError.from(e)
             app.noteFailure(error)
-            Result.failure(ListProblem(failure(error, "Couldn't make the list.")))
+            Result.failure(ListProblem(failure(error, "Couldn't make the category.")))
         }
     }
 
@@ -164,7 +165,7 @@ class ListsModel(private val app: AppModel) {
             e.rethrowIfCancellation()
             val error = ApiError.from(e)
             app.noteFailure(error)
-            failure(error, "Couldn't rename the list.")
+            failure(error, "Couldn't rename the category.")
         }
     }
 
@@ -183,7 +184,92 @@ class ListsModel(private val app: AppModel) {
             e.rethrowIfCancellation()
             val error = ApiError.from(e)
             app.noteFailure(error)
-            failure(error, "Couldn't delete the list.")
+            failure(error, "Couldn't delete the category.")
+        }
+    }
+
+    /**
+     * "Set categories" for a multi-select: every series of [novelIds] into
+     * [add] and out of [remove], in one call, shown at once; the server's
+     * index replaces ours, and a failure puts the old copy back. Null when
+     * saved (or nothing to do), else the message why not.
+     */
+    suspend fun setMemberships(novelIds: List<Int>, add: List<Int>, remove: List<Int>): String? {
+        val session = app.active ?: return null
+        if (novelIds.isEmpty() || (add.isEmpty() && remove.isEmpty())) return null
+        val before = _state.value.lists
+        _state.update { it.copy(lists = Categories.applyMemberships(it.lists, novelIds, add, remove)) }
+        return try {
+            // The server takes up to 500 series a call; a bigger selection goes in parts.
+            var answer: List<ReadingList>? = null
+            novelIds.distinct().chunked(Categories.BULK_MAX).forEach { part ->
+                answer = session.client.setMemberships(part, add, remove)
+            }
+            app.noteSuccess()
+            if (app.active?.id == session.id) {
+                answer?.let { lists -> _state.update { state -> state.copy(lists = state.inFlight.fold(lists, ReadingLists::apply)) } }
+                save()
+            }
+            null
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            val error = ApiError.from(e)
+            app.noteFailure(error)
+            if (app.active?.id == session.id) _state.update { it.copy(lists = before) }
+            if (error is ApiError.Http && error.status == 404) refresh()
+            failure(error, "Couldn't change the categories.")
+        }
+    }
+
+    /**
+     * Manage categories' drag: the new order shown at once (positions
+     * renumbered here), saved with PATCH /lists/order; the server's index
+     * replaces ours, a failure puts the old order back.
+     */
+    suspend fun reorder(ids: List<Int>): String? {
+        val session = app.active ?: return null
+        val before = _state.value.lists
+        val order = ids.withIndex().associate { (index, id) -> id to index }
+        _state.update { state ->
+            state.copy(lists = state.lists.map { list -> order[list.id]?.let { list.copy(position = it) } ?: list.copy(position = ids.size + list.position) })
+        }
+        return try {
+            val lists = session.client.reorderLists(ids)
+            app.noteSuccess()
+            if (app.active?.id == session.id) {
+                _state.update { state -> state.copy(lists = state.inFlight.fold(lists, ReadingLists::apply)) }
+                save()
+            }
+            null
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            val error = ApiError.from(e)
+            app.noteFailure(error)
+            if (app.active?.id == session.id) _state.update { it.copy(lists = before) }
+            if (error is ApiError.Http && error.status == 404) refresh()
+            failure(error, "Couldn't save the order.")
+        }
+    }
+
+    /** Hides [listId] from Home's sections (or shows it again), shown at once and undone on failure. */
+    suspend fun setHiddenOnHome(listId: Int, hidden: Boolean): String? {
+        val session = app.active ?: return null
+        val before = _state.value.lists
+        _state.update { state -> state.copy(lists = state.lists.map { if (it.id == listId) it.copy(hiddenOnHome = hidden) else it }) }
+        return try {
+            val list = session.client.setListHiddenOnHome(listId, hidden)
+            app.noteSuccess()
+            if (app.active?.id == session.id) {
+                _state.update { it.copy(lists = ReadingLists.replace(it.lists, list)) }
+                save()
+            }
+            null
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            val error = ApiError.from(e)
+            app.noteFailure(error)
+            if (app.active?.id == session.id) _state.update { it.copy(lists = before) }
+            failure(error, if (hidden) "Couldn't hide it on Home." else "Couldn't show it on Home.")
         }
     }
 
@@ -193,9 +279,9 @@ class ListsModel(private val app: AppModel) {
 
     /** The server's own words for a refused change (422), else what went wrong. */
     private fun failure(error: ApiError, fallback: String): String = when {
-        error.isConnectivity -> "You're offline, so lists can't be changed right now."
+        error.isConnectivity -> "You're offline, so categories can't be changed right now."
         error is ApiError.Http && error.status == 422 -> error.serverMessage ?: fallback
-        error is ApiError.Http && error.status == 404 -> "That list no longer exists."
+        error is ApiError.Http && error.status == 404 -> "That category no longer exists."
         else -> "$fallback ${error.userMessage}"
     }
 

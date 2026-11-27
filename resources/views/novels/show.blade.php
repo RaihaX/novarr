@@ -334,14 +334,14 @@
         @php $inLists = collect($reading_lists ?? [])->where('in', true)->count(); @endphp
         <div class="dropdown nv-lists" data-lists-menu data-novel="{{ $data->id }}">
             <button type="button" id="listsBtn" class="btn btn-secondary btn-icon-label {{ $inLists ? 'is-listed' : '' }}" data-lists-toggle data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-controls="listsMenu"
-                    aria-label="{{ $inLists ? 'Lists, in ' . $inLists . ' ' . Str::plural('list', $inLists) : 'Lists' }}">
+                    aria-label="{{ $inLists ? 'Categories, in ' . $inLists . ' ' . Str::plural('category', $inLists) : 'Categories' }}">
                 <x-icon name="list" :size="14" />
-                <span>Lists</span>
+                <span>Categories</span>
                 <span class="lists-btn-count" data-lists-count @if(!$inLists) hidden @endif>{{ $inLists ?: '' }}</span>
                 <x-icon name="chevron-down" :size="14" class="icon caret" />
             </button>
             <div class="dropdown-menu dropdown-menu-end lists-menu" id="listsMenu">
-                <p class="dropdown-header label-caption mb-0" id="listsMenuTitle">Your lists</p>
+                <p class="dropdown-header label-caption mb-0" id="listsMenuTitle">Your categories</p>
                 <ul class="lists-items" data-lists-items aria-labelledby="listsMenuTitle" @if(empty($reading_lists)) hidden @endif>
                     @foreach($reading_lists ?? [] as $list)
                         <li class="lists-item">
@@ -354,7 +354,7 @@
                     @endforeach
                 </ul>
                 <div class="lists-starters" data-lists-starters @if(!empty($reading_lists)) hidden @endif>
-                    <p class="lists-hint" id="listsStartersHint">No lists yet. Start one with a tap — this series goes in it:</p>
+                    <p class="lists-hint" id="listsStartersHint">No categories yet. Start one with a tap — this series goes in it:</p>
                     <ul class="lists-starter-row" data-lists-starter-buttons aria-labelledby="listsStartersHint">
                         @foreach(\App\ReadingList::STARTERS as $starter)
                             <li><button type="button" class="lists-starter" data-starter="{{ $starter }}">{{ $starter }}</button></li>
@@ -363,10 +363,10 @@
                 </div>
                 <div class="dropdown-divider"></div>
                 <button type="button" class="dropdown-item" data-lists-new aria-expanded="false" aria-controls="listsNewForm">
-                    <x-icon name="plus" :size="14" />New list…
+                    <x-icon name="plus" :size="14" />New category…
                 </button>
                 <form class="lists-new-form" id="listsNewForm" data-lists-new-form hidden novalidate>
-                    <label for="listsNewName" class="visually-hidden">New list name</label>
+                    <label for="listsNewName" class="visually-hidden">New category name</label>
                     <input type="text" id="listsNewName" class="form-control form-control-sm" maxlength="{{ \App\ReadingList::MAX_NAME }}" placeholder="List name" autocomplete="off" aria-describedby="listsError">
                     <button type="submit" class="btn btn-sm btn-primary">Add</button>
                 </form>

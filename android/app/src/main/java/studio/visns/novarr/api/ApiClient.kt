@@ -176,11 +176,13 @@ class ApiClient(
      * their request instead: 200 {request, joined: true}; an older server
      * refuses with 409 `already_requested`.
      */
-    suspend fun createRequest(searchId: String, key: String, note: String?): CreatedRequest {
+    suspend fun createRequest(searchId: String, key: String, note: String?, categories: List<Int>? = null): CreatedRequest {
         val body = buildJsonObject {
             put("search_id", searchId)
             put("key", key)
             note?.let { put("note", it) }
+            // The categories to add it to once it is in the library (sent only when chosen, so older servers see nothing new).
+            categories?.let { put("categories", it.toJsonArray()) }
         }
         return decode(CreatedRequest.serializer(), execute(prepare("POST", "requests", body = body)))
     }
@@ -211,13 +213,14 @@ class ApiClient(
     }
 
     /** Requests a shelf result: the same answers as [createRequest] (201 new, 200 joined). */
-    suspend fun createRequestFromBrowse(medium: String, list: String, page: Int, key: String, note: String?): CreatedRequest {
+    suspend fun createRequestFromBrowse(medium: String, list: String, page: Int, key: String, note: String?, categories: List<Int>? = null): CreatedRequest {
         val body = buildJsonObject {
             put("list", list)
             put("page", page)
             put("key", key)
             put("medium", medium)
             note?.let { put("note", it) }
+            categories?.let { put("categories", it.toJsonArray()) }
         }
         return decode(CreatedRequest.serializer(), execute(prepare("POST", "requests", body = body)))
     }
@@ -315,6 +318,45 @@ class ApiClient(
         val method = if (add) "PUT" else "DELETE"
         return decode(ListEnvelope.serializer(), execute(prepare(method, "lists/$listId/novels/$novelId", body = if (add) JsonObject(emptyMap()) else null))).list
     }
+
+    /** Hides a category from Home's sections, or shows it again (built-ins too): 200 {list}. */
+    suspend fun setListHiddenOnHome(id: Int, hidden: Boolean): ReadingList =
+        decode(ListEnvelope.serializer(), execute(prepare("PATCH", "lists/$id", body = buildJsonObject { put("hidden_on_home", hidden) }))).list
+
+    /**
+     * The reader's order: [ids] first, in this order (any left out keep
+     * their relative order after them). Answers the whole index, sorted.
+     */
+    suspend fun reorderLists(ids: List<Int>): List<ReadingList> =
+        decode(ListsEnvelope.serializer(), execute(prepare("PATCH", "lists/order", body = buildJsonObject { put("ids", ids.toJsonArray()) }))).lists
+
+    /**
+     * Puts every series of [novelIds] in each of [add] and takes it out of
+     * each of [remove], in one round trip (a multi-select's "Set
+     * categories"). Idempotent; answers the whole index. 422 when a list is
+     * full or an id is in both, 404 for a list or series that isn't there.
+     */
+    suspend fun setMemberships(novelIds: List<Int>, add: List<Int>, remove: List<Int>): List<ReadingList> {
+        val body = buildJsonObject {
+            put("novel_ids", novelIds.toJsonArray())
+            put("add", add.toJsonArray())
+            put("remove", remove.toJsonArray())
+        }
+        return decode(ListsEnvelope.serializer(), execute(prepare("PUT", "lists/memberships", body = body))).lists
+    }
+
+    /** Marks whole series read ([read]) or unread: every chapter of each. Never queued (the caller queues when offline). */
+    suspend fun bulkReadNovels(ids: List<Int>, read: Boolean): BulkReadAnswer {
+        val body = buildJsonObject {
+            put("ids", ids.toJsonArray())
+            put("read", read)
+        }
+        return decode(BulkReadAnswer.serializer(), execute(prepare("POST", "novels/bulk-read", body = body)))
+    }
+
+    /** Replaces the categories this account chose on a request it made or joined ([] clears them): 200 {request}. */
+    suspend fun setRequestCategories(id: Int, categories: List<Int>): ReaderRequest =
+        decode(RequestEnvelope.serializer(), execute(prepare("PUT", "requests/$id/categories", body = buildJsonObject { put("categories", categories.toJsonArray()) }))).request
 
     /** The whole "Want to read", every medium, newest first, each with started. */
     suspend fun wantToRead(): WantToReadEnvelope =
@@ -745,6 +787,9 @@ private class CountingBody(private val delegate: RequestBody, private val onProg
         counting.flush()
     }
 }
+
+/** Ids as a JSON array of numbers (the bulk endpoints' bodies). */
+private fun List<Int>.toJsonArray(): JsonArray = JsonArray(map { JsonPrimitive(it) })
 
 /** Status, body text and the Retry-After header; the body is read on OkHttp's thread. */
 private suspend fun Call.await(): Triple<Int, String, String?> = suspendCancellableCoroutine { cont ->

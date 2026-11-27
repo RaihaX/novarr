@@ -57,7 +57,7 @@ class FavouritesTest extends TestCase
         $list = ReadingList::where('kind', 'favourites')->sole();
         $this->assertSame([
             'favourite' => true,
-            'list' => ['id' => $list->id, 'name' => 'Favourites', 'count' => 1, 'novel_ids' => [$novel->id], 'kind' => 'favourites'],
+            'list' => ['id' => $list->id, 'name' => 'Favourites', 'count' => 1, 'novel_ids' => [$novel->id], 'kind' => 'favourites', 'position' => 0, 'hidden_on_home' => false],
         ], $response->json());
         $this->assertSame($this->owner()->id, $list->user_id);
         $this->assertSame(ReadingList::FAVOURITES_KEY, $list->name_key);
@@ -70,7 +70,7 @@ class FavouritesTest extends TestCase
         $this->assertSame(1, ReadingList::count());
 
         $this->deleteJson("/api/v1/novels/{$novel->id}/favourite")->assertOk()
-            ->assertExactJson(['favourite' => false, 'list' => ['id' => $list->id, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => 'favourites']]);
+            ->assertExactJson(['favourite' => false, 'list' => ['id' => $list->id, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => 'favourites', 'position' => 0, 'hidden_on_home' => false]]);
         $this->deleteJson("/api/v1/novels/{$novel->id}/favourite")->assertOk()->assertJsonPath('list.count', 0);
         $this->assertSame(1, ReadingList::count());
     }

@@ -2,10 +2,13 @@ package studio.visns.novarr.api
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.serializer
 
-// Reading lists (GET/POST /lists, PATCH/DELETE /lists/{id},
-// PUT/DELETE /lists/{id}/novels/{novelId}). A list is the reader's own;
-// every change answers the whole list, which replaces the local copy.
+// Reading lists, called "categories" in the app (GET/POST /lists,
+// PATCH/DELETE /lists/{id}, PUT/DELETE /lists/{id}/novels/{novelId},
+// PATCH /lists/order, PUT /lists/memberships). A list is the reader's own;
+// a single change answers the whole list, which replaces the local copy;
+// the bulk ones (order, memberships) answer the whole index.
 
 @Serializable
 data class ReadingList(
@@ -15,6 +18,10 @@ data class ReadingList(
     @SerialName("novel_ids") val novelIds: List<Int> = emptyList(),
     /** null: the reader's own list; "want_to_read" / "favourites": the built-in ones (never renamed or deleted, newest first). */
     val kind: String? = null,
+    /** The reader's order (0-based; the server sends the index already sorted by it). 0 on an older server. */
+    val position: Int = 0,
+    /** Left off Home's category sections (built-ins too). False on an older server. */
+    @SerialName("hidden_on_home") val hiddenOnHome: Boolean = false,
 ) {
     /** Membership by the ids the server sent (count can lag a series that was removed from the library). */
     operator fun contains(novelId: Int): Boolean = novelId in novelIds
@@ -60,3 +67,10 @@ data class ListsEnvelope(@Serializable(with = ReadingListList::class) val lists:
 data class ListEnvelope(val list: ReadingList)
 
 object ReadingListList : LossyListSerializer<ReadingList>(ReadingList.serializer())
+
+/** POST /novels/bulk-read: how many series, and how many chapter rows changed. */
+@Serializable
+data class BulkReadAnswer(val success: Boolean = false, val count: Int = 0, val chapters: Int = 0)
+
+/** Ids in an array, an unreadable entry skipped (never failing the whole object); anything else is empty. */
+object IdList : LossyListSerializer<Int>(Int.serializer())

@@ -18,6 +18,11 @@
  *                  rows at a time; cancel / leave: DELETE …/{id}
  *   C. review      (only when the list answers can_decide) GET ?scope=all&status=pending;
  *                  POST …/{id}/approve | decline | rerank; decided: GET ?scope=all
+ *   D. categories  right-click / long-press a search or shelf card → "Add to
+ *                  category" (./categories.js): in the library → PUT
+ *                  /api/v1/lists/memberships; otherwise the request is made (or
+ *                  joined) with {categories}, applied when it is available. A
+ *                  taken card greys out with "In …" / "Requested · …".
  *
  * Errors show the API's `message` verbatim. Bound per Turbo visit; every
  * listener, timer and fetch is dropped when the page is left.
@@ -32,6 +37,8 @@ import {
     MEDIUM_STORAGE_KEY, initialMedium, mediumNoun, searchBox, seriesLine,
     MINE_PAGE, MINE_FILTERS, mineCounts, defaultMineFilter, mineFilterLabel, mineView, mineEmptyLine,
 } from './requests-logic';
+import { rowsForResult, membershipDiff, chosenIds, isTaken, badgeText } from './categories-logic';
+import { openCategorySheet, loadCategories } from './categories';
 
 /** Ranking re-checks: every RANK_POLL_MS, for at most RANK_POLL_MAX tries. */
 const RANK_POLL_MS = 5000;
@@ -269,7 +276,110 @@ export function initRequestsPage() {
     function register(entry) {
         if (!cards.has(entry.result.key)) cards.set(entry.result.key, new Set());
         cards.get(entry.result.key).add(entry);
+        bindCategoryPress(entry);
         renderAction(entry);
+    }
+
+    // ---- D. Categories: long-press / right-click a card ---------------------------
+    // The reader's categories, loaded once on first use (names for the badges too).
+    let categories = null;
+    let categoriesLoading = null;
+    function withCategories() {
+        if (categories) return Promise.resolve(categories);
+        categoriesLoading ??= loadCategories().then((lists) => {
+            categoriesLoading = null;
+            if (lists) {
+                categories = lists;
+                for (const set of cards.values()) for (const entry of set) renderAction(entry);
+            }
+            return lists;
+        });
+        return categoriesLoading;
+    }
+    function bindCategoryPress(entry) {
+        const { card } = entry;
+        let timer = null;
+        let pressed = false;
+        const open = () => { pressed = true; navigator.vibrate?.(15); addToCategory(entry); };
+        card.addEventListener('contextmenu', (e) => { e.preventDefault(); open(); }, { signal });
+        card.addEventListener('pointerdown', (e) => {
+            if (e.pointerType !== 'touch') return;
+            pressed = false;
+            clearTimeout(timer);
+            timer = setTimeout(open, 500);
+        }, { signal });
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach((type) => card.addEventListener(type, () => clearTimeout(timer), { signal }));
+        // The click that ends a long-press does not also request / open.
+        card.addEventListener('click', (e) => {
+            if (!pressed) return;
+            pressed = false;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+        }, { capture: true, signal });
+    }
+
+    async function addToCategory(entry) {
+        const lists = await withCategories();
+        if (!lists || signal.aborted) return;
+        const { result } = entry;
+        const initial = rowsForResult(lists, result);
+        const chosen = await openCategorySheet({
+            title: 'Add to category',
+            subtitle: result.in_library
+                ? `${result.title} is in the library.`
+                : `${result.title} — it is requested, and goes in these categories once it’s ready.`,
+            rows: initial,
+            applyText: result.in_library ? 'Save' : 'Request',
+        });
+        if (!chosen || signal.aborted) return;
+        if (chosen.created && chosen.created.length) {
+            categories = null;
+            withCategories();
+        }
+        const ids = chosenIds(chosen);
+        try {
+            if (result.in_library && result.novel_id) {
+                const diff = membershipDiff(initial, chosen);
+                if (!diff.add.length && !diff.remove.length) return;
+                const r = await api('PUT', '/api/v1/lists/memberships', { novel_ids: [Number(result.novel_id)], add: diff.add, remove: diff.remove }, signal);
+                if (!r.ok) {
+                    toast(messageOf(r, 'The categories were not saved'), 'danger');
+                    return;
+                }
+                if (Array.isArray(r.data.lists)) categories = r.data.lists;
+                updateKey(result.key, { in_categories: ids });
+                toast(`Saved “${result.title}”.`, 'success');
+                return;
+            }
+            const r = await api('POST', '/api/v1/requests', { ...requestBody(entry.origin, result.key), categories: ids }, signal);
+            if (r.ok) {
+                const request = r.data.request || {};
+                updateKey(result.key, {
+                    requested: { status: request.status || 'pending', by_me: true },
+                    requested_categories: Array.isArray(request.requested_categories) ? request.requested_categories : ids,
+                });
+                toast(r.data.joined
+                    ? `You joined the request for “${result.title}”: it goes in your categories when it’s ready.`
+                    : `Requested “${result.title}”: it goes in your categories when it’s ready.`, 'success');
+                refreshAfterChange();
+                return;
+            }
+            const code = r.data && r.data.code;
+            if (code === 'in_library') {
+                updateKey(result.key, { in_library: true, novel_id: r.data.novel_id || result.novel_id, in_categories: r.data.added_to_categories || [] });
+                toast(`“${result.title}” is already in the library: saved in your categories.`, 'success');
+                return;
+            }
+            if (code === 'already_requested') {
+                updateKey(result.key, { requested: { status: r.data.status || 'pending', by_me: true }, requested_categories: r.data.requested_categories || ids });
+                toast(`You already asked for “${result.title}”: your categories are saved on the request.`, 'success');
+                return;
+            }
+            if (applyRefusal(entry, r)) return;
+            toast(messageOf(r, 'The request was not made'), 'danger');
+        } catch (err) {
+            if (!signal.aborted) toast(networkMessage(err, 'The categories were not saved'), 'danger');
+        }
     }
 
     function unregister(pred) {
@@ -459,6 +569,21 @@ export function initRequestsPage() {
 
     function renderAction(entry) {
         const { card, result } = entry;
+        // Taken (in a category, or requested by me): greyed with a badge.
+        const taken = isTaken(result);
+        card.classList.toggle('is-taken', taken);
+        if (taken && !categories && !categoriesLoading) withCategories();
+        let badge = card.querySelector('.req-cat-badge');
+        const text = badgeText(result, categories || []);
+        if (text) {
+            if (!badge) {
+                badge = el('span', 'req-cat-badge');
+                card.querySelector('.cover')?.append(badge);
+            }
+            badge.textContent = text;
+        } else {
+            badge?.remove();
+        }
         const slot = card.querySelector('.req-card-action');
         slot.innerHTML = '';
         const action = resultAction(result);

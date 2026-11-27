@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Novel;
 use App\NovelRequest;
 use App\NovelRequestFollower;
+use App\Services\ReadingLists;
 use App\Services\Requests\RequestBrowse;
+use App\Services\Requests\RequestCategories;
 use App\Services\Requests\RequestRefused;
 use App\Services\Requests\Requests;
 use App\Support\CurrentReader;
@@ -86,9 +88,10 @@ class RequestController extends Controller
         $pageRows = $rows->take(self::PER_PAGE);
         $requesters = RequestPresenter::requesters($pageRows);
         $followers = RequestPresenter::followers($pageRows);
+        $categories = RequestCategories::forReader((int) $user->id, $pageRows->pluck('id')->map(fn($id) => (int) $id)->all());
 
         return response()->json([
-            'requests' => $pageRows->map(fn(NovelRequest $r) => RequestPresenter::request($r, $user, $admin, $requesters, $followers))->values()->all(),
+            'requests' => $pageRows->map(fn(NovelRequest $r) => RequestPresenter::request($r, $user, $admin, $requesters, $followers, $categories))->values()->all(),
             'page' => $page,
             'has_more' => $rows->count() > self::PER_PAGE,
             'can_decide' => $admin,
@@ -125,6 +128,14 @@ class RequestController extends Controller
      * 200 {request, joined: true}  — someone else already asked for this
      *     work (pending, or approved and not yet available): the caller now
      *     follows their request ("Me too"; note and link are ignored).
+     *
+     * Any body may add categories: [list ids] (the caller's own; 404
+     * otherwise, before anything is made): remembered on the request for
+     * the caller (request.requested_categories) and applied when it becomes
+     * available. When the series is already in the library (409 in_library
+     * with novel_id) it is put in them at once (added_to_categories); when
+     * the caller already asked for it (409 already_requested) their choice
+     * on that request is replaced (requested_categories).
      */
     public function store(Request $request, Requests $requests): JsonResponse
     {
@@ -154,6 +165,13 @@ class RequestController extends Controller
             ],
         });
         $user = app(CurrentReader::class)->user();
+        $extra = $request->validate([
+            'categories' => 'nullable|array|max:' . RequestCategories::MAX,
+            'categories.*' => 'integer',
+        ]);
+        $categories = array_key_exists('categories', $extra) && $extra['categories'] !== null
+            ? RequestCategories::validIds((int) $user->id, $extra['categories'])
+            : null;
 
         try {
             $made = match (true) {
@@ -162,13 +180,73 @@ class RequestController extends Controller
                 default => $requests->createFreeText($user, $data['title'], $data['medium'], $data['link'] ?? null, $data['note'] ?? null),
             };
         } catch (RequestRefused $refused) {
-            return $refused->toResponse();
+            return ($categories !== null ? static::withCategories($refused, (int) $user->id, $categories) : $refused)->toResponse();
+        }
+
+        if ($categories !== null) {
+            RequestCategories::remember($made['request'], (int) $user->id, $categories);
         }
 
         return response()->json([
             'request' => $this->present($made['request']->fresh()),
             'joined' => $made['joined'],
         ], $made['joined'] ? 200 : 201);
+    }
+
+    /**
+     * A refused request that named categories: a series already in the
+     * library goes in them now; the caller's own request remembers them.
+     */
+    private static function withCategories(RequestRefused $refused, int $userId, array $categories): RequestRefused
+    {
+        $extra = null;
+        if ($refused->errorCode === 'in_library' && !empty($refused->extra['novel_id'])) {
+            try {
+                ReadingLists::setMemberships($userId, [(int) $refused->extra['novel_id']], $categories, []);
+                $extra = ['added_to_categories' => $categories];
+            } catch (\Illuminate\Validation\ValidationException|\Symfony\Component\HttpKernel\Exception\HttpException) {
+                $extra = ['added_to_categories' => []];
+            }
+        } elseif ($refused->errorCode === 'already_requested' && !empty($refused->extra['request_id'])
+            && ($own = NovelRequest::find((int) $refused->extra['request_id'])) !== null) {
+            RequestCategories::remember($own, $userId, $categories);
+            $extra = ['requested_categories' => $categories];
+        }
+
+        return $extra === null ? $refused : new RequestRefused($refused->status, $refused->getMessage(), $refused->errorCode, $refused->extra + $extra, $refused->headers);
+    }
+
+    /**
+     * PUT /api/v1/requests/{id}/categories {categories: [list ids]} — the
+     * categories the caller (its requester or a follower) wants the series
+     * in once it is available; replaces their choice ([] clears it). 200
+     * {request}; 404 for a request they don't see or a list not theirs; 409
+     * not_open once the request is decided against or already available.
+     */
+    public function categories(Request $http, int $id): JsonResponse
+    {
+        if ($off = static::disabled()) {
+            return $off;
+        }
+        $data = $http->validate([
+            'categories' => 'present|array|max:' . RequestCategories::MAX,
+            'categories.*' => 'integer',
+        ]);
+        $user = app(CurrentReader::class)->user();
+        $request = NovelRequest::find($id);
+        if ($request === null || ((int) $request->user_id !== (int) $user->id && !$request->isFollowedBy((int) $user->id))) {
+            return static::notFound();
+        }
+        $categories = RequestCategories::validIds((int) $user->id, $data['categories']);
+        if ($request->displayStatus() === NovelRequest::STATUS_AVAILABLE && $request->novel_id !== null) {
+            // Already readable: straight into the categories.
+            ReadingLists::setMemberships((int) $user->id, [(int) $request->novel_id], $categories, []);
+        } elseif (!in_array($request->displayStatus(), [NovelRequest::STATUS_PENDING, NovelRequest::STATUS_APPROVED], true)) {
+            return response()->json(['message' => 'This request has already been decided.', 'code' => 'not_open', 'status' => $request->displayStatus()], 409);
+        }
+        RequestCategories::remember($request, (int) $user->id, $categories);
+
+        return response()->json(['request' => $this->present($request->fresh())]);
     }
 
     /**

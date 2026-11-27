@@ -51,7 +51,7 @@ class WantToReadTest extends TestCase
         $list = ReadingList::where('kind', 'want_to_read')->sole();
         $this->assertSame([
             'want_to_read' => true,
-            'list' => ['id' => $list->id, 'name' => 'Want to read', 'count' => 1, 'novel_ids' => [$novel->id], 'kind' => 'want_to_read'],
+            'list' => ['id' => $list->id, 'name' => 'Want to read', 'count' => 1, 'novel_ids' => [$novel->id], 'kind' => 'want_to_read', 'position' => 0, 'hidden_on_home' => false],
         ], $response->json());
         $this->assertSame($this->owner()->id, $list->user_id);
 

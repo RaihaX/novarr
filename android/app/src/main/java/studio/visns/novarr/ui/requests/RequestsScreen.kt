@@ -102,7 +102,18 @@ import kotlinx.coroutines.delay
 import studio.visns.novarr.api.ReaderRequest
 import studio.visns.novarr.api.RequestCandidate
 import studio.visns.novarr.api.SearchResult
+import studio.visns.novarr.domain.Categories
 import studio.visns.novarr.domain.Requests
+import studio.visns.novarr.ui.lists.AddToCategorySheet
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.composed
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import studio.visns.novarr.domain.Requests.CardAction
 import studio.visns.novarr.domain.Requests.Medium
 import studio.visns.novarr.domain.Requests.Section
@@ -211,9 +222,26 @@ private fun tabTitle(section: Section, model: RequestsViewModel): String = when 
 
 // Search
 
+/** What the cards need for "Add to category": whether the server has categories, the reader's lists (badge names), and the haptic long-press. */
+private class CardCategories(val offered: Boolean, val lists: List<studio.visns.novarr.api.ReadingList>, val longPress: (() -> Unit) -> Unit)
+
+@Composable
+private fun rememberCardCategories(): CardCategories {
+    val app = LocalApp.current
+    val offered by app.listsOffered.collectAsStateWithLifecycle()
+    val state by app.lists.state.collectAsStateWithLifecycle()
+    LaunchedEffect(offered) { if (offered && !app.lists.loaded.value) app.lists.refresh() }
+    val haptics = LocalHapticFeedback.current
+    return CardCategories(offered, state.lists) { open ->
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        open()
+    }
+}
+
 @Composable
 private fun SearchPart(model: RequestsViewModel, online: Boolean, nav: NavController) {
     val wide = isWide()
+    val categories = rememberCardCategories()
     // Counts down Retry-After; re-enables the button when it has passed.
     var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     LaunchedEffect(model.blockedUntil) {
@@ -341,6 +369,8 @@ private fun SearchPart(model: RequestsViewModel, online: Boolean, nav: NavContro
                         action = Requests.cardAction(result, model.canJoin),
                         online = online,
                         joining = result.key in model.joining,
+                        mark = if (categories.offered) Categories.mark(result, categories.lists) else null,
+                        onLongPress = if (categories.offered && online) ({ categories.longPress { model.openCategorySheet(result, fromShelf = false) } }) else null,
                         modifier = Modifier.readableWidth(),
                         onRequest = { model.openRequestSheet(result) },
                         onMeToo = { model.meToo(result) },
@@ -368,6 +398,7 @@ private fun SearchPart(model: RequestsViewModel, online: Boolean, nav: NavContro
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DiscoverShelf(model: RequestsViewModel, online: Boolean, nav: NavController, modifier: Modifier) {
+    val categories = rememberCardCategories()
     // A medium without a shelf (no source offers a list): nothing at all.
     if (model.browseLoaded && model.browseLists.isEmpty() && model.browseResults.isEmpty() && model.browseError == null) return
     Column(modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -411,6 +442,8 @@ private fun DiscoverShelf(model: RequestsViewModel, online: Boolean, nav: NavCon
                         action = Requests.cardAction(result, model.canJoin),
                         online = online,
                         joining = result.key in model.joining,
+                        mark = if (categories.offered) Categories.mark(result, categories.lists) else null,
+                        onLongPress = if (categories.offered && online) ({ categories.longPress { model.openCategorySheet(result, fromShelf = true) } }) else null,
                         onRequest = { model.openRequestSheet(result, fromShelf = true) },
                         onMeToo = { model.meToo(result, fromShelf = true) },
                         onOpen = { id -> nav.navigate(NovelRoute(id)) },
@@ -435,13 +468,19 @@ private fun ShelfCard(
     action: CardAction,
     online: Boolean,
     joining: Boolean,
+    mark: Categories.Mark?,
+    onLongPress: (() -> Unit)?,
     onRequest: () -> Unit,
     onMeToo: () -> Unit,
     onOpen: (Int) -> Unit,
 ) {
-    Column(Modifier.width(124.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Column(Modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Cover(result.coverUrl, result.title, Modifier.fillMaxWidth(), corner = 6.dp)
+    Column(Modifier.width(124.dp).categoryLongPress(onLongPress), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Put somewhere already (a category, or a request carrying one): greyed, so scrolling shows what's taken.
+        Column(Modifier.semantics(mergeDescendants = true) {}.alpha(if (mark != null) TAKEN_ALPHA else 1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Box {
+                Cover(result.coverUrl, result.title, Modifier.fillMaxWidth(), corner = 6.dp)
+                mark?.let { CategoryBadge(it, Modifier.align(Alignment.BottomStart).padding(4.dp)) }
+            }
             Text(result.title, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
             result.author?.takeIf { it.isNotBlank() }?.let {
                 Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -502,16 +541,19 @@ private fun ResultCard(
     action: CardAction,
     online: Boolean,
     joining: Boolean,
+    mark: Categories.Mark?,
+    onLongPress: (() -> Unit)?,
     modifier: Modifier,
     onRequest: () -> Unit,
     onMeToo: () -> Unit,
     onOpen: (Int) -> Unit,
 ) {
-    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier) {
+    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier.categoryLongPress(onLongPress)) {
         Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Cover(result.coverUrl, result.title, Modifier.width(84.dp), corner = 6.dp)
+            Cover(result.coverUrl, result.title, Modifier.width(84.dp).alpha(if (mark != null) TAKEN_ALPHA else 1f), corner = 6.dp)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Column(Modifier.semantics(mergeDescendants = true) {}) {
+                mark?.let { CategoryBadge(it) }
+                Column(Modifier.semantics(mergeDescendants = true) {}.alpha(if (mark != null) TAKEN_ALPHA else 1f)) {
                     Text(result.title, style = titleStyle(), maxLines = 3, overflow = TextOverflow.Ellipsis)
                     result.author?.takeIf { it.isNotBlank() }?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -548,6 +590,37 @@ private fun ResultCard(
                 }
             }
         }
+    }
+}
+
+/** How faded a card is once it has been put somewhere. */
+private const val TAKEN_ALPHA = 0.45f
+
+/**
+ * Long-press anywhere on a card that isn't a button: "Add to category"
+ * (also offered to screen readers as an action). Null: not offered.
+ */
+private fun Modifier.categoryLongPress(onLongPress: (() -> Unit)?): Modifier =
+    if (onLongPress == null) this
+    else composed {
+        // The latest callback, without restarting the gesture on every recomposition.
+        val current by rememberUpdatedState(onLongPress)
+        pointerInput(Unit) { detectTapGestures(onLongPress = { current() }) }
+            .semantics { customActions = listOf(CustomAccessibilityAction("Add to category") { current(); true }) }
+    }
+
+/** "In Action" / "Requested · Action": where a card went. */
+@Composable
+private fun CategoryBadge(mark: Categories.Mark, modifier: Modifier = Modifier) {
+    Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = modifier) {
+        Text(
+            mark.badge,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
     }
 }
 
@@ -869,6 +942,10 @@ private fun CandidateRow(candidate: RequestCandidate, selected: Boolean, onSelec
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Sheets(model: RequestsViewModel, online: Boolean) {
+    model.categorySheet?.let { result ->
+        AddToCategorySheet(result, sending = model.categorySending, onDismiss = model::closeCategorySheet, onConfirm = model::confirmCategories)
+    }
+
     model.requestSheet?.let { result ->
         FormSheet(
             title = "Request ${result.title}",

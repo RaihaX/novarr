@@ -1,6 +1,23 @@
 package studio.visns.novarr.ui.library
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.outlined.Label
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.ui.semantics.stateDescription
+import studio.visns.novarr.domain.Categories
+import studio.visns.novarr.ui.CategoriesRoute
+import studio.visns.novarr.ui.lists.SelectedMark
+import studio.visns.novarr.ui.lists.SelectionEffects
+import studio.visns.novarr.ui.lists.SelectionTopBar
+import studio.visns.novarr.ui.lists.SeriesSelection
+import studio.visns.novarr.ui.lists.SetCategoriesSheet
+import studio.visns.novarr.ui.lists.rememberLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,7 +35,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Bookmarks
@@ -80,7 +96,6 @@ import kotlinx.coroutines.launch
 import studio.visns.novarr.api.NovelSummary
 import studio.visns.novarr.api.ReadingList
 import studio.visns.novarr.domain.ReadingLists
-import studio.visns.novarr.ui.lists.LibraryListsSheet
 import studio.visns.novarr.ui.lists.seriesCount
 import studio.visns.novarr.app.AppModel
 import studio.visns.novarr.domain.LibraryFilter
@@ -122,9 +137,16 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
     var sort by mutableStateOf(Sort.LAST_READ)
         private set
 
-    /** The chosen reading list (Library's list filter); null: all series. Remembered like the other filters. */
-    var listId by mutableStateOf<Int?>(null)
+    /**
+     * The chosen category tab ([Categories.Tab.key]: "all", "none" or a
+     * category's id), remembered like the other filters. 1.16 kept a list
+     * id (or "" for all series) under the same key, so its choice carries over.
+     */
+    var tabKey by mutableStateOf("all")
         private set
+
+    /** Long-press multi-select and its actions. */
+    val selection = SeriesSelection(app, viewModelScope)
 
     /** The chosen Origin option, remembered like the other filters; ignored while the filter is hidden. */
     var originChoice by mutableStateOf(Origin.Filter.ALL)
@@ -137,7 +159,7 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
             app.prefs.string("library.shelf")?.let { v -> Shelf.entries.firstOrNull { it.name == v } }?.let { shelfChoice = it }
             app.prefs.string("library.filter")?.let { v -> Filter.entries.firstOrNull { it.name == v } }?.let { filter = it }
             app.prefs.string("library.sort")?.let { v -> Sort.entries.firstOrNull { it.name == v } }?.let { sort = it }
-            app.prefs.string("library.list")?.toIntOrNull()?.let { listId = it }
+            app.prefs.string("library.list")?.let { tabKey = it.ifEmpty { "all" } }
             app.prefs.string("library.origin")?.let { v -> Origin.Filter.entries.firstOrNull { it.name == v } }?.let { originChoice = it }
         }
     }
@@ -146,8 +168,25 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
     fun select(value: Filter) { filter = value; save("library.filter", value.name) }
     fun select(value: Sort) { sort = value; save("library.sort", value.name) }
     fun select(value: Origin.Filter) { originChoice = value; save("library.origin", value.name) }
-    fun select(value: ReadingList?) { listId = value?.id; save("library.list", value?.id?.toString().orEmpty()) }
+    fun select(value: Categories.Tab) { tabKey = value.key; save("library.list", value.key) }
     private fun save(key: String, value: String) = viewModelScope.launch { app.prefs.setString(key, value) }
+
+    /** The tab in effect: a remembered category deleted elsewhere is All (null until the lists say). */
+    fun tab(lists: List<ReadingList>): Categories.Tab? = Categories.Tab.from(tabKey, lists)
+
+    /**
+     * Mark as read / unread for the selection: the covers change at once
+     * (and back on Undo or a refusal); the library is fetched again once
+     * the server has it.
+     */
+    fun markRead(read: Boolean) {
+        selection.markRead(read) { ids, value ->
+            val before = novels.filter { it.id in ids }.associateBy { it.id }
+            novels = novels.map { if (it.id in ids) Categories.marked(it, value) else it }
+            // Undo: these series as they were (whatever else changed since stays).
+            return@markRead { novels = novels.map { before[it.id] ?: it } }
+        }
+    }
 
     /** Books appears only when the library has a book. */
     val shelves: List<Shelf> get() = LibraryFilter.shelves(novels)
@@ -183,6 +222,8 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
         val lists = launch { app.lists.refresh() }
         val result = app.load(OfflineStore.Key.novels) { it.novels() }
         result.value?.let { novels = it; loaded = true }
+        // A series gone from the library is no longer selected.
+        result.value?.let { fresh -> selection.retain(fresh.map { it.id }) }
         if (!result.fromCache && result.value != null) loadedAt = System.currentTimeMillis()
         failure = if (novels.isEmpty() && result.value == null) result.error?.userMessage ?: "Couldn't load the library." else null
         if (failure == null) loaded = true
@@ -201,19 +242,41 @@ fun LibraryScreen(nav: NavController) {
     LaunchedEffect(revision) { model.refreshIfStale() }
     val wide = isWide()
     var sortMenu by remember { mutableStateOf(false) }
-    var listSheet by remember { mutableStateOf(false) }
+    var overflow by remember { mutableStateOf(false) }
     var originSheet by remember { mutableStateOf(false) }
     val listsOffered by app.listsOffered.collectAsStateWithLifecycle()
     val listsState by app.lists.state.collectAsStateWithLifecycle()
     val listsLoaded by app.lists.loaded.collectAsStateWithLifecycle()
-    // Without lists on the server (or the chosen one deleted elsewhere): all series.
-    val list = if (listsOffered) ReadingLists.selected(listsState.lists, model.listId) else null
-    LaunchedEffect(listsLoaded, list, model.listId) {
-        if (listsLoaded && listsOffered && model.listId != null && list == null) model.select(null as ReadingList?)
+    val snackbar = remember { SnackbarHostState() }
+    val selection = model.selection
+    SelectionEffects(selection, snackbar)
+    val longPress = rememberLongPress(selection::longPress)
+    // Without categories on the server (or the chosen one deleted elsewhere): all series.
+    val tab = if (listsOffered) model.tab(listsState.lists) ?: Categories.Tab.All else Categories.Tab.All
+    val list = Categories.asList(tab, listsState.lists, model.novels)
+    LaunchedEffect(listsLoaded, tab, model.tabKey) {
+        if (listsLoaded && listsOffered && model.tab(listsState.lists) == null) model.select(Categories.Tab.All)
     }
+    val visible = model.visible(list)
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
+            if (selection.active) {
+                val chosen = model.novels.filter { it.id in selection.selection }
+                SelectionTopBar(
+                    count = selection.selection.count,
+                    allSelected = selection.selection.allSelected(visible.map { it.id }),
+                    onClose = selection::exit,
+                    onSelectAll = { selection.selectAll(visible.map { it.id }) },
+                    categorise = if (listsOffered) ({ selection.openCategories() }) else null,
+                    markRead = model::markRead,
+                    download = { selection.download(chosen) },
+                    removeDownload = { selection.removeDownloads(chosen.map { it.id }) },
+                    enabled = !selection.working,
+                )
+                return@Scaffold
+            }
             TopAppBar(
                 title = { Text("Library") },
                 actions = {
@@ -236,6 +299,14 @@ fun LibraryScreen(nav: NavController) {
                             }
                         }
                     }
+                    if (listsOffered) {
+                        Box {
+                            IconButton(onClick = { overflow = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "More") }
+                            DropdownMenu(expanded = overflow, onDismissRequest = { overflow = false }) {
+                                DropdownMenuItem(text = { Text("Manage categories") }, onClick = { overflow = false; nav.navigate(CategoriesRoute) })
+                            }
+                        }
+                    }
                 },
             )
         },
@@ -250,6 +321,25 @@ fun LibraryScreen(nav: NavController) {
                         unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         text = { Text(if (model.novels.isEmpty()) shelf.title else "${shelf.title} (${model.count(shelf, list)})") },
                     )
+                }
+            }
+            // The category tabs (Mihon style): All · each category in the reader's order · Uncategorised.
+            if (listsOffered && listsState.lists.isNotEmpty()) {
+                val tabs = Categories.tabs(listsState.lists)
+                PrimaryScrollableTabRow(
+                    selectedTabIndex = tabs.indexOfFirst { it.key == tab.key }.coerceAtLeast(0),
+                    edgePadding = 16.dp,
+                    divider = {},
+                ) {
+                    tabs.forEach { option ->
+                        val count = if (model.novels.isEmpty()) null else model.count(model.shelf, Categories.asList(option, listsState.lists, model.novels))
+                        Tab(
+                            selected = option.key == tab.key,
+                            onClick = { model.select(option) },
+                            unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            text = { Text(Categories.title(option) + (count?.let { " ($it)" } ?: ""), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        )
+                    }
                 }
             }
             OutlinedTextField(
@@ -271,18 +361,6 @@ fun LibraryScreen(nav: NavController) {
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (listsOffered) {
-                    item(key = "lists") {
-                        FilterChip(
-                            selected = list != null,
-                            onClick = { listSheet = true },
-                            label = { Text(list?.name ?: "Lists", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Outlined.List, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                            trailingIcon = { Icon(Icons.Outlined.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                            modifier = Modifier.semantics { contentDescription = if (list != null) "List: ${list.name}. Change or manage lists" else "Filter by list, or manage lists" },
-                        )
-                    }
-                }
                 if (model.originOffered) {
                     item(key = "origin") {
                         val origin = model.origin
@@ -311,7 +389,6 @@ fun LibraryScreen(nav: NavController) {
                 onRefresh = { model.load(pull = true) },
                 modifier = Modifier.fillMaxSize(),
             ) {
-                val visible = model.visible(list)
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(if (wide) 150.dp else 104.dp),
                     contentPadding = PaddingValues(horizontal = if (wide) 24.dp else 16.dp, vertical = 12.dp),
@@ -330,12 +407,28 @@ fun LibraryScreen(nav: NavController) {
                         model.novels.isEmpty() && !model.loaded -> item(span = full) { CenteredProgress() }
                         visible.isEmpty() -> item(span = full) { LibraryEmpty(model, list) }
                         else -> items(visible, key = { it.id }) { novel ->
-                            LibraryCell(novel) { nav.navigate(NovelRoute(novel.id)) }
+                            LibraryCell(
+                                novel,
+                                selected = novel.id in selection.selection,
+                                onLongClick = { longPress(novel.id) },
+                            ) { if (!selection.tap(novel.id)) nav.navigate(NovelRoute(novel.id)) }
                         }
                     }
                 }
             }
         }
+    }
+
+    selection.categoriesFor?.let { ids ->
+        SetCategoriesSheet(
+            ids,
+            onDismiss = { selection.categoriesFor = null },
+            onDone = { failure ->
+                selection.categoriesFor = null
+                selection.exit()
+                selection.notice = failure ?: "Categories saved."
+            },
+        )
     }
 
     if (originSheet && model.originOffered) {
@@ -344,14 +437,6 @@ fun LibraryScreen(nav: NavController) {
             count = { model.count(it, list) },
             onSelect = { model.select(it); originSheet = false },
             onDismiss = { originSheet = false },
-        )
-    }
-
-    if (listSheet && listsOffered) {
-        LibraryListsSheet(
-            selected = list?.id,
-            onSelect = { chosen -> model.select(chosen); listSheet = false },
-            onDismiss = { listSheet = false },
         )
     }
 }
@@ -370,19 +455,24 @@ private fun LibraryEmpty(model: LibraryViewModel, list: ReadingList?) {
             },
             Icons.Outlined.Search,
         )
+        list != null && list.id == Categories.UNCATEGORISED_ID && listReason == ReadingLists.Empty.NoSeries -> EmptyState(
+            "Everything has a category",
+            "Every series in your library is in at least one category.",
+            Icons.AutoMirrored.Outlined.Label,
+        )
         list != null && listReason == ReadingLists.Empty.NoSeries -> EmptyState(
             "“${list.name}” is empty",
             when {
-                list.isWantToRead -> "Open a series and tap the bookmark at the top to add it here."
-                list.isFavourites -> "Open a series and tap the heart at the top to add it here."
-                else -> "Open a series and tap Lists at the top to add it here."
+                list.isWantToRead -> "Open a series and tap the bookmark at the top, or long-press series under All and choose Set categories."
+                list.isFavourites -> "Open a series and tap the heart at the top, or long-press series under All and choose Set categories."
+                else -> "Long-press series under All and choose Set categories to put them here."
             },
-            Icons.AutoMirrored.Outlined.List,
+            Icons.AutoMirrored.Outlined.Label,
         )
         list != null && listReason is ReadingLists.Empty.OtherShelf -> EmptyState(
             "No ${model.shelf.noun} in “${list.name}”",
             "Its ${seriesCount(listReason.count)} ${if (listReason.count == 1) "is" else "are"} on ${otherShelves(model, list)}.",
-            Icons.AutoMirrored.Outlined.List,
+            Icons.AutoMirrored.Outlined.Label,
         )
         model.onShelf.isEmpty() -> EmptyState(
             "No ${model.shelf.noun} yet",
@@ -439,12 +529,24 @@ private fun OriginSheet(selected: Origin.Filter, count: (Origin.Filter) -> Int, 
     }
 }
 
+/**
+ * A series in a grid (Library, a category, Want to read). With
+ * [onLongClick] it takes part in a multi-select: a long-press starts it and
+ * [selected] marks the cover.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun LibraryCell(novel: NovelSummary, onClick: () -> Unit) {
+fun LibraryCell(novel: NovelSummary, selected: Boolean = false, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     Column(
         Modifier
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics(mergeDescendants = true) {},
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(role = Role.Button, onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "Select")
+                } else {
+                    Modifier.clickable(role = Role.Button, onClick = onClick)
+                },
+            )
+            .semantics(mergeDescendants = true) { if (onLongClick != null) stateDescription = if (selected) "Selected" else "" },
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Box {
@@ -454,7 +556,18 @@ fun LibraryCell(novel: NovelSummary, onClick: () -> Unit) {
                         ProgressLine(novel.readFraction, color = Color.White, track = Color.Black.copy(alpha = 0.35f))
                     }
                 }
-                if (novel.chaptersNew > 0) {
+                val unread = Categories.unread(novel)
+                if (novel.chaptersRead > 0 && unread > 0) {
+                    // Started series: how many chapters are left (Mihon's unread badge); new ones in the accent colour.
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (novel.chaptersNew > 0) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.65f),
+                        contentColor = if (novel.chaptersNew > 0) MaterialTheme.colorScheme.onPrimary else Color.White,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(5.dp),
+                    ) {
+                        Text(if (unread > 999) "999+" else unread.toString(), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
+                    }
+                } else if (novel.chaptersNew > 0) {
                     Surface(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.primary,
@@ -463,6 +576,7 @@ fun LibraryCell(novel: NovelSummary, onClick: () -> Unit) {
                     ) {}
                 }
             }
+            SelectedMark(selected)
             // On the cover, so it never adds a line under it: bottom-right, clear of the progress line,
             // the new-chapters dot (top-right) and a placeholder's title (top-left) and mark (bottom-left).
             // Outside Cover, whose semantics are cleared, so the tile still reads "Korean" etc.

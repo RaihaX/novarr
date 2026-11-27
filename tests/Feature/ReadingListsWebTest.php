@@ -58,8 +58,8 @@ class ReadingListsWebTest extends TestCase
             $this->assertStringContainsString('data-starter="' . $starter . '"', $html);
         }
         $this->assertMatchesRegularExpression('/<ul class="lists-items" data-lists-items aria-labelledby="listsMenuTitle"\s+hidden\s*>/', $html);
-        $this->assertStringContainsString('New list…', $html);
-        $this->assertStringContainsString('<label for="listsNewName" class="visually-hidden">New list name</label>', $html);
+        $this->assertStringContainsString('New category…', $html);
+        $this->assertStringContainsString('<label for="listsNewName" class="visually-hidden">New category name</label>', $html);
     }
 
     public function test_the_novel_page_ticks_the_lists_the_series_is_in(): void
@@ -72,7 +72,7 @@ class ReadingListsWebTest extends TestCase
 
         $this->assertMatchesRegularExpression('/data-list-id="' . $fav->id . '" data-list-name="Classics"\s+checked>/', $html);
         $this->assertMatchesRegularExpression('/data-list-id="' . $later->id . '" data-list-name="To read"\s*>/', $html);
-        $this->assertStringContainsString('aria-label="Lists, in 1 list"', $html);
+        $this->assertStringContainsString('aria-label="Categories, in 1 category"', $html);
         // Starters only before the first list.
         $this->assertMatchesRegularExpression('/data-lists-starters\s+hidden/', $html);
     }
@@ -93,7 +93,7 @@ class ReadingListsWebTest extends TestCase
         $this->assertStringNotContainsString('id="deleteNovel"', $html);
 
         $library = $this->get('/novels')->assertOk()->getContent();
-        $this->assertStringContainsString('List: Sam picks (0)', $library);
+        $this->assertStringContainsString('Category: Sam picks (0)', $library);
         $this->assertStringNotContainsString('Owner secret list', $library);
     }
 
@@ -109,12 +109,12 @@ class ReadingListsWebTest extends TestCase
         $all = $this->get('/novels?medium=novel&view=grid');
         $this->assertSame([$a->id, $b->id, $c->id], $this->shownIds($all));
         $this->assertStringContainsString('<select name="list"', $all->getContent());
-        $this->assertStringContainsString('>List: Classics (2)</option>', $all->getContent());
+        $this->assertStringContainsString('>Category: Classics (2)</option>', $all->getContent());
 
         $response = $this->get("/novels?medium=novel&view=grid&list={$list->id}")->assertOk();
         $this->assertSame([$a->id, $c->id], $this->shownIds($response));
         $html = $response->getContent();
-        $this->assertMatchesRegularExpression('/<option value="' . $list->id . '"[^>]*selected>List: Classics/', $html);
+        $this->assertMatchesRegularExpression('/<option value="' . $list->id . '"[^>]*selected>Category: Classics/', $html);
         $this->assertStringContainsString('data-list-bar data-list-id="' . $list->id . '"', $html);
         $this->assertStringContainsString('data-list-title>Classics</h2>', $html);
         $this->assertStringContainsString('data-list-delete', $html);
@@ -143,7 +143,7 @@ class ReadingListsWebTest extends TestCase
 
         $response = $this->get("/novels?medium=novel&list={$list->id}");
         $this->assertSame([$a->id], $this->shownIds($response));
-        $this->assertStringContainsString('List: Classics (1)', $response->getContent());
+        $this->assertStringContainsString('Category: Classics (1)', $response->getContent());
     }
 
     public function test_someone_elses_or_an_unknown_list_is_ignored(): void
@@ -170,7 +170,7 @@ class ReadingListsWebTest extends TestCase
 
         $html = $this->get("/novels?medium=novel&list={$empty->id}")->assertOk()->getContent();
         $this->assertStringContainsString('No novels in “To read” yet', $html);
-        $this->assertStringContainsString('use its <strong>Lists</strong> button', $html);
+        $this->assertStringContainsString('use its <strong>Categories</strong> button', $html);
 
         // Only manga in it: say so and link to the Manga library with the list.
         $manga = $this->novel('Manga One', Novel::MEDIUM_MANGA);

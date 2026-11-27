@@ -33,16 +33,16 @@ class ApiV1ReadingListsTest extends TestCase
     {
         $response = $this->postJson('/api/v1/lists', ['name' => '  Classics  '])->assertCreated();
         $id = $response->json('list.id');
-        $this->assertSame(['list' => ['id' => $id, 'name' => 'Classics', 'count' => 0, 'novel_ids' => [], 'kind' => null]], $response->json());
+        $this->assertSame(['list' => ['id' => $id, 'name' => 'Classics', 'count' => 0, 'novel_ids' => [], 'kind' => null, 'position' => 0, 'hidden_on_home' => false]], $response->json());
 
         $this->postJson('/api/v1/lists', ['name' => 'To read'])->assertCreated();
 
         // "Want to read" and "Favourites" are made on first use (this listing) and always first.
         $this->getJson('/api/v1/lists')->assertOk()->assertExactJson(['lists' => [
-            ['id' => $id + 2, 'name' => 'Want to read', 'count' => 0, 'novel_ids' => [], 'kind' => 'want_to_read'],
-            ['id' => $id + 3, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => 'favourites'],
-            ['id' => $id, 'name' => 'Classics', 'count' => 0, 'novel_ids' => [], 'kind' => null],
-            ['id' => $id + 1, 'name' => 'To read', 'count' => 0, 'novel_ids' => [], 'kind' => null],
+            ['id' => $id + 2, 'name' => 'Want to read', 'count' => 0, 'novel_ids' => [], 'kind' => 'want_to_read', 'position' => 0, 'hidden_on_home' => false],
+            ['id' => $id + 3, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => 'favourites', 'position' => 1, 'hidden_on_home' => false],
+            ['id' => $id, 'name' => 'Classics', 'count' => 0, 'novel_ids' => [], 'kind' => null, 'position' => 2, 'hidden_on_home' => false],
+            ['id' => $id + 1, 'name' => 'To read', 'count' => 0, 'novel_ids' => [], 'kind' => null, 'position' => 3, 'hidden_on_home' => false],
         ]]);
 
         $this->patchJson("/api/v1/lists/{$id}", ['name' => 'Zzz best'])->assertOk()
@@ -117,7 +117,7 @@ class ApiV1ReadingListsTest extends TestCase
         $b = $this->novel('B');
 
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$b->id}")->assertOk()
-            ->assertExactJson(['list' => ['id' => $list->id, 'name' => 'Classics', 'count' => 1, 'novel_ids' => [$b->id], 'kind' => null]]);
+            ->assertExactJson(['list' => ['id' => $list->id, 'name' => 'Classics', 'count' => 1, 'novel_ids' => [$b->id], 'kind' => null, 'position' => 0, 'hidden_on_home' => false]]);
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$b->id}")->assertOk()->assertJsonPath('list.count', 1);
         $this->putJson("/api/v1/lists/{$list->id}/novels/{$a->id}")->assertOk()
             ->assertJsonPath('list.novel_ids', [$a->id, $b->id]);
@@ -215,9 +215,9 @@ class ApiV1ReadingListsTest extends TestCase
         [$wanted, $favourites] = [$builtIn[0]['id'], $builtIn[1]['id']];
         $this->asToken($readerToken)->getJson('/api/v1/lists')->assertOk()
             ->assertExactJson(['lists' => [
-                ['id' => $wanted, 'name' => 'Want to read', 'count' => 0, 'novel_ids' => [], 'kind' => 'want_to_read'],
-                ['id' => $favourites, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => 'favourites'],
-                ['id' => $mine, 'name' => 'Classics', 'count' => 0, 'novel_ids' => [], 'kind' => null],
+                ['id' => $wanted, 'name' => 'Want to read', 'count' => 0, 'novel_ids' => [], 'kind' => 'want_to_read', 'position' => 0, 'hidden_on_home' => false],
+                ['id' => $favourites, 'name' => 'Favourites', 'count' => 0, 'novel_ids' => [], 'kind' => 'favourites', 'position' => 1, 'hidden_on_home' => false],
+                ['id' => $mine, 'name' => 'Classics', 'count' => 0, 'novel_ids' => [], 'kind' => null, 'position' => 2, 'hidden_on_home' => false],
             ]]);
 
         // Someone else's list: 404 for every action, nothing changes.

@@ -21,7 +21,7 @@ use Illuminate\Routing\Route;
  *
  * Routes are listed by name; a route without a name by "uri:<uri>".
  * A route listed as reader may still check per action in its controller
- * (Gate 'admin'): novels.bulk (read = reader, delete/complete = admin).
+ * (Gate 'admin'): novels.bulk (read / unread = reader, delete/complete = admin).
  */
 final class RouteAccess
 {
@@ -163,6 +163,10 @@ final class RouteAccess
         'api.v1.lists.destroy',
         'api.v1.lists.novels.add',
         'api.v1.lists.novels.remove',
+        'api.v1.lists.order',
+        'api.v1.lists.memberships',
+        // Whole series read / unread (own reading state)
+        'api.v1.novels.bulk_read',
         // Own "Want to read" (the built-in reading list)
         'want_to_read',
         'api.v1.want_to_read',
@@ -182,6 +186,7 @@ final class RouteAccess
         'api.v1.requests.show',
         'api.v1.requests.store',
         'api.v1.requests.destroy', // own pending only, per RequestController::destroy()
+        'api.v1.requests.categories', // own or joined only, per RequestController::categories()
         'api.v1.notifications',
         'api.v1.updates', // new chapters to read (App\Services\Updates\NewChapterUpdates)
         // Covers in request results: only through a URL the server signed

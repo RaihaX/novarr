@@ -65,8 +65,25 @@ class LibraryBulkReadTest extends TestCase
     {
         $novel = $this->novel('Only one');
 
-        $this->postJson(route('novels.bulk'), ['action' => 'unread', 'ids' => [$novel->id]])->assertStatus(422);
+        $this->postJson(route('novels.bulk'), ['action' => 'archive', 'ids' => [$novel->id]])->assertStatus(422);
         $this->postJson(route('novels.bulk'), ['action' => 'read', 'ids' => [$novel->id + 999]])->assertStatus(422);
+    }
+
+    public function test_bulk_unread_clears_every_chapter_of_the_selected_series(): void
+    {
+        $a = $this->novel('Read A');
+        $other = $this->novel('Read other');
+        $one = $this->chapter($a, 1);
+        $two = $this->chapter($a, 2);
+        $keep = $this->chapter($other, 1);
+        $this->postJson(route('novels.bulk'), ['action' => 'read', 'ids' => [$a->id, $other->id]])->assertOk();
+
+        $this->postJson(route('novels.bulk'), ['action' => 'unread', 'ids' => [$a->id]])
+            ->assertOk()
+            ->assertJson(['success' => true, 'count' => 1, 'chapters' => 2]);
+        $this->assertNull($this->readAtOf($one));
+        $this->assertNull($this->readAtOf($two));
+        $this->assertNotNull($this->readAtOf($keep));
     }
 
     public function test_the_selection_bar_offers_mark_all_read(): void
@@ -76,6 +93,6 @@ class LibraryBulkReadTest extends TestCase
         $this->get(route('novels.index', ['view' => 'table']))
             ->assertOk()
             ->assertSee('id="bulkRead"', false)
-            ->assertSee('Mark all read');
+            ->assertSee("Mark as read")->assertSee("Mark as unread")->assertSee("Set categories");
     }
 }

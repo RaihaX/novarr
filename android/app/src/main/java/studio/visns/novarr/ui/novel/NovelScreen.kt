@@ -203,7 +203,7 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                         IconButton(onClick = { showLists = true }) {
                             Icon(
                                 if (inAnyList) Icons.AutoMirrored.Outlined.PlaylistAddCheck else Icons.AutoMirrored.Outlined.PlaylistAdd,
-                                contentDescription = if (inAnyList) "Lists (in ${ownLists.count { novelId in it }})" else "Lists",
+                                contentDescription = if (inAnyList) "Categories (in ${ownLists.count { novelId in it }})" else "Categories",
                             )
                         }
                     }

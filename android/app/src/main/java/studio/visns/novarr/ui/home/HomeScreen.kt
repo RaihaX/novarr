@@ -84,6 +84,9 @@ import studio.visns.novarr.domain.AutoSearch
 import studio.visns.novarr.domain.HomeShelves
 import studio.visns.novarr.store.HomeLayout
 import studio.visns.novarr.ui.FolderRoute
+import studio.visns.novarr.ui.CategoriesRoute
+import studio.visns.novarr.domain.Categories
+import androidx.compose.material.icons.automirrored.outlined.Label
 import studio.visns.novarr.ui.LibraryRoute
 import studio.visns.novarr.ui.audiobooks.caption
 import studio.visns.novarr.ui.lists.LibraryNovels
@@ -244,15 +247,22 @@ private fun readerRoute(item: ContinueItem) =
     ReaderRoute(item.novel.id, item.chapter.id, manga = item.novel.isManga, offerLatest = true)
 
 /**
- * Home is "my stuff" across books, manga, web novels and audiobooks: a
- * search over everything, a compact strip to pick up where you left off
- * (each half can be hidden in Settings), Favourites, Want to read, what is in
- * progress, the reader's folders (their own reading lists) and a way into
- * the full Library.
+ * Home (1.18) is a summary of the reader's categories: a search over
+ * everything, then one row of covers per category (in their order, hidden
+ * and empty ones left out) with "Manage categories", then New chapters and a
+ * way into the full Library. Settings › Home brings back 1.16's Continue,
+ * Favourites, Want to read and Reading & listening; a reader whose
+ * categories hold nothing yet keeps 1.16's layout, with "Create your first
+ * category" on top. [HomeShelves.sections] decides the order.
+ *
+ * STATS SLOT: [statsCard] is drawn right after Search when given
+ * ([HomeShelves.Section.Stats]); null (the default) leaves no trace. The
+ * Stats feature plugs in with `HomeScreen(nav, statsCard = { YourStatsCard(…) })`
+ * from the nav graph.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(nav: NavController) {
+fun HomeScreen(nav: NavController, statsCard: (@Composable () -> Unit)? = null) {
     val app = LocalApp.current
     val model = viewModel { HomeViewModel(app) }
     val revision by app.readStateRevision.collectAsStateWithLifecycle()
@@ -347,88 +357,137 @@ fun HomeScreen(nav: NavController) {
                 when {
                     feed != null -> {
                         val listening = if (audiobooksOffered) model.listening else emptyList()
-                        // 1. Pick up where you left off: compact, one row (Settings › Home can hide either half).
-                        val quick = HomeShelves.quickResume(model.continueItems, listening, layout.continueReading, layout.continueListening)
-                        if (quick.isNotEmpty()) {
-                            item(key = "quick") {
-                                QuickResumeStrip(quick, Modifier.readableWidth(1000.dp)) { open(nav, it) }
-                            }
+                        // The order and what is on: HomeShelves.sections (pure, unit-tested). Search is drawn above.
+                        val sections = HomeShelves.sections(
+                            lists = listsState.lists,
+                            novels = model.library.novels,
+                            layout = layout,
+                            listsOffered = listsOffered,
+                            listsLoaded = listsLoaded,
+                            hasStats = statsCard != null,
+                            wantToReadShelf = feed.wantToRead.isNotEmpty(),
+                        )
+                        // Pick up where you left off: compact, one row (Settings › Home can hide either half).
+                        val quick = if (HomeShelves.Section.Continue in sections) {
+                            HomeShelves.quickResume(model.continueItems, listening, layout.continueReading, layout.continueListening)
+                        } else {
+                            emptyList()
                         }
-                        // 2. Favourites (servers with the built-in list).
-                        if (favouritesList != null) {
-                            item(key = "favourites") {
-                                CoverShelf(
-                                    title = ReadingLists.FAVOURITES,
-                                    novels = HomeShelves.shelf(favouritesList, model.library.novels).take(SHELF_MAX),
-                                    total = favouritesList.count,
-                                    wide = wide,
-                                    empty = "Tap the heart at the top of any book, web novel or manga and it lives here.",
-                                    onSeeAll = { nav.navigate(FolderRoute(favouritesList.id)) },
-                                    onOpen = { nav.navigate(NovelRoute(it)) },
-                                )
-                            }
-                        }
-                        // 3. Want to read (shown once the server has the list; an older server sends neither).
-                        if (wantList != null || feed.wantToRead.isNotEmpty()) {
-                            item(key = "want-to-read") {
-                                WantToReadSection(
-                                    ReadingLists.shown(feed.wantToRead, wantList),
-                                    total = wantList?.count ?: feed.wantToReadCount,
-                                    wide = wide,
-                                    onSeeAll = { nav.navigate(WantToReadRoute) },
-                                    onOpen = { nav.navigate(NovelRoute(it)) },
-                                )
-                            }
-                        }
-                        // 4. Everything in progress, reading and listening, as covers (beyond what the strip shows).
-                        val progress = HomeShelves.inProgress(model.continueItems, listening).filterNot { p -> quick.any { it.key == p.key } }
-                        if (progress.isNotEmpty()) {
-                            item(key = "in-progress") {
-                                InProgressShelf(progress, wide, audiobooksOffered, onAllAudiobooks = { nav.navigate(AudiobooksRoute) }) { open(nav, it) }
-                            }
-                        } else if (quick.isEmpty() && model.continueItems.isEmpty()) {
-                            item(key = "nothing") {
-                                Text(
-                                    "Nothing in progress. Pick something from your Library to start.",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.readableWidth(1000.dp).padding(top = 20.dp),
-                                )
-                            }
-                        }
-                        // 5. The reader's folders (their own lists), with "New folder".
-                        if (listsOffered && listsLoaded) {
-                            item(key = "folders") {
-                                FoldersSection(
-                                    HomeShelves.folders(listsState.lists, model.library.novels),
-                                    wide = wide,
-                                    onOpen = { nav.navigate(FolderRoute(it)) },
-                                    onNew = { newFolder = true },
-                                )
-                            }
-                        }
-                        val newChapters = NewChapters.shown(feed.newChapters)
-                        if (newChapters.isNotEmpty()) {
-                            item { SectionTitle("New chapters", Modifier.readableWidth(1000.dp).padding(top = 28.dp, bottom = 8.dp)) }
-                            items(newChapters, key = { "new-${it.novel.id}" }) { item ->
-                                NewChaptersRow(item, Modifier.readableWidth(1000.dp)) {
-                                    val first = item.firstChapter
-                                    if (first != null) {
-                                        nav.navigate(ReaderRoute(item.novel.id, first.id, manga = item.novel.isManga, offerLatest = true))
-                                    } else {
-                                        nav.navigate(NovelRoute(item.novel.id))
+                        sections.forEach { section ->
+                            when (section) {
+                                HomeShelves.Section.Search -> Unit
+                                // STATS SLOT: the card the Stats feature passes to HomeScreen(statsCard = …), right after Search.
+                                HomeShelves.Section.Stats -> statsCard?.let { card ->
+                                    item(key = section.key) { Box(Modifier.readableWidth(1000.dp).padding(bottom = 12.dp)) { card() } }
+                                }
+                                HomeShelves.Section.FirstCategory -> item(key = section.key) {
+                                    FirstCategoryCard(
+                                        hasOwn = ReadingLists.own(listsState.lists).isNotEmpty(),
+                                        modifier = Modifier.readableWidth(1000.dp).padding(bottom = 4.dp),
+                                        onCreate = { newFolder = true },
+                                        onLibrary = { nav.navigate(LibraryRoute) { launchSingleTop = true } },
+                                    )
+                                }
+                                HomeShelves.Section.Continue -> if (quick.isNotEmpty()) {
+                                    item(key = section.key) {
+                                        QuickResumeStrip(quick, Modifier.readableWidth(1000.dp)) { open(nav, it) }
                                     }
                                 }
-                                if (item != newChapters.last()) HorizontalDivider(Modifier.readableWidth(1000.dp).padding(start = 64.dp))
-                            }
-                        }
-                        // 6. The full Library.
-                        item(key = "library") {
-                            FilledTonalButton(
-                                onClick = { nav.navigate(LibraryRoute) { launchSingleTop = true } },
-                                modifier = Modifier.readableWidth(1000.dp).padding(top = 28.dp).heightIn(min = 48.dp),
-                            ) {
-                                Icon(Icons.Outlined.CollectionsBookmark, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                                Text("Open the full Library")
+                                is HomeShelves.Section.Category -> item(key = section.key) {
+                                    CategoryShelf(
+                                        section,
+                                        wide = wide,
+                                        onSeeAll = { nav.navigate(FolderRoute(section.list.id)) },
+                                        onOpen = { nav.navigate(NovelRoute(it)) },
+                                    )
+                                }
+                                HomeShelves.Section.ManageCategories -> item(key = section.key) {
+                                    TextButton(
+                                        onClick = { nav.navigate(CategoriesRoute) },
+                                        modifier = Modifier.readableWidth(1000.dp).padding(top = 12.dp),
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Outlined.Label, contentDescription = null, modifier = Modifier.padding(end = 8.dp).size(18.dp))
+                                        Text("Manage categories")
+                                    }
+                                }
+                                HomeShelves.Section.Favourites -> favouritesList?.let { favourites ->
+                                    item(key = section.key) {
+                                        CoverShelf(
+                                            title = ReadingLists.FAVOURITES,
+                                            novels = HomeShelves.shelf(favourites, model.library.novels).take(SHELF_MAX),
+                                            total = favourites.count,
+                                            wide = wide,
+                                            empty = "Tap the heart at the top of any book, web novel or manga and it lives here.",
+                                            onSeeAll = { nav.navigate(FolderRoute(favourites.id)) },
+                                            onOpen = { nav.navigate(NovelRoute(it)) },
+                                        )
+                                    }
+                                }
+                                // Want to read (shown once the server has the list; an older server sends neither).
+                                HomeShelves.Section.WantToRead -> item(key = section.key) {
+                                    WantToReadSection(
+                                        ReadingLists.shown(feed.wantToRead, wantList),
+                                        total = wantList?.count ?: feed.wantToReadCount,
+                                        wide = wide,
+                                        onSeeAll = { nav.navigate(WantToReadRoute) },
+                                        onOpen = { nav.navigate(NovelRoute(it)) },
+                                    )
+                                }
+                                // Everything in progress, reading and listening, as covers (beyond what the strip shows).
+                                HomeShelves.Section.InProgress -> {
+                                    val progress = HomeShelves.inProgress(model.continueItems, listening).filterNot { p -> quick.any { it.key == p.key } }
+                                    if (progress.isNotEmpty()) {
+                                        item(key = section.key) {
+                                            InProgressShelf(progress, wide, audiobooksOffered, onAllAudiobooks = { nav.navigate(AudiobooksRoute) }) { open(nav, it) }
+                                        }
+                                    } else if (quick.isEmpty() && model.continueItems.isEmpty()) {
+                                        item(key = "nothing") {
+                                            Text(
+                                                "Nothing in progress. Pick something from your Library to start.",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.readableWidth(1000.dp).padding(top = 20.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                                // 1.16's tiles (the first-run layout), with "New category".
+                                HomeShelves.Section.Folders -> if (listsLoaded) {
+                                    item(key = section.key) {
+                                        FoldersSection(
+                                            HomeShelves.folders(listsState.lists, model.library.novels),
+                                            wide = wide,
+                                            onOpen = { nav.navigate(FolderRoute(it)) },
+                                            onNew = { newFolder = true },
+                                        )
+                                    }
+                                }
+                                HomeShelves.Section.NewChapters -> {
+                                    val newChapters = NewChapters.shown(feed.newChapters)
+                                    if (newChapters.isNotEmpty()) {
+                                        item(key = section.key) { SectionTitle("New chapters", Modifier.readableWidth(1000.dp).padding(top = 28.dp, bottom = 8.dp)) }
+                                        items(newChapters, key = { "new-${it.novel.id}" }) { item ->
+                                            NewChaptersRow(item, Modifier.readableWidth(1000.dp)) {
+                                                val first = item.firstChapter
+                                                if (first != null) {
+                                                    nav.navigate(ReaderRoute(item.novel.id, first.id, manga = item.novel.isManga, offerLatest = true))
+                                                } else {
+                                                    nav.navigate(NovelRoute(item.novel.id))
+                                                }
+                                            }
+                                            if (item != newChapters.last()) HorizontalDivider(Modifier.readableWidth(1000.dp).padding(start = 64.dp))
+                                        }
+                                    }
+                                }
+                                // The full Library.
+                                HomeShelves.Section.Library -> item(key = section.key) {
+                                    FilledTonalButton(
+                                        onClick = { nav.navigate(LibraryRoute) { launchSingleTop = true } },
+                                        modifier = Modifier.readableWidth(1000.dp).padding(top = 28.dp).heightIn(min = 48.dp),
+                                    ) {
+                                        Icon(Icons.Outlined.CollectionsBookmark, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                                        Text("Open the full Library")
+                                    }
+                                }
                             }
                         }
                         feed.stats?.let { stats ->
@@ -455,8 +514,94 @@ fun HomeScreen(nav: NavController) {
     if (newFolder) NewFolderDialog { newFolder = false }
 }
 
-/** Covers on Home's Favourites row. */
+/** Covers on Home's Favourites row and on each category's row. */
 private const val SHELF_MAX = 12
+
+/**
+ * One category on Home: its name, how many series, "See all" (the category's
+ * screen), and a row of covers with each one's progress and unread count.
+ */
+@Composable
+private fun CategoryShelf(section: HomeShelves.Section.Category, wide: Boolean, onSeeAll: () -> Unit, onOpen: (Int) -> Unit) {
+    val title = section.list.name
+    Column(Modifier.readableWidth(1000.dp).padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionTitle(title, Modifier.weight(1f, fill = false))
+            Text(
+                "  ${section.count}",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f).clearAndSetSemantics { },
+            )
+            TextButton(onClick = onSeeAll, modifier = Modifier.semantics { contentDescription = "See all ${seriesCount(section.count)} in $title" }) { Text("See all") }
+        }
+        if (section.novels.isEmpty()) {
+            // The library copy hasn't these series yet (still loading, or offline): the count stands in.
+            Text(seriesCount(section.count), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            return@Column
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(section.novels.take(SHELF_MAX), key = { it.id }) { novel ->
+                Column(
+                    Modifier.width(if (wide) 120.dp else 96.dp)
+                        .clickable(onClickLabel = "Open the series", role = Role.Button) { onOpen(novel.id) }
+                        .semantics(mergeDescendants = true) {},
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Cover(novel.coverUrl, novel.name) {
+                        if (novel.chaptersRead > 0 && !novel.finished) {
+                            Box(Modifier.align(Alignment.BottomCenter).padding(6.dp)) {
+                                ProgressLine(novel.readFraction, color = Color.White, track = Color.Black.copy(alpha = 0.35f))
+                            }
+                        }
+                        val unread = Categories.unread(novel)
+                        if (novel.chaptersRead > 0 && unread > 0) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (novel.chaptersNew > 0) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.65f),
+                                contentColor = if (novel.chaptersNew > 0) MaterialTheme.colorScheme.onPrimary else Color.White,
+                                modifier = Modifier.align(Alignment.TopEnd).padding(5.dp),
+                            ) {
+                                Text(if (unread > 999) "999+" else unread.toString(), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
+                            }
+                        }
+                    }
+                    Text(novel.name, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        novel.caption,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (novel.chaptersNew > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The first run after 1.18 (no category holds a series yet): what Home is
+ * now, with one tap to make the first category ([hasOwn]: there is one
+ * already, empty, so the tap goes to the Library to fill it).
+ */
+@Composable
+private fun FirstCategoryCard(hasOwn: Boolean, modifier: Modifier, onCreate: () -> Unit, onLibrary: () -> Unit) {
+    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Home is your categories now", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+            Text(
+                if (hasOwn) "Long-press series in the Library, choose Set categories, and each category gets its own row here."
+                else "Make categories like “Action” or “Comfort reads”, then long-press series in the Library to put them in. Each one gets its own row here.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FilledTonalButton(onClick = if (hasOwn) onLibrary else onCreate, modifier = Modifier.heightIn(min = 48.dp)) {
+                Icon(Icons.AutoMirrored.Outlined.Label, contentDescription = null, modifier = Modifier.padding(end = 8.dp).size(18.dp))
+                Text(if (hasOwn) "Open the Library" else "Create your first category")
+            }
+        }
+    }
+}
 
 private fun open(nav: NavController, item: HomeShelves.InProgress) = when (item) {
     is HomeShelves.InProgress.Reading -> nav.navigate(readerRoute(item.item))
@@ -684,12 +829,12 @@ private fun InProgressShelf(
 private fun FoldersSection(folders: List<HomeShelves.Folder>, wide: Boolean, onOpen: (Int) -> Unit, onNew: () -> Unit) {
     Column(Modifier.readableWidth(1000.dp).padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionTitle("Folders", Modifier.weight(1f))
-            TextButton(onClick = onNew) { Text("New folder") }
+            SectionTitle("Categories", Modifier.weight(1f))
+            TextButton(onClick = onNew) { Text("New category") }
         }
         if (folders.isEmpty()) {
             Text(
-                "Make folders for anything — “Manga – Action”, “Comfort reads” — then add series from their page (Lists, at the top).",
+                "Make categories for anything — “Manga – Action”, “Comfort reads” — then long-press series in the Library to put them in.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -709,7 +854,7 @@ private fun FoldersSection(folders: List<HomeShelves.Folder>, wide: Boolean, onO
 private fun FolderTile(folder: HomeShelves.Folder, modifier: Modifier, onClick: () -> Unit) {
     Column(
         modifier
-            .clickable(onClickLabel = "Open the folder", role = Role.Button, onClick = onClick)
+            .clickable(onClickLabel = "Open the category", role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) {},
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -744,7 +889,7 @@ private fun FolderTile(folder: HomeShelves.Folder, modifier: Modifier, onClick: 
 @Composable
 private fun NewFolderTile(modifier: Modifier, onClick: () -> Unit) {
     Column(
-        modifier.clickable(onClickLabel = "Make a new folder", role = Role.Button, onClick = onClick).semantics(mergeDescendants = true) {},
+        modifier.clickable(onClickLabel = "Make a new category", role = Role.Button, onClick = onClick).semantics(mergeDescendants = true) {},
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Surface(
@@ -757,7 +902,7 @@ private fun NewFolderTile(modifier: Modifier, onClick: () -> Unit) {
                 Icon(Icons.Outlined.CreateNewFolder, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
             }
         }
-        Text("New folder", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Text("New category", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }
 

@@ -92,7 +92,7 @@ class RequestSearchTest extends TestCase
         $results = collect($search['results'])->keyBy('title');
         $this->assertSame(['Solo Leveling', 'Solo Other Title', 'Solo Third One'], array_column($search['results'], 'title'));
         $solo = $results['Solo Leveling'];
-        $this->assertSame(['key', 'title', 'author', 'cover_url', 'description', 'medium', 'sources', 'in_library', 'novel_id', 'requested'], array_keys($solo));
+        $this->assertSame(['key', 'title', 'author', 'cover_url', 'description', 'medium', 'sources', 'in_library', 'novel_id', 'requested', 'in_categories', 'requested_categories'], array_keys($solo));
         $this->assertSame([
             ['source' => 'fakemanga_a', 'source_name' => 'Fake A (manga)', 'chapters' => null, 'status' => null],
             ['source' => 'fakemanga_b', 'source_name' => 'Fake B (manga)', 'chapters' => 200, 'status' => 'Completed'],

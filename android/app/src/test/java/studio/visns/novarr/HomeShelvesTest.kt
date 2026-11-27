@@ -45,7 +45,7 @@ class HomeShelvesTest {
 
     @Test
     fun favouritesNameIsReservedOnlyWhereTheServerHasIt() {
-        assertEquals("“Favourites” is already one of your lists.", ReadingLists.nameProblem(" favourites ", listOf(favourites)))
+        assertEquals("“Favourites” is already one of your categories.", ReadingLists.nameProblem(" favourites ", listOf(favourites)))
         // An older server: "Favourites" is still an ordinary name.
         assertNull(ReadingLists.nameProblem("Favourites", listOf(action)))
         assertEquals(listOf("To read", "Finished"), ReadingLists.starters(emptyList()))

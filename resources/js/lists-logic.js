@@ -68,10 +68,10 @@ export function startersFor(lists) {
     return STARTERS.filter((s) => !taken.has(nameKey(s)));
 }
 
-/** The Lists button's accessible name: "Lists" or "Lists, in 2 lists". */
+/** The Categories button's accessible name: "Categories" or "Categories, in 2 categories". */
 export function buttonLabel(inCount) {
-    if (!inCount) return 'Lists';
-    return `Lists, in ${inCount} ${inCount === 1 ? 'list' : 'lists'}`;
+    if (!inCount) return 'Categories';
+    return `Categories, in ${inCount} ${inCount === 1 ? 'category' : 'categories'}`;
 }
 
 /** The screen-reader line after a tick was saved or failed. */

@@ -24,6 +24,7 @@ import studio.visns.novarr.api.RequestSearch
 import studio.visns.novarr.api.SearchResult
 import studio.visns.novarr.api.rethrowIfCancellation
 import studio.visns.novarr.app.AppModel
+import studio.visns.novarr.domain.Categories
 import studio.visns.novarr.domain.Requests
 import studio.visns.novarr.domain.Requests.Medium
 import studio.visns.novarr.domain.Requests.Section
@@ -416,13 +417,14 @@ class RequestsViewModel(private val app: AppModel, initial: Section) : ViewModel
     }
 
     /** POST /requests for a shelf result: its medium, list and page, and the key. */
-    private suspend fun createFromShelf(client: ApiClient, result: SearchResult, note: String?) =
+    private suspend fun createFromShelf(client: ApiClient, result: SearchResult, note: String?, categories: List<Int>? = null) =
         client.createRequestFromBrowse(
             (browseMedium ?: medium).wire,
             browseList ?: error("no list"),
             browsePageOf[result.key] ?: 1,
             result.key,
             note,
+            categories,
         )
 
     fun sendRequest() {
@@ -535,6 +537,110 @@ class RequestsViewModel(private val app: AppModel, initial: Section) : ViewModel
             }
         }
     }
+
+    // Long-press a card: "Add to category"
+
+    /** The card whose "Add to category" sheet is open (null: closed). */
+    var categorySheet by mutableStateOf<SearchResult?>(null)
+        private set
+    private var categoryFromShelf = false
+    var categorySending by mutableStateOf(false)
+        private set
+
+    fun openCategorySheet(result: SearchResult, fromShelf: Boolean) {
+        categorySheet = result
+        categoryFromShelf = fromShelf
+    }
+
+    fun closeCategorySheet() {
+        if (!categorySending) categorySheet = null
+    }
+
+    /**
+     * The sheet's Save: in the library, one memberships call; not yet, a
+     * request (new, "Me too", or the reader's own updated) carrying the
+     * categories, which the server fills once the series arrives. The
+     * card then shows where it went (greyed, "In …" / "Requested · …").
+     */
+    fun confirmCategories(chosen: Set<Int>) {
+        val result = categorySheet ?: return
+        val action = Categories.browseAction(result, chosen)
+        val fromShelf = categoryFromShelf
+        val searchId = search?.id
+        val client = client ?: return
+        when (action) {
+            Categories.BrowseAction.Nothing -> categorySheet = null
+            is Categories.BrowseAction.Memberships -> {
+                categorySending = true
+                viewModelScope.launch {
+                    val failure = app.lists.setMemberships(listOf(action.novelId), action.add, action.remove)
+                    categorySending = false
+                    if (failure == null) {
+                        updateResults { list -> list.map { if (it.key == result.key) Categories.afterBrowse(it, action) else it } }
+                        categorySheet = null
+                        notice = "Saved."
+                    } else {
+                        notice = failure
+                    }
+                }
+            }
+            is Categories.BrowseAction.Request -> {
+                if (!fromShelf && searchId == null) return
+                categorySending = true
+                viewModelScope.launch {
+                    try {
+                        val created = if (fromShelf) createFromShelf(client, result, null, action.categories) else client.createRequest(searchId!!, result.key, null, action.categories)
+                        app.noteSuccess()
+                        updateResults { list -> list.map { if (it.key == result.key) Categories.afterBrowse(it, action) else it } }
+                        categorySheet = null
+                        notice = when {
+                            created.joined -> "Me too: you'll be told when it's ready, and it goes into your categories."
+                            else -> "Requested. Once it's in the library it goes into your categories."
+                        }
+                        loadLists()
+                    } catch (e: Exception) {
+                        e.rethrowIfCancellation()
+                        val error = ApiError.from(e)
+                        app.noteFailure(error)
+                        val body = (error as? ApiError.Http)?.body
+                        when (Requests.code(error)) {
+                            // In the library already: the server put it in the categories straight away.
+                            "in_library" -> {
+                                val novelId = (body?.get("novel_id") as? JsonPrimitive)?.intOrNull
+                                val added = ids(body, "added_to_categories") ?: action.categories
+                                updateResults { list ->
+                                    list.map { if (it.key == result.key) it.copy(inLibrary = true, novelId = novelId ?: it.novelId, inCategories = (it.inCategories + added).distinct().sorted()) else it }
+                                }
+                                categorySheet = null
+                                notice = "It's in the library already, so it was added to your categories."
+                                app.lists.refresh()
+                                app.libraryChanged()
+                            }
+                            // Asked for already: the server updated (or, by someone else on an older server, kept) the choice.
+                            "already_requested" -> {
+                                val byMe = (body?.get("by_me") as? JsonPrimitive)?.booleanOrNull ?: false
+                                val remembered = ids(body, "requested_categories")
+                                updateResults { list ->
+                                    Requests.markTaken(list, result.key, byMe).map {
+                                        if (it.key == result.key && remembered != null) it.copy(requestedCategories = remembered) else it
+                                    }
+                                }
+                                categorySheet = null
+                                notice = if (remembered != null) "Saved: it goes into your categories once it's in the library." else Requests.message(error)
+                            }
+                            else -> notice = Requests.message(error)
+                        }
+                    } finally {
+                        categorySending = false
+                    }
+                }
+            }
+        }
+    }
+
+    /** An array of ids in an error body ([key]); null when the server sent none (an older server). */
+    private fun ids(body: kotlinx.serialization.json.JsonObject?, key: String): List<Int>? =
+        (body?.get(key) as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.intOrNull }
 
     /** Applies to the search's results and the shelf's alike (a group key names the same series in both). */
     private fun updateResults(transform: (List<SearchResult>) -> List<SearchResult>) {

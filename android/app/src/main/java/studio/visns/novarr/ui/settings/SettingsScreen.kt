@@ -61,6 +61,7 @@ import studio.visns.novarr.domain.Eink
 import studio.visns.novarr.domain.EinkMode
 import studio.visns.novarr.store.ListeningPrefs
 import studio.visns.novarr.store.OfflineStore
+import studio.visns.novarr.ui.CategoriesRoute
 import studio.visns.novarr.ui.ChangeServerRoute
 import studio.visns.novarr.ui.DownloadsRoute
 import studio.visns.novarr.ui.ReaderSettingsRoute
@@ -166,15 +167,34 @@ fun SettingsScreen(nav: NavController) {
                 Section("Home")
                 val homeLayout by app.prefs.homeLayout.collectAsStateWithLifecycle(studio.visns.novarr.store.HomeLayout())
                 StartOnChoice(homeLayout.startOn, listen = audiobooksOffered) { start -> scope.launch { app.prefs.updateHomeLayout { it.copy(startOn = start) } } }
-                SwitchRow("Show Continue reading on Home", homeLayout.continueReading) { on ->
-                    scope.launch { app.prefs.updateHomeLayout { it.copy(continueReading = on) } }
+                val listsOffered by app.listsOffered.collectAsStateWithLifecycle()
+                if (listsOffered) Link("Manage categories", chevron = true) { nav.navigate(CategoriesRoute) }
+                // 1.18's Home is the categories; 1.16's shelves come back here.
+                SwitchRow("Show Continue on Home", homeLayout.showContinue) { on ->
+                    scope.launch { app.prefs.updateHomeLayout { it.copy(showContinue = on) } }
                 }
-                if (audiobooksOffered) {
-                    SwitchRow("Show Continue listening on Home", homeLayout.continueListening) { on ->
-                        scope.launch { app.prefs.updateHomeLayout { it.copy(continueListening = on) } }
+                if (homeLayout.showContinue) {
+                    SwitchRow("Continue reading", homeLayout.continueReading) { on ->
+                        scope.launch { app.prefs.updateHomeLayout { it.copy(continueReading = on) } }
+                    }
+                    if (audiobooksOffered) {
+                        SwitchRow("Continue listening", homeLayout.continueListening) { on ->
+                            scope.launch { app.prefs.updateHomeLayout { it.copy(continueListening = on) } }
+                        }
                     }
                 }
-                Note("Home gathers your favourites, Want to read, what you're reading and listening to, and your folders. Everything in progress also stays under Library and Listen.")
+                if (listsOffered) {
+                    SwitchRow("Show Favourites on Home", homeLayout.showFavourites) { on ->
+                        scope.launch { app.prefs.updateHomeLayout { it.copy(showFavourites = on) } }
+                    }
+                    SwitchRow("Show Want to read on Home", homeLayout.showWantToRead) { on ->
+                        scope.launch { app.prefs.updateHomeLayout { it.copy(showWantToRead = on) } }
+                    }
+                }
+                SwitchRow(if (audiobooksOffered) "Show Reading & listening on Home" else "Show Reading on Home", homeLayout.showInProgress) { on ->
+                    scope.launch { app.prefs.updateHomeLayout { it.copy(showInProgress = on) } }
+                }
+                Note("Home shows a row for each of your categories (hide or reorder them in Manage categories) and new chapters. Switch on the shelves you'd like back from before. Everything in progress also stays under Library and Listen.")
 
                 Section("Reading")
                 Link("Reader defaults", chevron = true) { nav.navigate(ReaderSettingsRoute) }

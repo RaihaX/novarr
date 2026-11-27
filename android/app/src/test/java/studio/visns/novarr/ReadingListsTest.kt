@@ -35,7 +35,7 @@ class ReadingListsTest {
         // Surrounding spaces don't count; an emoji is one character.
         assertNull(ReadingLists.nameProblem("  " + "x".repeat(40) + "  ", lists))
         assertNull(ReadingLists.nameProblem("📚".repeat(40), lists))
-        assertEquals("You already have a list called “favourites”.", ReadingLists.nameProblem(" favourites ", lists))
+        assertEquals("You already have a category called “favourites”.", ReadingLists.nameProblem(" favourites ", lists))
         assertNull(ReadingLists.nameProblem("Later", lists))
     }
 
@@ -43,13 +43,13 @@ class ReadingListsTest {
     fun renamingMayKeepItsOwnNameButNotTakeAnother() {
         val lists = listOf(favourites, toRead)
         assertNull(ReadingLists.nameProblem("FAVOURITES", lists, renaming = 1))
-        assertEquals("You already have a list called “To read”.", ReadingLists.nameProblem("To read", lists, renaming = 1))
+        assertEquals("You already have a category called “To read”.", ReadingLists.nameProblem("To read", lists, renaming = 1))
     }
 
     @Test
     fun atMostThirtyLists() {
         val thirty = (1..30).map { ReadingList(it, "L$it") }
-        assertEquals("You can have up to 30 lists.", ReadingLists.nameProblem("One more", thirty))
+        assertEquals("You can have up to 30 categories.", ReadingLists.nameProblem("One more", thirty))
         assertNull(ReadingLists.nameProblem("L1 renamed", thirty, renaming = 1))
         assertNull(ReadingLists.nameProblem("One more", thirty.drop(1)))
     }

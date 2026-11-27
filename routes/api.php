@@ -84,6 +84,8 @@ Route::prefix('v1')
         Route::get('/novels/{id}/check', [ApiV1\CheckController::class, 'show'])->whereNumber('id')->name('novels.check');
         Route::post('/novels/{id}/check', [ApiV1\CheckController::class, 'start'])->whereNumber('id')->middleware('throttle:novarr-reader-actions')->name('novels.check.start');
 
+        // Whole series read / unread at once (the apps' multi-select).
+        Route::post('/novels/bulk-read', [ApiV1\NovelBulkController::class, 'read'])->name('novels.bulk_read');
         Route::post('/chapters/bulk-read', [NovelChapterController::class, 'bulkRead'])->name('chapters.bulk_read');
         Route::get('/chapters/{id}', [ApiV1\ChapterController::class, 'show'])->whereNumber('id')->name('chapters.show');
         Route::get('/chapters/{id}/pages', [ApiV1\ChapterController::class, 'pages'])->whereNumber('id')->name('chapters.pages');
@@ -99,6 +101,9 @@ Route::prefix('v1')
         // Writes are unthrottled like the highlights' (cheap, own rows, capped per reader).
         Route::get('/lists', [ApiV1\ReadingListController::class, 'index'])->name('lists');
         Route::post('/lists', [ApiV1\ReadingListController::class, 'store'])->name('lists.store');
+        // Categories: the reader's order, and many series in / out of many lists at once.
+        Route::patch('/lists/order', [ApiV1\ReadingListController::class, 'order'])->name('lists.order');
+        Route::put('/lists/memberships', [ApiV1\ReadingListController::class, 'memberships'])->name('lists.memberships');
         Route::patch('/lists/{list}', [ApiV1\ReadingListController::class, 'update'])->whereNumber('list')->name('lists.update');
         Route::delete('/lists/{list}', [ApiV1\ReadingListController::class, 'destroy'])->whereNumber('list')->name('lists.destroy');
         Route::put('/lists/{list}/novels/{novel}', [ApiV1\ReadingListController::class, 'addNovel'])->whereNumber(['list', 'novel'])->name('lists.novels.add');
@@ -123,6 +128,8 @@ Route::prefix('v1')
         Route::get('/requests', [ApiV1\RequestController::class, 'index'])->name('requests');
         Route::post('/requests', [ApiV1\RequestController::class, 'store'])->middleware('throttle:novarr-reader-actions')->name('requests.store');
         Route::get('/requests/{id}', [ApiV1\RequestController::class, 'show'])->whereNumber('id')->name('requests.show');
+        // The categories the caller wants the series in once it is available (App\Services\Requests\RequestCategories).
+        Route::put('/requests/{id}/categories', [ApiV1\RequestController::class, 'categories'])->whereNumber('id')->name('requests.categories');
         Route::delete('/requests/{id}', [ApiV1\RequestController::class, 'destroy'])->whereNumber('id')->name('requests.destroy');
         Route::post('/requests/{id}/approve', [ApiV1\RequestController::class, 'approve'])->whereNumber('id')->name('requests.approve');
         Route::post('/requests/{id}/decline', [ApiV1\RequestController::class, 'decline'])->whereNumber('id')->name('requests.decline');

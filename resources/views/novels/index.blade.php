@@ -130,11 +130,11 @@
              counts are this library's series in each. --}}
         @if(!empty($readingLists))
             <label class="lib-list">
-                <span class="visually-hidden">Reading list</span>
+                <span class="visually-hidden">Category</span>
                 <select name="list" class="form-select" onchange="this.form.requestSubmit()">
                     <option value="">All series</option>
                     @foreach($readingLists as $rl)
-                        <option value="{{ $rl['id'] }}" data-name="{{ $rl['name'] }}" data-count="{{ $rl['count'] }}" @selected($activeList && $activeList['id'] === $rl['id'])>List: {{ $rl['name'] }} ({{ number_format($rl['count']) }})</option>
+                        <option value="{{ $rl['id'] }}" data-name="{{ $rl['name'] }}" data-count="{{ $rl['count'] }}" @selected($activeList && $activeList['id'] === $rl['id'])>Category: {{ $rl['name'] }} ({{ number_format($rl['count']) }})</option>
                     @endforeach
                 </select>
             </label>
@@ -199,14 +199,14 @@
                 <x-icon name="pencil" :size="13" />Rename
             </button>
             <button type="button" class="btn btn-ghost btn-sm lib-listbar-delete" data-list-delete>
-                <x-icon name="trash-2" :size="13" />Delete list
+                <x-icon name="trash-2" :size="13" />Delete category
             </button>
             @endif
             <a href="{{ request()->fullUrlWithQuery(['list' => null, 'page' => null, 'medium' => $medium]) }}" class="btn btn-ghost btn-sm">Show all</a>
         </div>
         @unless($builtInList)
         <form class="lib-listbar-form" id="libListRename" data-list-rename-form hidden novalidate>
-            <label for="libListName" class="visually-hidden">New name for the list</label>
+            <label for="libListName" class="visually-hidden">New name for the category</label>
             <input type="text" id="libListName" class="form-control form-control-sm" maxlength="{{ \App\ReadingList::MAX_NAME }}" autocomplete="off" aria-describedby="libListError">
             <button type="submit" class="btn btn-sm btn-primary">Save</button>
             <button type="button" class="btn btn-sm btn-secondary" data-list-rename-cancel>Cancel</button>
@@ -236,7 +236,9 @@
 
 <div id="bulkBar" class="novels-bulk-bar">
     <span id="bulkCount" class="bulk-count"></span>
-    <button type="button" id="bulkRead" class="btn btn-secondary">Mark all read</button>
+    <button type="button" id="bulkCategories" class="btn btn-secondary" data-bulk-categories>Set categories</button>
+    <button type="button" id="bulkRead" class="btn btn-secondary">Mark as read</button>
+    <button type="button" id="bulkUnread" class="btn btn-secondary">Mark as unread</button>
     @can('admin')
     <button type="button" id="bulkComplete" class="btn btn-secondary">Mark complete</button>
     <button type="button" id="bulkDelete" class="btn btn-outline-danger">Delete</button>
@@ -633,6 +635,43 @@
     }
     selectBtn?.addEventListener('click', () => setSelecting(!grid.classList.contains('is-selecting')));
 
+    // Long-press (touch) or right-click a tile: Select mode with that tile
+    // selected (Mihon-style; docs/plans/categories-and-home.md).
+    function selectTile(tile) {
+        const box = tile?.querySelector('.novel-check');
+        if (!box) return false;
+        if (!grid.classList.contains('is-selecting')) setSelecting(true);
+        box.checked = true;
+        refreshBulkBar();
+        navigator.vibrate?.(15);
+        return true;
+    }
+    let pressTimer = null;
+    let pressed = false;
+    grid?.addEventListener('contextmenu', (e) => {
+        const tile = e.target.closest('.lib-tile');
+        if (tile && selectTile(tile)) e.preventDefault();
+    });
+    grid?.addEventListener('pointerdown', (e) => {
+        if (e.pointerType !== 'touch') return;
+        const tile = e.target.closest('.lib-tile');
+        if (!tile) return;
+        pressed = false;
+        clearTimeout(pressTimer);
+        pressTimer = setTimeout(() => { pressed = selectTile(tile); }, 500);
+    });
+    ['pointerup', 'pointercancel', 'pointermove'].forEach((type) => grid?.addEventListener(type, (e) => {
+        if (type === 'pointermove' && Math.abs(e.movementX) + Math.abs(e.movementY) < 4) return;
+        clearTimeout(pressTimer);
+    }));
+    // The click that ends a long-press must not open the series or untick it.
+    grid?.addEventListener('click', (e) => {
+        if (!pressed) return;
+        pressed = false;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+    }, true);
+
     // In Select mode a tile click toggles its checkbox instead of navigating.
     grid?.addEventListener('click', (e) => {
         if (!grid.classList.contains('is-selecting')) return;
@@ -697,8 +736,12 @@
         )) return;
 
         if (action === 'read' && !await Novarr.confirmDialog(
-            `Mark every chapter of ${ids.length} novel(s) as read?`,
-            { title: 'Mark all read', confirmText: 'Mark all read' }
+            `Mark every chapter of ${ids.length} series as read?`,
+            { title: 'Mark as read', confirmText: 'Mark as read' }
+        )) return;
+        if (action === 'unread' && !await Novarr.confirmDialog(
+            `Mark every chapter of ${ids.length} series as unread? Your reading progress in them is cleared.`,
+            { title: 'Mark as unread', confirmText: 'Mark as unread', danger: true }
         )) return;
 
         try {
@@ -718,10 +761,10 @@
                 if (action === 'delete') {
                     boxes.forEach(c => (c.closest('tr') ?? c.closest('.novel-row') ?? c.closest('.lib-tile'))?.remove());
                     Novarr.showToast(`Deleted ${ids.length} novel(s).`, 'success');
-                } else if (action === 'read') {
+                } else if (action === 'read' || action === 'unread') {
                     // Reload so the Read column, shelves and chip counts all
                     // show the server's numbers; the toast follows the reload.
-                    const message = `Marked ${Number(data.chapters || 0).toLocaleString()} chapter(s) read in ${ids.length} novel(s).`;
+                    const message = `Marked ${Number(data.chapters || 0).toLocaleString()} chapter(s) ${action} in ${ids.length} series.`;
                     if (window.Turbo) {
                         document.addEventListener('turbo:load', () => Novarr.showToast(message, 'success'), { once: true });
                         Turbo.visit(location.href, { action: 'replace' });
@@ -749,6 +792,7 @@
     document.getElementById('bulkDelete')?.addEventListener('click', () => bulkAction('delete'));
     document.getElementById('bulkComplete')?.addEventListener('click', () => bulkAction('complete'));
     document.getElementById('bulkRead')?.addEventListener('click', () => bulkAction('read'));
+    document.getElementById('bulkUnread')?.addEventListener('click', () => bulkAction('unread'));
 
     // --- Toggle complete (table rows) ---
     document.querySelectorAll('.novel-complete-btn').forEach(btn => {

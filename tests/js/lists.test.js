@@ -49,9 +49,9 @@ test('starters are offered in order, minus names already taken', () => {
 });
 
 test('button label and announcements', () => {
-    assert.equal(buttonLabel(0), 'Lists');
-    assert.equal(buttonLabel(1), 'Lists, in 1 list');
-    assert.equal(buttonLabel(3), 'Lists, in 3 lists');
+    assert.equal(buttonLabel(0), 'Categories');
+    assert.equal(buttonLabel(1), 'Categories, in 1 category');
+    assert.equal(buttonLabel(3), 'Categories, in 3 categories');
     assert.equal(toggleAnnouncement('Classics', true, true), 'Added to Classics.');
     assert.equal(toggleAnnouncement('Classics', false, true), 'Removed from Classics.');
     assert.equal(toggleAnnouncement('Classics', true, false), 'Could not add to Classics.');

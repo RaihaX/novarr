@@ -61,6 +61,7 @@ import studio.visns.novarr.ui.highlights.HighlightsScreen
 import studio.visns.novarr.ui.home.HomeScreen
 import studio.visns.novarr.ui.library.LibraryScreen
 import studio.visns.novarr.ui.lists.FolderScreen
+import studio.visns.novarr.ui.lists.ManageCategoriesScreen
 import studio.visns.novarr.ui.lists.WantToReadScreen
 import studio.visns.novarr.store.StartOn
 import studio.visns.novarr.ui.novel.NovelScreen
@@ -109,8 +110,11 @@ import studio.visns.novarr.ui.theme.LocalEink
 /** The reader's whole "Want to read" (Home's shelf "See all"). */
 @Serializable data object WantToReadRoute
 
-/** One reading list as a folder of covers (Home's folders, Favourites' "See all"). */
+/** One category (a reading list) as a grid of covers (Home's "See all"). */
 @Serializable data class FolderRoute(val id: Int)
+
+/** Manage categories: create, rename, reorder, hide on Home, delete. */
+@Serializable data object CategoriesRoute
 
 /** Every audiobook (a tab when the server has them). */
 @Serializable data object AudiobooksRoute
@@ -325,6 +329,7 @@ private fun NovarrNavHost(nav: NavHostController) {
         composable<DownloadsRoute> { DownloadsScreen(nav) }
         composable<WantToReadRoute> { WantToReadScreen(nav) }
         composable<FolderRoute> { FolderScreen(nav, it.toRoute<FolderRoute>().id) }
+        composable<CategoriesRoute> { ManageCategoriesScreen(nav) }
         composable<AudiobooksRoute> { AudiobooksScreen(nav) }
         composable<PlayerRoute> { PlayerScreen(nav, it.toRoute<PlayerRoute>().id) }
         composable<AudiobookUploadRoute> { entry ->

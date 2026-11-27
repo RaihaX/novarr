@@ -1,0 +1,154 @@
+// ===========================================================================
+// Categories (docs/plans/categories-and-home.md): the "Set categories" sheet
+// (resources/js/categories.js), taken Browse cards on the Requests page,
+// and Home's categories-first layout (resources/js/home-layout.js).
+// Theme tokens only, so light and dark follow.
+// ===========================================================================
+
+// ---- The sheet (a native <dialog>) -----------------------------------------
+.cat-sheet {
+    width: min(420px, calc(100vw - #{$s-8}));
+    max-height: min(80vh, 640px);
+    padding: 0;
+    border: 1px solid $t-border;
+    border-radius: $radius-tile;
+    background: $t-surface;
+    color: $t-text;
+
+    &::backdrop { background: rgba(0, 0, 0, .5); }
+}
+
+.cat-sheet-form {
+    display: flex;
+    flex-direction: column;
+    gap: $s-4;
+    padding: $s-6;
+    max-height: inherit;
+}
+
+.cat-sheet-title { font-size: $fs-card-title; margin: 0; }
+
+.cat-sheet-sub { margin: $s-1 0 0; color: $t-text-muted; font-size: $fs-caption; }
+
+.cat-sheet-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.cat-sheet-label {
+    display: flex;
+    align-items: center;
+    gap: $s-3;
+    padding: $s-3 $s-2;
+    border-radius: $radius;
+    cursor: pointer;
+
+    &:hover { background: $t-surface-alt; }
+
+    .form-check-input { margin: 0; flex-shrink: 0; }
+}
+
+.cat-sheet-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+.cat-sheet-kind { color: $t-text-muted; font-size: $fs-micro; text-transform: uppercase; letter-spacing: .04em; }
+
+.cat-sheet-empty { margin: 0; color: $t-text-muted; }
+
+.cat-sheet-new {
+    display: flex;
+    gap: $s-2;
+
+    .form-control { flex: 1; min-width: 0; }
+}
+
+.cat-sheet-error { margin: 0; color: $danger; font-size: $fs-caption; }
+
+.cat-sheet-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: $s-2;
+}
+
+// ---- Requests page: a card the reader has taken ----------------------------
+.req-card.is-taken {
+    .cover img, .cover-title, .req-card-title, .disc-author { opacity: .5; }
+}
+
+.req-card .cover { position: relative; }
+
+.req-cat-badge {
+    position: absolute;
+    left: $s-1;
+    right: $s-1;
+    bottom: $s-1;
+    padding: 2px $s-2;
+    border-radius: $radius;
+    background: rgba(0, 0, 0, .72);
+    color: #fff;
+    font-size: $fs-micro;
+    font-weight: 600;
+    line-height: 1.4;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+// ---- Home ------------------------------------------------------------------
+// Categories first: the old shelves only when turned back on.
+.home.is-categories-first [data-home-optional]:not(.is-shown) { display: none; }
+
+.home-category + .home-category { margin-top: $s-6; }
+
+.home-category-title {
+    font-size: $fs-card-title;
+    margin: 0;
+}
+
+.home-category-count { color: $t-text-muted; font-size: $fs-caption; margin-left: $s-1; }
+
+.home-first-category {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: $s-4;
+    margin-bottom: $s-6;
+    padding: $s-5;
+    border: 1px solid $t-border;
+    border-radius: $radius-tile;
+    background: $t-surface;
+}
+
+.home-first-category-title { font-size: $fs-card-title; margin: 0 0 $s-1; }
+
+.home-first-category-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-2;
+
+    .form-control { width: auto; min-width: 0; flex: 1 1 160px; }
+}
+
+.home-first-category-error { flex-basis: 100%; margin: 0; color: $danger; font-size: $fs-caption; }
+
+.home-customise {
+    margin-top: $s-8;
+    color: $t-text-muted;
+
+    summary { cursor: pointer; }
+
+    fieldset {
+        display: flex;
+        flex-wrap: wrap;
+        gap: $s-3 $s-6;
+        margin-top: $s-3;
+    }
+
+    label { display: inline-flex; align-items: center; gap: $s-2; color: $t-text; }
+
+    .form-check-input { margin: 0; }
+}

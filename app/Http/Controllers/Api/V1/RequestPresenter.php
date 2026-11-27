@@ -6,6 +6,8 @@ use App\Http\Controllers\RequestCoverController;
 use App\NovelRequest;
 use App\NovelRequestFollower;
 use App\Services\Discover;
+use App\Services\ReadingLists;
+use App\Services\Requests\RequestCategories;
 use App\User;
 use Illuminate\Support\Collection;
 
@@ -33,7 +35,11 @@ class RequestPresenter
 
     /**
      * Result groups with the live flags: in_library (Discover / DuplicateSeries
-     * matching, one library query) and requested (one requests query).
+     * matching, one library query) and requested (one requests query), then,
+     * for the viewer's categories (greyed-out cards in Browse):
+     * in_categories (the viewer's lists holding the series, when it is in
+     * the library) and requested_categories (those the viewer chose on the
+     * open request for it) — list ids, [] for none; two more queries.
      */
     public static function results(array $groups, User $viewer, Discover $discover): array
     {
@@ -49,15 +55,20 @@ class RequestPresenter
         $followed = $open->isEmpty() ? [] : NovelRequestFollower::whereIn('novel_request_id', $open->pluck('id'))
             ->where('user_id', (int) $viewer->id)->pluck('novel_request_id')->map(fn($id) => (int) $id)->flip()->all();
         $requested = [];
+        $myRequest = [];
         foreach ($open as $request) {
             $key = $request->medium . '|' . $request->normalized_title;
             $mine = (int) $request->user_id === (int) $viewer->id || isset($followed[(int) $request->id]);
             if (!isset($requested[$key]) || ($mine && !$requested[$key]['by_me'])) {
                 $requested[$key] = ['status' => $request->displayStatus(), 'by_me' => $mine];
             }
+            if ($mine && !isset($myRequest[$key])) {
+                $myRequest[$key] = (int) $request->id;
+            }
         }
+        $chosen = RequestCategories::forReader((int) $viewer->id, array_values($myRequest));
 
-        return array_map(function (array $group) use ($library, $discover, $requested) {
+        $shown = array_map(function (array $group) use ($library, $discover, $requested, $myRequest, $chosen) {
             $novelId = null;
             foreach ($group['hits'] as $hit) {
                 $novelId = $discover->match(['name' => $hit['title'], 'url' => $hit['url']], $library, $group['medium']);
@@ -89,9 +100,24 @@ class RequestPresenter
                 $result['series'] = (string) $group['series'];
                 $result['series_index'] = $group['series_index'] ?? null;
             }
+            $requestId = $myRequest[$group['medium'] . '|' . $group['normalized_title']] ?? null;
+            $result['in_categories'] = [];
+            $result['requested_categories'] = $requestId !== null ? ($chosen[$requestId] ?? []) : [];
 
             return $result;
         }, $groups);
+
+        // One statement for every in-library result's categories.
+        $novelIds = array_values(array_unique(array_filter(array_column($shown, 'novel_id'))));
+        $memberOf = ReadingLists::listIdsByNovel((int) $viewer->id, $novelIds);
+        foreach ($shown as &$result) {
+            if ($result['novel_id'] !== null) {
+                $result['in_categories'] = $memberOf[$result['novel_id']] ?? [];
+            }
+        }
+        unset($result);
+
+        return $shown;
     }
 
     /** Requesters' {id, name} for a page of requests, one query. */
@@ -138,9 +164,13 @@ class RequestPresenter
      *
      * Fields added for "Me too" (old clients ignore them): also_wanted_by
      * (how many joined), mine ("requester" | "follower" | null), followers.
+     * Then requested_categories: the viewer's chosen categories (list ids,
+     * RequestCategories); $categories from RequestCategories::forReader()
+     * for a page (read here when not given).
      */
-    public static function request(NovelRequest $request, User $viewer, bool $admin, array $requesters = [], ?array $followers = null): array
+    public static function request(NovelRequest $request, User $viewer, bool $admin, array $requesters = [], ?array $followers = null, ?array $categories = null): array
     {
+        $categories ??= RequestCategories::forReader((int) $viewer->id, [(int) $request->id]);
         $followers ??= static::followers(collect([$request]));
         $joined = $followers[(int) $request->id] ?? [];
         $isRequester = (int) $request->user_id === (int) $viewer->id;
@@ -177,6 +207,7 @@ class RequestPresenter
             'review_url' => $admin && $request->isUpload() ? Presenter::url(route('books.review', $request->id, false)) : null,
             // A book asked for by title: no ePub yet (the owner finds and uploads one).
             'wanted' => $request->isWanted(),
+            'requested_categories' => $categories[(int) $request->id] ?? [],
         ];
     }
 

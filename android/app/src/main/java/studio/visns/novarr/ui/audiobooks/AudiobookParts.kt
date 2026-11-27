@@ -1,6 +1,10 @@
 package studio.visns.novarr.ui.audiobooks
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.semantics.stateDescription
+import studio.visns.novarr.ui.lists.SelectedMark
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,21 +27,40 @@ import studio.visns.novarr.domain.ListeningSync
 import studio.visns.novarr.ui.components.Cover
 import studio.visns.novarr.ui.components.ProgressLine
 
-/** A cover with the title, the length or time left, and progress along its bottom. */
+/**
+ * A cover with the title, the length or time left, and progress along its
+ * bottom. With [onLongClick] it takes part in Listen's multi-select.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun AudiobookTile(item: AudiobookSummary, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun AudiobookTile(
+    item: AudiobookSummary,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
     Column(
         modifier
-            .clickable(onClickLabel = "Listen", role = Role.Button, onClick = onClick)
-            .semantics(mergeDescendants = true) {},
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(onClickLabel = "Listen", role = Role.Button, onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "Select")
+                } else {
+                    Modifier.clickable(onClickLabel = "Listen", role = Role.Button, onClick = onClick)
+                },
+            )
+            .semantics(mergeDescendants = true) { if (onLongClick != null) stateDescription = if (selected) "Selected" else "" },
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Cover(item.coverUrl, item.title) {
-            if (item.started && item.progress?.finished != true) {
-                Box(Modifier.align(Alignment.BottomCenter).padding(6.dp)) {
-                    ProgressLine(item.fraction, color = Color.White, track = Color.Black.copy(alpha = 0.35f))
+        Box {
+            Cover(item.coverUrl, item.title) {
+                if (item.started && item.progress?.finished != true) {
+                    Box(Modifier.align(Alignment.BottomCenter).padding(6.dp)) {
+                        ProgressLine(item.fraction, color = Color.White, track = Color.Black.copy(alpha = 0.35f))
+                    }
                 }
             }
+            SelectedMark(selected)
         }
         Text(item.title, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
         item.seriesLabel?.let {

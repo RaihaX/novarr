@@ -72,11 +72,11 @@ class WantToReadTest {
 
     @Test
     fun itsNameIsReservedAndItIsOutsideTheCap() {
-        assertEquals("“Want to read” is already one of your lists.", ReadingLists.nameProblem("  want   TO read ", listOf(favourites)))
+        assertEquals("“Want to read” is already one of your categories.", ReadingLists.nameProblem("  want   TO read ", listOf(favourites)))
         assertNull(ReadingLists.nameProblem("Want to read later", listOf(favourites)))
         // 30 of the reader's own lists and the built-in one: full; 29 and the built-in one: room for one more.
         val thirty = (1..30).map { ReadingList(it, "L$it") }
-        assertEquals("You can have up to 30 lists.", ReadingLists.nameProblem("One more", thirty + wanted))
+        assertEquals("You can have up to 30 categories.", ReadingLists.nameProblem("One more", thirty + wanted))
         assertNull(ReadingLists.nameProblem("One more", thirty.drop(1) + wanted))
         // Starters are offered while the reader has none of their own.
         assertEquals(listOf("To read", "Finished"), ReadingLists.starters(listOf(wanted)))

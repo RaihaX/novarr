@@ -54,6 +54,10 @@ data class SearchResult(
     @Serializable(with = LooseString::class) val series: String? = null,
     /** "1", 1 or 1.5 on the wire: kept as text ([studio.visns.novarr.domain.Requests.seriesLabel]). */
     @SerialName("series_index") @Serializable(with = LooseString::class) val seriesIndex: String? = null,
+    /** The reader's categories holding the series, when it is in the library; empty otherwise (or on an older server). */
+    @SerialName("in_categories") @Serializable(with = IdList::class) val inCategories: List<Int> = emptyList(),
+    /** The categories the reader chose on their open request for it; empty otherwise (or on an older server). */
+    @SerialName("requested_categories") @Serializable(with = IdList::class) val requestedCategories: List<Int> = emptyList(),
 )
 
 /** One list of the Discover shelf: `id` is what browse and a browse request send. */
@@ -169,6 +173,8 @@ data class ReaderRequest(
     @Serializable(with = RequesterList::class) val followers: List<Requester> = emptyList(),
     /** A book asked for by title: no ePub yet, the owner finds one. Absent on older servers. */
     @Serializable(with = LooseFlag::class) val wanted: Boolean = false,
+    /** The categories this account chose for it (it is added there once available); empty on an older server. */
+    @SerialName("requested_categories") @Serializable(with = IdList::class) val requestedCategories: List<Int> = emptyList(),
 ) {
     val isManga: Boolean get() = medium == "manga"
 

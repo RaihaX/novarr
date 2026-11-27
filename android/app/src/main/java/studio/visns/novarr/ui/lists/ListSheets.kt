@@ -69,7 +69,7 @@ import studio.visns.novarr.ui.components.LocalApp
 import studio.visns.novarr.ui.components.readableWidth
 import studio.visns.novarr.ui.theme.BrandFonts
 
-private const val OFFLINE_NOTE = "You're offline. Your lists show as last saved; they can be changed once the server is reachable."
+private const val OFFLINE_NOTE = "You're offline. Your categories show as last saved; they can be changed once the server is reachable."
 
 /**
  * The series screen's "Lists": a checkbox per list (each tap saves at once;
@@ -94,7 +94,7 @@ fun SeriesListsSheet(novelId: Int, novelName: String, onDismiss: () -> Unit) {
     }
 
     SheetFrame(onDismiss, snackbar) {
-        Text("Lists", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+        Text("Categories", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
         Text(
             novelName,
             style = MaterialTheme.typography.bodyMedium.copy(fontFamily = BrandFonts.Literata),
@@ -152,88 +152,10 @@ fun SeriesListsSheet(novelId: Int, novelName: String, onDismiss: () -> Unit) {
         }
         if (loaded) {
             HorizontalDivider()
-            NewListField(state.lists, enabled = reachable, label = "New list with this series") { name ->
+            NewListField(state.lists, enabled = reachable, label = "New category with this series") { name ->
                 app.lists.create(name, addNovel = novelId).exceptionOrNull()?.message
             }
         }
-    }
-}
-
-/**
- * Library's list filter, and where lists are managed: "All series" or one
- * list (remembered like the other filters), each list's rename and delete,
- * and a new (empty) list. Read-only offline.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun LibraryListsSheet(selected: Int?, onSelect: (ReadingList?) -> Unit, onDismiss: () -> Unit) {
-    val app = LocalApp.current
-    val state by app.lists.state.collectAsStateWithLifecycle()
-    val loaded by app.lists.loaded.collectAsStateWithLifecycle()
-    val reachable by app.isReachable.collectAsStateWithLifecycle()
-    val snackbar = remember { SnackbarHostState() }
-    var renaming by remember { mutableStateOf<ReadingList?>(null) }
-    var deleting by remember { mutableStateOf<ReadingList?>(null) }
-    LaunchedEffect(Unit) { if (!loaded) app.lists.refresh() }
-
-    SheetFrame(onDismiss, snackbar) {
-        Text("Lists", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-        if (!reachable) OfflineNote()
-        val lists = ReadingLists.sorted(state.lists)
-        Column {
-            ChoiceRow("All series", null, selected == null, onClick = { onSelect(null) })
-            lists.forEach { list ->
-                // "Want to read" is built in: never renamed or deleted, so no options.
-                ChoiceRow(list.name, seriesCount(list.count), selected == list.id, onClick = { onSelect(list) }) {
-                    if (list.isBuiltIn) return@ChoiceRow
-                    var menu by remember { mutableStateOf(false) }
-                    Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "Options for ${list.name}") }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("Rename") }, enabled = reachable, onClick = { menu = false; renaming = list })
-                            DropdownMenuItem(
-                                text = { Text("Delete", color = if (reachable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) },
-                                enabled = reachable,
-                                onClick = { menu = false; deleting = list },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        if (loaded && ReadingLists.own(lists).isEmpty()) {
-            Text(
-                "No lists yet. Make one here, or add a series to a list from its page (Lists, at the top).",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (loaded) {
-            HorizontalDivider()
-            NewListField(state.lists, enabled = reachable, label = "New list") { name -> app.lists.create(name).exceptionOrNull()?.message }
-        }
-    }
-
-    renaming?.let { list -> RenameListDialog(list, state.lists) { renaming = null } }
-    deleting?.let { list ->
-        DeleteListDialog(list, onDeleted = { if (selected == list.id) onSelect(null) }) { deleting = null }
-    }
-}
-
-@Composable
-private fun ChoiceRow(title: String, trailing: String?, selected: Boolean, onClick: () -> Unit, actions: @Composable () -> Unit = {}) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .heightIn(min = 52.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = null)
-        Spacer(Modifier.width(12.dp))
-        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        trailing?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        actions()
     }
 }
 
@@ -242,7 +164,7 @@ private fun ChoiceRow(title: String, trailing: String?, selected: Boolean, onCli
  * answers null when made, else the message to show under the field.
  */
 @Composable
-private fun NewListField(lists: List<ReadingList>, enabled: Boolean, label: String, onCreate: suspend (String) -> String?) {
+internal fun NewListField(lists: List<ReadingList>, enabled: Boolean, label: String, onCreate: suspend (String) -> String?) {
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -294,7 +216,7 @@ internal fun RenameListDialog(list: ReadingList, lists: List<ReadingList>, onDon
     val unchanged = ReadingLists.clean(name) == list.name
     AlertDialog(
         onDismissRequest = { if (!sending) onDone() },
-        title = { Text(if (list.isBuiltIn) "Rename" else "Rename folder") },
+        title = { Text(if (list.isBuiltIn) "Rename" else "Rename category") },
         text = {
             OutlinedTextField(
                 value = name,
@@ -333,7 +255,7 @@ internal fun DeleteListDialog(list: ReadingList, onDeleted: () -> Unit, onDone: 
         title = { Text("Delete “${list.name}”?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(if (list.count == 0) "The list is empty." else "The ${seriesCount(list.count)} in it stay in your library; only the list goes.")
+                Text(if (list.count == 0) "The category is empty." else "The ${seriesCount(list.count)} in it stay in your library; only the category goes.")
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
             }
         },
@@ -361,7 +283,7 @@ internal fun DeleteListDialog(list: ReadingList, onDeleted: () -> Unit, onDone: 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SheetFrame(onDismiss: () -> Unit, snackbar: SnackbarHostState, content: @Composable () -> Unit) {
+internal fun SheetFrame(onDismiss: () -> Unit, snackbar: SnackbarHostState, content: @Composable () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Box {
             Column(
@@ -381,7 +303,7 @@ private fun SheetFrame(onDismiss: () -> Unit, snackbar: SnackbarHostState, conte
 }
 
 @Composable
-private fun OfflineNote() {
+internal fun OfflineNote() {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
         Text(OFFLINE_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

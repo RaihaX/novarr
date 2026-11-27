@@ -54,7 +54,10 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import studio.visns.novarr.api.NovelSummary
 import studio.visns.novarr.app.AppModel
+import studio.visns.novarr.domain.Categories
 import studio.visns.novarr.domain.HomeShelves
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import studio.visns.novarr.domain.ReadingLists
 import studio.visns.novarr.store.OfflineStore
 import studio.visns.novarr.ui.NovelRoute
@@ -88,12 +91,24 @@ class LibraryNovels(private val app: AppModel) {
         fromCache = result.fromCache || (result.error != null && loaded)
         failure = if (!loaded) result.error?.userMessage ?: "Couldn't load your library." else null
     }
+
+    /** Shows [ids] marked read or unread at once (a multi-select's mark); answers how to put them back. */
+    fun mark(ids: Set<Int>, read: Boolean): () -> Unit {
+        val before = novels.filterKeys { it in ids }
+        novels = novels.mapValues { (id, novel) -> if (id in ids) Categories.marked(novel, read) else novel }
+        return { novels = novels.mapValues { (id, novel) -> before[id] ?: novel } }
+    }
 }
 
 class FolderViewModel(app: AppModel) : ViewModel() {
     val library = LibraryNovels(app)
     var refreshing by mutableStateOf(false)
         private set
+
+    /** Long-press multi-select inside the category. */
+    val selection = SeriesSelection(app, viewModelScope)
+
+    fun markRead(read: Boolean) = selection.markRead(read) { ids, value -> library.mark(ids, value) }
 
     fun load(fetch: Boolean, pull: Boolean = false) = viewModelScope.launch {
         if (pull) refreshing = true
@@ -103,9 +118,9 @@ class FolderViewModel(app: AppModel) : ViewModel() {
 }
 
 /**
- * One reading list as a folder (Home's folder tiles, Favourites' "See all"):
- * its series as covers, newest first for the built-ins. The reader's own
- * folders can be renamed and deleted here.
+ * One category (a reading list; Home's "See all"): its series as covers,
+ * newest first for the built-ins, with the same long-press multi-select as
+ * the Library. The reader's own categories can be renamed and deleted here.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,11 +143,37 @@ fun FolderScreen(nav: NavController, listId: Int) {
     LaunchedEffect(list?.novelIds, model.library.loaded) {
         if (model.library.loaded && list != null && list.novelIds.any { it !in model.library.novels }) model.load(fetch = true)
     }
+    // Read state changed elsewhere (a mark sent, reading): the covers follow.
+    val revision by app.readStateRevision.collectAsStateWithLifecycle()
+    LaunchedEffect(revision) { if (model.library.loaded) model.load(fetch = true) }
+    val snackbar = remember { SnackbarHostState() }
+    val selection = model.selection
+    SelectionEffects(selection, snackbar)
+    val longPress = rememberLongPress(selection::longPress)
+    val shown = HomeShelves.shelf(list, model.library.novels)
+    // Taken out of this category (here or elsewhere): no longer selected.
+    LaunchedEffect(shown) { selection.retain(shown.map { it.id }) }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
+            if (selection.active) {
+                val chosen = shown.filter { it.id in selection.selection }
+                SelectionTopBar(
+                    count = selection.selection.count,
+                    allSelected = selection.selection.allSelected(shown.map { it.id }),
+                    onClose = selection::exit,
+                    onSelectAll = { selection.selectAll(shown.map { it.id }) },
+                    categorise = { selection.openCategories() },
+                    markRead = model::markRead,
+                    download = { selection.download(chosen) },
+                    removeDownload = { selection.removeDownloads(chosen.map { it.id }) },
+                    enabled = !selection.working,
+                )
+                return@Scaffold
+            }
             TopAppBar(
-                title = { Text(list?.name ?: "Folder") },
+                title = { Text(list?.name ?: "Category") },
                 navigationIcon = {
                     IconButton(onClick = { nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
@@ -140,7 +181,7 @@ fun FolderScreen(nav: NavController, listId: Int) {
                     // The built-ins are never renamed or deleted.
                     if (list != null && !list.isBuiltIn) {
                         Box {
-                            IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "Folder options") }
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "Category options") }
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                 DropdownMenuItem(text = { Text("Rename") }, enabled = reachable, onClick = { menu = false; renaming = true })
                                 DropdownMenuItem(
@@ -162,7 +203,6 @@ fun FolderScreen(nav: NavController, listId: Int) {
             },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
-            val shown = HomeShelves.shelf(list, model.library.novels)
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(if (wide) 150.dp else 104.dp),
                 contentPadding = PaddingValues(horizontal = if (wide) 24.dp else 16.dp, vertical = 12.dp),
@@ -174,11 +214,11 @@ fun FolderScreen(nav: NavController, listId: Int) {
                 if (model.library.fromCache) item(span = full) { Box(contentAlignment = Alignment.Center) { OfflinePill() } }
                 when {
                     list == null && loadedLists -> item(span = full) {
-                        EmptyState("This folder is gone", "It may have been deleted on another device.", Icons.Outlined.Folder)
+                        EmptyState("This category is gone", "It may have been deleted on another device.", Icons.Outlined.Folder)
                     }
                     list == null || (!model.library.loaded && model.library.failure == null) -> item(span = full) { CenteredProgress() }
                     !model.library.loaded -> item(span = full) {
-                        LoadFailed("Folder unavailable", model.library.failure.orEmpty()) { model.load(fetch = true) }
+                        LoadFailed("Category unavailable", model.library.failure.orEmpty()) { model.load(fetch = true) }
                     }
                     shown.isEmpty() -> item(span = full) {
                         EmptyState(
@@ -186,17 +226,32 @@ fun FolderScreen(nav: NavController, listId: Int) {
                             when {
                                 list.isFavourites -> "Open a book, web novel or manga and tap the heart at the top to keep it here."
                                 list.isWantToRead -> "Open a series and tap the bookmark at the top to add it here."
-                                else -> "Open a series and tap Lists at the top to put it in this folder."
+                                else -> "Long-press series in the Library (or tap Categories on a series page) to put them here."
                             },
                             if (list.isFavourites) Icons.Outlined.FavoriteBorder else Icons.Outlined.Folder,
                         )
                     }
                     else -> items(shown, key = { it.id }) { novel ->
-                        Column { LibraryCell(novel) { nav.navigate(NovelRoute(novel.id)) } }
+                        Column {
+                            LibraryCell(novel, selected = novel.id in selection.selection, onLongClick = { longPress(novel.id) }) {
+                                if (!selection.tap(novel.id)) nav.navigate(NovelRoute(novel.id))
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+    selection.categoriesFor?.let { ids ->
+        SetCategoriesSheet(
+            ids,
+            onDismiss = { selection.categoriesFor = null },
+            onDone = { failure ->
+                selection.categoriesFor = null
+                selection.exit()
+                selection.notice = failure ?: "Categories saved."
+            },
+        )
     }
     if (renaming && list != null) RenameListDialog(list, listsState.lists) { renaming = false }
     if (deleting && list != null) DeleteListDialog(list, onDeleted = { nav.popBackStack() }) { deleting = false }
@@ -224,11 +279,11 @@ fun NewFolderDialog(onDone: () -> Unit) {
     }
     AlertDialog(
         onDismissRequest = { if (!sending) onDone() },
-        title = { Text("New folder") },
+        title = { Text("New category") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Group anything — books, manga, web novels — like “Manga – Action”. Add series from their page (Lists, at the top).",
+                    "Group anything — books, manga, web novels — like “Manga – Action”. Then long-press series in the Library to put them in it.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -58,6 +58,15 @@ import studio.visns.novarr.ui.components.LoadFailed
 import studio.visns.novarr.ui.components.LocalApp
 import studio.visns.novarr.ui.components.OfflinePill
 import studio.visns.novarr.ui.components.isWide
+import studio.visns.novarr.ui.lists.SelectionEffects
+import studio.visns.novarr.ui.lists.SelectionTopBar
+import studio.visns.novarr.ui.lists.SeriesSelection
+import studio.visns.novarr.ui.lists.SetCategoriesSheet
+import studio.visns.novarr.ui.lists.rememberLongPress
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /** Every audiobook (paged, searchable) and "Continue listening"; the first page is saved for offline. */
 class AudiobooksViewModel(private val app: AppModel) : ViewModel() {
@@ -81,6 +90,18 @@ class AudiobooksViewModel(private val app: AppModel) : ViewModel() {
         private set
     private var page = 1
     private var searchJob: Job? = null
+
+    /** Long-press multi-select over audiobook ids; categories and read marks go to each one's book (novel_id). */
+    val selection = SeriesSelection(app, viewModelScope)
+
+    /** The selected audiobooks (those still listed). */
+    fun chosen(): List<AudiobookSummary> = items.filter { it.id in selection.selection }
+
+    /** Their books: what categories and read marks apply to (an audiobook without a matched book has none). */
+    fun chosenBooks(): List<Int> = chosen().mapNotNull { it.novelId }.distinct()
+
+    /** How many selected audiobooks have no book, so they are left out of categories and marks. */
+    fun unmatched(): Int = chosen().count { it.novelId == null }
 
     fun load(pull: Boolean = false) = viewModelScope.launch {
         if (pull) refreshing = true
@@ -152,9 +173,37 @@ fun AudiobooksScreen(nav: NavController) {
     val model = viewModel { AudiobooksViewModel(app) }
     val wide = isWide()
     LaunchedEffect(Unit) { model.load() }
+    val listsOffered by app.listsOffered.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+    val selection = model.selection
+    SelectionEffects(selection, snackbar)
+    val longPress = rememberLongPress(selection::longPress)
+    LaunchedEffect(model.items) { selection.retain(model.items.map { it.id }) }
+    LaunchedEffect(listsOffered) { if (listsOffered && !app.lists.loaded.value) app.lists.refresh() }
+
+    /** Categories and marks apply to the matched books only; audiobooks without one are skipped, and the reader is told. */
+    fun skippedNote(): String? = model.unmatched().takeIf { it > 0 }?.let {
+        if (it == 1) "1 audiobook has no matching book, so it was left out." else "$it audiobooks have no matching book, so they were left out."
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
+            if (selection.active) {
+                val books = model.chosenBooks()
+                SelectionTopBar(
+                    count = selection.selection.count,
+                    allSelected = selection.selection.allSelected(model.items.map { it.id }),
+                    onClose = selection::exit,
+                    onSelectAll = { selection.selectAll(model.items.map { it.id }) },
+                    // Disabled outright when none of the selection has a book.
+                    categorise = if (listsOffered && books.isNotEmpty()) ({ skippedNote()?.let { selection.notice = it }; selection.openCategories(books) }) else null,
+                    markRead = if (books.isNotEmpty()) ({ read -> skippedNote()?.let { selection.notice = it }; selection.markRead(read, books.toSet()) }) else null,
+                    download = { selection.downloadAudiobooks(model.chosen()) },
+                    removeDownload = { selection.removeAudiobookDownloads(model.chosen()) },
+                )
+                return@Scaffold
+            }
             TopAppBar(
                 title = { Text("Audiobooks") },
                 actions = {
@@ -226,7 +275,9 @@ fun AudiobooksScreen(nav: NavController) {
                     }
                     else -> {
                         items(model.items, key = { it.id }) { item ->
-                            AudiobookTile(item) { nav.navigate(PlayerRoute(item.id)) }
+                            AudiobookTile(item, selected = item.id in selection.selection, onLongClick = { longPress(item.id) }) {
+                                if (!selection.tap(item.id)) nav.navigate(PlayerRoute(item.id))
+                            }
                         }
                         if (model.hasMore) {
                             item(span = full) {
@@ -240,5 +291,16 @@ fun AudiobooksScreen(nav: NavController) {
                 }
             }
         }
+    }
+    selection.categoriesFor?.let { ids ->
+        SetCategoriesSheet(
+            ids,
+            onDismiss = { selection.categoriesFor = null },
+            onDone = { failure ->
+                selection.categoriesFor = null
+                selection.exit()
+                selection.notice = failure ?: "Categories saved."
+            },
+        )
     }
 }

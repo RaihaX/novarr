@@ -40,6 +40,13 @@ document.addEventListener('turbo:load', initNovelPage);
 import { initLists } from './lists';
 document.addEventListener('turbo:load', initLists);
 
+// Categories: the Library's "Set categories", Home's first category and its
+// shelf toggles; per visit (the Requests page's Browse cards use the sheet too).
+import { initCategories } from './categories';
+import { initHomeLayout } from './home-layout';
+document.addEventListener('turbo:load', initCategories);
+document.addEventListener('turbo:load', initHomeLayout);
+
 // Built-in list toggles: the novel page's bookmark (Want to read) and heart (Favourites),
 // and those pages' tiles; per visit.
 import { initWantToRead } from './want-to-read';

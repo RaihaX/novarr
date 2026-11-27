@@ -30,6 +30,9 @@ class HomeController extends Controller
     /** Audiobooks on Home's Continue listening. */
     public const CONTINUE_LISTENING_SHELF = 6;
 
+    /** Covers per category on Home's "summary of the categories". */
+    public const CATEGORY_SHELF = 12;
+
     // Stateless (the reader is resolved per call), so safe to hold here even
     // though Octane keeps controller instances across requests.
     public function __construct(private ReadState $readState, private ResumePoint $resumePoint)
@@ -87,11 +90,21 @@ class HomeController extends Controller
             }
         }
 
+        // Every list of the reader in their order, one statement: the
+        // built-in shelves and the categories summary are read from it.
+        $lists = \App\Services\ReadingLists::inOrder($this->readState->userId());
+        $categories = $this->categoryShelves($lists);
+
         return view('home', [
             'hero' => $hero,
             'shelf' => $shelf,
-            // Both built-in lists' shelves, the lists found in one statement.
-            ...$this->builtInShelves(),
+            // Both built-in lists' shelves.
+            ...$this->builtInShelves($lists),
+            // Categories first (docs/plans/categories-and-home.md): one row per
+            // visible, non-empty category. Until the reader has a category
+            // with a series in it, Home keeps its old layout (first run).
+            'categories' => $categories,
+            'categories_first' => $categories !== [] || $lists->whereNull('kind')->isNotEmpty(),
             // Audiobooks the reader is part way through (Api\V1\AudiobookController::continueShelf()).
             'continue_listening' => \App\Http\Controllers\Api\V1\AudiobookController::continueShelf(
                 app(\App\Audiobooks\ListeningProgress::class),
@@ -541,21 +554,53 @@ class HomeController extends Controller
 
     /**
      * Home's two built-in shelves: ['favourites' => …, 'want_to_read' => …]
-     * as favouritesShelf() / wantToReadShelf() with Home's limits, both
-     * lists read in one statement (an unused one costs nothing more).
+     * as favouritesShelf() / wantToReadShelf() with Home's limits, from the
+     * reader's lists already read (ReadingLists::inOrder(); an unused one
+     * costs nothing more).
      */
-    private function builtInShelves(): array
+    private function builtInShelves($lists): array
     {
         $userId = $this->readState->userId();
-        $lists = \App\Services\ReadingLists::builtInListsOrNull($userId);
+        $byKind = $lists->whereNotNull('kind')->keyBy('kind');
         $shelf = fn(string $kind, int $limit) => $this->withNovels(
-            \App\Services\ReadingLists::itemsOfList($userId, $lists[$kind] ?? null, null, $limit)
+            \App\Services\ReadingLists::itemsOfList($userId, $byKind->get($kind), null, $limit)
         );
 
         return [
             'want_to_read' => $shelf(\App\ReadingList::KIND_WANT_TO_READ, self::WANT_TO_READ_SHELF),
             'favourites' => $shelf(\App\ReadingList::KIND_FAVOURITES, self::FAVOURITES_SHELF),
         ];
+    }
+
+    /**
+     * Home's categories: [{id, name, kind, count, items: [Novel]}] for each
+     * category shown on Home (not hidden_on_home) that holds a series, in
+     * the reader's order, newest CATEGORY_SHELF series each. Four
+     * statements at most (counts, the newest per list, the novels and
+     * their covers); none without categories.
+     */
+    private function categoryShelves($lists): array
+    {
+        $visible = $lists->reject(fn(\App\ReadingList $l) => (bool) $l->hidden_on_home)->values();
+        $shelves = \App\Services\ReadingLists::shelves($visible, self::CATEGORY_SHELF);
+        $ids = [];
+        foreach ($shelves as $shelf) {
+            array_push($ids, ...$shelf['novel_ids']);
+        }
+        $ids = array_values(array_unique($ids));
+        $novels = $ids === [] ? collect() : Novel::with('file')->whereIn('id', $ids)->get()->keyBy('id');
+
+        $out = [];
+        foreach ($visible as $list) {
+            $shelf = $shelves[(int) $list->id] ?? ['count' => 0, 'novel_ids' => []];
+            $items = array_values(array_filter(array_map(fn(int $id) => $novels->get($id), $shelf['novel_ids'])));
+            if ($shelf['count'] === 0 || $items === []) {
+                continue;
+            }
+            $out[] = ['id' => (int) $list->id, 'name' => (string) $list->name, 'kind' => $list->kind, 'count' => $shelf['count'], 'items' => $items];
+        }
+
+        return $out;
     }
 
     /** A built-in shelf's items with their novels (and covers); gone ones dropped. */
