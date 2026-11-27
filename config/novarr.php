@@ -841,10 +841,19 @@ return [
     | storage:measure (daily) records where the disk goes. low_free_percent:
     | a volume with less free space than this (percent of its size) shows a
     | warning, and the admin is told once when a measurement first finds it
-    | (not again within 24 hours).
+    | (not again within 24 hours). The Unraid Download share (the download
+    | inboxes' NFS mount) is one of those volumes.
+    |
+    | share_walk_seconds  how long the download inboxes' walk may take (NFS
+    |                     can be slow); past it the figure is marked partial.
+    | share_external      whether the download inboxes are on the Unraid share
+    |                     (kept out of Novarr's disk totals): unset = told by
+    |                     the device (a device none of Novarr's folders is on).
     |
     */
     'storage' => [
         'low_free_percent' => (float) env('NOVARR_STORAGE_LOW_FREE_PERCENT', 10),
+        'share_walk_seconds' => (float) env('NOVARR_STORAGE_SHARE_WALK_SECONDS', 120),
+        'share_external' => env('NOVARR_STORAGE_SHARE_EXTERNAL'),
     ],
 ];

@@ -26,7 +26,7 @@ class MeasureStorage extends Command
     protected $signature = 'storage:measure
         {--exact : Sum every chapter\'s text length instead of estimating it from stored word counts (slow)}';
 
-    protected $description = 'Measure storage used by novels, manga, backups, logs and the database (Health → Storage)';
+    protected $description = 'Measure storage used by novels, manga, books, audiobooks, download inboxes, backups, logs and the database (Health → Storage)';
 
     /** When the last low-space alert went out (ISO-8601), in the cache. */
     public const ALERT_KEY = 'storage_usage_low_alerted_at';
@@ -97,7 +97,7 @@ class MeasureStorage extends Command
     {
         $parts = array_map(fn(array $d) => sprintf(
             '%s has %s free of %s (%s%%)',
-            implode(' + ', (array) ($d['labels'] ?? ['A disk'])),
+            self::diskName($d),
             Bytes::human($d['free'] ?? 0),
             Bytes::human($d['total'] ?? 0),
             rtrim(rtrim(number_format((float) ($d['free_percent'] ?? 0), 1), '0'), '.'),
@@ -119,9 +119,12 @@ class MeasureStorage extends Command
             'eyebrow' => 'Storage',
             'heading' => 'Disk space is low',
             'tone' => 'warning',
-            'intro' => 'Novarr is running out of room: downloads, covers and new chapters may start to fail. Free some space or move the library to a bigger disk.',
+            'intro' => 'Novarr is running out of room: downloads, covers and new chapters may start to fail. Free some space or move the library to a bigger disk.'
+                . (array_filter($low, fn(array $d) => !empty($d['share'])) !== []
+                    ? ' The ' . StorageUsage::SHARE_LABEL . ' is where downloads land before they are imported: when it is full, downloads fail.'
+                    : ''),
             'items' => array_map(fn(array $d) => [
-                'title' => implode(' + ', (array) ($d['labels'] ?? ['A disk'])),
+                'title' => self::diskName($d),
                 'meta' => Bytes::human($d['free'] ?? 0) . ' free of ' . Bytes::human($d['total'] ?? 0),
                 'status' => $pct($d['free_percent'] ?? 0) . '% free',
                 'tone' => 'warning',
@@ -130,6 +133,12 @@ class MeasureStorage extends Command
             'facts' => ['Alert below' => $pct(StorageUsage::lowFreePercent()) . '% free'],
             'button' => 'Open Storage',
         ];
+    }
+
+    /** A disk's name: its title ("Big drive: manga, audiobooks, …"), else its labels. */
+    public static function diskName(array $d): string
+    {
+        return (string) ($d['title'] ?? implode(' + ', (array) ($d['labels'] ?? ['A disk'])));
     }
 
     /** Health → Storage on the home address (APP_URL), where admin pages work. */
@@ -141,16 +150,25 @@ class MeasureStorage extends Command
     private function summary(array $result, array $disks): void
     {
         $series = array_filter($result['rows'], fn($r) => $r['scope'] === StorageUsage::SCOPE_SERIES);
+        $audiobooks = array_filter($result['rows'], fn($r) => $r['scope'] === StorageUsage::SCOPE_AUDIOBOOK);
         $buckets = array_filter($result['rows'], fn($r) => $r['scope'] === StorageUsage::SCOPE_BUCKET);
 
-        $this->info(sprintf('Measured %d series in %.1f s%s.', count($series), $result['duration_ms'] / 1000,
+        $this->info(sprintf('Measured %d series and %d audiobooks in %.1f s%s.', count($series), count($audiobooks), $result['duration_ms'] / 1000,
             $result['exact'] ? ' (exact text sizes)' : ''));
         foreach ($buckets as $row) {
             $label = StorageUsage::BUCKETS[$row['key']] ?? ($row['key'] === StorageUsage::NOVEL_TEXT ? 'Novel text (in the database)' : $row['key']);
-            $this->line(sprintf('  %-28s %12s  %s files', $label, Bytes::human($row['bytes']), number_format($row['files'])));
+            $note = !empty($row['meta']['external']) ? '  (' . StorageUsage::SHARE_LABEL . ', not counted)' : '';
+            if (!empty($row['meta']['partial'])) {
+                $note .= '  PARTIAL (time limit)';
+            }
+            $this->line(sprintf('  %-28s %12s  %s files%s', $label, Bytes::human($row['bytes']), number_format($row['files']), $note));
         }
         foreach ($disks as $d) {
-            $this->line(sprintf('  Disk %-23s %12s free of %s%s', implode(' + ', $d['labels']),
+            if (!empty($d['missing'])) {
+                $this->line(sprintf('  Disk %-23s not mounted (%s)', self::diskName($d), implode(', ', (array) ($d['paths'] ?? []))));
+                continue;
+            }
+            $this->line(sprintf('  Disk %-23s %12s free of %s%s', self::diskName($d),
                 Bytes::human($d['free'] ?? 0), Bytes::human($d['total'] ?? 0), !empty($d['low']) ? '  LOW' : ''));
         }
     }
