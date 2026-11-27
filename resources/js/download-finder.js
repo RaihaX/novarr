@@ -61,7 +61,7 @@ function grabItem(grab) {
     li.append(body);
     const bar = el('progress', { class: 'dl-grab-bar', max: 100, 'data-grab-progress': true, 'aria-label': 'Download progress' });
     li.append(bar);
-    li.append(el('a', { class: 'btn btn-sm btn-secondary', 'data-grab-next': true, hidden: true }, grab.kind === 'audiobook' ? 'Listen' : 'Open'));
+    li.append(el('a', { class: 'btn btn-sm btn-secondary', 'data-grab-next': true, hidden: true }, grab.kind === 'audiobook' ? 'Listen' : (grab.kind === 'comic' ? 'Read' : 'Open')));
     renderGrab(li, grab);
     return li;
 }

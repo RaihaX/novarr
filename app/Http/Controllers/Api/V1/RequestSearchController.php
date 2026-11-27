@@ -21,7 +21,7 @@ use Illuminate\Http\Request;
  * App\Books\BookLinkReader) is read for that one book. A link of any other
  * host, or for another medium, is refused (422) and never fetched.
  *
- *   POST /api/v1/requests/searches {q (100 characters; a book link 2048), medium: novel|manga|book}
+ *   POST /api/v1/requests/searches {q (100 characters; a book link 2048), medium: novel|manga|book|comic}
  *        → 202 {search: {id, status: "running", ...}}
  *        → 429 {message, code: search_running | search_rate_limited | search_busy} + Retry-After
  *   GET  /api/v1/requests/searches/{id}
@@ -48,7 +48,7 @@ class RequestSearchController extends Controller
         }
         $data = $request->validate([
             'q' => 'required|string|max:' . self::MAX_LINK_LENGTH,
-            'medium' => 'required|in:novel,manga,book',
+            'medium' => 'required|in:novel,manga,book,comic',
         ]);
         $query = trim(preg_replace('/\s+/u', ' ', $data['q']) ?? '');
         if ($query === '') {
@@ -56,7 +56,7 @@ class RequestSearchController extends Controller
         }
         if (BookLinkReader::looksLikeUrl($query)) {
             // Only a supported book page, for a book search; nothing else is fetched.
-            if ($data['medium'] !== Novel::MEDIUM_BOOK) {
+            if (!in_array($data['medium'], [Novel::MEDIUM_BOOK, Novel::MEDIUM_COMIC], true)) {
                 return static::refuseQuery('Type a title or author, not a link. To ask for a series by its page, use "Request by title".');
             }
             if (BookLinkReader::canonical($query) === null) {

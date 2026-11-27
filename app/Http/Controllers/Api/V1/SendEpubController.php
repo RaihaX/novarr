@@ -37,7 +37,7 @@ class SendEpubController extends Controller
     {
         $novel = Novel::findOrFail($id);
         $user = $reader->user();
-        if ($novel->isManga()) {
+        if ($novel->hasPages()) {
             return response()->json(['message' => 'A manga has no ePub to send.', 'code' => 'manga'], 422);
         }
         $to = SendEpub::address($user);

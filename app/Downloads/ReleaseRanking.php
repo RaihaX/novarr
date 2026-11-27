@@ -33,6 +33,18 @@ use App\Support\Bytes;
  *   torrent   no seeders: −30; else up to +10 (more seeders, more).
  *   usenet    newer posts slightly preferred: up to +5 (0 after 5 years).
  *
+ * Comics (kind comic): format cbz +20, cbr +16, cb7 +10, pdf +4, an
+ * ebook format −15 ("not a comic archive"), audio −40; no author needed
+ * (release names rarely carry one); the issue / volume the name says
+ * (App\Comics\ComicName: "v03", "#012", "Vol 1-9") against the one wanted:
+ * another number −50 (a warning); a pack covering it −10 and marked `pack`
+ * (offered, grabbed alone only when nothing better passes); "(Digital)"
+ * +5, "TPB" / "Omnibus" +3; the year in its name the wanted one's +5;
+ * plausible size 5 MB–2 GB (a pack up to 40 GB).
+ *
+ * An ebook search for a graphic novel (wanted graphic_novel) takes comic
+ * archives as the book itself: cbz / cbr are not penalised there.
+ *
  * Ties keep Prowlarr's order. Pure: no network, no database.
  */
 final class ReleaseRanking
@@ -41,10 +53,15 @@ final class ReleaseRanking
 
     public const AUDIO_FORMATS = ['m4b' => 15, 'm4a' => 8, 'mp3' => 6, 'flac' => 3];
 
+    public const COMIC_FORMATS = ['cbz' => 20, 'cbr' => 16, 'cb7' => 10, 'pdf' => 4];
+
+    /** A pack of issues / volumes ("Vol 1-9") may be this large. */
+    public const PACK_MAX_BYTES = 40 * 1024 * 1024 * 1024;
+
     /** Release-name words that say which format it is. */
     private const FORMAT_WORDS = [
         'epub' => 'epub', 'azw3' => 'azw3', 'azw' => 'azw3', 'kf8' => 'azw3', 'mobi' => 'mobi', 'pdf' => 'pdf',
-        'cbz' => 'cbz', 'cbr' => 'cbr', 'm4b' => 'm4b', 'm4a' => 'm4a', 'aac' => 'm4a', 'mp3' => 'mp3', 'flac' => 'flac',
+        'cbz' => 'cbz', 'cbr' => 'cbr', 'cb7' => 'cb7', 'cbt' => 'cbz', 'm4b' => 'm4b', 'm4a' => 'm4a', 'aac' => 'm4a', 'mp3' => 'mp3', 'flac' => 'flac',
     ];
 
     /** Release-name words that say "not the book itself". */
@@ -71,6 +88,7 @@ final class ReleaseRanking
     public const SIZES = [
         DownloadGrab::KIND_EBOOK => [100 * 1024, 100 * 1024 * 1024],
         DownloadGrab::KIND_AUDIOBOOK => [20 * 1024 * 1024, 5 * 1024 * 1024 * 1024],
+        DownloadGrab::KIND_COMIC => [5 * 1024 * 1024, 2 * 1024 * 1024 * 1024],
     ];
 
     /**
@@ -96,7 +114,9 @@ final class ReleaseRanking
     /** One result with its score, format, why and warnings. */
     public static function score(array $result, array $wanted): array
     {
-        $kind = $wanted['kind'] === DownloadGrab::KIND_AUDIOBOOK ? DownloadGrab::KIND_AUDIOBOOK : DownloadGrab::KIND_EBOOK;
+        $kind = in_array($wanted['kind'] ?? null, DownloadGrab::KINDS, true) ? $wanted['kind'] : DownloadGrab::KIND_EBOOK;
+        $graphicNovel = $kind === DownloadGrab::KIND_EBOOK && !empty($wanted['graphic_novel']);
+        $pack = false;
         $language = strtolower((string) ($wanted['language'] ?? '')) ?: 'en';
         $words = self::words((string) ($result['title'] ?? ''));
         $wordSet = array_flip($words);
@@ -130,10 +150,23 @@ final class ReleaseRanking
 
         // Format.
         $format = self::format($words, $kind);
-        if ($kind === DownloadGrab::KIND_EBOOK) {
+        if ($kind === DownloadGrab::KIND_COMIC) {
+            if (($format !== null && isset(self::AUDIO_FORMATS[$format])) || isset($wordSet['audiobook'])) {
+                $score -= 40;
+                $warnings[] = 'an audiobook';
+            } elseif ($format !== null && isset(self::COMIC_FORMATS[$format])) {
+                $score += self::COMIC_FORMATS[$format];
+            } elseif ($format !== null) {
+                $score -= 15;
+                $warnings[] = 'not a comic archive';
+            }
+        } elseif ($kind === DownloadGrab::KIND_EBOOK) {
             if (($format !== null && isset(self::AUDIO_FORMATS[$format])) || isset($wordSet["audiobook"]) || isset($wordSet["audiobooks"])) {
                 $score -= 40;
                 $warnings[] = 'an audiobook';
+            } elseif ($format !== null && $graphicNovel && isset(self::COMIC_FORMATS[$format])) {
+                // A graphic novel: its comic archive is the book.
+                $score += self::COMIC_FORMATS[$format];
             } elseif ($format !== null) {
                 $score += self::EBOOK_FORMATS[$format] ?? 0;
             }
@@ -156,7 +189,13 @@ final class ReleaseRanking
         // names the series, not the book wanted (book 1). A number that is not
         // the wanted book's is penalised; with no known number, any "Book N"
         // past 1 is a warning (never grabbed by itself, still offered).
-        $numbers = self::bookNumbers((string) ($result['title'] ?? ''));
+        $numbers = $kind === DownloadGrab::KIND_COMIC ? [] : self::bookNumbers((string) ($result['title'] ?? ''));
+        if ($kind === DownloadGrab::KIND_COMIC) {
+            $comic = self::comicNumbers((string) ($result['title'] ?? ''), $wanted);
+            $score += $comic['score'];
+            $warnings = array_merge($warnings, $comic['warnings']);
+            $pack = $comic['pack'];
+        }
         if ($numbers !== []) {
             $index = isset($wanted['series_index']) && $wanted['series_index'] !== null && $wanted['series_index'] !== '' ? (float) $wanted['series_index'] : null;
             if ($index !== null && !in_array($index, $numbers, true)) {
@@ -201,6 +240,12 @@ final class ReleaseRanking
         $size = (int) ($result['size'] ?? 0);
         if ($size > 0) {
             [$min, $max] = self::SIZES[$kind];
+            if ($pack) {
+                $max = self::PACK_MAX_BYTES;
+            }
+            if ($graphicNovel) {
+                $max = self::SIZES[DownloadGrab::KIND_COMIC][1];
+            }
             if ($size >= $min && $size <= $max) {
                 $score += 5;
             } else {
@@ -233,6 +278,7 @@ final class ReleaseRanking
             'format' => $format,
             'title_match' => round($coverage, 2),
             'author_match' => $authorMatch,
+            'pack' => $pack,
             'warnings' => $warnings,
             'why' => implode(' · ', array_merge($why, $warnings)),
         ];
@@ -271,7 +317,11 @@ final class ReleaseRanking
         if ($found === []) {
             return null;
         }
-        $own = $kind === DownloadGrab::KIND_AUDIOBOOK ? self::AUDIO_FORMATS : self::EBOOK_FORMATS;
+        $own = match ($kind) {
+            DownloadGrab::KIND_AUDIOBOOK => self::AUDIO_FORMATS,
+            DownloadGrab::KIND_COMIC => self::COMIC_FORMATS,
+            default => self::EBOOK_FORMATS,
+        };
         $mine = array_values(array_filter($found, fn($f) => isset($own[$f])));
         if ($mine !== []) {
             // Several ("EPUB MOBI PDF" bundles): the best of them.
@@ -324,6 +374,50 @@ final class ReleaseRanking
         }
 
         return array_values(array_unique($out, SORT_REGULAR));
+    }
+
+    /**
+     * A comic release's issue / volume against the wanted one (wanted
+     * number + number_kind volume | issue; year): score, warnings, pack.
+     *
+     * @return array{score: float, warnings: list<string>, pack: bool}
+     */
+    public static function comicNumbers(string $title, array $wanted): array
+    {
+        $parsed = \App\Comics\ComicName::parse($title);
+        $score = 0.0;
+        $warnings = [];
+        $number = isset($wanted['number']) && $wanted['number'] !== null && $wanted['number'] !== '' ? (float) $wanted['number'] : null;
+        $kind = $wanted['number_kind'] ?? null;
+        $pack = $parsed['pack'] !== null;
+
+        if ($pack) {
+            $score -= 10;
+            if ($number !== null && ($number < $parsed['pack']['from'] || $number > $parsed['pack']['to'])) {
+                $score -= 40;
+                $warnings[] = 'a pack of ' . self::numberLabel($parsed['pack']['from']) . '–' . self::numberLabel($parsed['pack']['to']) . ' (wanted ' . self::numberLabel($number) . ')';
+            }
+        } elseif ($number !== null) {
+            $says = $kind === 'issue' ? ($parsed['issue'] ?? $parsed['volume']) : ($parsed['volume'] ?? $parsed['issue']);
+            if ($says !== null && abs($says - $number) > 0.001) {
+                $score -= 50;
+                $warnings[] = 'says ' . ($kind === 'issue' ? '#' : 'volume ') . self::numberLabel($says) . ' (wanted ' . self::numberLabel($number) . ')';
+            } elseif ($says !== null) {
+                $score += 10;
+            }
+        }
+        $words = array_flip(self::words($title));
+        if (isset($words['digital'])) {
+            $score += 5;
+        }
+        if ($parsed['tpb'] || $parsed['omnibus']) {
+            $score += 3;
+        }
+        if (!empty($wanted['year']) && $parsed['year'] !== null && (int) $wanted['year'] === (int) $parsed['year']) {
+            $score += 5;
+        }
+
+        return ['score' => $score, 'warnings' => $warnings, 'pack' => $pack];
     }
 
     private static function numberLabel(float $n): string

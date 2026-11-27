@@ -28,7 +28,7 @@ class SendToKindle extends Command
             $this->error("Novel {$novelId} not found.");
             return self::FAILURE;
         }
-        if ($novel->isManga()) {
+        if ($novel->hasPages()) {
             $this->error("Novel {$novelId} is a manga — Send to Kindle sends text ePubs only.");
             return self::FAILURE;
         }

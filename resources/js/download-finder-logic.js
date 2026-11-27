@@ -15,7 +15,7 @@ export function isActive(status) {
 
 /** The body of POST /downloads/search: only the fields that are set. */
 export function searchBody({ kind, q, requestId, novelId }) {
-    const body = { kind: kind === 'audiobook' ? 'audiobook' : 'ebook' };
+    const body = { kind: ['audiobook', 'comic'].includes(kind) ? kind : 'ebook' };
     const query = String(q ?? '').trim();
     if (query) body.q = query;
     const req = Number(requestId);
@@ -78,8 +78,8 @@ export function statusLine(grab) {
     switch (grab.status) {
         case 'queued': return 'Queued';
         case 'downloading': return `Downloading ${Math.max(0, Math.min(100, Number(grab.progress) || 0))}%`;
-        case 'completed': return grab.kind === 'audiobook' ? 'Finished — waiting for the audiobooks scan' : 'Finished — taking the ePub';
-        case 'imported': return grab.kind === 'audiobook' ? 'Imported — in the audiobooks' : 'Finished — ready to review';
+        case 'completed': return grab.kind === 'audiobook' ? 'Finished — waiting for the audiobooks scan' : (grab.kind === 'comic' ? 'Finished — waiting for the comics scan' : 'Finished — taking the ePub');
+        case 'imported': return grab.kind === 'audiobook' ? 'Imported — in the audiobooks' : (grab.kind === 'comic' ? 'Imported — in the comics' : 'Finished — ready to review');
         case 'failed': return `Failed: ${grab.error || 'no reason given'}`;
         default: return String(grab.status || '');
     }

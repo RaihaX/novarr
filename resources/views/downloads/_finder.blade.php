@@ -5,7 +5,7 @@
     "Find the audiobook", the audiobooks page); resources/js/download-finder.js.
 
     @include('downloads._finder', [
-        'kind' => 'ebook' | 'audiobook',
+        'kind' => 'ebook' | 'audiobook' | 'comic',
         'query' => the search box's starting text,
         'requestId' => a wanted book request's id (or null),
         'novelId' => the book an audiobook is for (or null),
@@ -22,12 +22,12 @@
          id="{{ $finderId }}" aria-labelledby="{{ $finderId }}Title">
     <h2 class="req-section-title" id="{{ $finderId }}Title">{{ $heading ?? 'Search Usenet & torrents' }}</h2>
     <p class="form-text">
-        Every Prowlarr indexer is searched ({{ $kind === 'audiobook' ? 'audiobooks' : 'ebooks' }}); usenet results go to NZBGet, torrents to Transmission (they keep seeding).
+        Every Prowlarr indexer is searched ({{ $kind === 'audiobook' ? 'audiobooks' : ($kind === 'comic' ? 'comics: Books/Comics and Books' : 'ebooks') }}); usenet results go to NZBGet, torrents to Transmission (they keep seeding).
         @if($kind === 'ebook' && ($requestId ?? null)) A finished ePub that is clearly this book is added at once; otherwise it waits here for your review. @endif
     </p>
     <form class="dl-finder-form" data-finder-form>
         <input type="search" name="q" class="form-control" value="{{ $query ?? '' }}" maxlength="255"
-               aria-label="Search for" placeholder="{{ $kind === 'audiobook' ? 'Title and author of the audiobook' : 'Title and author' }}">
+               aria-label="Search for" placeholder="{{ $kind === 'audiobook' ? 'Title and author of the audiobook' : ($kind === 'comic' ? 'Series, with an issue or volume (Saga v01)' : 'Title and author') }}">
         <button type="submit" class="btn btn-primary"><x-icon name="search" :size="14" /> Search Usenet &amp; torrents</button>
     </form>
     <p class="form-text dl-finder-note" data-finder-note role="status" aria-live="polite"></p>

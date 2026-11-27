@@ -65,12 +65,13 @@ fun heatShades(): List<Color> {
     return listOf(scheme.surfaceContainerHighest, base.copy(alpha = 0.28f), base.copy(alpha = 0.5f), base.copy(alpha = 0.75f), base)
 }
 
-/** One colour per medium (novel, manga, book, audiobook), distinct in both themes. */
+/** One colour per medium (novel, manga, comic, book, audiobook), distinct in both themes. */
 fun mediumColor(medium: String, scheme: ColorScheme, eink: Boolean): Color {
     if (eink) {
         return when (medium) {
             "novel" -> Color.Black
             "manga" -> Color(0xFF555555)
+            "comic" -> Color(0xFF777777)
             "book" -> Color(0xFF999999)
             else -> Color(0xFFCCCCCC)
         }
@@ -78,6 +79,7 @@ fun mediumColor(medium: String, scheme: ColorScheme, eink: Boolean): Color {
     return when (medium) {
         "novel" -> scheme.primary
         "manga" -> scheme.tertiary
+        "comic" -> if (scheme.isDark) Color(0xFFF2A65A) else Color(0xFFB35900)
         "book" -> scheme.success
         "audiobook" -> if (scheme.isDark) Color(0xFFE77BA6) else Color(0xFFB0306A)
         else -> scheme.secondary

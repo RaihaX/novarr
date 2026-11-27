@@ -68,7 +68,7 @@ class SendEpubToReader implements ShouldQueue
         if ($novel === null) {
             throw new \RuntimeException('This series is no longer in the library.', 422);
         }
-        if ($novel->isManga()) {
+        if ($novel->hasPages()) {
             throw new \RuntimeException('A manga has no ePub to send.', 422);
         }
 

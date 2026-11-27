@@ -84,19 +84,68 @@ function Model.hasBooks(novels)
     return false
 end
 
+-- ---------------------------------------------------------------- media
+
+--[[--
+The media a series can be (1.14.0): "novel" (web novel, the default),
+"book", "manga" and "comic". Manga and comics are page media: their
+chapters (issues, volumes) are page images, read here as a CBZ, never as
+text, with no EPUB and no highlights.
+]]
+Model.MEDIA = { "novel", "book", "manga", "comic" }
+
+local KNOWN_MEDIA = { novel = true, book = true, manga = true, comic = true }
+local PAGED_MEDIA = { manga = true, comic = true }
+
+--- A series' medium (a summary or a medium string): one of Model.MEDIA; anything else (an older server) is "novel".
+function Model.medium(novel_or_medium)
+    local m = novel_or_medium
+    if type(m) == "table" then m = m.medium end
+    if type(m) == "string" and KNOWN_MEDIA[m] then return m end
+    return "novel"
+end
+
+--- Whether a medium (or a summary) is read as pages (manga, comic): a CBZ, never text.
+function Model.isPaged(novel_or_medium)
+    local m = novel_or_medium
+    if type(m) == "table" then m = m.medium end
+    return type(m) == "string" and PAGED_MEDIA[m] == true
+end
+
+local LABELS = {
+    novel = { "Novel", "Novels" },
+    book = { "Book", "Books" },
+    manga = { "Manga", "Manga" },
+    comic = { "Comic", "Comics" },
+}
+
+--- A medium's English label, singular ("Comic") or plural ("Comics"); the UI passes it through gettext.
+function Model.mediumLabel(medium, plural)
+    local l = LABELS[Model.medium(medium)]
+    return plural and l[2] or l[1]
+end
+
+--[[--
+The page direction to give a paging chapter (1.14.0): "rtl" or "ltr" to
+set, or nil to leave KOReader's own setting alone. A comic reads left to
+right unless its series says "rtl" (reading_mode of GET
+chapters/{id}/pages); a manga keeps KOReader's setting, as in 1.13.0.
+]]
+function Model.readingDirection(medium, reading_mode)
+    if Model.medium(medium) ~= "comic" then return nil end
+    return reading_mode == "rtl" and "rtl" or "ltr"
+end
+
 --[[--
 The library's books ("book"), manga ("manga", 1.13.0: listed when the
-server sends them as CBZ) or web novels ("novel", the default), in the
-API's order.
+server sends them as CBZ), comics ("comic", 1.14.0, likewise) or web
+novels ("novel", the default), in the API's order.
 ]]
 function Model.byMedium(novels, medium)
-    local want = (medium == "book" or medium == "manga") and medium or "novel"
+    local want = Model.medium(medium)
     local out = {}
     for _i, n in ipairs(novels or {}) do
-        if type(n) == "table" then
-            local m = (n.medium == "book" or n.medium == "manga") and n.medium or "novel"
-            if m == want then table.insert(out, n) end
-        end
+        if type(n) == "table" and Model.medium(n) == want then table.insert(out, n) end
     end
     return out
 end
@@ -105,6 +154,14 @@ end
 function Model.hasManga(novels)
     for _i, n in ipairs(novels or {}) do
         if type(n) == "table" and n.medium == "manga" then return true end
+    end
+    return false
+end
+
+--- Whether the library holds at least one comic (1.14.0).
+function Model.hasComics(novels)
+    for _i, n in ipairs(novels or {}) do
+        if type(n) == "table" and n.medium == "comic" then return true end
     end
     return false
 end
@@ -119,8 +176,8 @@ function Model.homeNovels(novels, last_local)
     local out = {}
     for _i, n in ipairs(novels or {}) do
         if type(n) == "table" and n.id then
-            -- Manga (1.13.0) like books: on the shelf once started, else in Library > Manga.
-            local apart = Model.isBook(n) or n.medium == "manga"
+            -- Manga (1.13.0) and comics (1.14.0) like books: on the shelf once started, else in their Library section.
+            local apart = Model.isBook(n) or Model.isPaged(n)
             if not apart or (tonumber(n.chapters_read) or 0) > 0 or last_local[n.id] ~= nil then
                 table.insert(out, n)
             end

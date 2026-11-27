@@ -74,19 +74,22 @@ final class DownloadProfile
     /** @return list<string> */
     public static function formats(string $kind): array
     {
-        return array_values((array) config('novarr.downloads.formats.' . $kind, []));
+        return array_values((array) config('novarr.downloads.formats.' . $kind, $kind === DownloadGrab::KIND_COMIC ? ['cbz', 'cbr', 'cb7', 'pdf'] : []));
     }
 
     /** Why this result is not grabbed alone, or null when it may be. */
     public static function refusal(array $result, string $kind, array $wanted, ?array $blocklist = null): ?string
     {
-        if (trim((string) ($wanted['author'] ?? '')) === '') {
+        // A comic's release names carry no author: the series' name (every
+        // word of it), the number and the format decide.
+        $comic = $kind === DownloadGrab::KIND_COMIC;
+        if (!$comic && trim((string) ($wanted['author'] ?? '')) === '') {
             return 'the wanted book has no author to compare';
         }
         if ((float) ($result['title_match'] ?? 0) < 1.0) {
             return 'the title is not an exact match';
         }
-        if (!($result['author_match'] ?? false)) {
+        if (!$comic && !($result['author_match'] ?? false)) {
             return 'the author is not in its name';
         }
         $format = $result['format'] ?? null;
@@ -95,6 +98,9 @@ final class DownloadProfile
         }
         $size = (int) ($result['size'] ?? 0);
         [$min, $max] = ReleaseRanking::SIZES[$kind] ?? ReleaseRanking::SIZES[DownloadGrab::KIND_EBOOK];
+        if (!empty($result['pack'])) {
+            $max = ReleaseRanking::PACK_MAX_BYTES;
+        }
         if ($size <= 0 || $size < $min || $size > $max) {
             return 'its size is unknown or unusual';
         }
@@ -147,13 +153,16 @@ final class DownloadProfile
         $ok = array_values(array_filter($results, fn($r) => self::confident($r, $kind, $wanted, $blocklist)));
         $prefer = self::preferProtocol();
         $formats = array_flip(self::formats($kind));
+        // A single issue / volume before a pack of them (packs only when nothing else passes).
         usort($ok, function ($a, $b) use ($prefer, $formats) {
+            $ka = !empty($a['pack']) ? 1 : 0;
+            $kb = !empty($b['pack']) ? 1 : 0;
             $pa = ($a['protocol'] ?? null) === $prefer ? 0 : 1;
             $pb = ($b['protocol'] ?? null) === $prefer ? 0 : 1;
             $fa = $formats[$a['format'] ?? ''] ?? count($formats);
             $fb = $formats[$b['format'] ?? ''] ?? count($formats);
 
-            return [$pa, $fa, -$a['score']] <=> [$pb, $fb, -$b['score']];
+            return [$ka, $pa, $fa, -$a['score']] <=> [$kb, $pb, $fb, -$b['score']];
         });
 
         return $ok;

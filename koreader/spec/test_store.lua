@@ -226,6 +226,22 @@ T.it("store: highlight map and Wi-Fi time are small JSON files, kept over a relo
     T.eq(store:getWifiTime().days["2026-11-16"].read, 60)
 end)
 
+T.it("comics (1.14.0): a comic's CBZ keeps its medium and page direction in the index", function()
+    local root = T.tmpdir()
+    local s = newStore(root)
+    local tmp = root .. "/dl.cbz.part"
+    s:writeFile(tmp, "PK fake zip")
+    local path = s:saveChapterFile({ id = 40, novel_id = 12, novel_name = "Saga", label = "Issue 1", number = 1,
+        page_count = 24, medium = "comic", reading_mode = "ltr" }, tmp, 11)
+    T.eq(path, root .. "/chapters/12/40_Issue 1.cbz")
+    local e = s:chapterEntry(12, 40)
+    T.eq({ e.manga, e.medium, e.reading_mode }, { true, "comic", "ltr" })
+    -- Kept across a reload of the index.
+    local fresh = newStore(root)
+    local e2 = fresh:chapterEntry(12, 40)
+    T.eq({ e2.medium, e2.reading_mode }, { "comic", "ltr" })
+end)
+
 T.it("manga (1.13.0): a downloaded CBZ is moved in, indexed, found again by a rescan", function()
     local root = T.tmpdir()
     local s = newStore(root)

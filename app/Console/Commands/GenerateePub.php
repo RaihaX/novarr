@@ -62,7 +62,7 @@ class GenerateePub extends Command
             ->text()
             ->with("file"); // cover file relationship only
 
-        if ($novelId != 0 && Novel::whereKey($novelId)->manga()->exists()) {
+        if ($novelId != 0 && Novel::whereKey($novelId)->paged()->exists()) {
             $this->warn("Novel {$novelId} is a manga — ePubs are made from chapter text only.");
             return self::SUCCESS;
         }

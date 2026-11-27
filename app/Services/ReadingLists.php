@@ -740,7 +740,7 @@ class ReadingLists
     /** A row from before the medium column is a novel (App\Novel::isManga()). */
     private static function mediumOf(?string $medium): string
     {
-        return in_array($medium, [Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK], true) ? $medium : Novel::MEDIUM_NOVEL;
+        return in_array($medium, [Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK, Novel::MEDIUM_COMIC], true) ? $medium : Novel::MEDIUM_NOVEL;
     }
 
     private static function novel($novelId): Novel

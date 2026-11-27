@@ -55,14 +55,25 @@ object Requests {
     /**
      * The media a reader can request, in the picker's order (the web's):
      * Books first and the default. Wire values stay as the server has them
-     * ("novel" is shown as "Web Novels").
+     * ("novel" is shown as "Web Novels"). Comics only on a server that knows
+     * them ([offered]).
      */
     enum class Medium(val wire: String, val title: String, val singular: String) {
         BOOK("book", "Books", "Book"),
         NOVEL("novel", "Web Novels", "Web Novel"),
-        MANGA("manga", "Manga", "Manga");
+        MANGA("manga", "Manga", "Manga"),
+        COMIC("comic", "Comics", "Comic");
+
+        /** A search takes a pasted Goodreads / Amazon (…) link or an ISBN: books and comics. */
+        val takesLinks: Boolean get() = this == BOOK || this == COMIC
+
+        /** Has a Discover shelf (`/requests/browse`): the server has no lists for comics. */
+        val hasDiscover: Boolean get() = this != COMIC
 
         companion object {
+            /** The picker's options: Comics only when the server knows them (meta `comics`). */
+            fun offered(comics: Boolean): List<Medium> = if (comics) entries else entries - COMIC
+
             /** The picker's default, and what an unreadable saved choice falls back to. */
             val DEFAULT = BOOK
 
@@ -88,6 +99,7 @@ object Requests {
         Medium.BOOK -> "Title, author, ISBN — or paste a Goodreads / Amazon link"
         Medium.NOVEL -> "A web novel to request"
         Medium.MANGA -> "A manga to request"
+        Medium.COMIC -> "Title, author, ISBN — or paste a Goodreads / Amazon link"
     }
 
     /** Hosts a book link may be pasted from (the server's BookLinkReader::HOSTS, loosely). */
@@ -140,8 +152,9 @@ object Requests {
     /** The muted line under the search field for what is typed; null when there is nothing to say. */
     fun queryHint(medium: Medium, text: String): String? = when {
         looksLikeUrl(text) && medium == Medium.BOOK -> "Novarr reads the book from this page (Goodreads, Amazon, Hardcover, Google Books or Open Library)."
-        looksLikeUrl(text) -> "Links work for books only. Switch to Books, or type a title."
-        looksLikeIsbn(text) && medium == Medium.BOOK -> "Searching by ISBN."
+        looksLikeUrl(text) && medium == Medium.COMIC -> "Novarr reads the comic from this page (Goodreads, Amazon, Hardcover, Google Books or Open Library)."
+        looksLikeUrl(text) -> "Links work for books and comics only. Switch to Books or Comics, or type a title."
+        looksLikeIsbn(text) && medium.takesLinks -> "Searching by ISBN."
         else -> null
     }
 

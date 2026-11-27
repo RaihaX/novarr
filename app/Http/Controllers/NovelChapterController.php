@@ -40,7 +40,7 @@ class NovelChapterController extends Controller
         // A manga chapter: the page shell for the manga reader. It is never
         // marked read on open — the reader marks it through
         // chapters.progress once the pages have actually been read.
-        if ($chapter->novel?->isManga()) {
+        if ($chapter->novel?->hasPages()) {
             return view('chapters.manga', [
                 'chapter' => $chapter,
                 'pages' => $chapter->status ? $chapter->pages()->get(['page', 'width', 'height']) : collect(),

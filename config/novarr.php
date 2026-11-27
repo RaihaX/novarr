@@ -58,6 +58,9 @@ return [
         // address from another source; before the novel adapters so none of
         // their group-id logic ever sees a book.
         'book' => \App\Sources\BookSource::class,
+        // Comics (App\Comics): claims only comic:// URLs (and rows of medium
+        // 'comic'); never scraped, its metadata from Comic Vine / ComicInfo.
+        'comic' => \App\Sources\ComicSource::class,
         'empirenovel' => \App\Sources\EmpireNovelSource::class,
         'novelfull' => \App\Sources\NovelFullSource::class,
         'novelfire' => \App\Sources\NovelFireSource::class,
@@ -249,6 +252,52 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Comics & graphic novels (App\Comics, medium 'comic')
+    |--------------------------------------------------------------------------
+    |
+    | inbox           the drop-in folder (also where NZBGet's Novarr-Comics
+    |                 category and Transmission's comics download-dir finish):
+    |                 a .cbz/.cbr/.cb7/.cbt/.pdf file is one issue or volume,
+    |                 a folder of them is one each, a folder of images is one
+    |                 issue. `comics:scan` (every 10 minutes) extracts the
+    |                 pages onto the manga disk (the library copy) and deletes
+    |                 the entry (a torrent's stays, seeding); what it cannot
+    |                 read goes to {inbox}/_failed with a .reason.txt.
+    | settle_seconds  imported once unchanged for this long (a copy may still
+    |                 be running); 0 = at once.
+    | unar / lsar / sevenzip / pdftoppm   the binaries for CBR/CB7 (unar,
+    |                 then 7z) and PDF (pdftoppm, at pdf_dpi). CBZ and CBT
+    |                 need none.
+    | max_page_mb     a page image larger than this is refused.
+    | comicvine       metadata (App\Comics\ComicVine): an API key from
+    |                 comicvine.gamespot.com/api (free account). Without one,
+    |                 the file's ComicInfo.xml, the book catalogues and the
+    |                 first page as the cover are used.
+    |
+    */
+    'comics' => [
+        'inbox' => ($comicsInbox = trim((string) env('NOVARR_COMICS_INBOX', ''))) === ''
+            ? storage_path('app/comics-inbox')
+            : (str_starts_with($comicsInbox, '/') ? $comicsInbox : base_path($comicsInbox)),
+        'settle_seconds' => (int) env('NOVARR_COMICS_SETTLE_SECONDS', 120),
+        'unar' => (string) env('NOVARR_UNAR', 'unar') ?: 'unar',
+        'sevenzip' => (string) env('NOVARR_7Z', '7z') ?: '7z',
+        'pdftoppm' => (string) env('NOVARR_PDFTOPPM', 'pdftoppm') ?: 'pdftoppm',
+        'pdf_dpi' => (int) env('NOVARR_COMICS_PDF_DPI', 150),
+        'extract_timeout' => (int) env('NOVARR_COMICS_EXTRACT_TIMEOUT', 600),
+        'max_page_mb' => (int) env('NOVARR_COMICS_MAX_PAGE_MB', 60),
+        'comicvine' => [
+            'api_key' => trim((string) env('NOVARR_COMICVINE_API_KEY', '')),
+            'url' => rtrim((string) env('NOVARR_COMICVINE_URL', 'https://comicvine.gamespot.com/api'), '/'),
+            'timeout' => (int) env('NOVARR_COMICVINE_TIMEOUT', 20),
+            // Comic Vine allows ~200 requests an hour per resource: Novarr keeps under it.
+            'per_hour' => (int) env('NOVARR_COMICVINE_PER_HOUR', 150),
+            'cache_hours' => (int) env('NOVARR_COMICVINE_CACHE_HOURS', 24),
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Searching and downloading books and audiobooks (App\Downloads)
     |--------------------------------------------------------------------------
     |
@@ -284,6 +333,7 @@ return [
         'password' => (string) env('NOVARR_NZBGET_PASSWORD', ''),
         'category_books' => (string) env('NOVARR_NZBGET_CATEGORY_BOOKS', 'Novarr-Books') ?: 'Novarr-Books',
         'category_audiobooks' => (string) env('NOVARR_NZBGET_CATEGORY_AUDIOBOOKS', 'Novarr-Audiobooks') ?: 'Novarr-Audiobooks',
+        'category_comics' => (string) env('NOVARR_NZBGET_CATEGORY_COMICS', 'Novarr-Comics') ?: 'Novarr-Comics',
         'timeout' => (int) env('NOVARR_NZBGET_TIMEOUT', 20),
     ],
     'transmission' => [
@@ -294,6 +344,7 @@ return [
         // Novarr's torrents seed with no ratio / idle limit (Transmission's global limits stay for the rest).
         'seed_forever' => (bool) env('NOVARR_TRANSMISSION_SEED_FOREVER', true),
         'dir_audiobooks' => (string) env('NOVARR_TRANSMISSION_DIR_AUDIOBOOKS', '/downloads/Audiobooks') ?: '/downloads/Audiobooks',
+        'dir_comics' => (string) env('NOVARR_TRANSMISSION_DIR_COMICS', '/downloads/Comics') ?: '/downloads/Comics',
         'timeout' => (int) env('NOVARR_TRANSMISSION_TIMEOUT', 20),
     ],
 
@@ -340,8 +391,9 @@ return [
         'formats' => [
             'ebook' => ['epub', 'azw3', 'mobi'],
             'audiobook' => ['m4b', 'm4a', 'mp3'],
+            'comic' => ['cbz', 'cbr', 'cb7', 'pdf'],
         ],
-        'allow_unknown_format' => ['ebook' => false, 'audiobook' => true],
+        'allow_unknown_format' => ['ebook' => false, 'audiobook' => true, 'comic' => false],
         'prefer_protocol' => env('NOVARR_DOWNLOADS_PREFER_PROTOCOL', 'usenet') === 'torrent' ? 'torrent' : 'usenet',
         'min_seeders' => (int) env('NOVARR_DOWNLOADS_MIN_SEEDERS', 2),
         'max_age_days' => (int) env('NOVARR_DOWNLOADS_MAX_AGE_DAYS', 0),

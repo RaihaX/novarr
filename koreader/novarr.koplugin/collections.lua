@@ -1,7 +1,7 @@
 --[[--
 Pure helpers (1.13.0) for the reader's collections: "My lists" (Favourites,
 Want to read and the reader's own reading lists), a book series shown as
-one entry, and the media the Library shows (novels, books, manga).
+one entry, and the media the Library shows (novels, books, manga, comics).
 No KOReader dependencies (unit tested: spec/test_collections.lua).
 
 Server shapes (API v1):
@@ -11,25 +11,30 @@ Server shapes (API v1):
     GET favourites     the same
 ]]
 
+local Model = require("novarr.model")
+
 local Collections = {}
 
 -- ---------------------------------------------------------------- media
 
---- "manga", "book" or "novel" (a summary without a medium: an older server, a novel).
+--- "comic", "manga", "book" or "novel" (a summary without a medium: an older server, a novel).
 function Collections.medium(novel)
     if type(novel) ~= "table" then return "novel" end
-    if novel.medium == "manga" then return "manga" end
-    if novel.medium == "book" then return "book" end
-    return "novel"
+    return Model.medium(novel)
 end
 
 function Collections.isManga(novel)
     return Collections.medium(novel) == "manga"
 end
 
---- Which media the library holds: {novel = n, book = n, manga = n}.
+--- Whether a series is read as pages (manga or comic, 1.14.0).
+function Collections.isPaged(novel)
+    return Model.isPaged(Collections.medium(novel))
+end
+
+--- Which media the library holds: {novel = n, book = n, manga = n, comic = n}.
 function Collections.mediaCounts(novels)
-    local out = { novel = 0, book = 0, manga = 0 }
+    local out = { novel = 0, book = 0, manga = 0, comic = 0 }
     for _i, n in ipairs(novels or {}) do
         if type(n) == "table" then
             local m = Collections.medium(n)
@@ -39,7 +44,7 @@ function Collections.mediaCounts(novels)
     return out
 end
 
---- The library's novels of one medium ("novel" | "book" | "manga"), in the API's order.
+--- The library's novels of one medium ("novel" | "book" | "manga" | "comic"), in the API's order.
 function Collections.byMedium(novels, medium)
     medium = medium or "novel"
     local out = {}
@@ -51,13 +56,16 @@ end
 
 --[[--
 The media the Library can switch between, in order: novels always, then
-books and manga when the library holds some.
+books and manga when the library holds some, then comics (1.14.0) when
+the library holds some and comics_ok (the server has comics and sends
+them as CBZ: Session:comicsReadable).
 ]]
-function Collections.libraryMedia(novels)
+function Collections.libraryMedia(novels, comics_ok)
     local counts = Collections.mediaCounts(novels)
     local out = { "novel" }
     if counts.book > 0 then table.insert(out, "book") end
     if counts.manga > 0 then table.insert(out, "manga") end
+    if comics_ok == true and counts.comic > 0 then table.insert(out, "comic") end
     return out
 end
 
@@ -267,9 +275,10 @@ end
 
 --[[--
 Home's More menu (ui_more.lua), as ids in order: features(name) -> bool
-(Session:feature); has_manga: the library holds manga.
+(Session:feature); has_manga: the library holds manga; has_comics
+(1.14.0): the library holds comics the server can send (Library > Comics).
 ]]
-function Collections.moreEntries(features, has_manga)
+function Collections.moreEntries(features, has_manga, has_comics)
     local out = {}
     if features("lists") or features("favourites") then table.insert(out, "lists") end
     table.insert(out, "new_chapters")
@@ -280,6 +289,7 @@ function Collections.moreEntries(features, has_manga)
     end
     if features("stats") then table.insert(out, "stats") end
     if has_manga then table.insert(out, "manga") end
+    if has_comics then table.insert(out, "comic") end
     return out
 end
 

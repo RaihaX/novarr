@@ -13,7 +13,7 @@
     $r = request();
     $navAdmin = Gate::allows('admin');
     // Pages that belong to Manage (the owner's intake), not the shelves.
-    $manageMatch = ['downloads.*', 'books.review*', 'audiobooks.manage*', 'books.calibre*', 'books.upload*', 'novels.create'];
+    $manageMatch = ['downloads.*', 'books.review*', 'audiobooks.manage*', 'comics.manage*', 'books.calibre*', 'books.upload*', 'novels.create'];
     // Three libraries on one route: the item of the medium this page belongs
     // to (LibraryMedium::current()) is active; book pages belong to Books.
     $navMedium = $r->routeIs('novels.*') && !$r->routeIs('novels.discover*', 'novels.create')
@@ -21,7 +21,7 @@
         : ($r->routeIs('books.*') && !$r->routeIs('books.review*', 'books.calibre*', 'books.upload*') ? 'book' : null);
 
     $libraryLinks = [];
-    foreach (['novel' => 'Web Novels', 'manga' => 'Manga', 'book' => 'Books'] as $navKey => $navLabel) {
+    foreach (['novel' => 'Web Novels', 'manga' => 'Manga', 'book' => 'Books', 'comic' => 'Comics'] as $navKey => $navLabel) {
         $libraryLinks[] = ['href' => route('novels.index', ['medium' => $navKey]), 'label' => $navLabel, 'on' => $navMedium === $navKey, 'medium' => $navKey];
     }
     $libraryLinks[] = ['href' => route('audiobooks.index'), 'label' => 'Audiobooks', 'on' => $r->routeIs('audiobooks.index', 'audiobooks.show')];
@@ -41,6 +41,7 @@
         $manageLinks = [
             ['href' => route('downloads.index'), 'label' => 'Downloads', 'on' => $r->routeIs('downloads.*', 'books.review*'), 'count' => $downloadsAttention ?? null, 'countLabel' => 'need you', 'id' => 'navDownloads'],
             ['href' => route('audiobooks.manage'), 'label' => 'Audiobook inbox', 'on' => $r->routeIs('audiobooks.manage*')],
+            ['href' => route('comics.manage'), 'label' => 'Comics inbox', 'on' => $r->routeIs('comics.manage*')],
             ['href' => route('books.calibre'), 'label' => 'Calibre import', 'on' => $r->routeIs('books.calibre*')],
             ['href' => route('books.upload'), 'label' => 'Upload a book', 'on' => $r->routeIs('books.upload*')],
             ['href' => route('novels.create'), 'label' => 'Add a series', 'on' => $r->routeIs('novels.create')],

@@ -15,7 +15,8 @@ Errors are tables { kind = ..., status = n|nil, message = text|nil }:
                 (status nil): queued writes stay queued (see auth.lua)
     forbidden   403: signed in but not allowed; message = the server's words
                 (queued writes stay queued, like unauthenticated)
-    manga       422 with medium = "manga": a manga chapter asked for as text
+    manga       422 with medium = "manga" (or "comic", 1.14.0; e.medium):
+                a page chapter asked for as text
     duplicate   409 from POST novels: the same title is already in the
                 library (e.duplicate = {id, title, source}); see addNovel
 
@@ -372,9 +373,14 @@ function Api:request(path, opts)
         local message = type(data) == "table" and type(data.message) == "string" and data.message or nil
         -- A manga chapter asked for as text (422 {message, medium = "manga"}):
         -- its own kind, so the user gets a plain sentence, not the server's
-        -- developer text.
-        if status == 422 and type(data) == "table" and data.medium == "manga" then
-            return nil, err("manga", status, message)
+        -- developer text. 1.14.0: a comic chapter likewise (422 {medium =
+        -- "comic", pages = true}): kind "manga" means "a page chapter",
+        -- e.medium says which.
+        if status == 422 and type(data) == "table"
+                and (data.medium == "manga" or data.medium == "comic") then
+            local e = err("manga", status, message)
+            e.medium = data.medium
+            return nil, e
         end
         local e = err("invalid", status, message)
         -- The decoded answer, for callers that read more than the message (409 duplicate).
@@ -713,7 +719,9 @@ What a server's meta offers (1.13.0), each false on an older server that
 does not say so: lists (reading lists, GET lists), want_to_read (comes
 with lists), favourites, requests (search / request / notifications),
 updates (GET updates), stats (GET stats; may also be found by trying it,
-see Session), manga_cbz (GET chapters/{id}/cbz: manga readable here).
+see Session), manga_cbz (GET chapters/{id}/cbz: manga readable here),
+comics (1.14.0: the server has the "comic" medium; read through the same
+CBZ endpoint, so only with manga_cbz).
 ]]
 function Api.features(meta)
     local m = type(meta) == "table" and meta or {}
@@ -726,11 +734,12 @@ function Api.features(meta)
         updates = m.updates == true,
         stats = on(m.stats),
         manga_cbz = m.manga_cbz == true,
+        comics = m.comics == true,
         audiobooks = m.audiobooks == true,
     }
 end
 
---- The library medium to ask for: "all" (manga too) when the server serves manga as CBZ, else Api.textMedium.
+--- The library medium to ask for: "all" (manga and comics too) when the server serves pages as CBZ, else Api.textMedium.
 function Api.libraryMedium(books, manga)
     if manga then return "all" end
     return Api.textMedium(books)

@@ -313,6 +313,15 @@ $oneServer(Schedule::command('audiobooks:scan')
     ->withoutOverlapping(60)
     ->runInBackground());
 
+// Comics dropped into (or downloaded to) the comics inbox (App\Comics\ComicInbox):
+// every 10 minutes, settled entries are unpacked onto the manga disk and
+// matched to their series ("Scan now" on the Manage comics page runs it too).
+$oneServer(Schedule::command('comics:scan')
+    ->everyTenMinutes()
+    ->name('comics_scan')
+    ->withoutOverlapping(60)
+    ->runInBackground());
+
 // Searching Usenet & torrents (App\Downloads). downloads:poll follows the
 // grabbed downloads in NZBGet / Transmission and takes in finished ebooks
 // (it asks no client when nothing is downloading); downloads:search-wanted

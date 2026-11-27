@@ -18,13 +18,17 @@ class ChapterController extends Controller
     public function show(ReadState $readState, $id): JsonResponse
     {
         $chapter = NovelChapter::with(['novel:id,name,medium', 'text'])->findOrFail($id);
+        $paged = $chapter->novel?->hasPages();
 
         // A manga chapter is page images: this text endpoint has nothing to
         // give (clients that read manga use /chapters/{id}/pages).
-        if ($chapter->novel?->isManga()) {
+        if ($paged) {
+            $comic = $chapter->novel->isComic();
+
             return response()->json([
-                'message' => 'This chapter belongs to a manga: it has page images, not text. Use /api/v1/chapters/' . (int) $chapter->id . '/pages.',
-                'medium' => 'manga',
+                'message' => 'This chapter belongs to a ' . ($comic ? 'comic' : 'manga') . ': it has page images, not text. Use /api/v1/chapters/' . (int) $chapter->id . '/pages.',
+                'medium' => $comic ? \App\Novel::MEDIUM_COMIC : \App\Novel::MEDIUM_MANGA,
+                'pages' => true,
             ], 422);
         }
 
@@ -62,7 +66,7 @@ class ChapterController extends Controller
     public function pages($id): JsonResponse
     {
         $chapter = NovelChapter::with('novel:id,name,medium,reading_mode')->findOrFail($id);
-        if (!$chapter->novel?->isManga()) {
+        if (!$chapter->novel?->hasPages()) {
             return response()->json(['message' => 'Not a manga chapter.'], 404);
         }
 

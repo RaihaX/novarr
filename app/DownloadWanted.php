@@ -62,6 +62,10 @@ class DownloadWanted extends Model
             return $this->novel_id ? route('novels.show', $this->novel_id) . '#findAudiobook' : null;
         }
 
+        if ($this->kind === DownloadGrab::KIND_COMIC) {
+            return route('requests.index');
+        }
+
         return $this->novel_request_id ? route('books.review', $this->novel_request_id) : null;
     }
 
@@ -72,7 +76,7 @@ class DownloadWanted extends Model
             ->whereIn('status', [...DownloadGrab::ACTIVE, DownloadGrab::STATUS_COMPLETED])
             ->when($this->kind === DownloadGrab::KIND_AUDIOBOOK,
                 fn($q) => $q->where('kind', DownloadGrab::KIND_AUDIOBOOK)->where('novel_id', $this->novel_id),
-                fn($q) => $q->where('kind', DownloadGrab::KIND_EBOOK)->where('novel_request_id', $this->novel_request_id))
+                fn($q) => $q->where('kind', $this->kind === DownloadGrab::KIND_COMIC ? DownloadGrab::KIND_COMIC : DownloadGrab::KIND_EBOOK)->where('novel_request_id', $this->novel_request_id))
             ->orderByDesc('id')
             ->first();
     }

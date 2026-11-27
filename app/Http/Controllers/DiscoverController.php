@@ -34,6 +34,15 @@ class DiscoverController extends Controller
             $medium = \App\Novel::MEDIUM_NOVEL;
             LibraryMedium::share($medium);
         }
+        // Comics have no source to browse either: they arrive through the
+        // comics inbox; readers ask for them on the Requests page.
+        if ($medium === \App\Novel::MEDIUM_COMIC) {
+            if ($request->query('medium') === \App\Novel::MEDIUM_COMIC) {
+                return redirect()->route('requests.index', ['medium' => 'comic']);
+            }
+            $medium = \App\Novel::MEDIUM_NOVEL;
+            LibraryMedium::share($medium);
+        }
         $sources = $this->sourceOptions($medium);
 
         // Nothing left to pick because every source of the medium is hidden

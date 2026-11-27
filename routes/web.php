@@ -205,6 +205,13 @@ Route::post('/audiobooks/uploads/{id}/use-existing', [\App\Http\Controllers\Audi
 Route::post('/audiobooks/uploads/{id}/decline', [\App\Http\Controllers\AudiobookUploadController::class, 'decline'])->whereNumber('id')->name('audiobooks.uploads.decline');
 Route::get('/audiobooks/uploads/{id}/sample/{index}', [\App\Http\Controllers\AudiobookUploadController::class, 'sample'])->whereNumber(['id', 'index'])->name('audiobooks.uploads.sample');
 
+// Comics (App\Comics): the owner's comics inbox page, "Scan now", Retry and
+// "Look up details"; the comics themselves are a library (novels.index?medium=comic).
+Route::get('/comics/manage', [\App\Http\Controllers\ComicController::class, 'manage'])->name('comics.manage');
+Route::post('/comics/manage/scan', [\App\Http\Controllers\ComicController::class, 'scan'])->name('comics.manage.scan');
+Route::post('/comics/manage/retry', [\App\Http\Controllers\ComicController::class, 'retry'])->name('comics.manage.retry');
+Route::post('/comics/{id}/lookup', [\App\Http\Controllers\ComicController::class, 'lookup'])->whereNumber('id')->name('comics.lookup');
+
 // Searching Usenet & torrents and downloading (App\Downloads; owner only,
 // except a reader's "Ask for the audiobook"): App\Http\Controllers\DownloadController.
 Route::controller(\App\Http\Controllers\DownloadController::class)->group(function () {

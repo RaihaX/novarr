@@ -135,7 +135,8 @@ class StorageUsage
                 $id = (int) $novel->id;
                 $knownIds[$id] = true;
                 $isManga = $novel->medium === Novel::MEDIUM_MANGA;
-                $medium = in_array($novel->medium, [Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK], true) ? $novel->medium : Novel::MEDIUM_NOVEL;
+                // Comics' pages are on the manga disk too (App\Comics): counted like manga, as their own medium.
+                $medium = in_array($novel->medium, [Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK, Novel::MEDIUM_COMIC], true) ? $novel->medium : Novel::MEDIUM_NOVEL;
 
                 $pages = $manga['series'][$id] ?? ['bytes' => 0, 'files' => 0, 'chapters' => 0];
                 $text = $this->textUsage($id, $exact);
@@ -332,13 +333,13 @@ class StorageUsage
 
         // Series rows are a few hundred: totals per medium and the rankings in PHP.
         $mediums = [];
-        foreach ([Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK] as $medium) {
+        foreach ([Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK, Novel::MEDIUM_COMIC] as $medium) {
             $mediums[$medium] = ['series' => 0, 'bytes' => 0, 'chapters' => 0, 'content_bytes' => 0, 'cover_bytes' => 0, 'epub_bytes' => 0];
         }
         $series = [];
         foreach (DB::table('storage_usage')->where('scope', self::SCOPE_SERIES)->cursor() as $row) {
             $item = self::seriesItem($row);
-            $m = in_array($item['medium'], [Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK], true) ? $item['medium'] : Novel::MEDIUM_NOVEL;
+            $m = in_array($item['medium'], [Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK, Novel::MEDIUM_COMIC], true) ? $item['medium'] : Novel::MEDIUM_NOVEL;
             $mediums[$m]['series']++;
             $mediums[$m]['bytes'] += $item['bytes'];
             $mediums[$m]['chapters'] += $item['chapters'];
@@ -398,6 +399,7 @@ class StorageUsage
                 Novel::MEDIUM_NOVEL => $topRows(Novel::MEDIUM_NOVEL),
                 Novel::MEDIUM_MANGA => $topRows(Novel::MEDIUM_MANGA),
                 Novel::MEDIUM_BOOK => $topRows(Novel::MEDIUM_BOOK),
+                Novel::MEDIUM_COMIC => $topRows(Novel::MEDIUM_COMIC),
                 self::MEDIUM_AUDIOBOOK => array_slice(array_values(array_filter($audiobooks, fn($a) => $a['bytes'] > 0)), 0, $top),
             ],
         ];

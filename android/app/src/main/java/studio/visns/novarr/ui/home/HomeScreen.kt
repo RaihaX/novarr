@@ -247,7 +247,7 @@ class HomeViewModel(private val app: AppModel) : ViewModel() {
 }
 
 private fun readerRoute(item: ContinueItem) =
-    ReaderRoute(item.novel.id, item.chapter.id, manga = item.novel.isManga, offerLatest = true)
+    ReaderRoute(item.novel.id, item.chapter.id, manga = item.novel.isPaged, offerLatest = true)
 
 /**
  * Home (1.18) is a summary of the reader's categories: a search over
@@ -480,7 +480,7 @@ fun HomeScreen(nav: NavController, statsCard: (@Composable () -> Unit)? = null) 
                                             NewChaptersRow(item, Modifier.readableWidth(1000.dp)) {
                                                 val first = item.firstChapter
                                                 if (first != null) {
-                                                    nav.navigate(ReaderRoute(item.novel.id, first.id, manga = item.novel.isManga, offerLatest = true))
+                                                    nav.navigate(ReaderRoute(item.novel.id, first.id, manga = item.novel.isPaged, offerLatest = true))
                                                 } else {
                                                     nav.navigate(NovelRoute(item.novel.id))
                                                 }
@@ -672,11 +672,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.searchResults(model: 
     }
 }
 
-private fun mediumLabel(novel: studio.visns.novarr.api.NovelSummary) = when {
-    novel.isManga -> "Manga"
-    novel.isBook -> "Book"
-    else -> "Web novel"
-}
+private fun mediumLabel(novel: studio.visns.novarr.api.NovelSummary) = studio.visns.novarr.api.Medium.label(novel.medium)
 
 @Composable
 private fun ResultRow(cover: String?, title: String, subtitle: String, modifier: Modifier, onClick: () -> Unit) {
@@ -958,9 +954,7 @@ private fun WantToReadTile(item: WantToReadItem, modifier: Modifier, onClick: ()
         Text(
             when {
                 started -> "STARTED"
-                item.novel.isManga -> "MANGA"
-                item.novel.isBook -> "BOOK"
-                else -> "WEB NOVEL"
+                else -> mediumLabel(item.novel).uppercase()
             },
             style = MaterialTheme.typography.labelSmall,
             color = if (started) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,

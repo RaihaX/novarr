@@ -5,6 +5,21 @@ T.it("media: books first", function()
     T.eq(R.MEDIA, { "book", "novel", "manga" })
 end)
 
+T.it("media (1.14.0): Comics last, only when the server has comics", function()
+    local function features(on) return function(name) return on[name] == true end end
+    T.eq(R.media(features({ comics = true })), { "book", "novel", "manga", "comic" })
+    T.eq(R.media(features({})), { "book", "novel", "manga" }, "an older server: no Comics")
+    T.eq(R.media(nil), { "book", "novel", "manga" })
+    T.eq(R.MEDIA, { "book", "novel", "manga" }, "the base list is not changed")
+end)
+
+T.it("takesIsbn: books and comics are searched by title, author or ISBN", function()
+    T.truthy(R.takesIsbn("book"))
+    T.truthy(R.takesIsbn("comic"))
+    T.falsy(R.takesIsbn("novel"))
+    T.falsy(R.takesIsbn("manga"))
+end)
+
 T.it("cleanQuery: trims and squeezes; empty or over 100 characters is nil", function()
     T.eq(R.cleanQuery("  The   Name of  the Wind "), "The Name of the Wind")
     T.eq(R.cleanQuery("   "), nil)

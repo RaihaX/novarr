@@ -289,6 +289,10 @@ class RequestSearch
         if ($medium === \App\Novel::MEDIUM_BOOK) {
             return [\App\Sources\BookCatalogueSource::KEY => new \App\Sources\BookCatalogueSource()];
         }
+        // Comics: Comic Vine (with a key) and the catalogues' graphic novels.
+        if ($medium === \App\Novel::MEDIUM_COMIC) {
+            return [\App\Sources\ComicCatalogueSource::KEY => new \App\Sources\ComicCatalogueSource()];
+        }
         $sources = array_filter($discover->sourcesFor($medium), fn(Source $s) => in_array('search', $s->discoverLists(), true));
         $names = [];
         foreach ($sources as $key => $source) {
@@ -539,12 +543,12 @@ class RequestSearch
     private function askSources(string $medium, string $query, Discover $discover): array
     {
         if (static::bookLink($medium, $query) !== null) {
-            return $this->askLink($query);
+            return $this->askLink($query, $medium);
         }
         $deadline = (int) now()->getPreciseTimestamp(3) + static::budgetSeconds() * 1000;
         $sources = $this->sources($discover, $medium);
         // The catalogue source is not in the registry a lane process loads: asked here.
-        $runner = $medium === \App\Novel::MEDIUM_BOOK ? new InlineSearchRunner() : $this->runner();
+        $runner = in_array($medium, [\App\Novel::MEDIUM_BOOK, \App\Novel::MEDIUM_COMIC], true) ? new InlineSearchRunner() : $this->runner();
         $answers = $runner->run($medium, $query, static::lanes($sources), $sources, $deadline);
 
         // Hits in search order, whatever order the sources answered in.
@@ -593,7 +597,7 @@ class RequestSearch
      */
     public static function isIsbnQuery(string $medium, string $query): bool
     {
-        if ($medium !== \App\Novel::MEDIUM_BOOK || !preg_match('/^[0-9X\s-]+$/i', trim($query))) {
+        if (!in_array($medium, [\App\Novel::MEDIUM_BOOK, \App\Novel::MEDIUM_COMIC], true) || !preg_match('/^[0-9X\s-]+$/i', trim($query))) {
             return false;
         }
 
@@ -607,7 +611,7 @@ class RequestSearch
      */
     public static function bookLink(string $medium, string $query): ?string
     {
-        return $medium === \App\Novel::MEDIUM_BOOK ? \App\Books\BookLinkReader::canonical($query) : null;
+        return in_array($medium, [\App\Novel::MEDIUM_BOOK, \App\Novel::MEDIUM_COMIC], true) ? \App\Books\BookLinkReader::canonical($query) : null;
     }
 
     /**
@@ -619,7 +623,7 @@ class RequestSearch
      *
      * @throws \App\Books\BookLinkFailed  the page could not be read
      */
-    private function askLink(string $query): array
+    private function askLink(string $query, string $medium = \App\Novel::MEDIUM_BOOK): array
     {
         $book = app(\App\Books\BookLinkReader::class)->read($query);
         $item = DiscoverController::item([
@@ -630,7 +634,7 @@ class RequestSearch
             'url' => $book['url'],
             'status' => $book['year'] !== null ? (string) $book['year'] : null,
         ], self::BOOK_LINK_SOURCE);
-        $groups = static::group([['key' => self::BOOK_LINK_SOURCE, 'name' => $book['site_name'], 'item' => $item]], \App\Novel::MEDIUM_BOOK, $book['title']);
+        $groups = static::group([['key' => self::BOOK_LINK_SOURCE, 'name' => $book['site_name'], 'item' => $item]], $medium, $book['title']);
 
         $extra = [
             'series' => $book['series'],
@@ -725,7 +729,7 @@ class RequestSearch
                 continue;
             }
             // Books: the same title by another author is another book.
-            $key = static::groupKey($medium, $medium === \App\Novel::MEDIUM_BOOK
+            $key = static::groupKey($medium, in_array($medium, [\App\Novel::MEDIUM_BOOK, \App\Novel::MEDIUM_COMIC], true)
                 ? $normalized . '|' . Discover::normalizeName((string) ($item['author'] ?? ''))
                 : $normalized);
             if (!isset($groups[$key])) {

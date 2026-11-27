@@ -14,6 +14,8 @@ test('the search body carries only what is set', () => {
     assert.deepEqual(searchBody({ kind: 'ebook', q: '  Orchard ', requestId: '12', novelId: '' }), { kind: 'ebook', q: 'Orchard', request_id: 12 });
     assert.deepEqual(searchBody({ kind: 'audiobook', q: '', requestId: undefined, novelId: 7 }), { kind: 'audiobook', novel_id: 7 });
     assert.deepEqual(searchBody({ kind: 'weird', q: null, requestId: 'x', novelId: -1 }), { kind: 'ebook' });
+    assert.deepEqual(searchBody({ kind: 'comic', q: 'Saga v01', requestId: '', novelId: 3 }), { kind: 'comic', q: 'Saga v01', novel_id: 3 });
+    assert.equal(statusLine({ status: 'completed', kind: 'comic', progress: 100 }), 'Finished — waiting for the comics scan');
 });
 
 test('sizes read like the server writes them', () => {

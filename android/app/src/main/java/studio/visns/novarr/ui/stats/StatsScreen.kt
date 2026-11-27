@@ -373,6 +373,7 @@ private fun RankRow(rank: Int, title: String, caption: String?, value: String, o
 private fun mediumName(medium: String?) = when (medium) {
     "novel" -> "Web novel"
     "manga" -> "Manga"
+    "comic" -> "Comic"
     "book" -> "Book"
     "audiobook" -> "Audiobook"
     else -> null

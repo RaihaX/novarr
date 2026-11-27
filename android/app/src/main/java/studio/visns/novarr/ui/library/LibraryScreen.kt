@@ -154,7 +154,12 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
     private var loadedRevision = -1
     private var loadedAt = 0L
 
+    /** The server knows comics (meta `comics`, saved): the Comics tab is offered. */
+    var comicsOffered by mutableStateOf(app.comicsOffered.value)
+        private set
+
     init {
+        viewModelScope.launch { app.comicsOffered.collect { comicsOffered = it } }
         viewModelScope.launch {
             app.prefs.string("library.shelf")?.let { v -> Shelf.entries.firstOrNull { it.name == v } }?.let { shelfChoice = it }
             app.prefs.string("library.filter")?.let { v -> Filter.entries.firstOrNull { it.name == v } }?.let { filter = it }
@@ -188,11 +193,11 @@ class LibraryViewModel(private val app: AppModel) : ViewModel() {
         }
     }
 
-    /** Books appears only when the library has a book. */
-    val shelves: List<Shelf> get() = LibraryFilter.shelves(novels)
+    /** Books appears only when the library has a book; Comics when the server knows comics (or the library has one). */
+    val shelves: List<Shelf> get() = LibraryFilter.shelves(novels, comicsOffered)
 
     /** The shelf shown: a remembered Books shelf with no books left falls back to Novels (the choice is kept). */
-    val shelf: Shelf get() = LibraryFilter.effectiveShelf(shelfChoice, novels)
+    val shelf: Shelf get() = LibraryFilter.effectiveShelf(shelfChoice, novels, comicsOffered)
     val onShelf: List<NovelSummary> get() = LibraryFilter.shelf(novels, shelf)
 
     /**
@@ -313,15 +318,22 @@ fun LibraryScreen(nav: NavController) {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             val shelves = model.shelves
-            PrimaryTabRow(selectedTabIndex = shelves.indexOf(model.shelf).coerceAtLeast(0)) {
+            val shelfTabs: @Composable () -> Unit = {
                 shelves.forEach { shelf ->
                     Tab(
                         selected = model.shelf == shelf,
                         onClick = { model.select(shelf) },
                         unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        text = { Text(if (model.novels.isEmpty()) shelf.title else "${shelf.title} (${model.count(shelf, list)})") },
+                        text = { Text(if (model.novels.isEmpty()) shelf.title else "${shelf.title} (${model.count(shelf, list)})", maxLines = 1) },
                     )
                 }
+            }
+            val shelfIndex = shelves.indexOf(model.shelf).coerceAtLeast(0)
+            // Four shelves (Comics and Books both offered) don't fit a phone's width with counts: they scroll.
+            if (shelves.size > 3) {
+                PrimaryScrollableTabRow(selectedTabIndex = shelfIndex, edgePadding = 0.dp) { shelfTabs() }
+            } else {
+                PrimaryTabRow(selectedTabIndex = shelfIndex) { shelfTabs() }
             }
             // The category tabs (Mihon style): All · each category in the reader's order · Uncategorised.
             if (listsOffered && listsState.lists.isNotEmpty()) {

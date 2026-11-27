@@ -85,6 +85,13 @@ since 1.11.0; *sync now* works in the file browser too).
   While you read, the next 3 chapters are fetched ahead (each is a few MB). A started
   manga is on Home like a novel. Manga chapters are never joined, and they have no
   highlights or EPUB.
+- **Comics** (since 1.14.0, with a Novarr server that has comics and sends manga as
+  CBZ): a comic series is in the Library under *Comics* (also **More → Comics**), and
+  each issue or volume is read exactly like a manga chapter (a CBZ scaled to this
+  screen, read on its last page, the next issue past it, progress synced, 3 fetched
+  ahead). Comic pages turn **left to right**, even when KOReader's default is right
+  to left for your manga; only a series that Novarr marks as right-to-left turns the
+  other way. Changing the direction yourself in KOReader (on one issue) is kept.
 - **Audiobooks** can't play on a Kindle: a series with an audiobook says
   *Audiobook available: listen in the Novarr app* on its page.
 - **A novel** shows its cover, how many chapters are left and roughly how long
@@ -125,7 +132,8 @@ opens these, each only when your Novarr server offers it:
   an author or an ISBN, and the server searches every source of that kind while a
   small dialog waits (you can stop waiting). Each result says *Request*, *Me too?*
   (someone asked already: you follow their request), *Requested* or *In library*
-  (open it). A request can carry a note.
+  (open it). A request can carry a note. Since 1.14.0, with a server that has comics,
+  the choice also offers **Comic** (searched like a book: title, author or ISBN).
 - **My requests**: what you asked for, with its status (waiting, approved, ready to
   read, declined and why). Tap one to open it when it is ready, cancel
   it while it waits, or see its details.
@@ -134,7 +142,7 @@ opens these, each only when your Novarr server offers it:
   **Open**; each piece of news is shown once.
 - **My stats** (with a server that keeps reading stats): today, this week, all time,
   your streak and top series, as plain text.
-- **Manga** (when your library has some) and **Downloads**.
+- **Manga**, **Comics** (since 1.14.0; each when your library has some) and **Downloads**.
 
 Opening these screens never asks to turn Wi-Fi on (they show what was saved);
 changing a list, requesting or cancelling does, like Sync.

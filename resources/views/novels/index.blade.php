@@ -29,9 +29,14 @@
     if (!\Illuminate\Support\Facades\Gate::allows('admin')) {
         unset($chips['attention']);
     }
-    // A manga's page images are not saved for offline reading on the web.
-    if ($medium === \App\Novel::MEDIUM_MANGA) {
+    // A manga's (or comic's) page images are not saved for offline reading on the web.
+    if (in_array($medium, \App\Novel::PAGED_MEDIA, true)) {
         unset($chips['offline']);
+    }
+    // Comics arrive whole from the comics inbox: nothing is scraped.
+    $isComics = $medium === \App\Novel::MEDIUM_COMIC;
+    if ($isComics) {
+        unset($chips['attention']);
     }
     // A book arrives whole: never new chapters, nothing to download.
     $isBooks = $medium === \App\Novel::MEDIUM_BOOK;
@@ -85,6 +90,14 @@
                 <a href="{{ route('audiobooks.manage') }}" class="btn btn-secondary">Manage audiobooks</a>
             @endcan
             <a href="{{ route('books.upload') }}" class="btn btn-primary">+ Upload a book</a>
+        @elseif($isComics)
+            {{-- Comics come in through the comics inbox (downloads or drop-in); readers request them. --}}
+            @can('admin')
+                <a href="{{ route('comics.manage') }}" class="btn btn-secondary">Manage comics</a>
+            @endcan
+            @if(config('novarr.requests.enabled', true))
+                <a href="{{ route('requests.index', ['medium' => 'comic']) }}" class="btn btn-primary">+ Request a comic</a>
+            @endif
         @else
             @can('admin')
             <a href="{{ route('novels.discover', ['medium' => $medium]) }}" class="btn btn-primary">+ Add {{ $mediumNoun }}</a>
@@ -121,7 +134,7 @@
         {{-- Library: Novels or Manga, remembered in the session; switching
              keeps the view and sort and starts the filters over. --}}
         <div class="btn-group segmented lib-medium" role="group" aria-label="Library">
-            @foreach(['novel' => 'Web Novels', 'manga' => 'Manga', 'book' => 'Books'] as $mKey => $mLabel)
+            @foreach(['novel' => 'Web Novels', 'manga' => 'Manga', 'book' => 'Books', 'comic' => 'Comics'] as $mKey => $mLabel)
                 <a href="{{ $mediumUrl($mKey) }}" data-medium="{{ $mKey }}"
                    class="btn btn-secondary {{ $medium === $mKey ? 'active' : '' }}" @if($medium === $mKey) aria-current="true" @endif>{{ $mLabel }}</a>
             @endforeach
@@ -348,7 +361,7 @@
                             <li class="lib-tile" data-id="{{ $novel->id }}">
                                 <a href="{{ route('novels.show', $novel->id) }}" class="lib-tile-link"
                                    title="{{ $novel->name }} — {{ number_format($prog['downloaded']) }} of {{ number_format($prog['total']) }} · {{ $prog['percent'] }}% downloaded">
-                                    <x-cover :novel="$novel" :progress="$r['percent']" :flag="$flag" :chapters="$prog['total']" :eager="$eager" :chip="$novel->isManga() ? 'MANGA' : null" decorative />
+                                    <x-cover :novel="$novel" :progress="$r['percent']" :flag="$flag" :chapters="$prog['total']" :eager="$eager" :chip="$novel->isManga() ? 'MANGA' : ($novel->isComic() ? 'COMIC' : null)" decorative />
                                     <span class="lib-tile-title">{{ $novel->name }}</span>
                                     <span class="lib-tile-sub {{ $subTone }}" data-reading="{{ $r['read'] }}/{{ $r['total'] }}">{{ $sub }}</span>
                                     @if($origin || $novel->originCountry())

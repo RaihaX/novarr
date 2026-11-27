@@ -26,7 +26,7 @@
         <span class="page-head-kicker">System · Downloads</span>
         <h1 class="page-title mb-0">Downloads</h1>
         <p class="page-head-sub mb-0">
-            Books and audiobooks from every Prowlarr indexer: usenet through NZBGet, torrents through Transmission (they keep seeding).
+            Books, audiobooks and comics from every Prowlarr indexer: usenet through NZBGet, torrents through Transmission (they keep seeding).
             @if($lastPoll) Last checked {{ \Carbon\Carbon::parse($lastPoll['at'])->diffForHumans() }}. @endif
             Searches today: <span class="mono-num" id="searchBudget">{{ $budget['used'] }} / {{ $budget['cap'] }}</span>.
         </p>
@@ -122,7 +122,7 @@
                 <li class="dl-grab">
                     <div class="dl-grab-body">
                         <span class="dl-grab-title">{{ $w->request?->title ?? $w->novel?->name ?? 'Wanted #' . $w->id }}</span>
-                        <span class="dl-grab-meta">{{ $w->kind === 'audiobook' ? 'Audiobook' : 'Ebook' }} · last searched {{ $w->last_searched_at?->diffForHumans() ?? 'never' }}</span>
+                        <span class="dl-grab-meta">{{ \App\Downloads\Downloads::kindLabel($w->kind) }} · last searched {{ $w->last_searched_at?->diffForHumans() ?? 'never' }}</span>
                         <span class="dl-grab-status">Results found, none clear enough to take by itself.</span>
                     </div>
                     @if($url)<a class="btn btn-sm btn-primary" href="{{ $url }}">Choose</a>@endif
@@ -138,11 +138,11 @@
                 <li class="dl-grab">
                     <div class="dl-grab-body">
                         <span class="dl-grab-title">{{ $grab->title }}</span>
-                        <span class="dl-grab-meta">{{ $grab->kind === 'audiobook' ? 'Audiobook' : 'Ebook' }} · in the inbox as “{{ $grab->completed_path }}” · {{ $grab->updated_at?->diffForHumans() }}</span>
+                        <span class="dl-grab-meta">{{ \App\Downloads\Downloads::kindLabel($grab->kind) }} · in the inbox as “{{ $grab->completed_path }}” · {{ $grab->updated_at?->diffForHumans() }}</span>
                     </div>
                     <form method="POST" action="{{ route('downloads.grabs.import', $grab->id) }}" class="dl-import">
                         @csrf
-                        <input type="number" min="1" class="form-control form-control-sm" name="{{ $grab->kind === 'audiobook' ? 'novel_id' : 'request_id' }}" value="{{ $grab->kind === 'audiobook' ? $grab->novel_id : $grab->novel_request_id }}" aria-label="{{ $grab->kind === 'audiobook' ? 'Book id' : 'Request id' }}">
+                        <input type="number" min="1" class="form-control form-control-sm" name="{{ $grab->kind !== 'ebook' ? 'novel_id' : 'request_id' }}" value="{{ $grab->kind !== 'ebook' ? $grab->novel_id : $grab->novel_request_id }}" aria-label="{{ $grab->kind === 'comic' ? 'Comic series id' : ($grab->kind === 'audiobook' ? 'Book id' : 'Request id') }}">
                         <button type="submit" class="btn btn-sm btn-secondary">Import</button>
                     </form>
                 </li>
@@ -195,7 +195,7 @@
                         @endphp
                         <tr>
                             <td class="cell-primary"><strong>{{ $t['name'] ?? $g->title }}</strong>
-                                <span class="stg-meta">{{ $g->indexer }} · {{ $g->kind === 'audiobook' ? 'Audiobook' : 'Ebook' }} · Novarr: {{ $g->status }}</span></td>
+                                <span class="stg-meta">{{ $g->indexer }} · {{ \App\Downloads\Downloads::kindLabel($g->kind) }} · Novarr: {{ $g->status }}</span></td>
                             <td data-label="State">{{ $t ? (($t['error'] ?? 0) ? 'Error: ' . ($t['errorString'] ?? '') : ($states[(int) ($t['status'] ?? 0)] ?? '?')) : 'Not in Transmission' }}</td>
                             <td class="stg-num mono-figure" data-label="Ratio">{{ $t ? number_format(max(0, (float) ($t['uploadRatio'] ?? 0)), 2) : '—' }}</td>
                             <td class="stg-num" data-label="Uploaded">{{ $t ? $h((int) ($t['uploadedEver'] ?? 0)) : '—' }}</td>
@@ -225,7 +225,7 @@
                         <span class="dl-grab-title">{{ $grab->title }}</span>
                         <span class="dl-grab-meta">
                             <span class="dl-badge dl-badge-{{ $grab->protocol }}">{{ $grab->protocol === 'torrent' ? 'Torrent' : 'Usenet' }}</span>
-                            {{ $grab->kind === 'audiobook' ? 'Audiobook' : 'Ebook' }} · {{ $grab->indexer }} · {{ $h($grab->size) }}{{ $grab->auto ? ' · grabbed automatically' : '' }}
+                            {{ \App\Downloads\Downloads::kindLabel($grab->kind) }} · {{ $grab->indexer }} · {{ $h($grab->size) }}{{ $grab->auto ? ' · grabbed automatically' : '' }}
                             @if($targetLabel) · <a href="{{ $targetUrl }}">{{ $targetLabel }}</a>@endif
                         </span>
                         <span class="dl-grab-status" data-grab-status role="status">{{ \App\Downloads\Downloads::statusLine($grab) }}</span>
@@ -251,7 +251,7 @@
                         <span class="dl-grab-title">{{ $grab->title }}</span>
                         <span class="dl-grab-meta">
                             <span class="dl-badge dl-badge-{{ $grab->protocol }}">{{ $grab->protocol === 'torrent' ? 'Torrent' : 'Usenet' }}</span>
-                            {{ $grab->kind === 'audiobook' ? 'Audiobook' : 'Ebook' }} · {{ $grab->updated_at?->diffForHumans() }}
+                            {{ \App\Downloads\Downloads::kindLabel($grab->kind) }} · {{ $grab->updated_at?->diffForHumans() }}
                             @if($targetLabel) · <a href="{{ $targetUrl }}">{{ $targetLabel }}</a>@endif
                         </span>
                         <span class="dl-grab-status {{ $grab->status === 'failed' ? 'dl-status-failed' : 'dl-status-done' }}">{{ $p['status_line'] }}</span>
@@ -261,9 +261,9 @@
                         {{-- Manual import: into a wanted request (ebook) or a book (audiobook), by id. --}}
                         <form method="POST" action="{{ route('downloads.grabs.import', $grab->id) }}" class="dl-import">
                             @csrf
-                            <input type="number" min="1" class="form-control form-control-sm" name="{{ $grab->kind === 'audiobook' ? 'novel_id' : 'request_id' }}"
-                                   value="{{ $grab->kind === 'audiobook' ? $grab->novel_id : $grab->novel_request_id }}"
-                                   aria-label="{{ $grab->kind === 'audiobook' ? 'Book id' : 'Request id' }}" placeholder="{{ $grab->kind === 'audiobook' ? 'Book #' : 'Request #' }}">
+                            <input type="number" min="1" class="form-control form-control-sm" name="{{ $grab->kind !== 'ebook' ? 'novel_id' : 'request_id' }}"
+                                   value="{{ $grab->kind !== 'ebook' ? $grab->novel_id : $grab->novel_request_id }}"
+                                   aria-label="{{ $grab->kind === 'comic' ? 'Comic series id' : ($grab->kind === 'audiobook' ? 'Book id' : 'Request id') }}" placeholder="{{ $grab->kind === 'comic' ? 'Series #' : ($grab->kind === 'audiobook' ? 'Book #' : 'Request #') }}">
                             <button type="submit" class="btn btn-sm btn-ghost">Import</button>
                         </form>
                     @endif
@@ -302,7 +302,7 @@
 @if($tab === 'wanted')
 <section aria-labelledby="wantedTitle">
     <h2 class="panel-title visually-hidden" id="wantedTitle">Wanted</h2>
-    <p class="form-text">Every book a reader asked for by title, and every book whose audiobook is wanted. Novarr searches for each by itself (after 1 h, 6 h, 24 h, then every 3 days) and grabs a clear match; the rest wait for your choice.</p>
+    <p class="form-text">Every book and comic a reader asked for by title, and every book whose audiobook is wanted. Novarr searches for each by itself (after 1 h, 6 h, 24 h, then every 3 days) and grabs a clear match; the rest wait for your choice.</p>
     @if($wanted->isEmpty())
         <p class="ab-empty">Nothing is wanted.</p>
     @else
@@ -313,7 +313,7 @@
                     <div class="ab-row-body">
                         <span class="ab-row-title">{{ $row->title() }}</span>
                         <span class="ab-row-meta">
-                            {{ $row->kind === 'audiobook' ? 'Audiobook' : 'Ebook' }}{{ $row->author() ? ' · ' . $row->author() : '' }}
+                            {{ \App\Downloads\Downloads::kindLabel($row->kind) }}{{ $row->author() ? ' · ' . $row->author() : '' }}
                             @if($row->requester) · asked for by {{ $row->requester->name }}@endif
                             · {{ $row->last_searched_at ? 'searched ' . $row->last_searched_at->diffForHumans() : 'not searched yet' }}
                             @if($row->monitored && $row->next_search_at) · next {{ $row->next_search_at->diffForHumans() }}@endif
@@ -398,7 +398,7 @@
                 <span class="form-text">automatic ones stop there (indexers limit API calls)</span>
             </div>
         </div>
-        <p class="form-text mt-3 mb-2">Formats grabbed by themselves: ebooks {{ implode(', ', config('novarr.downloads.formats.ebook')) }} (never pdf); audiobooks {{ implode(', ', config('novarr.downloads.formats.audiobook')) }}. A download that does not move for {{ config('novarr.downloads.stall_hours') }} hours is failed and replaced.</p>
+        <p class="form-text mt-3 mb-2">Formats grabbed by themselves: ebooks {{ implode(', ', config('novarr.downloads.formats.ebook')) }} (never pdf); audiobooks {{ implode(', ', config('novarr.downloads.formats.audiobook')) }}; comics {{ implode(', ', config('novarr.downloads.formats.comic', [])) }} (a single issue or volume before a pack). A download that does not move for {{ config('novarr.downloads.stall_hours') }} hours is failed and replaced.</p>
         <button type="submit" class="btn btn-primary">Save</button>
     </div></form>
 </section>

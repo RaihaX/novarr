@@ -1,5 +1,7 @@
 --[[--
-Manga on the Kindle (1.13.0): a manga chapter is downloaded as a CBZ (a
+Manga on the Kindle (1.13.0), and comics (1.14.0: a comic's issue or
+volume is a page chapter too, read exactly the same way, left to right
+unless its series says otherwise): a manga chapter is downloaded as a CBZ (a
 zip of its page images; KOReader opens comic archives itself) and stored
 like a text chapter, as chapters/<novelId>/<chapterId>_<slug>.cbz, so
 opening, next/previous chapter, prefetching, read marks and progress sync
@@ -18,6 +20,7 @@ download: a few seconds per chapter on home Wi-Fi.
 local logger = require("logger")
 
 local Api = require("novarr.api")
+local Model = require("novarr.model")
 
 local Manga = {}
 
@@ -45,6 +48,15 @@ function Manga.gray()
     if not ok or not Device then return true end
     local okc, color = pcall(function() return Device:hasColorScreen() end)
     return not (okc and color)
+end
+
+--- The first page medium ("manga" | "comic") among the arguments (what the server said, the summary, the store); else "manga".
+function Manga.pagedMedium(...)
+    for i = 1, select("#", ...) do
+        local m = select(i, ...)
+        if Model.isPaged(m) then return m end
+    end
+    return "manga"
 end
 
 local function header(h, name)
@@ -79,6 +91,11 @@ function Manga.download(session, chapter_id, opts)
         novel_name = summary and summary.name or nil,
         downloaded = type(data.pages) == "table" and #data.pages > 0,
         manga = true,
+        -- 1.14.0: the series' medium ("manga" | "comic") and page direction
+        -- ("ltr" | "rtl" | "vertical"), kept with the stored file so the
+        -- reader can turn a comic's pages the right way offline too.
+        medium = Manga.pagedMedium(c.medium, summary and summary.medium, session:novelMedium(tonumber(c.novel_id))),
+        reading_mode = type(data.reading_mode) == "string" and data.reading_mode or nil,
     }
     if not ch.downloaded then return nil, "not_downloaded", ch end
     local free = session:freeBytes()

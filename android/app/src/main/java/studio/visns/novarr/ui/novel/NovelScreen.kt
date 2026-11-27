@@ -159,7 +159,7 @@ fun NovelScreen(nav: NavController, novelId: Int) {
     LaunchedEffect(queueRevision) { model.refreshUnsentWrites() }
 
     fun open(chapterId: Int, offerLatest: Boolean = true) =
-        nav.navigate(ReaderRoute(novelId, chapterId, manga = model.isManga, offerLatest = offerLatest))
+        nav.navigate(ReaderRoute(novelId, chapterId, manga = model.isPaged, offerLatest = offerLatest))
 
     Scaffold(
         topBar = {
@@ -229,8 +229,8 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                                     onClick = { menu = false; app.startCheck(novelId) },
                                 )
                             }
-                            // The series' ePub by email (a manga has none).
-                            if (model.summary != null && !model.isManga) {
+                            // The series' ePub by email (manga and comics have none).
+                            if (model.summary != null && !model.isPaged) {
                                 DropdownMenuItem(
                                     text = { Text(SendToKindle.MENU_LABEL) },
                                     enabled = reachable && model.send !is SendToKindle.UiState.Running,
@@ -522,8 +522,8 @@ private fun NovelHeader(summary: NovelSummary, detail: NovelDetail?, wide: Boole
                         )
                     }
                 }
-                if (summary.isManga || summary.isBook) {
-                    Text(if (summary.isBook) "Book" else "Manga", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (summary.isPaged || summary.isBook) {
+                    Text(studio.visns.novarr.api.Medium.label(summary.medium), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

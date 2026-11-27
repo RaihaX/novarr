@@ -75,7 +75,7 @@ class HomeController extends Controller
                 'percent' => $total > 0 ? (int) min(100, round($c['read'] / $total * 100)) : 0,
                 'unread' => $c['unread'],
                 'manga' => $item['novel']->isManga(),
-                'page_text' => $item['novel']->isManga() ? self::pageText($item['next'], (bool) $item['resume']) : null,
+                'page_text' => $item['novel']->hasPages() ? self::pageText($item['next'], (bool) $item['resume']) : null,
             ];
         }, array_slice($continue, 1, 6));
 
@@ -341,7 +341,7 @@ class HomeController extends Controller
             'state' => NovelState::forNovel($novel, isset($attentionIds[$novel->id])),
             // Manga: where in the chapter, in pages ("Page 12 of 34").
             'manga' => $novel->isManga(),
-            'page_text' => $novel->isManga() ? self::pageText($chapter, (bool) $item['resume']) : null,
+            'page_text' => $novel->hasPages() ? self::pageText($chapter, (bool) $item['resume']) : null,
         ];
     }
 

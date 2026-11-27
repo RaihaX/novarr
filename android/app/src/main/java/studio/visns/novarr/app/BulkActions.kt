@@ -101,7 +101,7 @@ class BulkActions(private val app: AppModel) {
             val cached = session.store.cachedChapterIds(novel.id)
             val ids = chapters.filter { it.downloaded && !it.read && it.id !in cached }.map { it.id }
             if (ids.isNotEmpty()) {
-                app.downloads.start(novel.id, ids, manga = novel.isManga)
+                app.downloads.start(novel.id, ids, manga = novel.isPaged)
                 started++
             }
         }

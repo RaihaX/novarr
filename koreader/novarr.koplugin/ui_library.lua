@@ -6,7 +6,9 @@ Books (1.12.0): the Library shows either the web novels or the books
 while the library holds at least one book (Home's Books button opens it on
 the books).
 1.13.0: manga too (self.medium "manga", when the server sends them as CBZ
-and the library holds one); the switch row then offers each medium. A book
+and the library holds one); the switch row then offers each medium.
+1.14.0: comics (self.medium "comic") likewise, when the server says it has
+them (meta comics) and sends CBZ (manga_cbz). A book
 series is one row (its books in order on a screen of their own).
 ]]
 
@@ -35,7 +37,7 @@ local FILTER_NAMES = {
 -- last_medium: also where leaving a book comes back to (main.lua).
 local last_filter, last_query, last_medium = "all", "", "novel"
 
-local MEDIUM_NAMES = { novel = _("Novels"), book = _("Books"), manga = _("Manga") }
+local MEDIUM_NAMES = { novel = _("Novels"), book = _("Books"), manga = _("Manga"), comic = _("Comics") }
 
 function Library:items()
     local s = self.session
@@ -46,9 +48,10 @@ function Library:items()
     end
     local covers = self.cover_list
     local all = data and data.novels or {}
-    -- The media this library holds (novels always; books, manga when there are some).
+    -- The media this library holds (novels always; books, manga, comics when there are
+    -- some; comics only when the server has them and sends them as CBZ, 1.14.0).
     -- Only novels (or an older server): no switch row, as before 1.12.0.
-    local media = Collections.libraryMedia(all)
+    local media = Collections.libraryMedia(all, s:comicsReadable())
     local medium = "novel"
     for _i, m in ipairs(media) do
         if m == self.medium then medium = m end
@@ -161,6 +164,7 @@ function Library:items()
             text = _("The library hasn't been loaded yet.")
         else
             text = medium == "book" and _("No books match.") or medium == "manga" and _("No manga match.")
+                or medium == "comic" and _("No comics match.")
                 or _("No novels match.")
         end
         table.insert(items, { text = text, dim = true, callback = function() end })
@@ -228,10 +232,11 @@ end
 
 --[[--
 Opens the Library. medium: "book" (Home's Books button), "novel" (Home's
-Library button), "manga" (More > Manga) or nil (the last one shown in this session).
+Library button), "manga" (More > Manga), "comic" (More > Comics, 1.14.0) or
+nil (the last one shown in this session).
 ]]
 function Library.show(session, medium)
-    if medium == "book" or medium == "novel" or medium == "manga" then last_medium = medium end
+    if medium == "book" or medium == "novel" or medium == "manga" or medium == "comic" then last_medium = medium end
     local self = setmetatable({ session = session, kind = "library", filter = last_filter, query = last_query,
         medium = last_medium, cover_list = session:showCovers() }, Library)
     self.menu = UI.showMenu(session, {

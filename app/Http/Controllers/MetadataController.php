@@ -22,7 +22,7 @@ class MetadataController extends Controller
     public function candidates($id): JsonResponse
     {
         $novel = Novel::findOrFail($id);
-        if ($novel->isManga()) {
+        if ($novel->hasPages()) {
             return self::notForManga();
         }
 
@@ -58,7 +58,7 @@ class MetadataController extends Controller
     public function choose(Request $request, $id): JsonResponse
     {
         $novel = Novel::findOrFail($id);
-        if ($novel->isManga()) {
+        if ($novel->hasPages()) {
             return self::notForManga();
         }
 

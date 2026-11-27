@@ -4,13 +4,14 @@
 // and donut, horizontal genre bars, ranked lists and milestone badges.
 // Amber stays the reading colour; listening is cyan ($pending); patterns
 // (hour, weekday) are indigo. Media: novel indigo, manga violet, book cyan,
-// audiobook green.
+// audiobook green, comic orange (the danger red-orange, as a series colour).
 // ---------------------------------------------------------------------------
 
 $stats-novel: $brand-indigo;
 $stats-manga: $brand-violet;
 $stats-book: $pending;
 $stats-audio: $success;
+$stats-comic: $danger;
 
 .stats-toolbar {
     display: flex;
@@ -101,6 +102,7 @@ $stats-audio: $success;
     .donut-arc.is-manga { stroke: $stats-manga; }
     .donut-arc.is-book { stroke: $stats-book; }
     .donut-arc.is-audio { stroke: $stats-audio; }
+    .donut-arc.is-comic { stroke: $stats-comic; }
     .donut-total { font-family: $font-mono; font-size: 15px; fill: $text; }
     .donut-caption { font-size: 11px; fill: $text-muted; }
 }
@@ -117,6 +119,7 @@ $stats-audio: $success;
     &.is-manga { background: $stats-manga; }
     &.is-book { background: $stats-book; }
     &.is-audio { background: $stats-audio; }
+    &.is-comic { background: $stats-comic; }
 }
 
 .stats-legend {

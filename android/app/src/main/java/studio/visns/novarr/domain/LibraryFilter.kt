@@ -10,12 +10,13 @@ import studio.visns.novarr.api.ReadingList
 object LibraryFilter {
     /** [noun]: the shelf's series in running text ("No books yet"). */
     enum class Shelf(val title: String, val noun: String) {
-        NOVELS("Web Novels", "web novels"), MANGA("Manga", "manga"), BOOKS("Books", "books");
+        NOVELS("Web Novels", "web novels"), MANGA("Manga", "manga"), COMICS("Comics", "comics"), BOOKS("Books", "books");
 
-        /** Novels takes every series that is neither manga nor a book (including a blank or unknown medium). */
+        /** Novels takes every series that is neither manga, a comic nor a book (including a blank or unknown medium). */
         fun matches(novel: NovelSummary): Boolean = when (this) {
-            NOVELS -> !novel.isManga && !novel.isBook
+            NOVELS -> !novel.isManga && !novel.isComic && !novel.isBook
             MANGA -> novel.isManga
+            COMICS -> novel.isComic
             BOOKS -> novel.isBook
         }
     }
@@ -38,13 +39,21 @@ object LibraryFilter {
 
     /**
      * The shelves the picker offers: Books only when the library has at least
-     * one book, so a library without books looks exactly as before.
+     * one book, so a library without books looks exactly as before; Comics
+     * when the server knows comics ([comics]: meta `comics`) or the library
+     * has one (never hiding series the reader has).
      */
-    fun shelves(novels: List<NovelSummary>): List<Shelf> =
-        if (novels.any { it.isBook }) Shelf.entries else Shelf.entries - Shelf.BOOKS
+    fun shelves(novels: List<NovelSummary>, comics: Boolean = false): List<Shelf> = Shelf.entries.filter { shelf ->
+        when (shelf) {
+            Shelf.BOOKS -> novels.any { it.isBook }
+            Shelf.COMICS -> comics || novels.any { it.isComic }
+            else -> true
+        }
+    }
 
     /** The shelf in effect: a remembered shelf that isn't offered (Books with no books) falls back to Novels. */
-    fun effectiveShelf(shelf: Shelf, novels: List<NovelSummary>): Shelf = if (shelf in shelves(novels)) shelf else Shelf.NOVELS
+    fun effectiveShelf(shelf: Shelf, novels: List<NovelSummary>, comics: Boolean = false): Shelf =
+        if (shelf in shelves(novels, comics)) shelf else Shelf.NOVELS
 
     /**
      * The grid: [novels] in [list] (when one is chosen: Library's list

@@ -68,7 +68,7 @@ class NovelController extends Controller
 
     public function download_epub($id, Request $request) {
         $object = $this->novels->findOrFail($id);
-        abort_if($object->isManga(), 404, 'A manga has no ePub: ePubs are made from chapter text.');
+        abort_if($object->hasPages(), 404, 'A manga has no ePub: ePubs are made from chapter text.');
 
         // Same sanitised name the generator writes (reserved characters
         // stripped, "Unknown" for a missing author).
@@ -710,6 +710,10 @@ class NovelController extends Controller
         if ($medium === Novel::MEDIUM_BOOK) {
             return redirect()->route('books.upload');
         }
+        // …and a comic from its files, through the comics inbox.
+        if ($medium === Novel::MEDIUM_COMIC) {
+            return redirect()->route('comics.manage');
+        }
 
         return view('novels.create', ['medium' => $medium]);
     }
@@ -1092,7 +1096,7 @@ class NovelController extends Controller
         $object->save();
 
         // Origin guess from the form's author / URLs (no network); not for a manga.
-        if (!$object->isManga()) {
+        if (!$object->hasPages()) {
             $object->inferOrigin();
         }
 
@@ -1133,7 +1137,7 @@ class NovelController extends Controller
         // being read has progress and no read date; the resume point
         // (novelStats()) resumes it and the button names the saved page.
         $continuePage = null;
-        if ($data->isManga() && ($stats['continue_kind'] ?? null) === ResumePoint::RESUME) {
+        if ($data->hasPages() && ($stats['continue_kind'] ?? null) === ResumePoint::RESUME) {
             $continuePage = HomeController::mangaPage($stats['continue_progress'] ?? null, $stats['continue_page_count'] ?? null);
         }
 
@@ -1212,7 +1216,7 @@ class NovelController extends Controller
      */
     private function epubBuiltAt(Novel $novel): ?Carbon
     {
-        if ($novel->isManga()) {
+        if ($novel->hasPages()) {
             return null;
         }
         $path = GenerateePub::epubPath($novel);

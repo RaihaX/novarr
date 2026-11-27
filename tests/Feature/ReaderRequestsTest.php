@@ -244,7 +244,7 @@ class ReaderRequestsTest extends TestCase
             ->assertStatus(422)->assertJsonValidationErrors('link');
         $this->asToken($this->readerToken)->postJson('/api/v1/requests', ['title' => 'X', 'medium' => 'novel', 'note' => str_repeat('n', 501)])
             ->assertStatus(422)->assertJsonValidationErrors('note');
-        $this->asToken($this->readerToken)->postJson('/api/v1/requests', ['title' => 'X', 'medium' => 'comic'])
+        $this->asToken($this->readerToken)->postJson('/api/v1/requests', ['title' => 'X', 'medium' => 'webtoon'])
             ->assertStatus(422)->assertJsonValidationErrors('medium');
         $this->asToken($this->readerToken)->postJson('/api/v1/requests', ['title' => '!!!', 'medium' => 'novel'])
             ->assertStatus(422)->assertJsonPath('code', 'invalid_title');

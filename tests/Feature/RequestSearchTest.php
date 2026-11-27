@@ -188,7 +188,7 @@ class RequestSearchTest extends TestCase
         $token = $this->tokenFor($this->makeReader());
 
         $this->startSearch($token, str_repeat('x', 101))->assertStatus(422)->assertJsonValidationErrors('q');
-        $this->startSearch($token, 'solo', 'comic')->assertStatus(422)->assertJsonValidationErrors('medium');
+        $this->startSearch($token, 'solo', 'webtoon')->assertStatus(422)->assertJsonValidationErrors('medium');
         $this->startSearch($token, '   ')->assertStatus(422);
         $this->assertSame([], FakeRequestSource::$calls);
     }

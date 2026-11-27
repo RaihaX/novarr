@@ -10,9 +10,12 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 
 /**
- * The nightly tidy-up of the two download inboxes (downloads:tidy): the
- * audiobook inbox (novarr.audiobooks.inbox, also the owner's drop-in folder)
- * and the books download inbox (novarr.books.download_inbox).
+ * The nightly tidy-up of the download inboxes (downloads:tidy): the
+ * audiobook inbox (novarr.audiobooks.inbox, also the owner's drop-in folder),
+ * the books download inbox (novarr.books.download_inbox) and the comics
+ * inbox (novarr.comics.inbox, also a drop-in folder; a usenet / dropped-in
+ * comic is deleted by its import, so what is left here is torrents'), with
+ * the same rules for all three.
  *
  * What it deletes, and only that:
  *   - a finished download Novarr already IMPORTED (or that failed) whose
@@ -76,7 +79,7 @@ class InboxTidy
             }
         }
 
-        foreach ([DownloadGrab::KIND_AUDIOBOOK => AudiobookLibrary::inbox(), DownloadGrab::KIND_EBOOK => Downloads::booksInbox()] as $kind => $inbox) {
+        foreach ([DownloadGrab::KIND_AUDIOBOOK => AudiobookLibrary::inbox(), DownloadGrab::KIND_EBOOK => Downloads::booksInbox(), DownloadGrab::KIND_COMIC => \App\Comics\ComicLibrary::inbox()] as $kind => $inbox) {
             if (!is_dir($inbox)) {
                 continue;
             }
@@ -100,25 +103,27 @@ class InboxTidy
             }
         }
 
-        // Unreadable audiobook files, after FAILED_DAYS (their .reason.txt goes with them).
-        $failedDir = AudiobookLibrary::inbox() . '/' . AudiobookInbox::FAILED_DIR;
-        if (is_dir($failedDir)) {
-            $cutoff = now()->subDays(self::FAILED_DAYS)->getTimestamp();
-            foreach (scandir($failedDir) ?: [] as $name) {
-                if ($name === '.' || $name === '..' || str_ends_with($name, '.reason.txt')) {
-                    continue;
+        // Unreadable audiobook / comic files, after FAILED_DAYS (their .reason.txt goes with them).
+        foreach ([AudiobookLibrary::inbox(), \App\Comics\ComicLibrary::inbox()] as $failedInbox) {
+            $failedDir = $failedInbox . '/' . AudiobookInbox::FAILED_DIR;
+            if (is_dir($failedDir)) {
+                $cutoff = now()->subDays(self::FAILED_DAYS)->getTimestamp();
+                foreach (scandir($failedDir) ?: [] as $name) {
+                    if ($name === '.' || $name === '..' || str_ends_with($name, '.reason.txt')) {
+                        continue;
+                    }
+                    $path = "{$failedDir}/{$name}";
+                    // A torrent's files never land in _failed, but check anyway.
+                    if (isset($seeding[mb_strtolower($name)]) || (int) @filemtime($path) > $cutoff) {
+                        continue;
+                    }
+                    if (!$dryRun) {
+                        self::remove($path);
+                        @unlink("{$failedDir}/{$name}.reason.txt");
+                        DownloadEvent::log(DownloadEvent::TIDIED, $name, 'Unreadable, kept ' . self::FAILED_DAYS . ' days in _failed.');
+                    }
+                    $deleted[] = "_failed/{$name} — unreadable, older than " . self::FAILED_DAYS . ' days';
                 }
-                $path = "{$failedDir}/{$name}";
-                // A torrent's files never land in _failed, but check anyway.
-                if (isset($seeding[mb_strtolower($name)]) || (int) @filemtime($path) > $cutoff) {
-                    continue;
-                }
-                if (!$dryRun) {
-                    self::remove($path);
-                    @unlink("{$failedDir}/{$name}.reason.txt");
-                    DownloadEvent::log(DownloadEvent::TIDIED, $name, 'Unreadable, kept ' . self::FAILED_DAYS . ' days in _failed.');
-                }
-                $deleted[] = "_failed/{$name} — unreadable, older than " . self::FAILED_DAYS . ' days';
             }
         }
 

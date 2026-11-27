@@ -299,7 +299,8 @@ end
 --[[--
 What the server offers (1.13.0, Api.features of its meta, kept per
 server): lists, want_to_read, favourites, requests, updates, stats,
-manga_cbz, audiobooks. Unknown (an older server, meta not asked yet): false.
+manga_cbz, comics (1.14.0), audiobooks. Unknown (an older server, meta
+not asked yet): false.
 ]]
 function Session:feature(name)
     local f = self:get("server_features")
@@ -312,22 +313,43 @@ function Session:feature(name)
 end
 
 --[[--
-Whether a series is a manga (1.13.0): from its cached detail or the
-library, or its stored chapters (CBZ files).
+Whether comics (1.14.0) can be listed and read here: the server has them
+(meta comics) and sends page chapters as CBZ (meta manga_cbz).
 ]]
-function Session:isManga(novel_id)
-    if not novel_id then return false end
+function Session:comicsReadable()
+    return self:feature("comics") and self:feature("manga_cbz")
+end
+
+--[[--
+A series' medium (1.14.0: Model.MEDIA): from its cached detail or the
+library, else its stored chapters (a CBZ chapter keeps its series'
+medium; one stored by 1.13.0 is a manga's). nil when nothing says.
+]]
+function Session:novelMedium(novel_id)
+    if not novel_id then return nil end
     local detail = self:cached("novel_" .. novel_id)
     if detail and type(detail.novel) == "table" and detail.novel.medium then
-        return detail.novel.medium == "manga"
+        return Model.medium(detail.novel.medium)
     end
     local summary = self:novelSummary(novel_id)
-    if summary and summary.medium then return summary.medium == "manga" end
+    if summary and summary.medium then return Model.medium(summary.medium) end
     for _k, entry in pairs(self.store:getIndex(novel_id).chapters) do
-        if entry.manga or ChapterDoc.isCbz(entry.file) then return true end
+        if Model.isPaged(entry.medium) then return entry.medium end
+        if entry.manga or ChapterDoc.isCbz(entry.file) then return "manga" end
     end
-    return false
+    return nil
 end
+
+--[[--
+Whether a series is read as pages (manga 1.13.0, comic 1.14.0: CBZ
+chapters, never text, never joined, no EPUB or highlights).
+]]
+function Session:isPaged(novel_id)
+    return Model.isPaged(self:novelMedium(novel_id))
+end
+
+-- 1.13.0's name for isPaged (a comic reads like a manga).
+Session.isManga = Session.isPaged
 
 --- Fetches the library (GET novels, with the medium this server supports) into the "novels" cache.
 function Session:fetchLibrary()
@@ -629,8 +651,13 @@ function Session:errorText(e)
         self.auth_told = true
         return _("This Kindle isn't linked to your Novarr account (or the link was removed).\n\nLink it in Novarr → Settings → Link this Kindle. Your reading on this Kindle is kept and sent once it is linked.")
     elseif kind == "manga" then
+        -- A page chapter (manga, or a comic since 1.14.0: e.medium).
+        local comic = e.medium == "comic"
         if self:feature("manga_cbz") then
-            return e.message or _("This manga chapter can't be read here.")
+            return e.message or (comic and _("This comic can't be read here.") or _("This manga chapter can't be read here."))
+        end
+        if comic then
+            return _("This Novarr server can't send comics to KOReader yet (Novarr needs updating). Open it on the website or the Android app.")
         end
         return _("This Novarr server can't send manga to KOReader yet (Novarr needs updating). Open it on the website or the Android app.")
     elseif kind == "forbidden" then
@@ -1198,8 +1225,8 @@ the chapter's series, when known (a manga goes straight to its CBZ).
 ]]
 function Session:downloadChapter(chapter_id, opts)
     opts = opts or {}
-    -- A manga chapter (1.13.0): its pages as a CBZ, when the server can send one.
-    if opts.novel_id and self:isManga(opts.novel_id) and self:feature("manga_cbz") then
+    -- A manga chapter (1.13.0) or a comic's issue (1.14.0): its pages as a CBZ, when the server can send one.
+    if opts.novel_id and self:isPaged(opts.novel_id) and self:feature("manga_cbz") then
         return require("novarr.manga").download(self, chapter_id, opts)
     end
     local data, e = self.api:chapter(chapter_id, { no_reprobe = opts.no_reprobe })
@@ -1462,7 +1489,7 @@ its place in the reading order unknown, no space for the group file...).
 function Session:openJoined(novel_id, chapter_id, opts)
     opts = opts or {}
     -- A manga chapter is a comic archive of its own: never joined.
-    if self:isManga(novel_id) then return false end
+    if self:isPaged(novel_id) then return false end
     local cl = self:chapterList(novel_id)
     local mode, reason = Groups.openMode(self:get("join_chapters"), cl and cl.list, chapter_id)
     if mode ~= "joined" then

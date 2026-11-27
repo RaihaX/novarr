@@ -21,7 +21,7 @@ class LibraryMedium
 {
     public const SESSION_KEY = 'library_medium';
 
-    public const ALL = [Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK];
+    public const ALL = [Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK, Novel::MEDIUM_COMIC];
 
     public static function isValid(mixed $medium): bool
     {
@@ -69,12 +69,13 @@ class LibraryMedium
         return self::isValid($medium) ? $medium : self::remembered();
     }
 
-    /** "novel" / "manga" / "book" — the singular word for one series of the medium. */
+    /** "novel" / "manga" / "book" / "comic" — the singular word for one series of the medium. */
     public static function noun(string $medium): string
     {
         return match ($medium) {
             Novel::MEDIUM_MANGA => 'manga',
             Novel::MEDIUM_BOOK => 'book',
+            Novel::MEDIUM_COMIC => 'comic',
             default => 'web novel',
         };
     }
@@ -87,11 +88,11 @@ class LibraryMedium
         return $medium === Novel::MEDIUM_MANGA ? $noun : \Illuminate\Support\Str::plural($noun, $count);
     }
 
-    /** The plural, capitalised library title: "Novels" / "Manga" / "Books". */
+    /** The plural, capitalised library title: "Web Novels" / "Manga" / "Books" / "Comics". */
     public static function title(string $medium): string
     {
         // Novels are web novels (the Books library holds published ones).
-        if ($medium !== Novel::MEDIUM_MANGA && $medium !== Novel::MEDIUM_BOOK) {
+        if (!in_array($medium, [Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK, Novel::MEDIUM_COMIC], true)) {
             return 'Web Novels';
         }
 
@@ -104,6 +105,7 @@ class LibraryMedium
         return match ($medium) {
             Novel::MEDIUM_MANGA => 'manga',
             Novel::MEDIUM_BOOK => 'books',
+            Novel::MEDIUM_COMIC => 'comics',
             default => 'novels',
         };
     }

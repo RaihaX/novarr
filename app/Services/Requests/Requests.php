@@ -367,7 +367,7 @@ class Requests
         static::forgetPendingCount();
         $this->notify(fn() => $this->notifier->created($request), $request);
 
-        if (!empty($fields['from_browse']) && $request->medium !== Novel::MEDIUM_BOOK) {
+        if (!empty($fields['from_browse']) && !in_array($request->medium, [Novel::MEDIUM_BOOK, Novel::MEDIUM_COMIC], true)) {
             // (A book has one source, the catalogue: nothing more to find.)
             // One candidate so far: the other sources first, then the ranking.
             $this->queueFindCandidates($request, (array) ($fields['alt_titles'] ?? []));
@@ -511,6 +511,15 @@ class Requests
                 ? 'A requested book is added by uploading its ePub on its review page.'
                 : 'An uploaded book is matched and added on its review page.', 'review_upload', [
                 'review_url' => route('books.review', $request->id, false),
+            ]);
+        }
+
+        // A comic arrives through the comics inbox (a download or a drop-in),
+        // which approves its request; the owner may also point it at a comic
+        // series already in the library (novel_id).
+        if ($request->isComic() && !isset($data['novel_id'])) {
+            throw new RequestRefused(422, 'A requested comic is added when it is downloaded or dropped into the comics inbox (Manage comics), or approve it with a comic series already in the library.', 'comic_import', [
+                'manage_url' => route('comics.manage', [], false),
             ]);
         }
 

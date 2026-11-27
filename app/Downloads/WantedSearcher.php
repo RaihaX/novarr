@@ -40,9 +40,10 @@ class WantedSearcher
 
     public function search(DownloadWanted $row, bool $automatic = true): array
     {
-        $request = $row->kind === DownloadGrab::KIND_EBOOK ? NovelRequest::find($row->novel_request_id) : null;
+        $byRequest = in_array($row->kind, [DownloadGrab::KIND_EBOOK, DownloadGrab::KIND_COMIC], true);
+        $request = $byRequest ? NovelRequest::find($row->novel_request_id) : null;
         $novel = $row->kind === DownloadGrab::KIND_AUDIOBOOK ? Novel::find($row->novel_id) : null;
-        if (($row->kind === DownloadGrab::KIND_EBOOK && ($request === null || !$request->isPending() || !$request->isWanted()))
+        if (($byRequest && ($request === null || !$request->isPending() || !$request->isWanted()))
             || ($row->kind === DownloadGrab::KIND_AUDIOBOOK && ($novel === null || \App\Audiobook::where('novel_id', $novel->id)->exists()))) {
             $row->delete();
 

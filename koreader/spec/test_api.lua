@@ -260,6 +260,21 @@ T.it("a manga chapter fetched as text (422 medium manga) is its own kind", funct
     T.eq(e2.kind, "invalid")
 end)
 
+T.it("a comic chapter fetched as text (422 medium comic, 1.14.0) is a page chapter too", function()
+    local api = Api.new({ base_url = "http://h", transport = fake({
+        json(422, { message = "This chapter belongs to a comic.", medium = "comic", pages = true }),
+        json(422, { message = "Manga.", medium = "manga", pages = true }),
+    }) })
+    local _d, e = api:chapter(7)
+    T.eq(e.kind, "manga")
+    T.eq(e.medium, "comic")
+    T.eq(e.status, 422)
+    T.falsy(Api.isRetryable(e))
+    local _d2, e2 = api:chapter(7)
+    T.eq(e2.kind, "manga")
+    T.eq(e2.medium, "manga")
+end)
+
 T.it("foreignAnswer: anything but a JSON object where JSON was expected", function()
     T.truthy(Api.foreignAnswer({ status = 200, body = "<html>Hotel login</html>" }))
     T.truthy(Api.foreignAnswer({ status = 302, body = "" }))
@@ -493,15 +508,21 @@ T.it("features: each from meta, false on an older server", function()
     local f = Api.features({ app = "novarr", lists = true, favourites = true, requests = true, updates = true,
         manga_cbz = true, audiobooks = true })
     T.eq(f, { lists = true, want_to_read = true, favourites = true, requests = true, updates = true,
-        stats = false, manga_cbz = true, audiobooks = true })
+        stats = false, manga_cbz = true, comics = false, audiobooks = true })
     T.eq(Api.features({ app = "novarr" }), { lists = false, want_to_read = false, favourites = false,
-        requests = false, updates = false, stats = false, manga_cbz = false, audiobooks = false })
+        requests = false, updates = false, stats = false, manga_cbz = false, comics = false, audiobooks = false })
     T.eq(Api.features(nil).lists, false)
     T.eq(Api.features({ requests = "yes" }).requests, false, "only a real true")
     T.eq(Api.features({ stats = true }).stats, true)
     T.eq(Api.features({ stats = { enabled = true } }).stats, true, "an object for stats counts")
     T.eq(Api.features({ stats = { enabled = false } }).stats, false)
     T.eq(Api.features({ stats = {} }).stats, false)
+end)
+
+T.it("features (1.14.0): comics only when meta says comics = true", function()
+    T.eq(Api.features({ app = "novarr", comics = true, manga_cbz = true }).comics, true)
+    T.eq(Api.features({ app = "novarr", manga_cbz = true }).comics, false, "an older server")
+    T.eq(Api.features({ comics = "yes" }).comics, false, "only a real true")
 end)
 
 T.it("library medium: all with manga as CBZ, else as 1.12.0", function()

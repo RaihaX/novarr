@@ -128,6 +128,7 @@ class CoverBrief
         return match ($novel->medium) {
             Novel::MEDIUM_MANGA => 'Manga',
             Novel::MEDIUM_BOOK => 'Book',
+            Novel::MEDIUM_COMIC => 'Comic',
             default => 'Web Novel',
         };
     }

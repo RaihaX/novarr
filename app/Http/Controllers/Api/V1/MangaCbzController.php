@@ -13,7 +13,7 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use ZipArchive;
 
 /**
- * One manga chapter as a CBZ, for readers that open comic archives (the
+ * One manga chapter (or comic issue / volume: medium 'comic' has pages too) as a CBZ, for readers that open comic archives (the
  * KOReader plugin on a Kindle):
  *
  *   GET /api/v1/chapters/{id}/cbz[?max_width=1236&gray=1]
@@ -51,7 +51,7 @@ class MangaCbzController extends Controller
             'gray' => 'nullable|boolean',
         ]);
         $chapter = NovelChapter::with('novel:id,name,medium,reading_mode')->find($id);
-        if ($chapter === null || !$chapter->novel?->isManga()) {
+        if ($chapter === null || !$chapter->novel?->hasPages()) {
             return response()->json(['message' => 'Not a manga chapter.'], 404);
         }
         $pages = $chapter->status
@@ -202,7 +202,8 @@ class MangaCbzController extends Controller
             . '  <Number>' . $e($number) . "</Number>\n"
             . '  <Title>' . $e(Presenter::label($chapter)) . "</Title>\n"
             . '  <PageCount>' . $pageCount . "</PageCount>\n"
-            . '  <Manga>' . ($rtl ? 'YesAndRightToLeft' : 'Yes') . "</Manga>\n"
+            // A comic reads left to right: "No" (readers then never flip it); a manga "Yes".
+            . '  <Manga>' . ($rtl ? 'YesAndRightToLeft' : ($chapter->novel->isComic() ? 'No' : 'Yes')) . "</Manga>\n"
             . "</ComicInfo>\n";
     }
 

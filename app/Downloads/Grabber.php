@@ -40,12 +40,17 @@ class Grabber
     public function grab(array $result, string $kind, ?NovelRequest $request = null, ?Novel $novel = null, ?User $user = null, bool $auto = false, ?\App\DownloadWanted $wanted = null): DownloadGrab
     {
         if (!in_array($kind, DownloadGrab::KINDS, true)) {
-            throw new DownloadFailed('Grab an ebook or an audiobook.');
+            throw new DownloadFailed('Grab an ebook, an audiobook or a comic.');
         }
-        if ($request !== null && ($kind !== DownloadGrab::KIND_EBOOK || !$request->isPending() || !$request->isWanted())) {
-            throw new DownloadFailed('This request already has its ePub, or is no longer waiting.');
+        if ($request !== null && ($kind !== self::kindForRequest($request) || !$request->isPending() || !$request->isWanted())) {
+            throw new DownloadFailed($request->medium === Novel::MEDIUM_COMIC
+                ? 'This comic request is no longer waiting.'
+                : 'This request already has its ePub, or is no longer waiting.');
         }
-        if ($novel !== null && ($kind !== DownloadGrab::KIND_AUDIOBOOK || !$novel->isBook())) {
+        if ($novel !== null && $kind === DownloadGrab::KIND_COMIC && !$novel->isComic()) {
+            throw new DownloadFailed('Only a comic series can have more issues grabbed for it.');
+        }
+        if ($novel !== null && $kind !== DownloadGrab::KIND_COMIC && ($kind !== DownloadGrab::KIND_AUDIOBOOK || !$novel->isBook())) {
             throw new DownloadFailed('Only an audiobook can be grabbed for a book of the library.');
         }
         $protocol = ($result['protocol'] ?? null) === DownloadGrab::TORRENT ? DownloadGrab::TORRENT : DownloadGrab::USENET;
@@ -66,13 +71,13 @@ class Grabber
             if ($url === '') {
                 throw new DownloadFailed('This result has no download link.');
             }
-            $category = (string) config($kind === DownloadGrab::KIND_AUDIOBOOK ? 'novarr.nzbget.category_audiobooks' : 'novarr.nzbget.category_books');
+            $category = Downloads::nzbCategory($kind);
             $ref = (string) $this->nzbget->append($title, $url, $category);
             // NZBGet names the download after the NZB (the queue's NZBName); the poll keeps it current.
             $name = substr(NzbGet::nzbName($title), 0, -4);
             $client = DownloadGrab::NZBGET;
         } else {
-            $dir = (string) config($kind === DownloadGrab::KIND_AUDIOBOOK ? 'novarr.transmission.dir_audiobooks' : 'novarr.transmission.dir_books');
+            $dir = Downloads::torrentDir($kind);
             $added = $this->transmission->add($this->torrentSource($result), $dir);
             $ref = $added['hash'];
             $name = $added['name'];
@@ -109,6 +114,12 @@ class Grabber
         Log::info('Download grabbed', ['grab' => $grab->id, 'kind' => $kind, 'client' => $client, 'title' => $title, 'auto' => $auto]);
 
         return $grab;
+    }
+
+    /** The kind a wanted request's download is: a comic for a comic request, else an ebook. */
+    public static function kindForRequest(NovelRequest $request): string
+    {
+        return $request->medium === Novel::MEDIUM_COMIC ? DownloadGrab::KIND_COMIC : DownloadGrab::KIND_EBOOK;
     }
 
     /**

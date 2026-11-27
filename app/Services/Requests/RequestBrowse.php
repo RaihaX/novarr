@@ -57,7 +57,7 @@ class RequestBrowse
     ];
 
     /** The media the shelf is offered for (the Requests page's picker order). */
-    public const MEDIA = [Novel::MEDIUM_BOOK, Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA];
+    public const MEDIA = [Novel::MEDIUM_BOOK, Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA, Novel::MEDIUM_COMIC];
 
     /** The last page a reader may open. */
     public const MAX_PAGE = 10;

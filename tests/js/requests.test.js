@@ -254,7 +254,7 @@ test('the shelf asks for the picked medium, and a shelf request names it', () =>
 });
 
 test('the medium picker starts on books unless the reader chose another', () => {
-    assert.deepEqual(MEDIA, ['book', 'novel', 'manga']);
+    assert.deepEqual(MEDIA, ['book', 'novel', 'manga', 'comic']);
     assert.equal(initialMedium(null), 'book');
     assert.equal(initialMedium('manga'), 'manga');
     assert.equal(initialMedium('novel'), 'novel');
@@ -262,6 +262,17 @@ test('the medium picker starts on books unless the reader chose another', () => 
     assert.equal(mediumNoun('book'), 'books');
     assert.equal(mediumNoun('manga'), 'manga');
     assert.equal(mediumNoun('x'), 'series');
+});
+
+test('comics: a medium of the picker, opened by ?medium=comic, taking pasted book links', () => {
+    assert.equal(initialMedium('book', 'comic'), 'comic', 'the page asked for comics');
+    assert.equal(initialMedium('comic', null), 'comic', 'remembered');
+    assert.equal(initialMedium('manga', 'audiobook'), 'manga', 'an unknown ?medium= is ignored');
+    assert.equal(mediumNoun('comic'), 'comics');
+    const box = searchBox('comic');
+    assert.equal(box.maxLength, 2048, 'a pasted link fits');
+    assert.match(box.placeholder, /Goodreads/);
+    assert.equal(searchBox('manga').maxLength, 100);
 });
 
 const DAY = 86_400_000;

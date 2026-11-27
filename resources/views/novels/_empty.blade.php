@@ -23,6 +23,7 @@
     $onlyList = $activeList && $filter === 'all' && !request('search') && !request()->filled('status') && !request()->filled('tag');
     $otherMedium = $medium === \App\Novel::MEDIUM_MANGA ? \App\Novel::MEDIUM_NOVEL : \App\Novel::MEDIUM_MANGA;
     $isBooks = $medium === \App\Novel::MEDIUM_BOOK;
+    $isComics = $medium === \App\Novel::MEDIUM_COMIC;
 @endphp
 <div class="novels-empty">
     <x-brand-mark variant="mono" :size="28" class="novels-empty-icon" />
@@ -58,6 +59,18 @@
         <p class="novels-empty-body">Upload an ePub (from Calibre, a publisher or a store without DRM). The owner matches it to the right book, with its details and cover, and it can be read here, in the apps and on KOReader.</p>
         <div class="novels-empty-actions">
             <a href="{{ route('books.upload') }}" class="btn btn-primary">Upload a book</a>
+        </div>
+    @elseif($isComics)
+        {{-- Comics come in through the comics inbox: downloaded, or dropped in by the owner. --}}
+        <span class="novels-empty-title">No comics yet</span>
+        <p class="novels-empty-body">Comics and graphic novels arrive through the comics inbox: downloaded from a request, or a CBZ, CBR or PDF dropped in by the owner. Ask for one and it shows up here.</p>
+        <div class="novels-empty-actions">
+            @if(config('novarr.requests.enabled', true))
+                <a href="{{ route('requests.index', ['medium' => 'comic']) }}" class="btn btn-primary">Request a comic</a>
+            @endif
+            @can('admin')
+                <a href="{{ route('comics.manage') }}" class="btn btn-secondary">Manage comics</a>
+            @endcan
         </div>
     @elsecannot('admin')
         {{-- A reader cannot add series: a friendly "nothing yet" instead. --}}

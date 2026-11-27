@@ -209,6 +209,8 @@ class AppServiceProvider extends ServiceProvider
 
         // Audiobooks read their files through ffprobe / ffmpeg (tests bind a fake).
         $this->app->bind(\App\Audiobooks\AudioProbe::class, \App\Audiobooks\FfmpegProbe::class);
+        // Comics are unpacked with ZipArchive / PharData / unar / 7z / pdftoppm (tests bind a fake).
+        $this->app->bind(\App\Comics\PageExtractor::class, \App\Comics\ShellPageExtractor::class);
 
         // How a reader-request search asks its sources: lanes in parallel
         // PHP processes, or (parallelism 1, or no way to start a process)

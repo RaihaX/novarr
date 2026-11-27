@@ -22,7 +22,9 @@ class DownloadGrab extends Model
 {
     public const KIND_EBOOK = 'ebook';
     public const KIND_AUDIOBOOK = 'audiobook';
-    public const KINDS = [self::KIND_EBOOK, self::KIND_AUDIOBOOK];
+    /** A comic / graphic novel (App\Comics): imported by `comics:scan` from the comics inbox. */
+    public const KIND_COMIC = 'comic';
+    public const KINDS = [self::KIND_EBOOK, self::KIND_AUDIOBOOK, self::KIND_COMIC];
 
     public const USENET = 'usenet';
     public const TORRENT = 'torrent';
@@ -44,6 +46,8 @@ class DownloadGrab extends Model
     public const IMPORTED_AUDIOBOOK = 'audiobook';
     /** Added to the library (approved automatically, or the library had it already): imported_id is the book. */
     public const IMPORTED_BOOK = 'book';
+    /** Imported into the comics: imported_id is the series (App\Novel of medium comic). */
+    public const IMPORTED_COMIC = 'comic';
 
     protected $table = 'download_grabs';
 
@@ -117,7 +121,7 @@ class DownloadGrab extends Model
             $next = route('books.review', $this->imported_id);
         } elseif ($this->status === self::STATUS_IMPORTED && $this->imported_type === self::IMPORTED_AUDIOBOOK && $this->imported_id) {
             $next = route('audiobooks.show', $this->imported_id);
-        } elseif ($this->status === self::STATUS_IMPORTED && $this->imported_type === self::IMPORTED_BOOK && $this->imported_id) {
+        } elseif ($this->status === self::STATUS_IMPORTED && in_array($this->imported_type, [self::IMPORTED_BOOK, self::IMPORTED_COMIC], true) && $this->imported_id) {
             $next = route('novels.show', $this->imported_id);
         }
 
@@ -138,7 +142,7 @@ class DownloadGrab extends Model
             'status_line' => \App\Downloads\Downloads::statusLine($this),
             'seeding' => $this->isTorrent(),
             'target' => $request !== null
-                ? ['type' => 'request', 'id' => (int) $request->id, 'title' => $request->title, 'url' => route('books.review', $request->id)]
+                ? ['type' => 'request', 'id' => (int) $request->id, 'title' => $request->title, 'url' => $request->medium === Novel::MEDIUM_COMIC ? route('requests.index') : route('books.review', $request->id)]
                 : ($novel !== null ? ['type' => 'book', 'id' => (int) $novel->id, 'title' => $novel->name, 'url' => route('novels.show', $novel->id)] : null),
             'next_url' => $next,
             'status_url' => route('downloads.grabs.show', $this->id),

@@ -43,7 +43,7 @@
     ];
     $mbh = fn ($v) => $v === null ? '—' : number_format((float) $v, 1) . ' MB/h';
     $hours = fn ($ms) => number_format($ms / 3_600_000, 1) . ' h';
-    $mediumLabel = [\App\Novel::MEDIUM_NOVEL => 'Web Novel', \App\Novel::MEDIUM_MANGA => 'Manga', \App\Novel::MEDIUM_BOOK => 'Book'];
+    $mediumLabel = [\App\Novel::MEDIUM_NOVEL => 'Web Novel', \App\Novel::MEDIUM_MANGA => 'Manga', \App\Novel::MEDIUM_BOOK => 'Book', \App\Novel::MEDIUM_COMIC => 'Comic'];
     $fmtPct = fn ($v) => rtrim(rtrim(number_format((float) $v, 1), '0'), '.') . '%';
 @endphp
 
@@ -188,7 +188,7 @@
     {{-- Novels vs Manga vs Books vs Audiobooks --}}
     <div class="card mb-4" id="storageMediums">
         <div class="panel-head">
-            <h2 class="panel-title">Web novels, manga, books and audiobooks</h2>
+            <h2 class="panel-title">Web novels, manga, books, comics and audiobooks</h2>
             <span class="panel-note">Per series: text or pages, cover, ePub · per audiobook: its files and cover</span>
         </div>
         <div class="table-responsive">
@@ -204,7 +204,7 @@
                     @foreach($report['mediums'] as $medium => $m)
                         @php $isAudio = $medium === \App\Services\StorageUsage::MEDIUM_AUDIOBOOK; @endphp
                         <tr data-medium="{{ $medium }}">
-                            <td class="cell-primary"><strong>{{ ['manga' => 'Manga', 'book' => 'Books', 'audiobook' => 'Audiobooks'][$medium] ?? 'Web Novels' }}</strong>
+                            <td class="cell-primary"><strong>{{ ['manga' => 'Manga', 'book' => 'Books', 'comic' => 'Comics', 'audiobook' => 'Audiobooks'][$medium] ?? 'Web Novels' }}</strong>
                                 @if($medium === \App\Novel::MEDIUM_BOOK)
                                     <span class="stg-meta">ePubs: the original files</span>
                                 @endif
@@ -246,10 +246,11 @@
                 <button type="button" class="btn btn-secondary" data-top="novel" aria-pressed="false">Web Novels</button>
                 <button type="button" class="btn btn-secondary" data-top="manga" aria-pressed="false">Manga</button>
                 <button type="button" class="btn btn-secondary" data-top="book" aria-pressed="false">Books</button>
+                <button type="button" class="btn btn-secondary" data-top="comic" aria-pressed="false">Comics</button>
                 <button type="button" class="btn btn-secondary" data-top="audiobook" aria-pressed="false">Audiobooks</button>
             </div>
         </div>
-        @foreach(['all' => 'All series', 'novel' => 'Web Novels', 'manga' => 'Manga', 'book' => 'Books'] as $which => $caption)
+        @foreach(['all' => 'All series', 'novel' => 'Web Novels', 'manga' => 'Manga', 'book' => 'Books', 'comic' => 'Comics'] as $which => $caption)
             <div class="table-responsive" data-top-table="{{ $which }}" @if($which !== 'all') hidden @endif>
                 @if(count($report['top'][$which]))
                     <table class="table align-middle table-responsive-cards mb-0">
@@ -268,7 +269,7 @@
                                             <a href="{{ route('novels.show', $s['novel_id']) }}"><strong>{{ $s['name'] }}</strong></a>
                                         @endif
                                         <span class="stg-meta mono-muted">
-                                            {{ $s['medium'] === \App\Novel::MEDIUM_MANGA ? 'pages ' . $h($s['pages_bytes']) : 'text ' . ($s['text_estimated'] ? '≈ ' : '') . $h($s['text_bytes']) }}
+                                            {{ in_array($s['medium'], \App\Novel::PAGED_MEDIA, true) ? 'pages ' . $h($s['pages_bytes']) : 'text ' . ($s['text_estimated'] ? '≈ ' : '') . $h($s['text_bytes']) }}
                                             · cover {{ $h($s['cover_bytes']) }} · ePub {{ $h($s['epub_bytes']) }}
                                             @if($s['audiobook_bytes'] > 0)
                                                 · <span data-audiobook-split>audiobook {{ $h($s['audiobook_bytes']) }}</span>

@@ -518,6 +518,10 @@ class EmailSummary extends Command
                 // source behind it instead ("Suwayomi · MangaFox"). No request.
                 $source = $this->mangaSource($lanes, $novel) ?? $source;
             }
+            // A comic's new issues came in through the comics inbox (comic:// is no host).
+            if ($novel->isComic()) {
+                $source = 'Comics';
+            }
             $rows[] = [
                 'id' => $novel->id,
                 'name' => $novel->name,
@@ -526,7 +530,7 @@ class EmailSummary extends Command
                 'source' => $source,
                 // "Translated (KO)" / "Original" / null — appended to the subline.
                 // A manga has no origin (its own section says what it is).
-                'origin' => $novel->isManga() ? null : $novel->originShortLabel(),
+                'origin' => $novel->hasPages() ? null : $novel->originShortLabel(),
                 'count' => (int) $g->new_count,
                 'notes' => (int) $g->notes,
                 'first' => (float) $g->first_chapter,

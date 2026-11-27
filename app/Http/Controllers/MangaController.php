@@ -58,7 +58,7 @@ class MangaController extends Controller
     public function pages($id): JsonResponse
     {
         $chapter = NovelChapter::with('novel:id,name,medium,reading_mode')->findOrFail($id);
-        abort_unless($chapter->novel?->isManga(), 404, 'Not a manga chapter.');
+        abort_unless($chapter->novel?->hasPages(), 404, 'Not a manga chapter.');
 
         // The web reader's own copy also carries the series' latest position
         // (any device), so it needs no extra request for the "go there?"

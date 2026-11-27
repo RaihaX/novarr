@@ -7,6 +7,14 @@ with the APK (the update prompt in the app, the download page and the
 "new version" email show it) and refuses to release while the section is
 missing or still says "Notes to come".
 
+## 1.19 (20)
+
+- Comics and graphic novels have their own tab in your Library, next to Manga.
+- Request comics too: Books · Web Novels · Manga · Comics. Type a title or an ISBN, or paste a Goodreads or Amazon link.
+- Comics open in the page reader, left to right. Switch between pages and scrolling from the reader's menu.
+- Download comics for offline reading, and hold one to add it to your categories, just like manga.
+- Comics show up in your stats.
+
 ## 1.18 (19)
 
 - Categories: hold any book, web novel, manga or audiobook to select it, then add it to your categories or mark it read or unread in one go.

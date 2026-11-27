@@ -388,6 +388,9 @@ function Store:saveChapterFile(chapter, tmp, size)
         size = size,
         pages = tonumber(chapter.page_count),
         manga = true,
+        -- 1.14.0: "manga" | "comic", and the series' page direction (Model.readingDirection).
+        medium = chapter.medium,
+        reading_mode = chapter.reading_mode,
     }
     self:saveIndex(novel_id)
     return path

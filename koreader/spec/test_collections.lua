@@ -25,7 +25,46 @@ T.it("medium: manga, book, else novel", function()
     T.eq(C.medium(LIB[4]), "manga")
     T.eq(C.medium(LIB[2]), "book")
     T.eq(C.medium(nil), "novel")
-    T.eq(C.mediaCounts(LIB), { novel = 2, book = 5, manga = 1 })
+    T.eq(C.mediaCounts(LIB), { novel = 2, book = 5, manga = 1, comic = 0 })
+end)
+
+-- ---------------------------------------------------------------- 1.14.0: comics
+
+local COMICS_LIB = {
+    { id = 1, name = "Web Novel", medium = "novel" },
+    { id = 4, name = "A Manga", medium = "manga" },
+    { id = 11, name = "Saga", medium = "comic" },
+    { id = 12, name = "Watchmen", medium = "comic", chapters_read = 3 },
+    { id = 13, name = "Odd", medium = "graphic" }, -- an unknown medium: a novel
+}
+
+T.it("comics: medium, counts, byMedium and isPaged", function()
+    T.eq(C.medium(COMICS_LIB[3]), "comic")
+    T.eq(C.medium(COMICS_LIB[5]), "novel", "an unknown medium is a novel")
+    T.eq(C.mediaCounts(COMICS_LIB), { novel = 2, book = 0, manga = 1, comic = 2 })
+    T.eq(ids(C.byMedium(COMICS_LIB, "comic")), { 11, 12 })
+    T.eq(ids(Model.byMedium(COMICS_LIB, "comic")), { 11, 12 })
+    T.eq(ids(Model.byMedium(COMICS_LIB, "novel")), { 1, 13 }, "comics are not among the novels")
+    T.eq(ids(Model.byMedium(COMICS_LIB, "manga")), { 4 }, "nor among the manga")
+    T.truthy(C.isPaged(COMICS_LIB[3]))
+    T.truthy(C.isPaged(COMICS_LIB[2]))
+    T.falsy(C.isPaged(COMICS_LIB[1]))
+    T.falsy(C.isManga(COMICS_LIB[3]), "a comic is not a manga")
+    T.truthy(Model.hasComics(COMICS_LIB))
+    T.falsy(Model.hasComics(LIB))
+end)
+
+T.it("library media (1.14.0): Comics last, only when held and the server can send them", function()
+    T.eq(C.libraryMedia(COMICS_LIB, true), { "novel", "manga", "comic" })
+    T.eq(C.libraryMedia(COMICS_LIB, false), { "novel", "manga" }, "server without comics / CBZ")
+    T.eq(C.libraryMedia(COMICS_LIB), { "novel", "manga" }, "not said: no Comics")
+    T.eq(C.libraryMedia(LIB, true), { "novel", "book", "manga" }, "no comics held: no Comics")
+    T.eq(C.libraryMedia({ COMICS_LIB[1], COMICS_LIB[3] }, true), { "novel", "comic" })
+end)
+
+T.it("Home's shelf leaves unstarted comics out, like manga", function()
+    T.eq(ids(Model.homeNovels(COMICS_LIB, { [11] = 123 })), { 1, 11, 12, 13 })
+    T.eq(ids(Model.homeNovels(COMICS_LIB, nil)), { 1, 12, 13 })
 end)
 
 T.it("byMedium keeps the API order; Model.byMedium agrees", function()
@@ -146,4 +185,12 @@ T.it("moreEntries: each entry only when the server offers it", function()
     T.eq(C.moreEntries(features({ lists = true, favourites = true, requests = true, stats = true }), true),
         { "lists", "new_chapters", "request", "my_requests", "notifications", "stats", "manga" })
     T.eq(C.moreEntries(features({ favourites = true }), false), { "lists", "new_chapters" })
+end)
+
+T.it("moreEntries (1.14.0): Comics after Manga, only when the library holds readable comics", function()
+    local function features(on) return function(name) return on[name] == true end end
+    T.eq(C.moreEntries(features({}), true, true), { "new_chapters", "manga", "comic" })
+    T.eq(C.moreEntries(features({}), false, true), { "new_chapters", "comic" })
+    T.eq(C.moreEntries(features({}), true, false), { "new_chapters", "manga" })
+    T.eq(C.moreEntries(features({}), true), { "new_chapters", "manga" }, "1.13.0 callers: no comics")
 end)

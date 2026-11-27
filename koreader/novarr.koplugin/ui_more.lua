@@ -9,6 +9,7 @@ when the server offers it (Session:feature, from its meta):
     Notifications         requests
     My stats              stats                  (ui_feeds.lua)
     Manga                 the library holds manga (ui_library.lua)
+    Comics                the library holds comics, server has comics + CBZ (1.14.0)
     Downloads             always (also on Home)
 
 One ButtonDialog with a row per entry: big targets, a single refresh.
@@ -33,15 +34,20 @@ end
 
 function More.show(session, home)
     local lib = session:cached("novels")
-    local has_manga = Collections.mediaCounts(lib and lib.novels or {}).manga > 0
+    local counts = Collections.mediaCounts(lib and lib.novels or {})
+    local has_manga = counts.manga > 0
+    -- Comics (1.14.0): only when the server has them and sends them as CBZ.
+    local comics_ok = session:comicsReadable()
+    local has_comics = comics_ok and counts.comic > 0
     local names = {
         lists = _("My lists"),
         new_chapters = _("New chapters"),
-        request = _("Request a book, web novel or manga…"),
+        request = session:feature("comics") and _("Request a book, web novel, manga or comic…") or _("Request a book, web novel or manga…"),
         my_requests = _("My requests"),
         notifications = More.hasNews(session) and (_("Notifications") .. " •") or _("Notifications"),
         stats = _("My stats"),
         manga = _("Manga"),
+        comic = _("Comics"),
     }
     local actions = {
         lists = function() require("novarr.ui_lists").show(session) end,
@@ -57,9 +63,10 @@ function More.show(session, home)
         end,
         stats = function() require("novarr.ui_feeds").showStats(session) end,
         manga = function() require("novarr.ui_library").show(session, "manga") end,
+        comic = function() require("novarr.ui_library").show(session, "comic") end,
     }
     local buttons = {}
-    for _i, id in ipairs(Collections.moreEntries(function(name) return session:feature(name) end, has_manga)) do
+    for _i, id in ipairs(Collections.moreEntries(function(name) return session:feature(name) end, has_manga, has_comics)) do
         table.insert(buttons, { text = names[id], callback = actions[id] })
     end
     table.insert(buttons, { text = _("Downloads"), callback = function() require("novarr.ui_downloads").show(session) end })

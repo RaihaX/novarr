@@ -63,6 +63,9 @@ class RequestsViewModel(private val app: AppModel, initial: Section) : ViewModel
     var medium by mutableStateOf(Medium.DEFAULT)
         private set
     private var mediumChosen = false
+
+    /** The picker's options: Comics only when the server knows them (meta `comics`). */
+    val mediums: List<Medium> get() = Medium.offered(app.comicsOffered.value)
     var search by mutableStateOf<RequestSearch?>(null)
         private set
     var starting by mutableStateOf(false)
@@ -192,7 +195,8 @@ class RequestsViewModel(private val app: AppModel, initial: Section) : ViewModel
             viewModelScope.launch {
                 // The reader's last choice on this device (Books by default).
                 val saved = runCatching { app.prefs.string(MEDIUM_PREF) }.getOrNull()
-                if (!mediumChosen) medium = Medium.from(saved)
+                // A saved Comics on a server without comics is Books.
+                if (!mediumChosen) medium = Medium.from(saved).takeIf { it in mediums } ?: Medium.DEFAULT
                 loadBrowse()
             }
         }
@@ -223,6 +227,20 @@ class RequestsViewModel(private val app: AppModel, initial: Section) : ViewModel
         val sameMedium = browseMedium == target
         browseJob?.cancel()
         val generation = ++browseGeneration
+        if (!target.hasDiscover) {
+            // No Discover lists for this medium (Comics): no request, no shelf.
+            browseMedium = target
+            browseList = null
+            browseLists = emptyList()
+            browseResults = emptyList()
+            browseHasMore = false
+            browseSourceName = null
+            browseError = null
+            browseFromCache = false
+            browseLoading = false
+            browseLoaded = true
+            return
+        }
         if (!sameMedium) {
             browseLists = emptyList()
             browseSourceName = null

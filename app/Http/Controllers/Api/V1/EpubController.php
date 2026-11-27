@@ -44,7 +44,7 @@ class EpubController extends Controller
     public function show($id): JsonResponse
     {
         $novel = Novel::findOrFail($id);
-        if ($novel->isManga()) {
+        if ($novel->hasPages()) {
             return response()->json(['message' => self::MANGA], 422);
         }
 
@@ -59,7 +59,7 @@ class EpubController extends Controller
     public function build(Request $request, $id): JsonResponse
     {
         $novel = Novel::findOrFail($id);
-        if ($novel->isManga()) {
+        if ($novel->hasPages()) {
             return response()->json(['message' => self::MANGA], 422);
         }
 

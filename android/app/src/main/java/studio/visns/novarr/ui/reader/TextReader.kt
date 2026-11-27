@@ -125,6 +125,7 @@ import studio.visns.novarr.api.rethrowIfCancellation
 import studio.visns.novarr.app.AppModel
 import studio.visns.novarr.domain.Highlights
 import studio.visns.novarr.domain.LatestPosition
+import studio.visns.novarr.domain.PageReaderRedirect
 import studio.visns.novarr.domain.Pagination
 import studio.visns.novarr.domain.ReadMark
 import studio.visns.novarr.domain.TextOffsets
@@ -145,6 +146,10 @@ import studio.visns.novarr.ui.theme.LocalEink
 class TextReaderViewModel(app: AppModel, route: ReaderRoute, saved: SavedStateHandle) :
     BaseReaderViewModel(app, route.novelId, route.chapterId, route.offerLatest, saved, lookup = route.lookupExcerpt.isNotBlank()) {
     var content by mutableStateOf<ChapterContent?>(null)
+        private set
+
+    /** The server said this chapter is page images (manga or a comic): the screen reopens it in the page reader. */
+    var pagedChapterId by mutableStateOf<Int?>(null)
         private set
 
     /** The highlight a look-up opened at: the reader starts at this passage. */
@@ -216,6 +221,10 @@ class TextReaderViewModel(app: AppModel, route: ReaderRoute, saved: SavedStateHa
             }
         }
         if (id != chapterId) return // the user moved on meanwhile
+        if (loaded == null && PageReaderRedirect.applies(failure)) {
+            pagedChapterId = id
+            return
+        }
 
         showingCache = loaded == null && cached != null
         var chapter = loaded ?: cached ?: run {
@@ -412,6 +421,13 @@ fun TextReaderScreen(nav: NavController, route: ReaderRoute) {
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { model.stopped() }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { model.started() }
     LaunchedEffect(checkRevisions[model.novelId]) { if (checkRevisions[model.novelId] != null) model.refreshNext() }
+    // A page chapter (manga or a comic) opened here: the page reader takes this screen's place.
+    LaunchedEffect(model.pagedChapterId) {
+        val id = model.pagedChapterId ?: return@LaunchedEffect
+        nav.navigate(ReaderRoute(model.novelId, id, manga = true, offerLatest = route.offerLatest)) {
+            popUpTo<ReaderRoute> { inclusive = true }
+        }
+    }
     ReaderSystemBars(hidden = chromeHidden, darkSurface = colors.isDark, keepScreenOn = settings.keepScreenOn)
 
     Box(Modifier.fillMaxSize().background(colors.background)) {

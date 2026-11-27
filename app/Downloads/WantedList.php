@@ -18,6 +18,9 @@ use Illuminate\Support\Collection;
  *               is monitored automatically: added when the request is made
  *               (NovelRequest's created hook → addRequest()) and by sync();
  *               dropped once the request has its ePub or is decided.
+ *   comics      every pending comic request (kind comic): added and
+ *               dropped like a wanted book; found → `comics:scan` imports
+ *               it and approves the request.
  *   audiobooks  a book is monitored when the owner turns on "Want the
  *               audiobook" on its page, or a reader presses "Ask for the
  *               audiobook" (requested_by; the owner is told). Dropped once
@@ -43,19 +46,21 @@ class WantedList
     /** Bring the list in line with the requests and books: add the new wanted books, drop what is no longer wanted. */
     public function sync(): void
     {
-        $wanted = NovelRequest::where('medium', Novel::MEDIUM_BOOK)
-            ->where('status', NovelRequest::STATUS_PENDING)
-            ->get()
-            ->filter(fn(NovelRequest $r) => $r->isWanted());
-        $have = DownloadWanted::where('kind', DownloadGrab::KIND_EBOOK)->pluck('novel_request_id')->all();
-        foreach ($wanted as $request) {
-            if (!in_array((int) $request->id, $have, true)) {
-                $this->row(DownloadGrab::KIND_EBOOK, request: $request);
+        foreach ([Novel::MEDIUM_BOOK => DownloadGrab::KIND_EBOOK, Novel::MEDIUM_COMIC => DownloadGrab::KIND_COMIC] as $medium => $kind) {
+            $wanted = NovelRequest::where('medium', $medium)
+                ->where('status', NovelRequest::STATUS_PENDING)
+                ->get()
+                ->filter(fn(NovelRequest $r) => $r->isWanted());
+            $have = DownloadWanted::where('kind', $kind)->pluck('novel_request_id')->all();
+            foreach ($wanted as $request) {
+                if (!in_array((int) $request->id, $have, true)) {
+                    $this->row($kind, request: $request);
+                }
             }
+            DownloadWanted::where('kind', $kind)
+                ->whereNotIn('novel_request_id', $wanted->pluck('id')->all() ?: [0])
+                ->delete();
         }
-        DownloadWanted::where('kind', DownloadGrab::KIND_EBOOK)
-            ->whereNotIn('novel_request_id', $wanted->pluck('id')->all() ?: [0])
-            ->delete();
 
         foreach (DownloadWanted::where('kind', DownloadGrab::KIND_AUDIOBOOK)->get() as $row) {
             if (!Novel::whereKey($row->novel_id)->exists() || Audiobook::where('novel_id', $row->novel_id)->exists()) {
@@ -70,8 +75,9 @@ class WantedList
         if (!$request->isPending() || !$request->isWanted()) {
             return null;
         }
-        $row = DownloadWanted::where('kind', DownloadGrab::KIND_EBOOK)->where('novel_request_id', $request->id)->first()
-            ?? $this->row(DownloadGrab::KIND_EBOOK, request: $request);
+        $kind = Grabber::kindForRequest($request);
+        $row = DownloadWanted::where('kind', $kind)->where('novel_request_id', $request->id)->first()
+            ?? $this->row($kind, request: $request);
         $this->searchSoon($row);
 
         return $row;
@@ -141,8 +147,8 @@ class WantedList
         if ($grab->wanted_id && ($row = DownloadWanted::find($grab->wanted_id)) !== null) {
             return $row;
         }
-        if ($grab->kind === DownloadGrab::KIND_EBOOK && $grab->novel_request_id) {
-            return DownloadWanted::where('kind', DownloadGrab::KIND_EBOOK)->where('novel_request_id', $grab->novel_request_id)->first();
+        if (in_array($grab->kind, [DownloadGrab::KIND_EBOOK, DownloadGrab::KIND_COMIC], true) && $grab->novel_request_id) {
+            return DownloadWanted::where('kind', $grab->kind)->where('novel_request_id', $grab->novel_request_id)->first();
         }
         if ($grab->kind === DownloadGrab::KIND_AUDIOBOOK && $grab->novel_id) {
             return self::audiobookFor((int) $grab->novel_id);

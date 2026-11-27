@@ -8,8 +8,9 @@
     $paletteNav = [
         ['title' => 'Home', 'url' => route('home'), 'icon' => 'house', 'keywords' => 'dashboard start continue reading'],
         ['title' => 'Web Novels', 'url' => route('novels.index', ['medium' => 'novel']), 'icon' => 'library', 'keywords' => 'library novels books'],
-        ['title' => 'Manga', 'url' => route('novels.index', ['medium' => 'manga']), 'icon' => 'library', 'keywords' => 'library manga comics'],
+        ['title' => 'Manga', 'url' => route('novels.index', ['medium' => 'manga']), 'icon' => 'library', 'keywords' => 'library manga manhwa'],
         ['title' => 'Books', 'url' => route('novels.index', ['medium' => 'book']), 'icon' => 'library', 'keywords' => 'library books epub calibre'],
+        ['title' => 'Comics', 'url' => route('novels.index', ['medium' => 'comic']), 'icon' => 'library', 'keywords' => 'library comics graphic novels cbz cbr'],
         ['title' => 'Upload a book', 'url' => route('books.upload'), 'icon' => 'plus', 'keywords' => 'upload epub book add calibre'],
         ['title' => 'Discover', 'url' => route('novels.discover'), 'icon' => 'compass', 'keywords' => 'browse find new add'],
         ['title' => 'Add a novel', 'url' => route('novels.create', ['medium' => 'novel']), 'icon' => 'plus', 'keywords' => 'new create add novel'],

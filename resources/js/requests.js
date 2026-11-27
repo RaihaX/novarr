@@ -47,7 +47,7 @@ const RANK_POLL_MAX = 120;
 /** Pages of pending requests loaded for the review list (50 each). */
 const REVIEW_PAGES = 4;
 
-const MEDIUM_LABEL = { novel: 'Web Novel', manga: 'Manga', book: 'Book' };
+const MEDIUM_LABEL = { novel: 'Web Novel', manga: 'Manga', book: 'Book', comic: 'Comic' };
 
 /** JSON API call with the session cookie: {ok, status, data, headers}. Throws only on network errors / abort. */
 async function api(method, url, body, signal) {
@@ -261,7 +261,7 @@ export function initRequestsPage() {
     const mediumBtns = [...root.querySelectorAll('#reqMedium [data-medium]')];
 
     // Books first; the reader's last choice when there is one.
-    let medium = initialMedium(storedGet(MEDIUM_STORAGE_KEY));
+    let medium = initialMedium(storedGet(MEDIUM_STORAGE_KEY), new URLSearchParams(window.location.search).get('medium'));
     let searching = false;
     let retryUntil = 0;
     let retryTimer = null;

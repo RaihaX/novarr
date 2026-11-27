@@ -55,6 +55,8 @@ data class ServerMeta(
     val audiobooks: Boolean = false,
     /** The built-in "Favourites" list (`/favourites`, `favourite` on summaries); absent on older servers, and the app then hides it. */
     val favourites: Boolean = false,
+    /** The server knows comics (medium "comic": page images, like manga); absent on older servers, and the app then hides the Comics tab and request option. */
+    val comics: Boolean = false,
 ) {
     /** Only an explicit `auth.required: true` turns sign-in on. */
     val requiresSignIn: Boolean get() = auth?.required == true
@@ -120,6 +122,21 @@ object Medium {
     const val NOVEL = "novel"
     const val MANGA = "manga"
 
+    /** Comics and graphic novels: page images like manga, read left to right unless the series says otherwise. */
+    const val COMIC = "comic"
+
+    /** Whether [medium] is read as page images (the page reader, page downloads, no ePub). */
+    fun isPaged(medium: String?): Boolean =
+        medium.equals(MANGA, ignoreCase = true) || medium.equals(COMIC, ignoreCase = true)
+
+    /** A series' medium as a label ("Web novel", "Manga", "Comic", "Book"); blank or unknown reads as a web novel. */
+    fun label(medium: String?): String = when (medium?.trim()?.lowercase()) {
+        MANGA -> "Manga"
+        COMIC -> "Comic"
+        BOOK -> "Book"
+        else -> "Web novel"
+    }
+
     /** An ePub upload or Calibre import: read like a novel, complete on arrival, no origin. */
     const val BOOK = "book"
 }
@@ -162,6 +179,12 @@ data class NovelSummary(
     val favourite: Boolean = false,
 ) {
     val isManga: Boolean get() = medium.equals(Medium.MANGA, ignoreCase = true)
+
+    /** A comic or graphic novel: page images, like manga. */
+    val isComic: Boolean get() = medium.equals(Medium.COMIC, ignoreCase = true)
+
+    /** Read as page images (manga or a comic): the page reader, page downloads, no ePub or Send to Kindle. */
+    val isPaged: Boolean get() = Medium.isPaged(medium)
 
     /** A book (ePub/Calibre): read like a novel, but complete on arrival, never checked for new chapters. */
     val isBook: Boolean get() = medium.equals(Medium.BOOK, ignoreCase = true)

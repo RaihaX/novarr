@@ -11,7 +11,7 @@
     $h = $s['headline'];
     $rt = $s['range_totals'];
     $rangeLabel = $range === 365 ? 'the last year' : "the last {$range} days";
-    $mediumTone = ['novel' => 'is-novel', 'manga' => 'is-manga', 'book' => 'is-book', 'audiobook' => 'is-audio'];
+    $mediumTone = ['novel' => 'is-novel', 'manga' => 'is-manga', 'book' => 'is-book', 'comic' => 'is-comic', 'audiobook' => 'is-audio'];
     $day = fn(string $date, string $format) => \Carbon\CarbonImmutable::parse($date)->format($format);
     $nothing = $h['chapters_read'] === 0 && $h['listening_seconds'] === 0;
 @endphp

@@ -206,6 +206,21 @@ class DownloadController extends Controller
             return back()->with($status === DownloadGrab::STATUS_FAILED ? 'error' : 'success', Downloads::statusLine($grab));
         }
 
+        if ($grab->kind === DownloadGrab::KIND_COMIC) {
+            $series = !empty($data['novel_id']) ? Novel::find((int) $data['novel_id']) : null;
+            if (!empty($data['novel_id']) && ($series === null || !$series->isComic())) {
+                return back()->with('error', 'That is not a comic series of the library.');
+            }
+            $target = !empty($data['request_id']) ? NovelRequest::find((int) $data['request_id']) : null;
+            if (!empty($data['request_id']) && ($target === null || !$target->isPending() || !$target->isComic())) {
+                return back()->with('error', 'That request is not a comic waiting to arrive.');
+            }
+            $grab->forceFill(['novel_id' => $series?->id, 'novel_request_id' => $target?->id ?? $grab->novel_request_id, 'status' => DownloadGrab::STATUS_COMPLETED, 'completed_at' => now(), 'error' => null])->save();
+            \App\Jobs\ScanComics::dispatch();
+
+            return back()->with('success', "“{$grab->title}” is imported by the next comics scan (queued now)" . ($series ? " into “{$series->name}”." : '.'));
+        }
+
         $novel = !empty($data['novel_id']) ? Novel::find((int) $data['novel_id']) : null;
         if (!empty($data['novel_id']) && ($novel === null || !$novel->isBook())) {
             return back()->with('error', 'That is not a book of the library.');

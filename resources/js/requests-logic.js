@@ -343,19 +343,20 @@ export function decidedOnly(requests) {
 // ---- The medium picker -----------------------------------------------------------
 
 /** The picker's media, in its order; the first is the default. */
-export const MEDIA = ['book', 'novel', 'manga'];
+export const MEDIA = ['book', 'novel', 'manga', 'comic'];
 
 /** localStorage key of the reader's last medium. */
 export const MEDIUM_STORAGE_KEY = 'novarr.requests.medium';
 
-/** The medium to start on: the remembered one when it is still offered, else books. */
-export function initialMedium(stored) {
+/** The medium to start on: the page's ?medium= when offered, else the remembered one, else books. */
+export function initialMedium(stored, asked = null) {
+    if (MEDIA.includes(asked)) return asked;
     return MEDIA.includes(stored) ? stored : MEDIA[0];
 }
 
 /** The Discover shelf's noun for a medium ("Discover books"). */
 export function mediumNoun(medium) {
-    return { book: 'books', novel: 'web novels', manga: 'manga' }[medium] || 'series';
+    return { book: 'books', novel: 'web novels', manga: 'manga', comic: 'comics' }[medium] || 'series';
 }
 
 /**
@@ -369,6 +370,14 @@ export function searchBox(medium) {
             placeholder: 'Title, author, ISBN — or paste a Goodreads / Amazon link',
             label: 'Title, author or ISBN to search for, or a Goodreads, Amazon, Hardcover, Google Books or Open Library link',
             hint: 'New release not found? Paste its Goodreads, Amazon, Hardcover, Google Books or Open Library page.',
+            maxLength: 2048,
+        };
+    }
+    if (medium === 'comic') {
+        return {
+            placeholder: 'Series, title or ISBN — or paste a Goodreads / Amazon link',
+            label: 'Comic series, graphic novel title or ISBN to search for, or a Goodreads, Amazon, Hardcover, Google Books or Open Library link',
+            hint: 'Comic series and graphic novels. Not found? Paste its Goodreads or Amazon page, or request it by title.',
             maxLength: 2048,
         };
     }

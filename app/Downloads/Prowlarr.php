@@ -25,7 +25,12 @@ class Prowlarr
     public const CATEGORIES = [
         DownloadGrab::KIND_EBOOK => [7000, 7020],
         DownloadGrab::KIND_AUDIOBOOK => [3000, 3030],
+        // Books/Comics, and Books (indexers that file comics there).
+        DownloadGrab::KIND_COMIC => [7030, 7000],
     ];
+
+    /** Books/Comics: added to an ebook search for a graphic novel, so none is missed. */
+    public const COMICS_CATEGORY = 7030;
 
     /** Results asked for per search. */
     public const LIMIT = 100;
@@ -47,11 +52,15 @@ class Prowlarr
         if ($query === '') {
             throw new DownloadFailed('Type what to search for.');
         }
-        $kind = $kind === DownloadGrab::KIND_AUDIOBOOK ? DownloadGrab::KIND_AUDIOBOOK : DownloadGrab::KIND_EBOOK;
+        $kind = Downloads::kind($kind);
 
         // Repeated keys (categories=7000&categories=7020), as Prowlarr reads them.
         $params = ['query=' . rawurlencode($query), 'type=search', 'limit=' . self::LIMIT, 'offset=0'];
-        foreach (self::CATEGORIES[$kind] as $category) {
+        $categories = self::CATEGORIES[$kind];
+        if ($kind === DownloadGrab::KIND_EBOOK && !empty($wanted['graphic_novel'])) {
+            $categories[] = self::COMICS_CATEGORY;
+        }
+        foreach ($categories as $category) {
             $params[] = 'categories=' . $category;
         }
         $url = config('novarr.prowlarr.url') . '/api/v1/search?' . implode('&', $params);
@@ -88,7 +97,8 @@ class Prowlarr
             'title' => trim((string) ($wanted['title'] ?? '')) ?: $query,
             'author' => $wanted['author'] ?? null,
             'language' => $wanted['language'] ?? null,
-        ]);
+            'graphic_novel' => !empty($wanted['graphic_novel']),
+        ] + array_intersect_key($wanted, array_flip(['series_index', 'number', 'number_kind', 'year'])));
     }
 
     /**

@@ -181,6 +181,26 @@ function Reading.attach(plugin, novel_id, chapter_id, group)
     -- off) now, before ReaderUI reads the settings and lays the document
     -- out, so it costs no second render. (A manga's pages have no status line.)
     if not r.manga then Session.guard(Reading.prepareTopBar, plugin) end
+    -- A comic's pages turn left to right (1.14.0), also when KOReader's
+    -- default is right to left for manga: set now, before ReaderView reads it.
+    if r.manga then Session.guard(Reading.preparePageDirection, plugin) end
+end
+
+--[[--
+The page direction of a comic's CBZ (1.14.0, Model.readingDirection):
+left to right unless the series says "rtl" (kept with the stored
+chapter). Only for a file KOReader has no direction for yet (the reader's
+own toggle on this chapter wins); a manga keeps KOReader's setting.
+]]
+function Reading.preparePageDirection(plugin)
+    local r, ui = plugin.reading, plugin.ui
+    local ds = ui and ui.doc_settings
+    if not r or not ds or ds:has("inverse_reading_order") then return end
+    local entry = r.chapter_id and Session.store:chapterEntry(r.novel_id, r.chapter_id) or nil
+    local medium = entry and Model.isPaged(entry.medium) and entry.medium or Session:novelMedium(r.novel_id)
+    local dir = Model.readingDirection(medium, entry and entry.reading_mode)
+    if not dir then return end
+    ds:saveSetting("inverse_reading_order", dir == "rtl")
 end
 
 -- ---------------------------------------------------------------- progress
@@ -1371,7 +1391,7 @@ end
 function Reading.prefetchIds(r)
     local n = tonumber(Session:get("prefetch")) or 0
     -- A manga chapter is a few MB: only a few ahead (setting "manga_prefetch").
-    if r.manga or Session:isManga(r.novel_id) then
+    if r.manga or Session:isPaged(r.novel_id) then
         n = require("novarr.manga").prefetchCount(Session:get("manga_prefetch"), n)
     end
     if n <= 0 then return {} end

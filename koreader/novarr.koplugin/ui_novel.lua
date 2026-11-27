@@ -62,7 +62,7 @@ function Novel:items()
         mandatory = string.format("%d/%d", math.max(0, math.min(read, total)), total),
         callback = function() s:showChapters(self.novel_id) end,
     })
-    local manga = s:isManga(self.novel_id)
+    local manga = s:isPaged(self.novel_id)
     if not manga then
         table.insert(items, {
             text = _("Highlights"),
@@ -246,7 +246,7 @@ function Novel:askDownload()
             function(c) return s:chapterState(self.novel_id, c.id) end)
         s:downloadMany(self.novel_id, ids)
     end
-    if s:isManga(self.novel_id) then
+    if s:isPaged(self.novel_id) then
         -- A manga chapter is a few MB (its pages): smaller steps.
         UI.choice(_("Download for offline reading"), {
             { text = _("Next 3 unread chapters"), callback = function() start("unread", 3) end },

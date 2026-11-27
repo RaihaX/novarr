@@ -64,7 +64,8 @@ class NovelViewModel(private val app: AppModel, val novelId: Int) : ViewModel() 
     }
 
     val summary: NovelSummary? get() = detail?.summary
-    val isManga: Boolean get() = summary?.isManga == true
+    /** Page images (manga or a comic): the page reader, page downloads, no highlights or ePub. */
+    val isPaged: Boolean get() = summary?.isPaged == true
     val isBook: Boolean get() = summary?.isBook == true
 
     val visibleChapters: List<ChapterListItem>
@@ -119,7 +120,7 @@ class NovelViewModel(private val app: AppModel, val novelId: Int) : ViewModel() 
 
     /** Best effort: a server without highlights simply shows no section. */
     private suspend fun loadHighlights() {
-        if (isManga) return
+        if (isPaged) return
         val client = app.active?.client ?: return
         runCatching { client.highlights(novelId, 1, HIGHLIGHT_PREVIEW) }.getOrNull()?.let {
             highlights = it.highlights
@@ -206,7 +207,7 @@ class NovelViewModel(private val app: AppModel, val novelId: Int) : ViewModel() 
         val resume = chapters.firstOrNull { it.id == resumeChapterId }
             ?.takeIf { ResumeRule.isUnfinished(it.read, it.readProgress) }?.id
         val ids = chapters.filter { it.downloaded && it.id !in cachedIds && (!unreadOnly || !it.read || it.id == resume) }.map { it.id }
-        app.downloads.start(novelId, ids, manga = isManga)
+        app.downloads.start(novelId, ids, manga = isPaged)
     }
 
     fun removeDownloads() = viewModelScope.launch {

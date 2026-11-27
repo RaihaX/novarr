@@ -270,11 +270,11 @@ private fun SearchPart(model: RequestsViewModel, online: Boolean, nav: NavContro
     ) {
         item(key = "form") {
             Column(Modifier.readableWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MediumSwitch(model.medium, Modifier.fillMaxWidth()) { model.selectMedium(it) }
+                MediumSwitch(model.medium, model.mediums, Modifier.fillMaxWidth()) { model.selectMedium(it) }
                 OutlinedTextField(
                     value = model.query,
                     onValueChange = { model.query = it.take(Requests.queryLimit(it)) },
-                    label = { Text(if (model.medium == Medium.BOOK) "Title, author, ISBN or link" else "Title") },
+                    label = { Text(if (model.medium.takesLinks) "Title, author, ISBN or link" else "Title") },
                     placeholder = { Text(Requests.placeholder(model.medium), maxLines = 2, overflow = TextOverflow.Ellipsis) },
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                     trailingIcon = {
@@ -399,7 +399,8 @@ private fun SearchPart(model: RequestsViewModel, online: Boolean, nav: NavContro
 @Composable
 private fun DiscoverShelf(model: RequestsViewModel, online: Boolean, nav: NavController, modifier: Modifier) {
     val categories = rememberCardCategories()
-    // A medium without a shelf (no source offers a list): nothing at all.
+    // A medium without a shelf (Comics, or no source offers a list): nothing at all.
+    if (!model.medium.hasDiscover) return
     if (model.browseLoaded && model.browseLists.isEmpty() && model.browseResults.isEmpty() && model.browseError == null) return
     Column(modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -523,14 +524,17 @@ private fun ShelfCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MediumSwitch(selected: Medium, modifier: Modifier = Modifier, onSelect: (Medium) -> Unit) {
+private fun MediumSwitch(selected: Medium, options: List<Medium>, modifier: Modifier = Modifier, onSelect: (Medium) -> Unit) {
+    // Four options (Comics offered) leave no room for the checkmark on a phone: the fill alone shows the choice.
+    val compact = options.size > 3
     SingleChoiceSegmentedButtonRow(modifier) {
-        Medium.entries.forEachIndexed { index, medium ->
+        options.forEachIndexed { index, medium ->
             SegmentedButton(
                 selected = selected == medium,
                 onClick = { onSelect(medium) },
-                shape = SegmentedButtonDefaults.itemShape(index, Medium.entries.size),
-            ) { Text(medium.title) }
+                shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                icon = if (compact) ({}) else ({ SegmentedButtonDefaults.Icon(selected == medium) }),
+            ) { Text(medium.title, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
 }
@@ -985,7 +989,7 @@ private fun Sheets(model: RequestsViewModel, online: Boolean) {
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            MediumSwitch(draft.medium, Modifier.fillMaxWidth()) { model.freeText = draft.copy(medium = it) }
+            MediumSwitch(draft.medium, model.mediums, Modifier.fillMaxWidth()) { model.freeText = draft.copy(medium = it) }
             OutlinedTextField(
                 value = draft.link,
                 onValueChange = { model.freeText = draft.copy(link = it.trim().take(2048)) },

@@ -26,6 +26,7 @@ class SourceResolver
         'mangadex' => MangaDexSource::class,
         'suwayomi' => SuwayomiSource::class,
         'book' => BookSource::class,
+        'comic' => ComicSource::class,
         'empirenovel' => EmpireNovelSource::class,
         'novelfull' => NovelFullSource::class,
         'novelarrow' => NovelArrowSource::class,

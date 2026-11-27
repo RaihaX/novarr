@@ -74,7 +74,37 @@ final class Downloads
     /** The inbox a kind's downloads finish in, as Novarr sees it. */
     public static function inboxFor(string $kind): string
     {
-        return $kind === DownloadGrab::KIND_AUDIOBOOK ? AudiobookLibrary::inbox() : self::booksInbox();
+        return match ($kind) {
+            DownloadGrab::KIND_AUDIOBOOK => AudiobookLibrary::inbox(),
+            DownloadGrab::KIND_COMIC => \App\Comics\ComicLibrary::inbox(),
+            default => self::booksInbox(),
+        };
+    }
+
+    /** NZBGet's category for a kind's downloads (each completes into its own inbox). */
+    public static function nzbCategory(string $kind): string
+    {
+        return (string) config(match ($kind) {
+            DownloadGrab::KIND_AUDIOBOOK => 'novarr.nzbget.category_audiobooks',
+            DownloadGrab::KIND_COMIC => 'novarr.nzbget.category_comics',
+            default => 'novarr.nzbget.category_books',
+        });
+    }
+
+    /** Transmission's download-dir for a kind's downloads. */
+    public static function torrentDir(string $kind): string
+    {
+        return (string) config(match ($kind) {
+            DownloadGrab::KIND_AUDIOBOOK => 'novarr.transmission.dir_audiobooks',
+            DownloadGrab::KIND_COMIC => 'novarr.transmission.dir_comics',
+            default => 'novarr.transmission.dir_books',
+        });
+    }
+
+    /** "ebook" / "audiobook" / "comic" from anything a form sends (ebook when unknown). */
+    public static function kind(?string $kind): string
+    {
+        return in_array($kind, DownloadGrab::KINDS, true) ? $kind : DownloadGrab::KIND_EBOOK;
     }
 
     /** "Downloading 43%", "Finished — ready to review", "Failed: …": one line for a grab. */
@@ -83,16 +113,29 @@ final class Downloads
         return match ($grab->status) {
             DownloadGrab::STATUS_QUEUED => 'Queued in ' . self::clientName($grab->client),
             DownloadGrab::STATUS_DOWNLOADING => 'Downloading ' . (int) $grab->progress . '%',
-            DownloadGrab::STATUS_COMPLETED => $grab->kind === DownloadGrab::KIND_AUDIOBOOK
-                ? 'Finished — waiting for the audiobooks scan'
-                : 'Finished — taking the ePub',
+            DownloadGrab::STATUS_COMPLETED => match ($grab->kind) {
+                DownloadGrab::KIND_AUDIOBOOK => 'Finished — waiting for the audiobooks scan',
+                DownloadGrab::KIND_COMIC => 'Finished — waiting for the comics scan',
+                default => 'Finished — taking the ePub',
+            },
             DownloadGrab::STATUS_IMPORTED => match (true) {
                 $grab->kind === DownloadGrab::KIND_AUDIOBOOK => 'Imported — in the audiobooks',
+                $grab->kind === DownloadGrab::KIND_COMIC => 'Imported — in the comics',
                 $grab->imported_type === DownloadGrab::IMPORTED_BOOK => 'Finished — added to the library',
                 default => 'Finished — ready to review',
             },
             DownloadGrab::STATUS_FAILED => 'Failed: ' . ($grab->error ?: 'no reason given'),
             default => ucfirst((string) $grab->status),
+        };
+    }
+
+    /** "Ebook" / "Audiobook" / "Comic": a kind for the owner's pages. */
+    public static function kindLabel(?string $kind): string
+    {
+        return match ($kind) {
+            DownloadGrab::KIND_AUDIOBOOK => 'Audiobook',
+            DownloadGrab::KIND_COMIC => 'Comic',
+            default => 'Ebook',
         };
     }
 

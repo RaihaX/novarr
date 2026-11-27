@@ -126,6 +126,7 @@ class NovelRequest extends Model
         return match ($this->medium) {
             Novel::MEDIUM_MANGA => 'manga',
             Novel::MEDIUM_BOOK => 'book',
+            Novel::MEDIUM_COMIC => 'comic',
             default => 'novel',
         };
     }
@@ -140,9 +141,23 @@ class NovelRequest extends Model
         return $this->medium === Novel::MEDIUM_BOOK;
     }
 
-    /** A book asked for by title (from the catalogue): no file yet, the owner finds and uploads it. */
+    /**
+     * A book asked for by title (from the catalogue): no file yet, the owner
+     * finds and uploads it. A comic request is always wanted: it is
+     * fulfilled by a download or a drop-in to the comics inbox
+     * (App\Comics\ComicImporter approves it when its series arrives).
+     */
     public function isWanted(): bool
     {
+        if ($this->medium === Novel::MEDIUM_COMIC) {
+            return true;
+        }
+
         return $this->medium === Novel::MEDIUM_BOOK && empty(((array) ($this->upload_meta ?? []))['sha1']);
+    }
+
+    public function isComic(): bool
+    {
+        return $this->medium === Novel::MEDIUM_COMIC;
     }
 }

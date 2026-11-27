@@ -57,6 +57,17 @@ class Novel extends Model
     public const MEDIUM_MANGA = 'manga';
     /** A book uploaded as an ePub (App\Books\BookLibrary): text, complete on arrival, never scraped. */
     public const MEDIUM_BOOK = 'book';
+    /**
+     * A comic or graphic novel (App\Comics): pages like a manga, each issue
+     * or volume a chapter whose pages are ChapterPage files on the manga
+     * disk. Imported from the comics inbox (App\Comics\ComicInbox), never
+     * scraped; complete on arrival like a book. Reads left to right unless
+     * its file said otherwise (ComicInfo Manga=YesAndRightToLeft).
+     */
+    public const MEDIUM_COMIC = 'comic';
+
+    /** Media read as page images (the manga reader, CBZ, the pages API). */
+    public const PAGED_MEDIA = [self::MEDIUM_MANGA, self::MEDIUM_COMIC];
 
     /** Reader page modes of a manga (novels.reading_mode). */
     public const READING_MODES = ['rtl', 'ltr', 'vertical'];
@@ -112,6 +123,9 @@ class Novel extends Model
         'cover_brief' => 'array',
         'cover_ai_checked_at' => 'datetime',
         'alternative_titles' => 'array',
+        // Comics (App\Comics).
+        'start_year' => 'integer',
+        'comicvine_checked_at' => 'datetime',
     ];
 
     public function chapters(): HasMany
@@ -154,6 +168,22 @@ class Novel extends Model
     public function isManga(): bool
     {
         return $this->medium === self::MEDIUM_MANGA;
+    }
+
+    /** Is this a comic / graphic novel (App\Comics)? */
+    public function isComic(): bool
+    {
+        return $this->medium === self::MEDIUM_COMIC;
+    }
+
+    /**
+     * Read as page images: a manga or a comic. Everything about pages (the
+     * manga reader, pages.json, the CBZ, "no ePub") goes through this one;
+     * isManga() stays for what only manga have (sources, scraping, origin).
+     */
+    public function hasPages(): bool
+    {
+        return in_array($this->medium, self::PAGED_MEDIA, true);
     }
 
     /** Is this an uploaded book (text from its own ePub, nothing to scrape)? */
@@ -208,6 +238,18 @@ class Novel extends Model
     public function scopeManga($query)
     {
         return $query->where($query->qualifyColumn('medium'), self::MEDIUM_MANGA);
+    }
+
+    /** Comics only. */
+    public function scopeComics($query)
+    {
+        return $query->where($query->qualifyColumn('medium'), self::MEDIUM_COMIC);
+    }
+
+    /** Page media: manga and comics. */
+    public function scopePaged($query)
+    {
+        return $query->whereIn($query->qualifyColumn('medium'), self::PAGED_MEDIA);
     }
 
     /** Ids of every manga (soft-deleted ones included) — for chapter-level exclusions. */

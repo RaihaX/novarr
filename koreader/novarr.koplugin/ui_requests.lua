@@ -1,5 +1,7 @@
 --[[--
 Requests (1.13.0): "Request a book / web novel / manga" and "My requests".
+1.14.0: "Request a comic" too, when the server has comics (meta comics);
+searched like a book (title, author or ISBN).
 
 Request: the medium (Books first), a search box (title, author or ISBN;
 a pasted link is no use on a Kindle), then the server searches every
@@ -26,20 +28,22 @@ local MEDIUM_NAMES = {
     book = _("Book"),
     novel = _("Web novel"),
     manga = _("Manga"),
+    comic = _("Comic"),
 }
 
 local MEDIUM_TITLES = {
     book = _("Request a book"),
     novel = _("Request a web novel"),
     manga = _("Request a manga"),
+    comic = _("Request a comic"),
 }
 
 -- ---------------------------------------------------------------- start
 
---- Asks the medium, then what to search for.
+--- Asks the medium (Comics too since 1.14.0, when the server has them), then what to search for.
 function UIRequests.start(session)
     local buttons = {}
-    for _i, m in ipairs(Requests.MEDIA) do
+    for _i, m in ipairs(Requests.media(function(name) return session:feature(name) end)) do
         table.insert(buttons, { text = MEDIUM_NAMES[m], callback = function() UIRequests.ask(session, m) end })
     end
     UI.choice(_("What would you like to request?"), buttons)
@@ -51,7 +55,7 @@ function UIRequests.ask(session, medium)
     UI.input({
         title = MEDIUM_TITLES[medium],
         value = UIRequests.last_query[medium] or "",
-        hint = medium == "book" and _("Title, author or ISBN") or _("Title or author"),
+        hint = Requests.takesIsbn(medium) and _("Title, author or ISBN") or _("Title or author"),
         ok_text = _("Search"),
         callback = function(text)
             local q = Requests.cleanQuery(text)

@@ -122,7 +122,7 @@ class ReaderStatsTest extends TestCase
         $this->assertSame(['start', 'end', 'max_minutes', 'days'], array_keys($json['heatmap']));
         $this->assertSame(['date', 'chapters', 'minutes', 'level'], array_keys($json['heatmap']['days'][0]));
         $this->assertSame(['medium', 'label', 'chapters', 'words', 'listening_seconds', 'minutes', 'share'], array_keys($json['by_medium'][0]));
-        $this->assertSame(['novel', 'manga', 'book', 'audiobook'], array_column($json['by_medium'], 'medium'));
+        $this->assertSame(['novel', 'manga', 'book', 'audiobook', 'comic'], array_column($json['by_medium'], 'medium'));
         $this->assertCount(24, $json['hours']);
         $this->assertSame(['hour', 'chapters', 'minutes'], array_keys($json['hours'][0]));
         $this->assertSame(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], array_column($json['weekdays'], 'label'));

@@ -165,6 +165,7 @@ T.it("parseVersion reads _meta.lua and the plugin's own _meta.lua", function()
     T.eq(Updater.parseVersion("subversion = \"9\""), nil)
     T.eq(Updater.parseVersion(nil), nil)
     T.truthy((Updater.parseVersion(read(plugin_dir .. "/_meta.lua")) or ""):match("^%d+%.%d+%.%d+$"), "the plugin's own version")
+    T.eq(Updater.parseVersion(read(plugin_dir .. "/_meta.lua")), "1.14.0", "1.14.0: comics")
 end)
 
 -- ---------------------------------------------------------------- decisions

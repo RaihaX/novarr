@@ -1,6 +1,50 @@
 local T = ...
 local Model = require("novarr.model")
 
+-- ---------------------------------------------------------------- 1.14.0: comics
+
+T.it("media (1.14.0): comic is a known medium; anything else is a novel", function()
+    T.eq(Model.MEDIA, { "novel", "book", "manga", "comic" })
+    T.eq(Model.medium("comic"), "comic")
+    T.eq(Model.medium({ medium = "comic" }), "comic")
+    T.eq(Model.medium({ medium = "manga" }), "manga")
+    T.eq(Model.medium({ medium = "book" }), "book")
+    T.eq(Model.medium({}), "novel", "an older server: no medium")
+    T.eq(Model.medium("graphic"), "novel")
+    T.eq(Model.medium(nil), "novel")
+end)
+
+T.it("isPaged: manga and comics are read as pages, never text", function()
+    T.truthy(Model.isPaged("manga"))
+    T.truthy(Model.isPaged("comic"))
+    T.truthy(Model.isPaged({ medium = "comic" }))
+    T.falsy(Model.isPaged("novel"))
+    T.falsy(Model.isPaged("book"))
+    T.falsy(Model.isPaged({}))
+    T.falsy(Model.isPaged(nil))
+end)
+
+T.it("mediumLabel: Comics / Comic, and the others", function()
+    T.eq(Model.mediumLabel("comic", true), "Comics")
+    T.eq(Model.mediumLabel("comic"), "Comic")
+    T.eq(Model.mediumLabel("manga", true), "Manga")
+    T.eq(Model.mediumLabel("book", true), "Books")
+    T.eq(Model.mediumLabel(nil, true), "Novels")
+    T.eq(Model.mediumLabel({ medium = "comic" }, false), "Comic")
+end)
+
+T.it("readingDirection: a comic reads left to right unless its series says rtl; manga untouched", function()
+    T.eq(Model.readingDirection("comic", nil), "ltr", "the default for a comic")
+    T.eq(Model.readingDirection("comic", "ltr"), "ltr")
+    T.eq(Model.readingDirection("comic", "vertical"), "ltr", "a long strip still never turns right to left")
+    T.eq(Model.readingDirection("comic", "rtl"), "rtl", "only when the series says so")
+    T.eq(Model.readingDirection({ medium = "comic" }, "rtl"), "rtl")
+    T.eq(Model.readingDirection("manga", "rtl"), nil, "a manga keeps KOReader's setting (as 1.13.0)")
+    T.eq(Model.readingDirection("manga", nil), nil)
+    T.eq(Model.readingDirection("novel", "rtl"), nil)
+    T.eq(Model.readingDirection(nil, nil), nil)
+end)
+
 local novels = {
     { id = 1, name = "Ascending the Nine Heavens", author = "Feng Qingyang", chapters_read = 18, chapters_total = 300, chapters_new = 2, finished = false, completed = false },
     { id = 2, name = "Finished Tale", author = "Moon", chapters_read = 3, chapters_total = 3, chapters_new = 0, finished = true, completed = true },

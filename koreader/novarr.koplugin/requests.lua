@@ -1,5 +1,5 @@
 --[[--
-Pure helpers (1.13.0) for "Request a book / web novel / manga" and "My
+Pure helpers (1.13.0) for "Request a book / web novel / manga" (/ comic, 1.14.0) and "My
 requests". No KOReader dependencies (unit tested: spec/test_requests.lua).
 
 Server (API v1, App\Services\Requests):
@@ -19,6 +19,26 @@ local Requests = {}
 
 -- Books first: on a Kindle that is what is asked for most.
 Requests.MEDIA = { "book", "novel", "manga" }
+
+--[[--
+The media the request picker offers (1.14.0), in order: Books, Web
+novels, Manga, then Comics when the server has them (features("comics"):
+Session:feature; an older server answers 422 to medium "comic").
+]]
+function Requests.media(features)
+    local out = {}
+    for _i, m in ipairs(Requests.MEDIA) do table.insert(out, m) end
+    if type(features) == "function" and features("comics") then table.insert(out, "comic") end
+    return out
+end
+
+--[[--
+Whether a medium's search box takes an ISBN (books and comics, 1.14.0:
+they are searched like books, pasted Goodreads / Amazon links too).
+]]
+function Requests.takesIsbn(medium)
+    return medium == "book" or medium == "comic"
+end
 
 Requests.POLL_SECONDS = 3
 Requests.MAX_QUERY = 100 -- characters, as the server counts them

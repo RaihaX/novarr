@@ -29,10 +29,10 @@ class RequestsBooksTest {
 
     @Test
     fun booksComeFirstAndAreTheDefault() {
-        assertEquals(listOf(Medium.BOOK, Medium.NOVEL, Medium.MANGA), Medium.entries.toList())
+        assertEquals(listOf(Medium.BOOK, Medium.NOVEL, Medium.MANGA, Medium.COMIC), Medium.entries.toList())
         assertEquals(Medium.BOOK, Medium.DEFAULT)
         assertEquals(Medium.BOOK, Requests.SearchMemory().medium)
-        assertEquals(listOf("Books", "Web Novels", "Manga"), Medium.entries.map { it.title })
+        assertEquals(listOf("Books", "Web Novels", "Manga", "Comics"), Medium.entries.map { it.title })
     }
 
     @Test
@@ -43,8 +43,9 @@ class RequestsBooksTest {
         // Unknown or missing: the safe default, or the caller's fallback.
         assertEquals(Medium.BOOK, Medium.from("audiobook"))
         assertEquals(Medium.BOOK, Medium.from(null))
-        assertEquals(Medium.MANGA, Medium.from("comic", Medium.MANGA))
-        assertNull(Medium.fromOrNull("comic"))
+        assertEquals(Medium.MANGA, Medium.from("webtoon", Medium.MANGA))
+        assertNull(Medium.fromOrNull("webtoon"))
+        assertEquals(Medium.COMIC, Medium.fromOrNull("comic"))
     }
 
     @Test
@@ -102,7 +103,7 @@ class RequestsBooksTest {
         assertEquals("a b", Requests.searchText(" a   b "))
 
         assertTrue(Requests.queryHint(Medium.BOOK, link)!!.startsWith("Novarr reads the book"))
-        assertTrue(Requests.queryHint(Medium.MANGA, link)!!.startsWith("Links work for books only"))
+        assertTrue(Requests.queryHint(Medium.MANGA, link)!!.startsWith("Links work for books and comics only"))
         assertEquals("Searching by ISBN.", Requests.queryHint(Medium.BOOK, "9780765326355"))
         assertNull(Requests.queryHint(Medium.NOVEL, "9780765326355"))
         assertNull(Requests.queryHint(Medium.BOOK, "Mistborn"))

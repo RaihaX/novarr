@@ -37,11 +37,14 @@
     $metaItems = [];
     // An uploaded book's book:// identity is no page to link to.
     $isBook = $data->isBook();
-    if ($data->translator_url && !$data->hasLibraryFile()) $metaItems[] = ['href' => $data->translator_url, 'text' => parse_url($data->translator_url, PHP_URL_HOST)];
+    if ($data->translator_url && !$data->hasLibraryFile() && preg_match('#^https?://#i', $data->translator_url)) $metaItems[] = ['href' => $data->translator_url, 'text' => parse_url($data->translator_url, PHP_URL_HOST)];
     // A book moved to Novels: where the story was published (its ePub's source, the Royal Road page).
     elseif ($data->web_source_url && preg_match('#^https?://#i', $data->web_source_url)) $metaItems[] = ['href' => $data->web_source_url, 'text' => preg_replace('/^www\./', '', (string) parse_url($data->web_source_url, PHP_URL_HOST))];
     if ($data->isManga()) $metaItems[] = ['text' => 'Manga'];
     if ($isBook) $metaItems[] = ['text' => 'Book'];
+    if ($data->isComic()) $metaItems[] = ['text' => 'Comic'];
+    if ($data->isComic() && $data->publisher) $metaItems[] = ['text' => $data->publisher];
+    if ($data->isComic() && $data->start_year) $metaItems[] = ['text' => (string) $data->start_year];
     if ($originLabel = $data->originLabel()) $metaItems[] = ['text' => $originLabel];
     if ($data->group && $data->group->label) $metaItems[] = ['text' => $data->group->label];
     if ($data->language && $data->language->label) $metaItems[] = ['text' => $data->language->label];
@@ -50,7 +53,7 @@
     $showBookCol = $chapters->contains(fn($c) => (int) $c->book !== 0);
     $chapterUrl = route('chapters.show', '__ID__');
     // Links back to the library go to this series' own library (Novels / Manga).
-    $seriesMedium = $data->isManga() ? \App\Novel::MEDIUM_MANGA : ($isBook ? \App\Novel::MEDIUM_BOOK : \App\Novel::MEDIUM_NOVEL);
+    $seriesMedium = $data->isManga() ? \App\Novel::MEDIUM_MANGA : ($isBook ? \App\Novel::MEDIUM_BOOK : ($data->isComic() ? \App\Novel::MEDIUM_COMIC : \App\Novel::MEDIUM_NOVEL));
     $libraryUrl = route('novels.index', ['medium' => $seriesMedium]);
 @endphp
 
@@ -215,6 +218,23 @@
         </div>
     @endif
 
+    {{-- A comic series (App\Comics): the owner finds more issues / volumes on
+         Usenet & torrents; finished downloads come in through comics:scan. --}}
+    @if($data->isComic() && $isAdmin && \App\Downloads\Downloads::enabled())
+        <details class="nv-find-audiobook" id="findComics">
+            <summary><x-icon name="download" :size="14" /> Find more issues</summary>
+            @include('downloads._finder', [
+                'kind' => 'comic',
+                'query' => \App\Downloads\DownloadSearch::defaultQuery(null, $data, 'comic'),
+                'requestId' => null,
+                'novelId' => $data->id,
+                'grabs' => \App\DownloadGrab::where('kind', 'comic')->where('novel_id', $data->id)->orderByDesc('id')->limit(10)->get(),
+                'heading' => 'Search Usenet & torrents for more of it',
+                'finderId' => 'comicFinder',
+            ])
+        </details>
+    @endif
+
     {{-- No audiobook yet (App\Downloads): the owner finds it or has Novarr look
          for it ("Want the audiobook"); a reader asks for it. --}}
     @if($isBook && empty($audiobook) && \App\Downloads\Downloads::enabled())
@@ -283,7 +303,7 @@
         @endif
         {{-- Offline copies hold chapter pages' HTML only: a manga's page
              images are not saved, so it has no "Download for offline". --}}
-        @unless($data->isManga())
+        @unless($data->hasPages())
         <span id="offlineControls" data-id="{{ $data->id }}" data-total="{{ $current_chapters }}" data-unread="{{ $unread }}" class="nv-offline">
             <div class="dropdown">
                 <button type="button" id="offlineBtn" class="btn btn-secondary btn-icon-label" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Download for offline">
@@ -426,7 +446,7 @@
                 </li>
                 @endcan
                 {{-- Text-only actions: a manga has page images (no text search, ePub or Kindle). --}}
-                @unless($data->isManga())
+                @unless($data->hasPages())
                 <li><a href="{{ route('search.index', ['novel' => $data->id]) }}" class="dropdown-item"><x-icon name="search" :size="14" />Search the text of this novel</a></li>
                 <li><hr class="dropdown-divider"></li>
                 <li><h6 class="dropdown-header label-caption">ePub</h6></li>
@@ -700,7 +720,7 @@
                             @else
                                 <span class="chapter-label">{{ Str::limit($chapter->label, 90) }}</span>
                             @endif
-                            @if($data->isManga() && $chapter->page_count)
+                            @if($data->hasPages() && $chapter->page_count)
                                 <span class="ch-pages text-muted small ms-1">{{ number_format($chapter->page_count) }} {{ $chapter->page_count === 1 ? 'page' : 'pages' }}</span>
                             @endif
                             @if($chapter->isNote())

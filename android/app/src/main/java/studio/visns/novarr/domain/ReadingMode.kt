@@ -1,5 +1,11 @@
 package studio.visns.novarr.domain
 
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import studio.visns.novarr.api.ApiError
+import studio.visns.novarr.api.Medium
+
 /**
  * How a manga chapter is laid out, from the series' `reading_mode`
  * (Novel::READING_MODES: rtl, ltr, vertical). Anything else reads as ltr,
@@ -42,5 +48,20 @@ enum class TextReadingMode(val title: String) {
 
     companion object {
         fun from(raw: String?): TextReadingMode = entries.firstOrNull { it.name == raw } ?: SCROLL
+    }
+}
+
+/**
+ * The text chapter endpoint's refusal of a page chapter: 422 with
+ * `{"medium": "manga" | "comic", "pages": true}`. The text reader then
+ * opens the chapter in the page reader instead (a series whose medium the
+ * app had wrong, or an old link).
+ */
+object PageReaderRedirect {
+    fun applies(error: ApiError?): Boolean {
+        if (error !is ApiError.Http || error.status != 422) return false
+        val body = error.body ?: return false
+        if ((body["pages"] as? JsonPrimitive)?.booleanOrNull == true) return true
+        return Medium.isPaged((body["medium"] as? JsonPrimitive)?.contentOrNull)
     }
 }

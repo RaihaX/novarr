@@ -185,6 +185,10 @@ class AppModel(private val context: Context) {
     private val _audiobooksOffered = MutableStateFlow(false)
     val audiobooksOffered: StateFlow<Boolean> = _audiobooksOffered.asStateFlow()
 
+    /** Whether the current server knows comics (meta `comics`; saved, so known offline): Library's Comics tab, the Comics request option. */
+    private val _comicsOffered = MutableStateFlow(false)
+    val comicsOffered: StateFlow<Boolean> = _comicsOffered.asStateFlow()
+
     /** Whether meta has answered since launch (a saved "not offered" is only acted on after a real answer). */
     val metaKnown: Boolean get() = _meta.value != null
 
@@ -243,6 +247,7 @@ class AppModel(private val context: Context) {
                 _listsOffered.value = prefs.featureOffered(server, FEATURE_LISTS) == true
                 _audiobooksOffered.value = prefs.featureOffered(server, FEATURE_AUDIOBOOKS) == true
                 _favouritesOffered.value = prefs.featureOffered(server, FEATURE_FAVOURITES) == true
+                _comicsOffered.value = prefs.featureOffered(server, FEATURE_COMICS) == true
                 configure(server, notice = null)
                 // Learn whether the server now wants a sign-in (it may have turned auth on
                 // since last time) and whether it publishes a newer app.
@@ -270,6 +275,7 @@ class AppModel(private val context: Context) {
         _listsOffered.value = meta.lists
         _audiobooksOffered.value = meta.audiobooks
         _favouritesOffered.value = meta.favourites
+        _comicsOffered.value = meta.comics
         noteRequestsOffered(server, meta.requests)
         noteFeaturesOffered(server, meta)
         configure(server, notice = null)
@@ -431,10 +437,12 @@ class AppModel(private val context: Context) {
             _listsOffered.value = meta.lists
             _audiobooksOffered.value = meta.audiobooks
             _favouritesOffered.value = meta.favourites
+            _comicsOffered.value = meta.comics
         }
         prefs.setFeatureOffered(server, FEATURE_LISTS, meta.lists)
         prefs.setFeatureOffered(server, FEATURE_FAVOURITES, meta.favourites)
         prefs.setFeatureOffered(server, FEATURE_AUDIOBOOKS, meta.audiobooks)
+        prefs.setFeatureOffered(server, FEATURE_COMICS, meta.comics)
         if (prefs.featureOffered(server, FEATURE_UPDATES) == meta.updates) return
         prefs.setFeatureOffered(server, FEATURE_UPDATES, meta.updates)
         if (!meta.updates) chapterUpdates.reset()
@@ -788,5 +796,6 @@ class AppModel(private val context: Context) {
         const val FEATURE_LISTS = "lists"
         const val FEATURE_AUDIOBOOKS = "audiobooks"
         const val FEATURE_FAVOURITES = "favourites"
+        const val FEATURE_COMICS = "comics"
     }
 }

@@ -105,19 +105,19 @@
                     <div class="home-shelf" aria-labelledby="category{{ $cat['id'] }}Title">
                         @foreach($cat['items'] as $n)
                             <a href="{{ route('novels.show', $n->id) }}" class="home-tile" aria-label="{{ $n->name }}">
-                                <div class="home-cover{{ $n->isManga() ? ' has-chip' : '' }}">
+                                <div class="home-cover{{ $n->hasPages() ? ' has-chip' : '' }}">
                                     @if($cover = $n->coverUrl('sm'))
                                         @php $cover2x = $n->coverThumbnailUrl('md'); @endphp
                                         <img src="{{ $cover }}"{!! $cover2x ? ' srcset="' . e($cover) . ' 1x, ' . e($cover2x) . ' 2x"' : '' !!} alt="" loading="lazy" decoding="async">
                                     @else
                                         <span class="home-cover-title">{{ $n->name }}</span>
                                     @endif
-                                    @if($n->isManga())
-                                        <span class="cover-chip">MANGA</span>
+                                    @if($n->hasPages())
+                                        <span class=\"cover-chip\">{{ $n->isComic() ? 'COMIC' : 'MANGA' }}</span>
                                     @endif
                                 </div>
                                 <span class="home-tile-title">{{ $n->name }}</span>
-                                <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : 'Web Novel') }}</span>
+                                <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : ($n->isComic() ? 'Comic' : 'Web Novel')) }}</span>
                             </a>
                         @endforeach
                     </div>
@@ -365,19 +365,19 @@
                 @foreach($favs['items'] as $item)
                     @php $n = $item['novel']; @endphp
                     <a href="{{ route('novels.show', $n->id) }}" class="home-tile" aria-label="{{ $n->name }}">
-                        <div class="home-cover{{ $n->isManga() ? ' has-chip' : '' }}">
+                        <div class="home-cover{{ $n->hasPages() ? ' has-chip' : '' }}">
                             @if($cover = $n->coverUrl('sm'))
                                 @php $cover2x = $n->coverThumbnailUrl('md'); @endphp
                                 <img src="{{ $cover }}"{!! $cover2x ? ' srcset="' . e($cover) . ' 1x, ' . e($cover2x) . ' 2x"' : '' !!} alt="" loading="lazy" decoding="async">
                             @else
                                 <span class="home-cover-title">{{ $n->name }}</span>
                             @endif
-                            @if($n->isManga())
-                                <span class="cover-chip">MANGA</span>
+                            @if($n->hasPages())
+                                <span class=\"cover-chip\">{{ $n->isComic() ? 'COMIC' : 'MANGA' }}</span>
                             @endif
                         </div>
                         <span class="home-tile-title">{{ $n->name }}</span>
-                        <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : 'Web Novel') }}</span>
+                        <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : ($n->isComic() ? 'Comic' : 'Web Novel')) }}</span>
                     </a>
                 @endforeach
             </div>
@@ -401,22 +401,22 @@
                 @foreach($wtr['items'] as $item)
                     @php $n = $item['novel']; @endphp
                     <a href="{{ route('novels.show', $n->id) }}" class="home-tile" aria-label="{{ $n->name }}{{ $item['started'] ? ', started' : '' }}">
-                        <div class="home-cover{{ $n->isManga() ? ' has-chip' : '' }}">
+                        <div class="home-cover{{ $n->hasPages() ? ' has-chip' : '' }}">
                             @if($cover = $n->coverUrl('sm'))
                                 @php $cover2x = $n->coverThumbnailUrl('md'); @endphp
                                 <img src="{{ $cover }}"{!! $cover2x ? ' srcset="' . e($cover) . ' 1x, ' . e($cover2x) . ' 2x"' : '' !!} alt="" loading="lazy" decoding="async">
                             @else
                                 <span class="home-cover-title">{{ $n->name }}</span>
                             @endif
-                            @if($n->isManga())
-                                <span class="cover-chip">MANGA</span>
+                            @if($n->hasPages())
+                                <span class=\"cover-chip\">{{ $n->isComic() ? 'COMIC' : 'MANGA' }}</span>
                             @endif
                         </div>
                         <span class="home-tile-title">{{ $n->name }}</span>
                         @if($item['started'])
                             <span class="home-tile-meta"><span class="wtr-started">Started</span></span>
                         @else
-                            <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : 'Web Novel') }}</span>
+                            <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : ($n->isComic() ? 'Comic' : 'Web Novel')) }}</span>
                         @endif
                     </a>
                 @endforeach

@@ -186,7 +186,7 @@ class Presenter
      * clients expect), manga, book, text (novels and books: everything an
      * e-reader shows as text) or all.
      */
-    public const MEDIA = ['novel', 'manga', 'book', 'text', 'all'];
+    public const MEDIA = ['novel', 'manga', 'book', 'text', 'all', 'comic'];
 
     public static function medium(\Illuminate\Http\Request $request): string
     {
@@ -203,7 +203,7 @@ class Presenter
 
         return match ($medium) {
             'all' => true,
-            'text' => $novelMedium !== Novel::MEDIUM_MANGA,
+            'text' => !in_array($novelMedium, Novel::PAGED_MEDIA, true),
             default => $novelMedium === $medium,
         };
     }
@@ -212,7 +212,7 @@ class Presenter
     public static function mediaFor(string $medium): array
     {
         return match ($medium) {
-            'all' => [Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK],
+            'all' => [Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK, Novel::MEDIUM_COMIC],
             'text' => [Novel::MEDIUM_NOVEL, Novel::MEDIUM_BOOK],
             default => [$medium],
         };

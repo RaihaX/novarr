@@ -35,6 +35,10 @@ abstract class TestCase extends BaseTestCase
         config([
             'novarr.audiobooks.inbox' => $audiobooks . '/inbox',
             'novarr.audiobooks.path' => $audiobooks . '/library',
+            // The comics inbox too (App\Comics\ComicInbox); Comic Vine is off
+            // unless a test turns it on (with Http::fake).
+            'novarr.comics.inbox' => sys_get_temp_dir() . '/novarr-test-comics-' . getmypid() . '/inbox',
+            'novarr.comics.comicvine.api_key' => '',
         ]);
     }
 

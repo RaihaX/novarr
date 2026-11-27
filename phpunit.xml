@@ -44,5 +44,6 @@
         <env name="NOVARR_HARDCOVER_TOKEN" value=""/>
         <env name="NOVARR_HARDCOVER_INTERVAL_MS" value="0"/>
         <env name="NOVARR_AUDIOBOOK_SOURCES" value=""/>
+        <env name="NOVARR_COMICVINE_API_KEY" value=""/>
     </php>
 </phpunit>

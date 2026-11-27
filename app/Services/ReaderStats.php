@@ -50,6 +50,9 @@ class ReaderStats
 
     public const MANGA_CHAPTER_MINUTES = 5;
 
+    /** A comic issue / volume read (pages, no words): its estimated minutes. */
+    public const COMIC_ISSUE_MINUTES = 10;
+
     public const STREAK_LISTEN_SECONDS = 60;
 
     private const AVG_WORD_LEN = 6;
@@ -61,6 +64,8 @@ class ReaderStats
         Novel::MEDIUM_MANGA => 'Manga',
         Novel::MEDIUM_BOOK => 'Books',
         'audiobook' => 'Audiobooks',
+        // Appended last: clients that list by_medium in order keep theirs.
+        Novel::MEDIUM_COMIC => 'Comics',
     ];
 
     public function __construct(private readonly ReadState $readState)
@@ -89,9 +94,11 @@ class ReaderStats
     /** Reading minutes (estimate) for chapters of a medium with these words. */
     public static function readingMinutes(string $medium, int $chapters, float $words): float
     {
-        return $medium === Novel::MEDIUM_MANGA
-            ? $chapters * self::MANGA_CHAPTER_MINUTES
-            : $words / self::READING_WPM;
+        return match ($medium) {
+            Novel::MEDIUM_MANGA => $chapters * self::MANGA_CHAPTER_MINUTES,
+            Novel::MEDIUM_COMIC => $chapters * self::COMIC_ISSUE_MINUTES,
+            default => $words / self::READING_WPM,
+        };
     }
 
     public function fresh(int $userId, int $range = 30, ?CarbonImmutable $now = null): array
@@ -142,7 +149,7 @@ class ReaderStats
 
         foreach ($reads as $r) {
             $d = (string) $r->d;
-            $medium = in_array($r->medium, [Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK], true) ? $r->medium : Novel::MEDIUM_NOVEL;
+            $medium = in_array($r->medium, [Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK, Novel::MEDIUM_COMIC], true) ? $r->medium : Novel::MEDIUM_NOVEL;
             $chapters = (int) $r->chapters;
             $words = (float) $r->words;
             $minutes = self::readingMinutes($medium, $chapters, $words);

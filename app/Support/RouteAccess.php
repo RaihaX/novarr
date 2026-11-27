@@ -257,6 +257,7 @@ final class RouteAccess
         'books.calibre', 'books.calibre.import', 'books.calibre.cover',
         // Audiobooks: the inbox, matching, "Scan now"
         'audiobooks.manage', 'audiobooks.manage.scan', 'audiobooks.manage.retry', 'audiobooks.manage.match', 'audiobooks.manage.lookup',
+        'comics.manage', 'comics.manage.scan', 'comics.manage.retry', 'comics.lookup',
         'api.v1.audiobooks.inbox', 'api.v1.audiobooks.match', 'api.v1.audiobooks.scan',
         // Reviewing readers' audiobook uploads (the sample streams the pending file)
         'audiobooks.uploads.review', 'audiobooks.uploads.approve', 'audiobooks.uploads.use_existing',
