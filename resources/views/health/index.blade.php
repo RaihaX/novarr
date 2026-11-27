@@ -11,6 +11,7 @@
     <div class="d-flex flex-wrap gap-2">
         <a href="{{ route('health.sources') }}" class="btn btn-secondary" id="sourcesLink">Sources</a>
         <a href="{{ route('health.storage') }}" class="btn btn-secondary" id="storageLink">Storage</a>
+        <a href="{{ route('audiobooks.manage') }}" class="btn btn-secondary" id="audiobooksManageLink">Audiobooks</a>
     </div>
 </div>
 

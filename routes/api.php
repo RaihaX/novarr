@@ -130,6 +130,21 @@ Route::prefix('v1')
         Route::post('/books/uploads', [ApiV1\BookUploadController::class, 'store'])->middleware('throttle:novarr-reader-actions')->name('books.uploads.store');
         Route::post('/books/inbox', [ApiV1\BookInboxController::class, 'store'])->middleware('throttle:30,1')->name('books.inbox');
 
+        // Audiobooks (App\Audiobooks; the audiobooks contract): listening is
+        // the reader's, the inbox / match / scan the owner's. A part streams
+        // with HTTP Range; its URL in the detail is signed for the reader
+        // (RouteAccess::SIGNED_ROUTES) so <audio> and ExoPlayer need no headers.
+        Route::get('/audiobooks', [ApiV1\AudiobookController::class, 'index'])->name('audiobooks');
+        Route::get('/audiobooks/continue', [ApiV1\AudiobookController::class, 'continue'])->name('audiobooks.continue');
+        Route::get('/audiobooks/inbox', [ApiV1\AudiobookController::class, 'inbox'])->name('audiobooks.inbox');
+        Route::post('/audiobooks/scan', [ApiV1\AudiobookController::class, 'scan'])->middleware('throttle:novarr-reader-actions')->name('audiobooks.scan');
+        Route::get('/audiobooks/{id}', [ApiV1\AudiobookController::class, 'show'])->whereNumber('id')->name('audiobooks.show');
+        Route::get('/audiobooks/{id}/parts/{index}', [ApiV1\AudiobookController::class, 'part'])->whereNumber(['id', 'index'])->name('audiobooks.parts.show');
+        Route::put('/audiobooks/{id}/progress', [ApiV1\AudiobookController::class, 'saveProgress'])->whereNumber('id')->name('audiobooks.progress');
+        Route::post('/audiobooks/{id}/bookmarks', [ApiV1\AudiobookController::class, 'storeBookmark'])->whereNumber('id')->name('audiobooks.bookmarks.store');
+        Route::delete('/audiobooks/{id}/bookmarks/{bookmarkId}', [ApiV1\AudiobookController::class, 'destroyBookmark'])->whereNumber(['id', 'bookmarkId'])->name('audiobooks.bookmarks.destroy');
+        Route::post('/audiobooks/{id}/match', [ApiV1\AudiobookController::class, 'match'])->whereNumber('id')->name('audiobooks.match');
+
         // The KOReader plugin's "update over Wi-Fi".
         Route::get('/koreader/plugin', [ApiV1\KoreaderPluginController::class, 'manifest'])->name('koreader.plugin');
         Route::get('/koreader/plugin/files/{path}', [ApiV1\KoreaderPluginController::class, 'file'])->where('path', '.*')->name('koreader.plugin.file');

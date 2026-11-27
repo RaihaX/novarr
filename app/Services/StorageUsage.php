@@ -52,6 +52,7 @@ class StorageUsage
         'covers' => 'Covers & uploads',
         'epubs' => 'ePubs',
         'books' => 'Book files',
+        'audiobooks' => 'Audiobooks',
         'backups' => 'Backups',
         'logs' => 'Logs',
         'snapshots' => 'Failure snapshots',
@@ -170,6 +171,8 @@ class StorageUsage
         $bucket('epubs', $this->walkAll($paths['epubs']), ['paths' => $paths['epubs']]);
         // The Books library's original ePubs: uploads, and Calibre's (on the big disk).
         $bucket('books', $this->walkAll($paths['books']), ['paths' => $paths['books']]);
+        // Audiobook files (App\Audiobooks: the library root, on the big disk).
+        $bucket('audiobooks', $this->walkAll($paths['audiobooks']), ['paths' => $paths['audiobooks']]);
         $bucket('backups', $this->walkAll($paths['backups']), ['paths' => $paths['backups'], 'remote' => $paths['remote_backups']]);
         $bucket('logs', $this->walk($paths['logs']), ['paths' => [$paths['logs']]]);
         $bucket('snapshots', $this->walk($paths['snapshots']), ['paths' => [$paths['snapshots']]]);
@@ -179,6 +182,7 @@ class StorageUsage
             [$paths['manga'], $paths['public'], $paths['logs'], $paths['snapshots'], $paths['cache']],
             $paths['epubs'],
             $paths['books'],
+            $paths['audiobooks'],
             $paths['backups'],
         );
         $bucket('other', $this->walk($paths['storage'], $claimed), ['paths' => [$paths['storage']]]);
@@ -396,6 +400,7 @@ class StorageUsage
                 rtrim((string) config('novarr.books.path', storage_path('app/books')), '/'),
                 config('novarr.books.calibre_path') ? rtrim((string) config('novarr.books.calibre_path'), '/') : null,
             ]))),
+            'audiobooks' => [rtrim((string) config('novarr.audiobooks.path', storage_path('app/audiobooks')), '/')],
             'snapshots' => rtrim((string) (config('novarr.snapshots.path') ?: storage_path('app/snapshots')), '/'),
             'logs' => storage_path('logs'),
             'cache' => storage_path('framework'),
@@ -432,8 +437,10 @@ class StorageUsage
             return ['series' => [], 'loose' => $loose, 'total' => $total];
         }
 
-        // Book originals kept on the same disk (NOVARR_BOOKS_CALIBRE_PATH) are not manga.
+        // Book originals kept on the same disk (NOVARR_BOOKS_CALIBRE_PATH) are not manga,
+        // nor are audiobooks (NOVARR_AUDIOBOOKS_PATH, /mnt/manga/novarr-audiobooks).
         $booksDir = ($books = config('novarr.books.calibre_path')) ? rtrim((string) $books, '/') : null;
+        $audiobooksDir = rtrim((string) config('novarr.audiobooks.path', ''), '/') ?: null;
 
         foreach ($top as $entry) {
             try {
@@ -441,6 +448,9 @@ class StorageUsage
                     continue;
                 }
                 if ($booksDir !== null && rtrim($entry->getPathname(), '/') === $booksDir) {
+                    continue;
+                }
+                if ($audiobooksDir !== null && rtrim($entry->getPathname(), '/') === $audiobooksDir) {
                     continue;
                 }
                 if ($entry->isDir()) {

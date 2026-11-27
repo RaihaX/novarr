@@ -184,6 +184,16 @@ final class RouteAccess
         'books.upload',
         'books.upload.store',
         'api.v1.books.uploads.store', // the Android app's "Share to Novarr"
+        // Audiobooks: the shelf, the player, listening (own progress and bookmarks)
+        'audiobooks.index',
+        'audiobooks.show',
+        'api.v1.audiobooks',
+        'api.v1.audiobooks.continue',
+        'api.v1.audiobooks.show',
+        'api.v1.audiobooks.parts.show', // also by a signed URL (SIGNED_ROUTES)
+        'api.v1.audiobooks.progress',
+        'api.v1.audiobooks.bookmarks.store',
+        'api.v1.audiobooks.bookmarks.destroy',
     ];
 
     /**
@@ -214,14 +224,19 @@ final class RouteAccess
         'api.v1.requests.approve', 'api.v1.requests.decline', 'api.v1.requests.rerank',
         'books.review', 'books.review.search', 'books.review.approve', 'books.review.decline', 'books.review.upload', 'books.review.use_existing',
         'books.calibre', 'books.calibre.import', 'books.calibre.cover',
+        // Audiobooks: the inbox, matching, "Scan now"
+        'audiobooks.manage', 'audiobooks.manage.scan', 'audiobooks.manage.retry', 'audiobooks.manage.match',
+        'api.v1.audiobooks.inbox', 'api.v1.audiobooks.match', 'api.v1.audiobooks.scan',
     ];
 
     /**
      * Session-less asset routes (no cookies) that serve private content:
      * authorised by a signed URL that names the reader (App\Support\SignedUrls),
-     * so <img> tags and the iOS app load them without headers.
+     * so <img> tags and the iOS app load them without headers. An
+     * audiobook part also takes a bearer token or the session (it is a
+     * reader route); its signed URL expires after a day.
      */
-    public const SIGNED_ROUTES = ['chapters.page', 'discover.cover', 'requests.cover'];
+    public const SIGNED_ROUTES = ['chapters.page', 'discover.cover', 'requests.cover', 'api.v1.audiobooks.parts.show'];
 
     /** Routes that also accept HTTP Basic (username + password): ereader OPDS clients. */
     public const BASIC_ROUTES = ['opds.index', 'novels.download_epub'];

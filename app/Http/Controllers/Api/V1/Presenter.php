@@ -53,7 +53,7 @@ class Presenter
      * the caches the Library page uses (plus the resume map): a fixed number
      * of statements when cold, none when warm.
      *
-     * @return array{reading: array, totals: array, aggregates: array, attention: array<int, true>, resume: array<int, int>, want_to_read: array<int, true>}
+     * @return array{reading: array, totals: array, aggregates: array, attention: array<int, true>, resume: array<int, int>, want_to_read: array<int, true>, audiobooks: array<int, array{id: int, duration_ms: int}>}
      */
     public static function context(): array
     {
@@ -68,6 +68,8 @@ class Presenter
             'resume' => static::resumeChapterIds($userId),
             // The reader's "Want to read" ids (one statement, no list made).
             'want_to_read' => \App\Services\ReadingLists::wantToReadIds($userId),
+            // Books' audiobooks: novel id => {id, duration_ms} (cached until an audiobook changes).
+            'audiobooks' => \App\Audiobooks\AudiobookLibrary::novelMap(),
         ];
     }
 
@@ -110,6 +112,8 @@ class Presenter
             'series_index' => (string) $novel->series !== '' && $novel->series_index !== null ? (float) $novel->series_index : null,
             // On the reader's "Want to read" (the built-in reading list).
             'want_to_read' => isset($context['want_to_read'][$id]),
+            // Its audiobook (App\Audiobook), or null: {id, duration_ms}.
+            'audiobook' => ($context['audiobooks'] ?? \App\Audiobooks\AudiobookLibrary::novelMap())[$id] ?? null,
         ];
     }
 

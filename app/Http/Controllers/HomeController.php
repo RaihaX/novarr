@@ -24,6 +24,9 @@ class HomeController extends Controller
     /** Covers on Home's "Want to read" shelf (web and API); the page has them all. */
     public const WANT_TO_READ_SHELF = 12;
 
+    /** Audiobooks on Home's Continue listening. */
+    public const CONTINUE_LISTENING_SHELF = 6;
+
     // Stateless (the reader is resolved per call), so safe to hold here even
     // though Octane keeps controller instances across requests.
     public function __construct(private ReadState $readState, private ResumePoint $resumePoint)
@@ -85,6 +88,12 @@ class HomeController extends Controller
             'hero' => $hero,
             'shelf' => $shelf,
             'want_to_read' => $this->wantToReadShelf(self::WANT_TO_READ_SHELF),
+            // Audiobooks the reader is part way through (Api\V1\AudiobookController::continueShelf()).
+            'continue_listening' => \App\Http\Controllers\Api\V1\AudiobookController::continueShelf(
+                app(\App\Audiobooks\ListeningProgress::class),
+                $this->readState->userId(),
+                self::CONTINUE_LISTENING_SHELF
+            ),
             'new_reading' => $newReading,
             'new_fresh' => $newFresh,
             'strip' => $admin ? $this->statusStrip(count($attention)) : null,

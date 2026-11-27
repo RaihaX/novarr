@@ -27,6 +27,15 @@ abstract class TestCase extends BaseTestCase
         // cannot see this process's fake sources: tests ask them in-process
         // (tests of the process runner bind their own).
         $this->app->instance(\App\Services\Requests\SearchRunner::class, new \App\Services\Requests\InlineSearchRunner());
+        // Audiobooks are probed by a fake (no ffprobe in tests), and their
+        // inbox and library are this process's own temporary folders (a
+        // queued "Scan now" runs inline under the sync queue).
+        $this->app->instance(\App\Audiobooks\AudioProbe::class, new \Tests\Support\FakeAudioProbe());
+        $audiobooks = sys_get_temp_dir() . '/novarr-test-audiobooks-' . getmypid();
+        config([
+            'novarr.audiobooks.inbox' => $audiobooks . '/inbox',
+            'novarr.audiobooks.path' => $audiobooks . '/library',
+        ]);
     }
 
     use CreatesApplication;

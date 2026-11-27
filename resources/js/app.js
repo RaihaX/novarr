@@ -44,6 +44,12 @@ document.addEventListener('turbo:load', initLists);
 import { initWantToRead } from './want-to-read';
 document.addEventListener('turbo:load', initWantToRead);
 
+// The audiobook player page (/audiobooks/{id}); leaving it saves the place and stops the audio.
+import { initAudiobookPlayer, teardownAudiobookPlayer } from './audiobook-player';
+document.addEventListener('turbo:load', initAudiobookPlayer);
+document.addEventListener('turbo:before-render', teardownAudiobookPlayer);
+document.addEventListener('turbo:before-cache', teardownAudiobookPlayer);
+
 // Reader requests page (search, my requests, review); re-initialised per visit.
 import { initRequestsPage } from './requests';
 document.addEventListener('turbo:load', initRequestsPage);

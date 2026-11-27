@@ -56,6 +56,8 @@ class LibraryController extends Controller
             // books) are accepted on /novels and /home. A client checks this
             // before asking for them: an older server answers 422.
             'books' => true,
+            // Audiobooks (GET /api/v1/audiobooks …, `audiobook` on novel payloads) are offered.
+            'audiobooks' => true,
             // Sending books: the app's "Share to Novarr" limits, and the books email address.
             'book_uploads' => [
                 'max_mb' => \App\Http\Controllers\BookUploadController::maxMb(),

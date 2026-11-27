@@ -28,6 +28,8 @@ class ApiV1Test extends TestCase
         'series', 'series_index',
         // On the reader's "Want to read" (the built-in reading list).
         'want_to_read',
+        // The book's audiobook: null | {id, duration_ms}.
+        'audiobook',
     ];
 
     private const REF_KEYS = ['id', 'label', 'chapter', 'book'];
@@ -95,7 +97,7 @@ class ApiV1Test extends TestCase
         $json = $this->getJson('/api/v1/meta')->assertOk()->json();
 
         // `auth`: added by sign-in (auth contract); off by default. `requests`: reader requests offered.
-        $this->assertSame(['android', 'api_version', 'app', 'auth', 'book_uploads', 'books', 'instance', 'lists', 'requests', 'server_version', 'updates'], $this->sorted(array_keys($json)));
+        $this->assertSame(['android', 'api_version', 'app', 'audiobooks', 'auth', 'book_uploads', 'books', 'instance', 'lists', 'requests', 'server_version', 'updates'], $this->sorted(array_keys($json)));
         $this->assertTrue($json['requests']);
         // No APK published in tests; the instance id is stable and not the key.
         $this->assertNull($json['android']);

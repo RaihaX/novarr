@@ -129,6 +129,9 @@ class Novel extends Model
             ReadingPosition::where('novel_id', $novel->id)->delete();
             // …and takes it out of every reader's lists (a soft-deleted one stays, hidden).
             ReadingList::forgetNovel((int) $novel->id);
+            // Its audiobook stays, standalone (the files are the owner's).
+            Audiobook::withTrashed()->where('novel_id', $novel->id)->update(['novel_id' => null]);
+            \App\Audiobooks\AudiobookLibrary::forgetNovelMap();
         });
         // A request approved into this series no longer points at it once
         // the series is deleted (soft or hard): the request stays as history.
@@ -217,6 +220,12 @@ class Novel extends Model
     {
         // The newest upload is the cover; older rows are history.
         return $this->morphOne(File::class, "file")->latestOfMany();
+    }
+
+    /** The book's audiobook (App\Audiobook; one per book in v1), or none. */
+    public function audiobook(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Audiobook::class);
     }
 
     public function group(): BelongsTo

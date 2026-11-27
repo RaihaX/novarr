@@ -170,6 +170,15 @@ Route::post('/books/review/{id}/use-existing', [\App\Http\Controllers\BookReview
 Route::post('/books/review/{id}/upload', [\App\Http\Controllers\BookReviewController::class, 'upload'])->whereNumber('id')->name('books.review.upload');
 Route::post('/books/review/{id}/decline', [\App\Http\Controllers\BookReviewController::class, 'decline'])->whereNumber('id')->name('books.review.decline');
 
+// Audiobooks (App\Audiobooks): every reader's shelf and player (its data and
+// saves through /api/v1/audiobooks…); the owner's inbox / matching page.
+Route::get('/audiobooks', [\App\Http\Controllers\AudiobookController::class, 'index'])->name('audiobooks.index');
+Route::get('/audiobooks/manage', [\App\Http\Controllers\AudiobookController::class, 'manage'])->name('audiobooks.manage');
+Route::post('/audiobooks/manage/scan', [\App\Http\Controllers\AudiobookController::class, 'scan'])->name('audiobooks.manage.scan');
+Route::post('/audiobooks/manage/retry', [\App\Http\Controllers\AudiobookController::class, 'retry'])->name('audiobooks.manage.retry');
+Route::post('/audiobooks/manage/{id}/match', [\App\Http\Controllers\AudiobookController::class, 'match'])->whereNumber('id')->name('audiobooks.manage.match');
+Route::get('/audiobooks/{id}', [\App\Http\Controllers\AudiobookController::class, 'show'])->whereNumber('id')->name('audiobooks.show');
+
 // Covers in reader-request results: signed URLs only (RequestCoverController).
 Route::get('/requests/cover', [\App\Http\Controllers\RequestCoverController::class, 'cover'])
     ->withoutMiddleware($sessionless)
