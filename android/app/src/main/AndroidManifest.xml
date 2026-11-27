@@ -40,6 +40,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Declares voice search ("play <title> on Novarr") to Android Auto and the Assistant;
+                 the search itself is answered by PlaybackService's session (resolve). -->
+            <intent-filter>
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <!-- "Share to Novarr" / "Open with Novarr" for ePubs: sent to the owner's approval queue.
@@ -48,7 +54,6 @@
         <activity
             android:name=".ShareEpubActivity"
             android:exported="true"
-            android:label="@string/app_name"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Novarr">
             <intent-filter>

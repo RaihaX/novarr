@@ -1,5 +1,6 @@
 package studio.visns.novarr
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -82,6 +83,11 @@ class MainActivity : ComponentActivity() {
      * takes them first; this catches any that reach the activity without it
      * (no view focused). Text fields only live in sheets and dialogs, which are
      * their own windows, so the reader window has none to break.
+     *
+     * RestrictedApi is a lint false positive: this overrides the public
+     * android.app.Activity.dispatchKeyEvent, which androidx.core's
+     * ComponentActivity re-declares with @RestrictTo, so lint flags the super call.
      */
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = PageKeys.handle(event) || super.dispatchKeyEvent(event)
 }

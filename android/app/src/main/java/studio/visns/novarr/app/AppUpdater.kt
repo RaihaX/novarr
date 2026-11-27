@@ -207,7 +207,7 @@ class AppUpdater(
         ctx[Job]?.invokeOnCompletion { if (it != null) call.cancel() }
         call.execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-            val body = response.body ?: throw IOException("Empty response")
+            val body = response.body
             val total = body.contentLength().takeIf { it > 0 } ?: release.size
             var received = 0L
             var lastPercent = -1

@@ -7,6 +7,12 @@ with the APK (the update prompt in the app, the download page and the
 "new version" email show it) and refuses to release while the section is
 missing or still says "Notes to come".
 
+## 1.20 (21)
+
+- Built for Android 16, with newer versions of the libraries behind audiobook playback, images and connections.
+- Asking Android Auto or the Assistant to "play <title> on Novarr" is now properly declared to the system.
+- Nothing else should look different: tell us if playback, downloads or uploads misbehave.
+
 ## 1.19 (20)
 
 - Comics and graphic novels have their own tab in your Library, next to Manga.

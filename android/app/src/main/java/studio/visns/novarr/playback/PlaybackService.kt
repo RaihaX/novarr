@@ -232,16 +232,25 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private inner class Callback : MediaLibrarySession.Callback {
-        override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+        /**
+         * Every controller (the app, the notification, Bluetooth, Android Auto, a watch) gets the
+         * full session, library and player commands plus ours, as before Media3 1.11. Media3's new
+         * default would give "untrusted" controllers read access only, and a car or a headset
+         * companion app is not always counted as trusted.
+         */
+        override fun onConnectAsync(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): ListenableFuture<MediaSession.ConnectionResult> {
             val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
                 .add(SPEED)
                 .add(PREVIOUS_CHAPTER)
                 .add(NEXT_CHAPTER)
                 .add(SLEEP)
                 .build()
-            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                .setAvailableSessionCommands(commands)
-                .build()
+            return Futures.immediateFuture(
+                MediaSession.ConnectionResult.accept(commands, MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS),
+            )
         }
 
         override fun onCustomCommand(
@@ -261,10 +270,14 @@ class PlaybackService : MediaLibraryService() {
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
 
-        /** A play from a headset or the system's controls after the process died: the last audiobook, where it was. */
+        /**
+         * A play from a headset or the system's controls after the process died: the last audiobook,
+         * where it was. The same answer when the system only asks what would play (isForPlayback false).
+         */
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
+            isForPlayback: Boolean,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = future {
             model.listening.resumption() ?: throw UnsupportedOperationException("Nothing to resume")
         }

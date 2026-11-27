@@ -101,7 +101,7 @@ object Artwork {
         return try {
             client.newCall(Request.Builder().url(url).build()).execute().use { response ->
                 if (!response.isSuccessful) return null
-                val body = response.body ?: return null
+                val body = response.body
                 val type = body.contentType()
                 if (type != null && type.type != "image") return null
                 val temp = File(dir, "$key.tmp")

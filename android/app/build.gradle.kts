@@ -1,8 +1,8 @@
 import java.util.Properties
 
+// No org.jetbrains.kotlin.android here: AGP 9 compiles Kotlin itself (built-in Kotlin).
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
@@ -18,7 +18,7 @@ val releaseProps = Properties().apply {
 
 android {
     namespace = "studio.visns.novarr"
-    compileSdk = 35
+    compileSdk = 36
 
     signingConfigs {
         if (releaseProps.getProperty("storeFile") != null) {
@@ -34,9 +34,9 @@ android {
     defaultConfig {
         applicationId = "studio.visns.novarr"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 20
-        versionName = "1.19"
+        targetSdk = 36
+        versionCode = 21
+        versionName = "1.20"
         buildConfigField("String", "DEFAULT_SERVER", "\"" + (releaseProps.getProperty("defaultServer") ?: "") + "\"")
     }
 
@@ -64,8 +64,9 @@ android {
     }
 
     lint {
-        // The library versions are pinned to what compiles against SDK 35 on purpose.
-        disable += setOf("GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion", "OldTargetApi")
+        // compileSdk/targetSdk stay at 36 (Android 16) on purpose: Compose 1.12+, navigation 2.10,
+        // lifecycle 2.11, core 1.19, Coil 3.6 and OkHttp 5.5 need compileSdk 37, see libs.versions.toml.
+        disable += setOf("GradleDependency", "NewerVersionAvailable", "OldTargetApi")
         // AAPT2 only finds the adaptive launcher icon under mipmap-anydpi-v26, even with minSdk 26.
         disable += "ObsoleteSdkInt"
     }
