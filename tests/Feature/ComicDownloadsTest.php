@@ -300,4 +300,24 @@ class ComicDownloadsTest extends TestCase
         $this->postJson(route('downloads.search'), ['kind' => 'comic', 'novel_id' => $series->id])->assertOk()->assertJsonPath('kind', 'comic');
         $this->assertSame('Saga', DownloadSearch::defaultQuery(null, $series));
     }
+
+    public function test_other_series_weekly_bundles_and_foreign_editions_are_never_taken_by_themselves(): void
+    {
+        $profile = \App\Downloads\DownloadProfile::class;
+        $check = fn(string $title, string $wanted) => \App\Downloads\DownloadProfile::refusal(
+            \App\Downloads\ReleaseRanking::score(['title' => $title, 'size' => 300 * 1048576, 'protocol' => 'usenet', 'age_days' => 5], ['kind' => 'comic', 'title' => $wanted]) + ['title' => $title, 'size' => 300 * 1048576, 'protocol' => 'usenet'],
+            'comic', ['title' => $wanted]);
+
+        // Real names from the owner's indexers.
+        $this->assertNotNull($check('Before Watchmen 07 - Dr.Manhatten Panini 2013GCF-Joker cbr', 'Watchmen'));
+        $this->assertNotNull($check('Hitlist Week of 2018.12.19 - Hitlist Week of 2018.12.19 Watchmen cbr', 'Watchmen'));
+        $this->assertNotNull($check('Watchmen - 04 - Deel 04 cbr', 'Watchmen'));
+        $this->assertNotNull($check('Fate-The Winx Saga v03-Battle for the OtherWorld [2026] [digital] cbz', 'Saga'));
+        $this->assertNotNull($check('DC All In Saga-Darkseid vs. The World 001 [2026] [digital] cbz', 'Saga'));
+
+        $mismatch = \App\Downloads\ReleaseRanking::comicMismatch('Watchmen (1987) (Digital) cbz', 'Watchmen');
+        $this->assertSame([], $mismatch);
+        $this->assertSame([], \App\Downloads\ReleaseRanking::comicMismatch('[Group] Saga v01 (2012) (Digital) cbz', 'Saga'));
+        $this->assertArrayHasKey('a different series', \App\Downloads\ReleaseRanking::comicMismatch('Before Watchmen 07', 'Watchmen'));
+    }
 }

@@ -195,6 +195,14 @@ final class ReleaseRanking
             $score += $comic['score'];
             $warnings = array_merge($warnings, $comic['warnings']);
             $pack = $comic['pack'];
+            // Comic titles are short ("Saga", "Watchmen"): the release must BE the
+            // series, so its name starts with it — "Before Watchmen", "Fate: The
+            // Winx Saga", "DC All In Saga" are other series; weekly bundles and
+            // foreign editions are never wanted.
+            foreach (self::comicMismatch((string) ($result['title'] ?? ''), (string) ($wanted['title'] ?? '')) as $why => $penalty) {
+                $score -= $penalty;
+                $warnings[] = $why;
+            }
         }
         if ($numbers !== []) {
             $index = isset($wanted['series_index']) && $wanted['series_index'] !== null && $wanted['series_index'] !== '' ? (float) $wanted['series_index'] : null;
@@ -423,5 +431,40 @@ final class ReleaseRanking
     private static function numberLabel(float $n): string
     {
         return rtrim(rtrim(number_format($n, 1, '.', ''), '0'), '.');
+    }
+
+    /** Foreign-edition words in comic release names (not in LANGUAGE_WORDS: ordinary English words elsewhere). */
+    private const COMIC_LANGUAGE_WORDS = ['deel' => 'nl', 'tome' => 'fr', 'tomo' => 'es', 'band' => 'de', 'heft' => 'de', 'albo' => 'it', 'volumen' => 'es'];
+
+    /**
+     * Why a comic release is not the wanted series, with the penalty:
+     * another series around the same words (the name does not start with the
+     * wanted title), a weekly bundle ("Hitlist Week of …", 0-Day), a foreign
+     * edition ("Deel 04", "Tome 2"). Empty when it looks right.
+     *
+     * @return array<string, int>
+     */
+    public static function comicMismatch(string $release, string $wantedTitle): array
+    {
+        $out = [];
+        // Leading [group] / (tags) / "Re: REQ:" are not part of the name.
+        $name = preg_replace('/^(?:\s*(?:\[[^\]]*\]|\([^)]*\)|re:|req:|request:))+\s*/i', '', $release) ?? $release;
+        $releaseWords = self::words($name);
+        $wantedWords = self::words($wantedTitle);
+        if ($wantedWords !== [] && array_slice($releaseWords, 0, count($wantedWords)) !== $wantedWords) {
+            $out['a different series'] = 35;
+        }
+        $joined = ' ' . implode(' ', self::words($release)) . ' ';
+        if (str_contains($joined, ' hitlist ') || str_contains($joined, ' week of ') || str_contains($joined, ' 0day ') || str_contains($joined, ' 0 day ') || str_contains($joined, ' weekly ')) {
+            $out['a weekly bundle of many comics'] = 45;
+        }
+        foreach (self::COMIC_LANGUAGE_WORDS as $word => $lang) {
+            if (str_contains($joined, " {$word} ") && !in_array($word, $wantedWords, true)) {
+                $out["a foreign edition ({$word})"] = 30;
+                break;
+            }
+        }
+
+        return $out;
     }
 }
