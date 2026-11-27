@@ -161,6 +161,30 @@ export function initRequestsPage() {
     document.addEventListener('turbo:before-render', teardown, { once: true });
     document.addEventListener('turbo:before-cache', teardown, { once: true });
 
+    // Audiobooks the reader uploaded (server-rendered): Cancel / Remove one.
+    root.querySelector('#reqAudiobookUploads')?.addEventListener('click', async (e) => {
+        const button = e.target.closest('[data-upload-cancel]');
+        if (!button) return;
+        const id = button.dataset.uploadCancel;
+        const ask = window.Novarr?.confirmDialog
+            ? window.Novarr.confirmDialog('Its files are deleted from the server.', { title: 'Cancel this upload?', confirmText: 'Cancel the upload', cancelText: 'Keep it', danger: true })
+            : Promise.resolve(window.confirm('Cancel this upload? Its files are deleted.'));
+        if (!(await ask)) return;
+        button.disabled = true;
+        let r;
+        try {
+            r = await api('DELETE', `/api/v1/audiobook-uploads/${id}`);
+        } catch (err) {
+            r = { ok: false, status: 0, data: { message: networkMessage(err, 'It could not be cancelled') } };
+        }
+        if (r.ok || r.status === 404) {
+            button.closest('[data-upload-row]')?.remove();
+        } else {
+            button.disabled = false;
+            window.Novarr?.showToast?.(messageOf(r, 'It could not be cancelled'), 'danger');
+        }
+    }, { signal });
+
     let sourceCounts = {};
     try { sourceCounts = JSON.parse(root.dataset.sourceCounts || '{}') || {}; } catch (_) { sourceCounts = {}; }
 

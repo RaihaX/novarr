@@ -50,6 +50,12 @@ document.addEventListener('turbo:load', initAudiobookPlayer);
 document.addEventListener('turbo:before-render', teardownAudiobookPlayer);
 document.addEventListener('turbo:before-cache', teardownAudiobookPlayer);
 
+// Uploading an audiobook (/audiobooks/upload): chunked, resumable; leaving the page pauses it.
+import { initAudiobookUpload, teardownAudiobookUpload } from './audiobook-upload';
+document.addEventListener('turbo:load', initAudiobookUpload);
+document.addEventListener('turbo:before-render', teardownAudiobookUpload);
+document.addEventListener('turbo:before-cache', teardownAudiobookUpload);
+
 // "Search Usenet & torrents" (owner: wanted books, book pages, audiobooks, Downloads); per visit.
 import { initDownloadFinders, teardownDownloadFinders } from './download-finder';
 document.addEventListener('turbo:load', initDownloadFinders);

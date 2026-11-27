@@ -234,15 +234,28 @@
                 <x-icon name="headphones" :size="16" />
                 @if($abWanted)
                     <span class="nv-listen-meta">Audiobook asked for: it appears here once it is in the library.</span>
+                    @if(\App\Audiobooks\AudiobookUploads::enabled())
+                        <a href="{{ route('audiobooks.upload', ['novel_id' => $data->id]) }}" class="btn btn-ghost btn-sm ms-auto" id="uploadAudiobookBtn">Upload the audiobook</a>
+                    @endif
                 @else
                     <span class="nv-listen-meta">No audiobook yet.</span>
                     <form method="POST" action="{{ route('novels.audiobook_ask', $data->id) }}" class="ms-auto">
                         @csrf
                         <button type="submit" class="btn btn-secondary btn-sm" id="askAudiobookBtn">Ask for the audiobook</button>
                     </form>
+                    @if(\App\Audiobooks\AudiobookUploads::enabled())
+                        <a href="{{ route('audiobooks.upload', ['novel_id' => $data->id]) }}" class="btn btn-ghost btn-sm" id="uploadAudiobookBtn">Upload the audiobook</a>
+                    @endif
                 @endif
             </div>
         @endif
+    @elseif($isBook && empty($audiobook) && \App\Audiobooks\AudiobookUploads::enabled())
+        {{-- No searching set up: a reader who has the audiobook can still send it. --}}
+        <div class="nv-listen nv-listen-ask" id="askAudiobook">
+            <x-icon name="headphones" :size="16" />
+            <span class="nv-listen-meta">No audiobook yet. Have it? Send it to the owner.</span>
+            <a href="{{ route('audiobooks.upload', ['novel_id' => $data->id]) }}" class="btn btn-secondary btn-sm ms-auto" id="uploadAudiobookBtn">Upload the audiobook</a>
+        </div>
     @endif
 
     {{-- Actions: one primary, Download for offline, and the overflow menu. --}}

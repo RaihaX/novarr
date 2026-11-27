@@ -20,6 +20,12 @@ use Illuminate\Support\Facades\Log;
  *     once Transmission no longer has the torrent, a usenet one at once;
  *   - {audiobook inbox}/_failed entries (unreadable files, with their
  *     .reason.txt) older than FAILED_DAYS.
+ *   - readers' audiobook uploads (App\Audiobooks\AudiobookUploads::tidy(),
+ *     {audiobooks root}/_uploads): one abandoned while uploading (no chunk
+ *     for novarr.audiobooks.uploads.abandoned_hours, 48 h), row and files;
+ *     the leftover files of declined / failed ones. Done whether or not
+ *     Transmission answers (no torrent ever uses _uploads); a PENDING (or
+ *     processing) upload is never touched.
  *
  * What it never deletes:
  *   - anything a torrent in Transmission uses: ANY torrent (Novarr's or one
@@ -49,6 +55,13 @@ class InboxTidy
         $deleted = [];
         $kept = [];
 
+        // Readers' uploads first: nothing to do with torrents.
+        try {
+            $deleted = app(\App\Audiobooks\AudiobookUploads::class)->tidy($dryRun);
+        } catch (\Throwable $e) {
+            Log::warning('Downloads tidy-up: audiobook uploads not tidied: ' . $e->getMessage());
+        }
+
         // Every torrent Transmission has, by name: never touched.
         $seeding = [];
         if (Downloads::transmissionConfigured()) {
@@ -59,7 +72,7 @@ class InboxTidy
             } catch (\Throwable $e) {
                 Log::warning('Downloads tidy-up: Transmission could not be asked, nothing deleted: ' . $e->getMessage());
 
-                return ['deleted' => [], 'kept' => [], 'problem' => 'Transmission could not be asked, so nothing was deleted: ' . $e->getMessage()];
+                return ['deleted' => $deleted, 'kept' => [], 'problem' => 'Transmission could not be asked, so nothing was deleted from the inboxes: ' . $e->getMessage()];
             }
         }
 

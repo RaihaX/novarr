@@ -125,6 +125,44 @@
     </div>
     {{-- By state, with counts (built by requests.js once the list is loaded). --}}
     <div class="btn-group segmented req-mine-filters" role="group" aria-label="Show requests" id="reqMineFilters" hidden></div>
+    @if($audiobookUploads->isNotEmpty())
+        {{-- Audiobooks the reader uploaded (server-rendered; Cancel / Remove through the chunk API). --}}
+        <h3 class="req-subtitle" id="reqUploadsTitle">Audiobooks you uploaded</h3>
+        <ul class="req-list req-list-compact abu-mine" role="list" aria-labelledby="reqUploadsTitle" id="reqAudiobookUploads">
+            @foreach($audiobookUploads as $up)
+                <li class="req-row" data-upload-row="{{ $up->id }}">
+                    <div class="req-row-body">
+                        <div class="req-row-head">
+                            <span class="req-row-title">{{ $up->displayTitle() }}</span>
+                            <span class="badge badge-muted req-medium">Audiobook</span>
+                            <span class="badge badge-{{ $up->statusTone() }} req-status-badge">{{ $up->statusLabel() }}</span>
+                        </div>
+                        <p class="req-row-meta">
+                            {{ \App\Audiobooks\AudiobookUploads::human((int) $up->total_bytes) }} · {{ count((array) $up->files) }} {{ \Illuminate\Support\Str::plural('file', count((array) $up->files)) }} · uploaded {{ $up->created_at?->diffForHumans() }}
+                            @if($up->status === 'uploading' && $up->total_bytes > 0) · {{ (int) floor($up->received_bytes / $up->total_bytes * 100) }}% sent @endif
+                        </p>
+                        @if($up->status === 'declined' && $up->decline_reason)
+                            <p class="req-row-detail">Reason: {{ $up->decline_reason }}</p>
+                        @elseif(in_array($up->status, ['failed', 'uploading'], true) && $up->error)
+                            <p class="req-row-detail">{{ $up->error }}</p>
+                        @endif
+                        <div class="req-row-actions">
+                            @if($up->status === 'approved' && $up->audiobook && !$up->audiobook->trashed())
+                                <a href="{{ route('audiobooks.show', $up->audiobook_id) }}" class="btn btn-sm btn-primary">Listen</a>
+                            @elseif($up->status === 'uploading')
+                                <a href="{{ route('audiobooks.upload', $up->novel_id ? ['novel_id' => $up->novel_id] : []) }}" class="btn btn-sm btn-secondary">Carry on</a>
+                            @endif
+                            @if(in_array($up->status, ['uploading', 'pending'], true))
+                                <button type="button" class="btn btn-sm btn-ghost" data-upload-cancel="{{ $up->id }}">Cancel</button>
+                            @elseif(in_array($up->status, ['declined', 'failed'], true))
+                                <button type="button" class="btn btn-sm btn-ghost" data-upload-cancel="{{ $up->id }}">Remove</button>
+                            @endif
+                        </div>
+                    </div>
+                </li>
+            @endforeach
+        </ul>
+    @endif
     <p id="reqMineStatus" class="library-status req-status" role="status" aria-live="polite">Loading…</p>
     <ul id="reqMine" class="req-list req-list-compact" role="list" aria-labelledby="reqMineTitle"></ul>
     <div class="req-more" hidden id="reqMineMoreWrap">

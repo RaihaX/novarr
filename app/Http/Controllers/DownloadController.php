@@ -392,6 +392,8 @@ class DownloadController extends Controller
         $grabbedRequests = DownloadGrab::whereNotNull('novel_request_id')->pluck('novel_request_id')->unique()->all();
 
         return [
+            // Audiobooks readers uploaded, checked and waiting (App\Audiobooks\AudiobookUploads).
+            'uploads' => \App\AudiobookUpload::with('user')->where('status', \App\AudiobookUpload::STATUS_PENDING)->orderBy('id')->limit(50)->get(),
             'unmatched' => \App\Audiobook::where('status', \App\Audiobook::STATUS_UNMATCHED)->orderByDesc('id')->limit(50)->get(),
             'review' => \App\NovelRequest::where('medium', \App\Novel::MEDIUM_BOOK)
                 ->where('status', \App\NovelRequest::STATUS_PENDING)
@@ -408,11 +410,12 @@ class DownloadController extends Controller
 
     /**
      * attentionCount(attention()) in one query (the nav badge, layouts.app):
-     * the same five lists, counted, each capped as attention() caps it.
+     * the same six lists, counted, each capped as attention() caps it.
      */
     public static function attentionTotal(): int
     {
         $parts = [
+            'uploads' => [\App\AudiobookUpload::where('status', \App\AudiobookUpload::STATUS_PENDING), 50],
             'unmatched' => [\App\Audiobook::where('status', \App\Audiobook::STATUS_UNMATCHED), 50],
             'review' => [\App\NovelRequest::where('medium', \App\Novel::MEDIUM_BOOK)
                 ->where('status', \App\NovelRequest::STATUS_PENDING)->whereNotNull('upload_path'), 50],

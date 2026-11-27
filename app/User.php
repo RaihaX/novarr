@@ -92,6 +92,8 @@ class User extends Authenticatable
             NovelRequestFollower::whereIn('novel_request_id', $requestIds)->delete();
             NovelRequestFollower::where('user_id', $user->id)->delete();
             NovelRequest::whereIn('id', $requestIds)->delete();
+            // Their audiobook uploads (files too); an approved one's audiobook stays in the library.
+            \App\Audiobooks\AudiobookUploads::forgetUser((int) $user->id);
         });
     }
 
