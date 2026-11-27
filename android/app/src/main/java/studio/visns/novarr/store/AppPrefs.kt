@@ -42,6 +42,37 @@ data class ReaderSettings(
     }
 }
 
+/** The audiobook player's device-wide choices (Settings › Listening and the player). */
+data class ListeningPrefs(
+    val skipBackSeconds: Int = DEFAULT_SKIP_BACK,
+    val skipForwardSeconds: Int = DEFAULT_SKIP_FORWARD,
+    val speed: Float = 1f,
+    val skipSilence: Boolean = false,
+    /** Volume boost (LoudnessEnhancer) for quiet recordings. */
+    val boost: Boolean = false,
+    /** Audiobook downloads wait for Wi-Fi (an unmetered network). */
+    val wifiOnlyDownloads: Boolean = true,
+) {
+    companion object {
+        const val DEFAULT_SKIP_BACK = 15
+        const val DEFAULT_SKIP_FORWARD = 30
+        val SKIP_CHOICES = listOf(10, 15, 30, 45, 60)
+        const val MIN_SPEED = 0.5f
+        const val MAX_SPEED = 3.0f
+        const val SPEED_STEP = 0.05f
+        val SPEED_PRESETS = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
+
+        fun validSkip(seconds: Int?, default: Int): Int = seconds?.takeIf { it in SKIP_CHOICES } ?: default
+
+        /** Clamped to 0.5–3.0 and snapped to 0.05 steps. */
+        fun validSpeed(speed: Float): Float {
+            if (speed.isNaN()) return 1f
+            val clamped = speed.coerceIn(MIN_SPEED, MAX_SPEED)
+            return (Math.round(clamped / SPEED_STEP) * SPEED_STEP * 100).let { Math.round(it) / 100f }
+        }
+    }
+}
+
 enum class ReaderTheme(val title: String) { SYSTEM("System"), LIGHT("Light"), SEPIA("Sepia"), DARK("Dark"), BLACK("Black") }
 enum class ReaderFont(val title: String) { LITERATA("Literata"), GEIST("Geist"), SERIF("Serif"), SANS("Sans") }
 
@@ -189,6 +220,37 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         return applied
     }
 
+    // Listening (audiobooks): device-wide player choices.
+
+    val listening: Flow<ListeningPrefs> = store.data.map { p ->
+        ListeningPrefs(
+            skipBackSeconds = ListeningPrefs.validSkip(p[A_SKIP_BACK], ListeningPrefs.DEFAULT_SKIP_BACK),
+            skipForwardSeconds = ListeningPrefs.validSkip(p[A_SKIP_FORWARD], ListeningPrefs.DEFAULT_SKIP_FORWARD),
+            speed = ListeningPrefs.validSpeed(p[A_SPEED] ?: 1f),
+            skipSilence = p[A_SKIP_SILENCE] ?: false,
+            boost = p[A_BOOST] ?: false,
+            wifiOnlyDownloads = p[A_WIFI_ONLY] ?: true,
+        )
+    }
+
+    suspend fun listeningNow(): ListeningPrefs = listening.first()
+
+    suspend fun updateListening(transform: (ListeningPrefs) -> ListeningPrefs) {
+        val next = transform(listening.first())
+        store.edit {
+            it[A_SKIP_BACK] = ListeningPrefs.validSkip(next.skipBackSeconds, ListeningPrefs.DEFAULT_SKIP_BACK)
+            it[A_SKIP_FORWARD] = ListeningPrefs.validSkip(next.skipForwardSeconds, ListeningPrefs.DEFAULT_SKIP_FORWARD)
+            it[A_SPEED] = ListeningPrefs.validSpeed(next.speed)
+            it[A_SKIP_SILENCE] = next.skipSilence
+            it[A_BOOST] = next.boost
+            it[A_WIFI_ONLY] = next.wifiOnlyDownloads
+        }
+    }
+
+    /** Whether the player has asked for the notification permission (Android 13+): once, on first play. */
+    suspend fun listeningNotifyAsked(): Boolean = snapshot()[A_NOTIFY_ASKED] ?: false
+    suspend fun setListeningNotifyAsked() = store.edit { it[A_NOTIFY_ASKED] = true }
+
     suspend fun string(name: String): String? = snapshot()[stringPreferencesKey(name)]
     suspend fun setString(name: String, value: String) = store.edit { it[stringPreferencesKey(name)] = value }
 
@@ -272,6 +334,13 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         val REQUESTS_NOTIFY = booleanPreferencesKey("requests.notify")
         val NEW_CHAPTERS_NOTIFY = booleanPreferencesKey("newChapters.notify")
         val CHAPTER_UPDATES_STATE = stringPreferencesKey("newChapters.state")
+        val A_SKIP_BACK = intPreferencesKey("listening.skipBack")
+        val A_SKIP_FORWARD = intPreferencesKey("listening.skipForward")
+        val A_SPEED = floatPreferencesKey("listening.speed")
+        val A_SKIP_SILENCE = booleanPreferencesKey("listening.skipSilence")
+        val A_BOOST = booleanPreferencesKey("listening.boost")
+        val A_WIFI_ONLY = booleanPreferencesKey("listening.wifiOnlyDownloads")
+        val A_NOTIFY_ASKED = booleanPreferencesKey("listening.notifyAsked")
 
         inline fun <reified E : Enum<E>> enumOr(raw: String?, default: E): E =
             raw?.let { name -> enumValues<E>().firstOrNull { it.name == name } } ?: default

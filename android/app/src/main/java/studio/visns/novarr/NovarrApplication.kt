@@ -25,6 +25,7 @@ class NovarrApplication : Application(), SingletonImageLoader.Factory {
             override fun onStart(owner: LifecycleOwner) {
                 model.checks.setForeground(true)
                 model.scope.launch { model.flushWrites() }
+                model.scope.launch { model.listening.flush() }
                 // A newer APK on the server is noticed without waiting for a relaunch.
                 model.refreshMetaIfDue()
                 // Request news since last time: the dot on Requests (no notification while on screen).
@@ -37,6 +38,8 @@ class NovarrApplication : Application(), SingletonImageLoader.Factory {
 
             override fun onStop(owner: LifecycleOwner) {
                 model.checks.setForeground(false)
+                // Leaving the app: where the audiobook is goes to the server now (playback may carry on).
+                model.listening.saveNow()
             }
         })
     }

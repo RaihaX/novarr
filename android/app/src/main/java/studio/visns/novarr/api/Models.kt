@@ -51,6 +51,8 @@ data class ServerMeta(
     /** ePubs sent from the app (`POST /books/uploads`): the server's limits and its mail-in address; absent on older servers. */
     @Serializable(with = BookUploadsMetaOrNull::class)
     @SerialName("book_uploads") val bookUploads: BookUploadsMeta? = null,
+    /** Audiobooks (`/audiobooks`, the player); absent on older servers, and the app then hides them entirely. */
+    val audiobooks: Boolean = false,
 ) {
     /** Only an explicit `auth.required: true` turns sign-in on. */
     val requiresSignIn: Boolean get() = auth?.required == true
@@ -149,6 +151,8 @@ data class NovelSummary(
     @SerialName("resume_chapter_id") val resumeChapterId: Int? = null,
     /** On the reader's "Want to read" (an older server sends none: false). */
     @SerialName("want_to_read") val wantToRead: Boolean = false,
+    /** The book's audiobook (`{id, duration_ms}`); null without one, or from a server that predates audiobooks. */
+    @Serializable(with = AudiobookRefOrNull::class) val audiobook: AudiobookRef? = null,
 ) {
     val isManga: Boolean get() = medium.equals(Medium.MANGA, ignoreCase = true)
 

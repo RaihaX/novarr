@@ -5,6 +5,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
+import studio.visns.novarr.api.AudiobookDetail
+import studio.visns.novarr.api.AudiobookSummary
+import studio.visns.novarr.api.AudiobooksPage
 import studio.visns.novarr.api.AuthUser
 import studio.visns.novarr.api.ChapterContent
 import studio.visns.novarr.api.ChapterListItem
@@ -47,7 +50,57 @@ class OfflineStore(val root: File) {
 
             /** A series' highlights as the reader last saw them, so they are drawn offline too. */
             fun highlights(id: Int) = Key("novels/$id/highlights.json", ListSerializer(Highlight.serializer()))
+
+            /** The Audiobooks screen's first page and Home's "Continue listening", so they show offline. */
+            val audiobooks = Key("audiobooks.json", AudiobooksPage.serializer())
+            val continueListening = Key("continue-listening.json", ListSerializer(AudiobookSummary.serializer()))
+
+            /** An audiobook as last fetched (its part URLs may have expired: local files or a fresh fetch play). */
+            fun audiobook(id: Int) = Key("audiobooks/$id/detail.json", AudiobookDetail.serializer())
         }
+    }
+
+    /** A downloaded audiobook: every part is in [audiobookFilesDir], then the marker is written last. */
+    @kotlinx.serialization.Serializable
+    data class AudiobookDownload(
+        val audiobookId: Int,
+        val title: String,
+        /** Part index → file name in [audiobookFilesDir]. */
+        val files: Map<Int, String>,
+        val bytes: Long = 0,
+    )
+
+    fun audiobookDir(id: Int) = File(root, "audiobooks/$id")
+    fun audiobookFilesDir(id: Int) = File(audiobookDir(id), "files")
+    private fun audiobookMarker(id: Int) = File(audiobookDir(id), "download.json")
+
+    val listeningFile: File get() = File(root, ListeningStore.FILE)
+
+    /** The complete download of an audiobook, or null (none, or still downloading). */
+    suspend fun audiobookDownload(id: Int): AudiobookDownload? = io {
+        read(audiobookMarker(id), AudiobookDownload.serializer())?.takeIf { download ->
+            download.files.values.all { File(audiobookFilesDir(id), it).isFile }
+        }
+    }
+
+    /** Local files for each part of a complete download (empty when there is none). */
+    suspend fun audiobookFiles(id: Int): Map<Int, File> =
+        audiobookDownload(id)?.files?.mapValues { File(audiobookFilesDir(id), it.value) }.orEmpty()
+
+    suspend fun saveAudiobookDownload(download: AudiobookDownload) = io { write(audiobookMarker(download.audiobookId), AudiobookDownload.serializer(), download) }
+
+    /** Removes the downloaded files (the cached detail stays). */
+    suspend fun removeAudiobookDownload(id: Int) = io {
+        audiobookMarker(id).delete()
+        audiobookFilesDir(id).deleteRecursively()
+        Unit
+    }
+
+    /** Downloaded audiobooks, largest first. */
+    suspend fun audiobookDownloads(): List<AudiobookDownload> = io {
+        File(root, "audiobooks").listFiles()?.mapNotNull { it.name.toIntOrNull() }.orEmpty().mapNotNull { id ->
+            read(audiobookMarker(id), AudiobookDownload.serializer())?.let { it.copy(bytes = sizeOf(audiobookFilesDir(id))) }
+        }.sortedByDescending { it.bytes }
     }
 
     data class NovelDownloads(val novelId: Int, val name: String, val chapterCount: Int, val bytes: Long)
@@ -168,7 +221,8 @@ class OfflineStore(val root: File) {
 
         /** Marks the server directory as belonging to one signed-in user; holds their id. */
         const val OWNER_MARKER_FILE = ".owner-user-id"
-        private val KEEP = setOf(WRITE_QUEUE_FILE, OWNER_MARKER_FILE)
+        // Listening progress not sent yet is kept like the write queue.
+        private val KEEP = setOf(WRITE_QUEUE_FILE, OWNER_MARKER_FILE, ListeningStore.FILE)
 
         fun sizeOf(dir: File): Long = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
 

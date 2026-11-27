@@ -57,6 +57,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import studio.visns.novarr.api.AudiobookSummary
 import studio.visns.novarr.api.ContinueItem
 import studio.visns.novarr.api.HomeFeed
 import studio.visns.novarr.api.NewChaptersItem
@@ -66,7 +67,10 @@ import studio.visns.novarr.domain.NewChapters
 import studio.visns.novarr.domain.ReadingLists
 import studio.visns.novarr.domain.ResumeRule
 import studio.visns.novarr.store.OfflineStore
+import studio.visns.novarr.ui.AudiobooksRoute
 import studio.visns.novarr.ui.NovelRoute
+import studio.visns.novarr.ui.PlayerRoute
+import studio.visns.novarr.ui.audiobooks.ContinueListeningRow
 import studio.visns.novarr.ui.ReaderRoute
 import studio.visns.novarr.ui.RequestsRoute
 import studio.visns.novarr.ui.WantToReadRoute
@@ -100,6 +104,10 @@ class HomeViewModel(private val app: AppModel) : ViewModel() {
      */
     var continueItems by mutableStateOf<List<ContinueItem>>(emptyList())
         private set
+
+    /** "Continue listening" (audiobooks started and not finished); empty without audiobooks on the server. */
+    var listening by mutableStateOf<List<AudiobookSummary>>(emptyList())
+        private set
     private var loadedRevision = -1
     private var loadedAt = 0L
 
@@ -123,6 +131,18 @@ class HomeViewModel(private val app: AppModel) : ViewModel() {
         fromCache = result.fromCache || (result.error != null && feed != null)
         applyUnsentReading()
         refreshing = false
+        loadListening()
+    }
+
+    fun refreshListening() = viewModelScope.launch { loadListening() }
+
+    private suspend fun loadListening() {
+        if (!app.audiobooksOffered.value) {
+            listening = emptyList()
+            return
+        }
+        if (listening.isEmpty()) app.cached(OfflineStore.Key.continueListening)?.let { listening = it }
+        app.load(OfflineStore.Key.continueListening) { it.continueListening() }.value?.let { listening = it }
     }
 
     /** Recomputes [continueItems] from the feed and the write queue (no network). */
@@ -170,6 +190,10 @@ fun HomeScreen(nav: NavController) {
     val wide = isWide()
     val scroll = TopAppBarDefaults.pinnedScrollBehavior()
     val requestsOffered by app.requestsOffered.collectAsStateWithLifecycle()
+    val audiobooksOffered by app.audiobooksOffered.collectAsStateWithLifecycle()
+    // Listening moves "Continue listening" along: reload it when a book is closed or another opened.
+    val playingId = app.listening.nowPlaying.collectAsStateWithLifecycle().value?.id
+    LaunchedEffect(audiobooksOffered, playingId) { if (audiobooksOffered) model.refreshListening() }
     val unseenRequests by app.requestsUnseen.collectAsStateWithLifecycle(0)
     // "Want to read": the feed's shelf, kept in step with the local list (the series screen's bookmark).
     val listsOffered by app.listsOffered.collectAsStateWithLifecycle()
@@ -223,6 +247,18 @@ fun HomeScreen(nav: NavController) {
                 when {
                     feed != null -> {
                         item { ContinueSection(model.continueItems, wide, nav) }
+                        // Only on servers with audiobooks, once something is started.
+                        if (audiobooksOffered && model.listening.isNotEmpty()) {
+                            item(key = "continue-listening") {
+                                Column(Modifier.readableWidth(1000.dp).padding(top = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        SectionTitle("Continue listening", Modifier.weight(1f))
+                                        TextButton(onClick = { nav.navigate(AudiobooksRoute) }) { Text("All audiobooks") }
+                                    }
+                                    ContinueListeningRow(model.listening, wide) { nav.navigate(PlayerRoute(it.id)) }
+                                }
+                            }
+                        }
                         // Shown once the server has the list (an older server sends neither).
                         if (wantList != null || feed.wantToRead.isNotEmpty()) {
                             item(key = "want-to-read") {

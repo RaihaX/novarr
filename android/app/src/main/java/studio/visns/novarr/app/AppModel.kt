@@ -35,6 +35,8 @@ import studio.visns.novarr.api.ServerMeta
 import studio.visns.novarr.api.ServerUrl
 import studio.visns.novarr.api.rethrowIfCancellation
 import studio.visns.novarr.domain.AppUpdate
+import studio.visns.novarr.playback.AudiobookDownloads
+import studio.visns.novarr.playback.ListeningModel
 import studio.visns.novarr.domain.RequestFeed
 import studio.visns.novarr.domain.Requests
 import studio.visns.novarr.store.AppPrefs
@@ -100,6 +102,9 @@ class AppModel(private val context: Context) {
 
     /** Images (covers, pre-signed manga pages): no cache of its own and never any credentials. */
     val imageHttp: OkHttpClient = http.newBuilder().cache(null).build()
+
+    /** Audiobook streaming and downloads: no HTTP cache (big files); headers are added per request (playback.AudioDataSource). */
+    val audioHttp: OkHttpClient = http.newBuilder().cache(null).readTimeout(30, TimeUnit.SECONDS).build()
 
     private val _session = MutableStateFlow<Session>(Session.Starting)
     val session: StateFlow<Session> = _session.asStateFlow()
@@ -172,6 +177,19 @@ class AppModel(private val context: Context) {
     /** The reader's lists for this session (Library and the series screen). */
     val lists = ListsModel(this)
 
+    /** Whether the current server has audiobooks (meta `audiobooks`; saved, so known offline). Without it they are hidden. */
+    private val _audiobooksOffered = MutableStateFlow(false)
+    val audiobooksOffered: StateFlow<Boolean> = _audiobooksOffered.asStateFlow()
+
+    /** Whether meta has answered since launch (a saved "not offered" is only acted on after a real answer). */
+    val metaKnown: Boolean get() = _meta.value != null
+
+    /** A tapped playback notification asked for the player; MainNavigation opens it and clears it. */
+    private val _openPlayer = MutableStateFlow(false)
+    val openPlayerRequest: StateFlow<Boolean> = _openPlayer.asStateFlow()
+    fun openPlayer() { _openPlayer.value = true }
+    fun playerOpened() { _openPlayer.value = false }
+
     /** A tapped new-chapters notification asked for one series; MainNavigation opens it (over Home) and clears it. */
     private val _openSeries = MutableStateFlow<Int?>(null)
     val openSeriesRequest: StateFlow<Int?> = _openSeries.asStateFlow()
@@ -189,6 +207,12 @@ class AppModel(private val context: Context) {
 
     /** The Requests screen's search, per session (Session.Active.id), so it survives leaving the screen. */
     var requestSearchMemory: Pair<String, Requests.SearchMemory>? = null
+
+    /** The audiobook player (its ExoPlayer lives in playback.PlaybackService). */
+    val listening: ListeningModel = ListeningModel(context, this)
+
+    /** Audiobook downloads for offline listening (WorkManager). */
+    val audiobookDownloads = AudiobookDownloads(context, this)
 
     init {
         updater.cleanUp()
@@ -210,6 +234,7 @@ class AppModel(private val context: Context) {
                 _requestsOffered.value = prefs.requestsOffered(server) == true
                 _updatesOffered.value = prefs.featureOffered(server, FEATURE_UPDATES) == true
                 _listsOffered.value = prefs.featureOffered(server, FEATURE_LISTS) == true
+                _audiobooksOffered.value = prefs.featureOffered(server, FEATURE_AUDIOBOOKS) == true
                 configure(server, notice = null)
                 // Learn whether the server now wants a sign-in (it may have turned auth on
                 // since last time) and whether it publishes a newer app.
@@ -235,6 +260,7 @@ class AppModel(private val context: Context) {
         _requestsOffered.value = meta.requests
         _updatesOffered.value = meta.updates
         _listsOffered.value = meta.lists
+        _audiobooksOffered.value = meta.audiobooks
         noteRequestsOffered(server, meta.requests)
         noteFeaturesOffered(server, meta)
         configure(server, notice = null)
@@ -394,8 +420,10 @@ class AppModel(private val context: Context) {
         if (server == currentServer) {
             _updatesOffered.value = meta.updates
             _listsOffered.value = meta.lists
+            _audiobooksOffered.value = meta.audiobooks
         }
         prefs.setFeatureOffered(server, FEATURE_LISTS, meta.lists)
+        prefs.setFeatureOffered(server, FEATURE_AUDIOBOOKS, meta.audiobooks)
         if (prefs.featureOffered(server, FEATURE_UPDATES) == meta.updates) return
         prefs.setFeatureOffered(server, FEATURE_UPDATES, meta.updates)
         if (!meta.updates) chapterUpdates.reset()
@@ -716,6 +744,7 @@ class AppModel(private val context: Context) {
             manager.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     scope.launch { flushWrites() }
+                    scope.launch { listening.flush() }
                 }
             })
         }
@@ -742,5 +771,6 @@ class AppModel(private val context: Context) {
         /** Meta keys for optional server features, as saved per server (AppPrefs.featureOffered). */
         const val FEATURE_UPDATES = "updates"
         const val FEATURE_LISTS = "lists"
+        const val FEATURE_AUDIOBOOKS = "audiobooks"
     }
 }

@@ -59,6 +59,7 @@ import studio.visns.novarr.app.Notifications
 import studio.visns.novarr.app.Session
 import studio.visns.novarr.domain.Eink
 import studio.visns.novarr.domain.EinkMode
+import studio.visns.novarr.store.ListeningPrefs
 import studio.visns.novarr.store.OfflineStore
 import studio.visns.novarr.ui.ChangeServerRoute
 import studio.visns.novarr.ui.DownloadsRoute
@@ -94,7 +95,8 @@ fun SettingsScreen(nav: NavController) {
     var syncing by remember { mutableStateOf(false) }
 
     suspend fun measure() {
-        offlineBytes = active?.store?.offlineChaptersSize() ?: 0
+        // Offline chapters and downloaded audiobooks (both listed on Downloads).
+        offlineBytes = (active?.store?.offlineChaptersSize() ?: 0) + (active?.store?.audiobookDownloads()?.sumOf { it.bytes } ?: 0)
         val images = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { OfflineStore.sizeOf(app.coverCacheDir()) }
         imageBytes = images
         // Everything this account keeps on the device: lists, chapters and images.
@@ -111,6 +113,9 @@ fun SettingsScreen(nav: NavController) {
     val einkMode by app.prefs.einkMode.collectAsStateWithLifecycle(EinkMode.AUTO)
     val eink = LocalEink.current
     val volumeKeys by app.prefs.volumeKeys.collectAsStateWithLifecycle(null)
+    val audiobooksOffered by app.audiobooksOffered.collectAsStateWithLifecycle()
+    val listeningPrefs by app.prefs.listening.collectAsStateWithLifecycle(ListeningPrefs())
+    val audiobookRevision by app.listening.downloadsRevision.collectAsStateWithLifecycle()
     // Re-read on every return: the user may have changed them in Android's settings (each channel can be muted).
     var notificationsAllowed by remember { mutableStateOf(Notifications.canPost(context, Notifications.NotifyChannel.APP_UPDATES)) }
     var requestNotificationsAllowed by remember { mutableStateOf(Notifications.canPost(context, Notifications.NotifyChannel.REQUESTS)) }
@@ -128,7 +133,7 @@ fun SettingsScreen(nav: NavController) {
     val askNotifications = rememberNotificationPermissionRequest { recheckNotifications() }
     // Always on opening Settings: server version, sign-in switch and a newer app build.
     LaunchedEffect(Unit) { app.refreshMeta() }
-    LaunchedEffect(downloadRevision) { measure() }
+    LaunchedEffect(downloadRevision, audiobookRevision) { measure() }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Settings") }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
@@ -228,6 +233,19 @@ fun SettingsScreen(nav: NavController) {
                     } else {
                         Note("One notification when series you'd caught up on get new chapters. Checked about every 2 hours while the app is closed; never makes a sound more than once in 6 hours, or between 10 pm and 7 am.")
                     }
+                }
+
+                // Only on servers with audiobooks (meta `audiobooks`).
+                if (audiobooksOffered) {
+                    Section("Listening")
+                    SkipChoice("Skip back", listeningPrefs.skipBackSeconds) { s -> scope.launch { app.prefs.updateListening { it.copy(skipBackSeconds = s) } } }
+                    SkipChoice("Skip forward", listeningPrefs.skipForwardSeconds) { s -> scope.launch { app.prefs.updateListening { it.copy(skipForwardSeconds = s) } } }
+                    SwitchRow("Skip silence", listeningPrefs.skipSilence) { on -> app.listening.setSkipSilence(on) }
+                    SwitchRow("Volume boost", listeningPrefs.boost) { on -> app.listening.setBoost(on) }
+                    SwitchRow("Download audiobooks on Wi-Fi only", listeningPrefs.wifiOnlyDownloads) { on ->
+                        scope.launch { app.prefs.updateListening { it.copy(wifiOnlyDownloads = on) } }
+                    }
+                    Note("Audiobooks are large: on Wi-Fi only, a download waits for Wi-Fi. Applies to downloads started from now on.")
                 }
 
                 Section("Offline")
@@ -350,6 +368,24 @@ private fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Un
     ) {
         Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = null)
+    }
+}
+
+/** A skip interval: 10, 15, 30, 45 or 60 seconds. */
+@Composable
+private fun SkipChoice(title: String, seconds: Int, onChange: (Int) -> Unit) {
+    Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp).semantics { contentDescription = "$title seconds" }) {
+        val choices = ListeningPrefs.SKIP_CHOICES
+        choices.forEachIndexed { index, choice ->
+            SegmentedButton(
+                selected = choice == seconds,
+                onClick = { onChange(choice) },
+                shape = SegmentedButtonDefaults.itemShape(index, choices.size),
+                modifier = Modifier.heightIn(min = 48.dp),
+                label = { Text("${choice}s") },
+            )
+        }
     }
 }
 

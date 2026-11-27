@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(Notifications.EXTRA_FROM_NEW_CHAPTERS, false)) model.clearNewChapters()
         when (action) {
             Notifications.ACTION_OPEN_HOME -> model.requestHome()
+            Notifications.ACTION_OPEN_PLAYER -> model.openPlayer()
             Notifications.ACTION_OPEN_SERIES ->
                 intent.getIntExtra(Notifications.EXTRA_NOVEL_ID, 0).takeIf { it > 0 }?.let(model::openSeries) ?: model.requestHome()
             Notifications.ACTION_OPEN_REQUESTS -> model.openRequests(
