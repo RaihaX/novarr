@@ -169,6 +169,19 @@ final class MailPreviews
             'sign-in-code' => $p('Accounts', 'Sign-in code', fn() => new SignInCode('Sam', '482913', 10, '203.0.113.24')),
             'new-sign-in' => $p('Accounts', 'New sign-in', fn() => new NewSignIn('Sam', now(), 'Safari on iPhone', '203.0.113.24', true)),
 
+            // The Android app
+            'android-release' => $p('Android app', 'New version, with release notes', fn() => new AndroidReleaseMail(
+                '1.17',
+                ['Reading progress syncs between your devices as you read.', 'A Stats page: time read, streaks and finished series.', 'Fixes for the page turn on some e-ink readers.'],
+                "{$base}/app/android/whats-new",
+                'Sam',
+                "{$base}/app-updates/stop/2?signature=preview",
+                "{$base}/",
+            )),
+            'android-release-no-notes' => $p('Android app', 'New version, no release notes', fn() => new AndroidReleaseMail(
+                '1.17', [], "{$base}/app/android/whats-new", null, null, "{$base}/",
+            )),
+
             // Other
             'kindle' => $p('Other', 'Send to Kindle / email (ePub attached)', fn() => new SendToKindle(
                 self::sampleEpub(), 'Shadow Slave', 'Shadow Slave.epub', 'Guiltythree',

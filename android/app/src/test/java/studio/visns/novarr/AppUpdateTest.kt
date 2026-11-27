@@ -100,4 +100,36 @@ class AppUpdateTest {
         assertNull(NovarrJson.decodeFromString(ServerMeta.serializer(), """{"app":"novarr","api_version":1}""").android)
         assertNull(NovarrJson.decodeFromString(ServerMeta.serializer(), """{"app":"novarr","api_version":1,"android":"yes"}""").android)
     }
+
+    private fun release(notesJson: String?): AndroidRelease? {
+        val notes = notesJson?.let { ""","notes":$it""" } ?: ""
+        return NovarrJson.decodeFromString(
+            ServerMeta.serializer(),
+            """{"app":"novarr","api_version":1,"android":{"version":"1.17","build":18,"url":"https://host/app/android"$notes}}""",
+        ).android
+    }
+
+    @Test
+    fun releaseNotesDecodeLeniently() {
+        assertEquals(listOf("Progress syncs.", "A Stats page."), release("""["Progress syncs.","A Stats page."]""")?.notes)
+        // An older server sends no notes; null or a non-list is no notes, never a failed meta.
+        assertEquals(emptyList<String>(), release(null)?.notes)
+        assertEquals(emptyList<String>(), release("null")?.notes)
+        assertEquals(emptyList<String>(), release(""""just text"""")?.notes)
+        assertEquals(emptyList<String>(), release("""{"a":1}""")?.notes)
+        // A bad element is skipped, the rest kept; the release itself still decodes.
+        val mixed = release("""["One",{"x":1},["y"],"Two"]""")
+        assertEquals(18, mixed?.build)
+        assertEquals(listOf("One", "Two"), mixed?.notes)
+    }
+
+    @Test
+    fun shownNotesAreTrimmedWithoutBlanksAndCapped() {
+        val many = AndroidRelease("1.17", 18, "https://host/app/android", notes = listOf("  One  ", "", "   ") + (2..20).map { "Note $it" })
+        val shown = AppUpdate.notes(many)
+        assertEquals(AppUpdate.MAX_NOTES, shown.size)
+        assertEquals("One", shown.first())
+        assertEquals(emptyList<String>(), AppUpdate.notes(AndroidRelease("1.17", 18, "https://host/app/android")))
+        assertEquals(emptyList<String>(), AppUpdate.notes(null))
+    }
 }

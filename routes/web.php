@@ -54,6 +54,13 @@ Route::post('/summary/stop/{id}', [\App\Http\Controllers\SummaryUnsubscribeContr
 
 // The Android app's APK (public download; App\Support\AndroidApp)
 Route::get('/app/android', [\App\Http\Controllers\AndroidAppController::class, 'download'])->middleware('throttle:novarr-download')->name('app.android');
+// Its page: "What's new in 1.17" and the download button (public; the new version email links here)
+Route::get('/app/android/whats-new', [\App\Http\Controllers\AndroidAppController::class, 'page'])->middleware('throttle:novarr-download')->name('app.android.whats_new');
+
+// "Stop app update emails" from the new Android version email (public; the
+// signed link is the credential; App\Http\Controllers\AppUpdateUnsubscribeController).
+Route::get('/app-updates/stop/{id}', [\App\Http\Controllers\AppUpdateUnsubscribeController::class, 'show'])->whereNumber('id')->middleware('throttle:novarr-unsubscribe')->name('app_updates.unsubscribe');
+Route::post('/app-updates/stop/{id}', [\App\Http\Controllers\AppUpdateUnsubscribeController::class, 'stop'])->whereNumber('id')->middleware('throttle:novarr-unsubscribe')->name('app_updates.unsubscribe.stop');
 
 // Your account: name, password, signed-in devices, linking a device by code
 Route::get('/account', [\App\Http\Controllers\AccountController::class, 'show'])->name('account');
@@ -66,6 +73,7 @@ Route::post('/account/browsers/sign-out-others', [\App\Http\Controllers\AccountC
 Route::delete('/account/browsers/{id}', [\App\Http\Controllers\AccountController::class, 'signOutBrowser'])->whereNumber('id')->name('account.browsers.sign_out');
 Route::post('/account/send-to', [\App\Http\Controllers\AccountController::class, 'sendTo'])->name('account.send_to');
 Route::post('/account/summary-email', [\App\Http\Controllers\AccountController::class, 'summaryEmail'])->name('account.summary_email');
+Route::post('/account/app-update-emails', [\App\Http\Controllers\AccountController::class, 'appUpdateEmails'])->name('account.app_update_emails');
 // Sign-in steps and catalogue passwords (App\Http\Controllers\AccountSecurityController);
 // changes need a recent "Confirm it's you" (App\Support\RecentConfirmation).
 Route::controller(\App\Http\Controllers\AccountSecurityController::class)->group(function () {

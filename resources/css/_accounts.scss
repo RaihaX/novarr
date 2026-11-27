@@ -461,6 +461,15 @@ body.is-guest main { min-height: calc(100vh - #{$navbar-height}); }
 // --- Invite acceptance (shares the sign-in page's card) ----------------------
 .auth-card-wide { max-width: 440px; }
 
+// The Android app's page (/app/android/whats-new): the release notes.
+.android-notes {
+    margin-bottom: $s-6;
+
+    h2 { font-size: 1rem; margin-bottom: $s-3; }
+    ul { margin: 0; padding-left: 1.25rem; }
+    li + li { margin-top: $s-2; }
+}
+
 .auth-lead {
     margin-bottom: $s-6;
     color: $text-muted;

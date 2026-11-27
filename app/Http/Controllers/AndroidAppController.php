@@ -33,4 +33,25 @@ class AndroidAppController extends Controller
 
         return $response;
     }
+
+    /**
+     * GET /app/android/whats-new — the app's page: "What's new in 1.17"
+     * (the sidecar's release notes) and the download button. Public like
+     * the download; the new version email links here (a download link in
+     * a mail opened on a computer would just save an APK).
+     */
+    public function page(Request $request)
+    {
+        if (!AndroidApp::available()) {
+            return response()->view('apps.android-missing', [], 404)
+                ->header('Cache-Control', 'no-store, private');
+        }
+
+        return response()->view('apps.android', [
+            'version' => AndroidApp::versionName(),
+            'notes' => AndroidApp::notes(),
+            'downloadUrl' => AndroidApp::url($request),
+            'linkText' => AndroidApp::linkText(),
+        ])->header('Cache-Control', 'no-cache, private');
+    }
 }

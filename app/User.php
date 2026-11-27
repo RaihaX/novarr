@@ -61,6 +61,7 @@ class User extends Authenticatable
         'totp_enabled_at' => 'datetime',
         'email_codes_off_at' => 'datetime',
         'summary_email_off_at' => 'datetime',
+        'app_update_emails_off_at' => 'datetime',
         'summary_sent_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',

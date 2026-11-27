@@ -18,7 +18,7 @@
         artisan \
         queue-work queue-restart queue-failed queue-retry queue-clear queue-health \
         maintenance-on maintenance-off storage-link storage-permissions key-generate \
-        release-android release-android-dry
+        release-android release-android-dry announce-android
 
 # POSIX shell: the servers this runs on (Debian, Unraid) have no zsh.
 SHELL := /bin/sh
@@ -64,7 +64,7 @@ help: ## Show this help message
 	@grep -E '^(artisan|queue-[a-z]+|maintenance-on|maintenance-off|storage-link|storage-permissions|key-generate):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(GREEN)Android App:$(NC)"
-	@grep -E '^(release-android|release-android-dry):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
+	@grep -E '^(release-android|release-android-dry|announce-android):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)Examples:$(NC)"
 	@echo "  make deploy                      # Build the image, start, migrate"
@@ -340,6 +340,16 @@ key-generate: ## Print a new APP_KEY (put it in .env; the image has no .env to w
 #   make release-android NOVARR_DEPLOY_HOST=root@myserver
 # DRY_RUN=1 (or release-android-dry) prints the build and copy commands
 # instead of running them.
+#
+# Release notes: the "## <versionName> (<versionCode>)" section of
+# android/CHANGELOG.md goes into the sidecar as "notes" (the app's update
+# prompt, the download page, the email). The release stops before building
+# when that section is missing or still says "Notes to come".
+#
+# After the copy the server emails the new version to the owner and the
+# readers who use the Android app (php artisan app:announce-android, once
+# per build). NO_ANNOUNCE=1 skips that; `make announce-android` runs it on
+# its own (after NO_ANNOUNCE=1, or when it failed).
 
 NOVARR_ANDROID_SIGNING ?= /Volumes/SecondaryStorage/Projects/.secrets/novarr-android-signing.properties
 NOVARR_DEPLOY_HOST ?= root@192.168.1.34
@@ -349,7 +359,14 @@ NOVARR_ANDROID_HOME ?= /opt/homebrew/share/android-commandlinetools
 ANDROID_GRADLE_FILE := android/app/build.gradle.kts
 ANDROID_RELEASE_APK := android/app/build/outputs/apk/release/app-release.apk
 ANDROID_RELEASE_JSON := android/app/build/outputs/apk/release/novarr.apk.json
+ANDROID_CHANGELOG := android/CHANGELOG.md
+# The Novarr checkout on the server and the user its PHP runs as (the announce step).
+NOVARR_SERVER_APP ?= /var/www/novarr
+NOVARR_SERVER_USER ?= www-data
+# PHP on this machine: reads the changelog (scripts/android-release-json.php).
+NOVARR_PHP ?= php
 DRY_RUN ?=
+NO_ANNOUNCE ?=
 
 release-android: ## Build the signed Android APK and publish it to the server (DRY_RUN=1: print only)
 	@set -e; \
@@ -358,22 +375,34 @@ release-android: ## Build the signed Android APK and publish it to the server (D
 	build=$$(sed -n 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' $(ANDROID_GRADLE_FILE) | head -n 1); \
 	if [ -z "$$version" ] || [ -z "$$build" ]; then echo "$(YELLOW)Couldn't read versionName/versionCode from $(ANDROID_GRADLE_FILE)$(NC)"; exit 1; fi; \
 	echo "$(CYAN)Novarr for Android $$version (build $$build)$(NC)"; \
+	sidecar=$$($(NOVARR_PHP) scripts/android-release-json.php "$(ANDROID_CHANGELOG)" "$$version" "$$build") || { echo "$(YELLOW)Not released: write the release notes in $(ANDROID_CHANGELOG) first.$(NC)"; exit 1; }; \
 	if [ -z "$(DRY_RUN)" ] && [ ! -f "$(NOVARR_ANDROID_SIGNING)" ]; then echo "$(YELLOW)Signing properties not found: $(NOVARR_ANDROID_SIGNING)$(NC)"; exit 1; fi; \
 	run env JAVA_HOME="$(NOVARR_JAVA_HOME)" ANDROID_HOME="$(NOVARR_ANDROID_HOME)" ./android/gradlew -p android :app:assembleRelease -Pnovarr.release="$(NOVARR_ANDROID_SIGNING)"; \
 	if [ -z "$(DRY_RUN)" ]; then \
 		[ -f "$(ANDROID_RELEASE_APK)" ] || { echo "$(YELLOW)No signed APK at $(ANDROID_RELEASE_APK): is the signing file complete?$(NC)"; exit 1; }; \
-		printf '{"version": "%s", "build": %s}\n' "$$version" "$$build" > "$(ANDROID_RELEASE_JSON)"; \
+		printf '%s\n' "$$sidecar" > "$(ANDROID_RELEASE_JSON)"; \
 	else \
-		echo "  would write $(ANDROID_RELEASE_JSON): {\"version\": \"$$version\", \"build\": $$build}"; \
+		echo "  would write $(ANDROID_RELEASE_JSON):"; printf '%s\n' "$$sidecar" | sed 's/^/    /'; \
 	fi; \
 	run scp "$(ANDROID_RELEASE_APK)" "$(NOVARR_DEPLOY_HOST):$(NOVARR_ANDROID_APK_DEST)"; \
 	run scp "$(ANDROID_RELEASE_JSON)" "$(NOVARR_DEPLOY_HOST):$(NOVARR_ANDROID_APK_DEST).json"; \
-	if [ -n "$(DRY_RUN)" ]; then \
-		echo "$(YELLOW)Dry run: nothing was built or copied.$(NC)"; \
-	else \
+	if [ -z "$(DRY_RUN)" ]; then \
 		echo "$(GREEN)Published $$version (build $$build) to $(NOVARR_DEPLOY_HOST):$(NOVARR_ANDROID_APK_DEST)$(NC)"; \
 		ls -l "$(ANDROID_RELEASE_APK)"; \
-	fi
+	fi; \
+	announce="sudo -u $(NOVARR_SERVER_USER) php $(NOVARR_SERVER_APP)/artisan app:announce-android"; \
+	if [ -n "$(NO_ANNOUNCE)" ]; then \
+		echo "$(YELLOW)NO_ANNOUNCE: no email about $$version. Send it later with: make announce-android$(NC)"; \
+	elif [ -n "$(DRY_RUN)" ]; then \
+		run ssh "$(NOVARR_DEPLOY_HOST)" "$$announce"; \
+	else \
+		ssh "$(NOVARR_DEPLOY_HOST)" "$$announce" \
+			|| echo "$(YELLOW)The APK is published, but the announcement email failed. Retry with: make announce-android$(NC)"; \
+	fi; \
+	if [ -n "$(DRY_RUN)" ]; then echo "$(YELLOW)Dry run: nothing was built, copied or emailed.$(NC)"; fi
+
+announce-android: ## Email the published Android version to its readers, once per build (DRY_RUN=1: list them, send nothing)
+	@ssh "$(NOVARR_DEPLOY_HOST)" "sudo -u $(NOVARR_SERVER_USER) php $(NOVARR_SERVER_APP)/artisan app:announce-android$(if $(DRY_RUN), --dry-run,)"
 
 release-android-dry: ## Print what release-android would build and copy, without doing it
 	@$(MAKE) --no-print-directory release-android DRY_RUN=1

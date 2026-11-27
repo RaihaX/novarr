@@ -130,6 +130,9 @@ class ApiV1Test extends TestCase
         $this->assertStringEndsWith('/app/android', $android['url']);
         $this->assertSame(3, $android['size']);
         $this->assertSame(hash('sha256', 'apk'), $android['sha256']);
+        // Release notes come last; a sidecar from before them has none.
+        $this->assertSame(['version', 'build', 'url', 'size', 'sha256', 'notes'], array_keys($android));
+        $this->assertSame([], $android['notes']);
     }
 
     public function test_meta_caches_the_apk_hash_by_path_mtime_and_size(): void

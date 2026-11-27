@@ -119,6 +119,22 @@ private fun UpdateActions(release: AndroidRelease, state: UpdateState, updater: 
     }
 }
 
+/** "What's new" and the release's notes as a bullet list; nothing when the server sent none. */
+@Composable
+private fun WhatsNew(release: AndroidRelease, modifier: Modifier = Modifier) {
+    val notes = AppUpdate.notes(release)
+    if (notes.isEmpty()) return
+    Column(modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("What's new", style = MaterialTheme.typography.labelLarge)
+        notes.forEach { note ->
+            Row {
+                Text("•", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(end = 6.dp))
+                Text(note, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
 @Composable
 private fun DownloadProgress(state: UpdateState, modifier: Modifier = Modifier) {
     when (state) {
@@ -158,6 +174,7 @@ fun UpdateBanner(release: AndroidRelease, onDismiss: () -> Unit, modifier: Modif
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                     )
                     if (hint) InstallHint(Modifier.padding(top = 2.dp))
+                    if (state == UpdateState.Idle) WhatsNew(release, Modifier.padding(top = 4.dp))
                 }
                 // While an update runs the notice stays; Cancel stops it instead.
                 if (!state.busy) IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, contentDescription = "Dismiss update notice") }
@@ -184,6 +201,7 @@ fun UpdateRow(release: AndroidRelease) {
             if (state == UpdateState.Idle) UpdateActions(release, state, updater)
         }
         if (hint) InstallHint(Modifier.padding(end = 8.dp, bottom = 6.dp))
+        if (state == UpdateState.Idle) WhatsNew(release, Modifier.padding(end = 8.dp, bottom = 6.dp))
         if (state != UpdateState.Idle) {
             statusText(state)?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(end = 8.dp).semantics { liveRegion = LiveRegionMode.Polite })
