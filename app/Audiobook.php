@@ -57,6 +57,7 @@ class Audiobook extends Model
             AudiobookChapter::where('audiobook_id', $audiobook->id)->delete();
             AudiobookBookmark::where('audiobook_id', $audiobook->id)->delete();
             DB::table('audiobook_progress')->where('audiobook_id', $audiobook->id)->delete();
+            DB::table('listening_activity')->where('audiobook_id', $audiobook->id)->delete();
         });
         // The books' "has an audiobook" map (novel payloads) follows every change.
         static::saved(function (self $audiobook) {

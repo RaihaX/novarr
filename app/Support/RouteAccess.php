@@ -138,6 +138,7 @@ final class RouteAccess
         'api.v1.auth.token.destroy',
         'api.v1.novels',
         'api.v1.home',
+        'api.v1.stats',
         'api.v1.novels.show',
         'api.v1.novels.chapters',
         'api.v1.novels.position',

@@ -202,14 +202,14 @@ class MultiUserReadStateTest extends TestCase
         $this->asOwner();
         $this->get('/continue')->assertRedirect(route('chapters.show', $this->chapters[4]->id));
         $this->getJson('/api/v1/novels')->assertOk()->assertJsonPath('novels.0.chapters_read', 3);
-        $this->get(route('stats.index'))->assertOk()->assertViewHas('read_total', 3);
+        $this->get(route('stats.index'))->assertOk()->assertViewHas('s', fn($s) => $s['headline']['chapters_read'] === 3);
         $this->get(route('novels.show', $this->novel->id))->assertOk()->assertViewHas('read_count', 3);
         $this->get(route('home'))->assertOk()->assertViewHas('hero', fn($h) => $h['chapter']->id === $this->chapters[4]->id);
 
         $this->asReader();
         $this->get('/continue')->assertRedirect(route('chapters.show', $this->chapters[1]->id));
         $this->getJson('/api/v1/novels')->assertOk()->assertJsonPath('novels.0.chapters_read', 1);
-        $this->get(route('stats.index'))->assertOk()->assertViewHas('read_total', 1)->assertViewHas('read_today', 0);
+        $this->get(route('stats.index'))->assertOk()->assertViewHas('s', fn($s) => $s['headline']['chapters_read'] === 1 && $s['headline']['chapters_today'] === 0);
         $this->get(route('novels.show', $this->novel->id))->assertOk()->assertViewHas('read_count', 1);
         $this->get(route('home'))->assertOk()->assertViewHas('hero', fn($h) => $h['chapter']->id === $this->chapters[1]->id && $h['chapter_percent'] === 30);
     }

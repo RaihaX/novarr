@@ -76,6 +76,7 @@ class User extends Authenticatable
             Bookmark::where('user_id', $user->id)->delete();
             AudiobookBookmark::where('user_id', $user->id)->delete();
             \Illuminate\Support\Facades\DB::table('audiobook_progress')->where('user_id', $user->id)->delete();
+            \Illuminate\Support\Facades\DB::table('listening_activity')->where('user_id', $user->id)->delete();
             ReadingList::forgetUser((int) $user->id);
             ApiToken::where('user_id', $user->id)->delete();
             DevicePairing::where('user_id', $user->id)->delete();

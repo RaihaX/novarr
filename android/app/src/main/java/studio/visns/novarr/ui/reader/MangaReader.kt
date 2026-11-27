@@ -115,6 +115,7 @@ class MangaReaderViewModel(app: AppModel, route: ReaderRoute, saved: SavedStateH
     override val itemCount: Int get() = pages?.pages?.size ?: 0
     override val shownChapterId: Int? get() = pages?.chapter?.id
     override val hasContent: Boolean get() = itemCount > 0
+    override val nextChapterId: Int? get() = pages?.next?.id
 
     /** This device's choice for the series (Follow series / Pages / Scroll); not sent to the server. */
     var override by mutableStateOf(MangaModeOverride.FOLLOW)

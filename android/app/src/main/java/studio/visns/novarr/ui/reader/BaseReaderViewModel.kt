@@ -18,6 +18,7 @@ import studio.visns.novarr.api.ReadingPosition
 import studio.visns.novarr.app.AppModel
 import studio.visns.novarr.domain.LatestPosition
 import studio.visns.novarr.domain.ProgressTracker
+import studio.visns.novarr.domain.ReadMark
 import studio.visns.novarr.store.OfflineStore
 import studio.visns.novarr.store.WriteKind
 
@@ -152,6 +153,9 @@ abstract class BaseReaderViewModel(
     /** Whether the open chapter has readable content (not "not downloaded yet"). */
     protected abstract val hasContent: Boolean
 
+    /** The open chapter's next chapter, if it has one (moving on to it finishes this one). */
+    protected abstract val nextChapterId: Int?
+
     /** Loads [chapterId]; implementations call [loaded] when it is on screen. */
     protected abstract suspend fun loadChapter(id: Int)
 
@@ -182,7 +186,16 @@ abstract class BaseReaderViewModel(
     protected fun takeForcedProgress(id: Int): Int? =
         forcedProgress?.takeIf { it.first == id }?.second.also { forcedProgress = null }
 
-    fun open(id: Int) {
+    /**
+     * Opens chapter [id]. Moving on to the open chapter's next chapter (Next
+     * chapter in the bars or on the end page, a page key or tap past the end)
+     * finishes the one being left first: it is marked read (ReadMark), even
+     * if its last page or lines never reached the tracker. [finishing] false:
+     * a jump that says nothing about this chapter ("Go to latest").
+     */
+    fun open(id: Int, finishing: Boolean = true) {
+        val loaded = phase == ReaderPhase.Loaded && hasContent && shownChapterId == chapterId
+        if (finishing && ReadMark.finishesOnOpen(id, nextChapterId, loaded)) markFinished()
         // Moving on answers the prompt as far as this reader is concerned
         // ("Stay here", implicitly), and a running check is for a chapter no
         // longer shown: the held position goes out as normal.
@@ -245,6 +258,11 @@ abstract class BaseReaderViewModel(
      */
     fun reachedEnd() {
         if (!tracking || !hasContent) return
+        markFinished()
+    }
+
+    /** Marks the open chapter read (once): position 100 with the read flag, queued like any write. */
+    private fun markFinished() {
         sendJob?.cancel()
         if (!tracker.reachedEnd()) return
         onMarkedRead()
@@ -424,7 +442,7 @@ abstract class BaseReaderViewModel(
             scrollRequest = ScrollRequest(LatestPosition.itemIndex(progress, itemCount) ?: 0)
         } else {
             forcedProgress = target.chapterId to (target.progress ?: 0)
-            open(target.chapterId)
+            open(target.chapterId, finishing = false)
         }
     }
 

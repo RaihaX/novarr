@@ -104,8 +104,7 @@ class WordCountAndHomeQueriesTest extends TestCase
 
         $this->get(route('stats.index'))
             ->assertOk()
-            ->assertViewHas('words_total', 500)
-            ->assertViewHas('window_words', 500);
+            ->assertViewHas('s', fn($s) => $s['headline']['words_read'] === 500 && $s['range_totals']['words'] === 500);
     }
 
     public function test_hero_minutes_use_the_stored_count_and_fall_back_without_one(): void

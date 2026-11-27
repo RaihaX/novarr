@@ -574,6 +574,15 @@ class ApiClient(
         return decode(PairingStatus.serializer(), execute(prepared, reportUnauthorized = false))
     }
 
+    /**
+     * The reader's own stats over the last [range] days (30, 90 or 365; the
+     * heatmap, year and milestones are always the same). Always fresh: the
+     * last answer is kept offline per range by the caller. An older server
+     * answers 404.
+     */
+    suspend fun stats(range: Int): ReadingStats =
+        get("stats", ReadingStats.serializer(), query = mapOf("range" to range.toString()), fresh = true)
+
     suspend fun me(): AuthUser = get("auth/me", AuthUserEnvelope.serializer(), fresh = true).user
 
     /**

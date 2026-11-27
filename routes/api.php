@@ -63,6 +63,8 @@ Route::prefix('v1')
         Route::get('/auth/pairings/{secret}', [ApiV1\PairingController::class, 'show'])->middleware('throttle:novarr-pairing-poll')->name('auth.pairings.show');
         Route::get('/novels', [ApiV1\LibraryController::class, 'novels'])->middleware($conditionalGet)->name('novels');
         Route::get('/home', [ApiV1\LibraryController::class, 'home'])->name('home');
+        // The reader's own stats across reading and listening (App\Services\ReaderStats).
+        Route::get('/stats', [ApiV1\StatsController::class, 'index'])->name('stats');
         Route::get('/novels/{id}', [ApiV1\LibraryController::class, 'show'])->whereNumber('id')->name('novels.show');
         Route::get('/novels/{id}/chapters', [ApiV1\LibraryController::class, 'chapters'])->whereNumber('id')->middleware($conditionalGet)->name('novels.chapters');
         Route::get('/novels/{id}/epub', [ApiV1\EpubController::class, 'show'])->whereNumber('id')->name('novels.epub');

@@ -105,6 +105,9 @@ import studio.visns.novarr.ui.PlayerRoute
 import studio.visns.novarr.ui.audiobooks.ContinueListeningRow
 import studio.visns.novarr.ui.ReaderRoute
 import studio.visns.novarr.ui.RequestsRoute
+import studio.visns.novarr.ui.StatsRoute
+import studio.visns.novarr.ui.stats.HomeStatsCard
+import studio.visns.novarr.ui.stats.StatsCardViewModel
 import studio.visns.novarr.ui.WantToReadRoute
 import studio.visns.novarr.ui.components.RequestsIcon
 import studio.visns.novarr.ui.components.isWide
@@ -257,6 +260,9 @@ fun HomeScreen(nav: NavController) {
     val model = viewModel { HomeViewModel(app) }
     val revision by app.readStateRevision.collectAsStateWithLifecycle()
     LaunchedEffect(revision) { model.refreshIfStale() }
+    // "Your stats": today's figures and the streak, from the 30-day answer (saved copy, then fresh).
+    val statsCard = viewModel { StatsCardViewModel(app) }
+    LaunchedEffect(revision) { statsCard.refreshIfStale() }
     // Reading queued (or sent) since: Continue follows it without a reload, offline too.
     val queueRevision by app.queueRevision.collectAsStateWithLifecycle()
     LaunchedEffect(queueRevision) { model.applyUnsent() }
@@ -352,6 +358,12 @@ fun HomeScreen(nav: NavController) {
                         if (quick.isNotEmpty()) {
                             item(key = "quick") {
                                 QuickResumeStrip(quick, Modifier.readableWidth(1000.dp)) { open(nav, it) }
+                            }
+                        }
+                        // Today's stats and the streak; hidden on servers without stats or with nothing read yet.
+                        statsCard.stats?.takeIf { !it.isEmpty }?.let { stats ->
+                            item(key = "stats") {
+                                HomeStatsCard(stats, Modifier.readableWidth(1000.dp).padding(top = 12.dp)) { nav.navigate(StatsRoute) }
                             }
                         }
                         // 2. Favourites (servers with the built-in list).
