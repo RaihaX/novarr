@@ -182,9 +182,10 @@ export function initNavigation(ctx) {
     };
 
     const dialogOpen = () => holds.size > 0 || !!document.querySelector('.offcanvas.show, .modal.show');
+    // In pages mode (pages.js) ← / → turn pages; chapters follow at the ends.
     const actions = {
-        prev: goPrev,
-        next: goNext,
+        prev: () => (ctx.isPaged?.() ? ctx.prevPage() : goPrev()),
+        next: () => (ctx.isPaged?.() ? ctx.nextPage() : goNext()),
         toc: () => { peek(); document.getElementById('tocBtn')?.click(); },
         settings: () => { peek(); document.getElementById('readerSettingsBtn')?.click(); },
         playback: () => { peek(); document.getElementById('playbackBtn')?.click(); },
@@ -236,11 +237,12 @@ export function initNavigation(ctx) {
         const selection = window.getSelection();
         if (selection && !selection.isCollapsed) return;
         if (dt > 600 || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
+        if (ctx.isPaged?.()) { if (dx < 0) ctx.nextPage(); else ctx.prevPage(); return; }
         if (dx < 0) goNext(); else goPrev();
     }, { passive: true, signal });
 
     sectionsEl.addEventListener('click', (e) => {
-        if (!document.body.classList.contains('reader-focus')) return;
+        if (!document.body.classList.contains('reader-focus') || ctx.isPaged?.()) return;
         if (e.target.closest('a, button, input, select, textarea, mark.reader-highlight')) return;
         const selection = window.getSelection();
         if (selection && !selection.isCollapsed) return;

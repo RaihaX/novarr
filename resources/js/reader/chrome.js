@@ -166,6 +166,7 @@ export function initChrome(ctx) {
     bindPref('autonext', v => persist('autoNext', v));
     bindPref('margin', v => persist('margin', v));
     bindPref('justify', v => persist('justify', v));
+    bindPref('pagemode', v => { persist('pageMode', v === 'pages' ? 'pages' : 'scroll'); ctx.applyPageMode?.(); });
 
     document.getElementById('perNovelPrefs').addEventListener('change', (e) => {
         ctx.store.setPerNovel(e.target.checked);

@@ -135,6 +135,13 @@
 
             <div class="reader-pane" id="rsPane-layout" role="tabpanel" aria-labelledby="rsTab-layout" data-pane="layout" hidden>
                 <div class="reader-pop-row">
+                    <span class="reader-pop-label">Reading</span>
+                    <div class="reader-seg" id="pageModeGroup" role="group" aria-label="Scroll or turn pages">
+                        <button type="button" data-pagemode="scroll" title="Scroll through the chapter">Scroll</button>
+                        <button type="button" data-pagemode="pages" title="Turn pages like a Kindle: tap the right side for the next page, the left for the previous, the middle for the menu">Pages</button>
+                    </div>
+                </div>
+                <div class="reader-pop-row">
                     <span class="reader-pop-label">Measure</span>
                     <div class="reader-seg" role="group" aria-label="Line measure">
                         <button type="button" data-measure="-" aria-label="Narrower column">&minus;</button>

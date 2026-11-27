@@ -54,7 +54,7 @@ const key = (k, extra = {}) => ({ key: k, altKey: false, metaKey: false, ctrlKey
 test('prefs fall back to the defaults', () => {
     const { prefs } = createPrefs(storage(), 7);
     assert.deepEqual(prefs, {
-        autoNext: '1', font: 19, measure: 68, theme: 'dark', family: 'read',
+        autoNext: '1', pageMode: 'scroll', font: 19, measure: 68, theme: 'dark', family: 'read',
         lineHeight: '1.75', margin: 'm', justify: '0',
     });
 });
@@ -372,4 +372,59 @@ test('a second copy of the module (after a deploy) takes over; the first tears d
 
 test('the reader view marks its root data-reader-module', () => {
     assert.match(view, /<div class="reader" id="reader" data-reader-page data-reader-module>/);
+});
+
+// ---- Pages mode + the bar's auto-hide ----
+import { tapZone, nextPageStart, maskStart } from '../../resources/js/reader/pages.js';
+import { chromeDecision, HOLD_AFTER_TAP_MS } from '../../resources/js/reader/progress.js';
+
+test('pages: left third back, right third forward, middle the menu', () => {
+    assert.equal(tapZone(50, 390), 'prev');
+    assert.equal(tapZone(195, 390), 'menu');
+    assert.equal(tapZone(350, 390), 'next');
+});
+
+test('pages: the line cut by the bottom edge opens the next page; no cut = the edge', () => {
+    assert.equal(nextPageStart(40, 800, { top: 780, bottom: 812 }), 780);
+    assert.equal(nextPageStart(40, 800, null), 800);
+    assert.equal(nextPageStart(40, 800, { top: 760, bottom: 792 }), 800);      // wholly above: not cut
+    assert.equal(nextPageStart(40, 800, { top: 100, bottom: 900 }), 800);      // a huge box: always move on
+});
+
+test('pages: a half line at the bottom is masked, a whole page is not', () => {
+    assert.equal(maskStart(40, 800, { top: 780, bottom: 812 }), 780);
+    assert.equal(maskStart(40, 800, null), null);
+    assert.equal(maskStart(40, 800, { top: 770, bottom: 800 }), null);
+});
+
+test('pages: the setting is global, defaults to scroll and persists', () => {
+    const s = storage();
+    const store = createPrefs(s, 7);
+    assert.equal(store.prefs.pageMode, 'scroll');
+    store.setPerNovel(true);
+    store.persist('pageMode', 'pages');
+    assert.equal(s.getItem('reader_pagemode'), 'pages');
+    assert.equal(createPrefs(s, 8).prefs.pageMode, 'pages');
+    assert.equal(createPrefs(storage({ reader_pagemode: 'junk' }), 1).prefs.pageMode, 'scroll');
+});
+
+test('bar: a phone browser bar nudging the page a few px never hides it', () => {
+    const st = { anchorY: 1000, lastY: 1000, holdUntil: 0 };
+    for (const y of [1004, 1010, 1018, 1030]) assert.equal(chromeDecision(st, y, { now: 1 }), null);
+    assert.equal(chromeDecision(st, 1100, { fromResize: true, now: 1 }), null);   // resize: never hides
+    assert.equal(chromeDecision(st, 1120, { now: 1 }), null);
+    assert.equal(chromeDecision(st, 1160, { now: 1 }), true);                     // a real scroll down
+});
+
+test('bar: after a tap shows it, scrolling cannot hide it straight away', () => {
+    const st = { anchorY: 1000, lastY: 1000, holdUntil: 500 + HOLD_AFTER_TAP_MS };
+    assert.equal(chromeDecision(st, 1200, { now: 600 }), null);
+    assert.equal(chromeDecision(st, 1300, { now: 600 + HOLD_AFTER_TAP_MS }), true);
+});
+
+test('bar: scrolling back up shows it; near the top it always shows', () => {
+    const st = { anchorY: 2000, lastY: 2000, holdUntil: 0 };
+    chromeDecision(st, 2100, { now: 1 });
+    assert.equal(chromeDecision(st, 2060, { now: 1 }), false);
+    assert.equal(chromeDecision(st, 40, { now: 1 }), false);
 });

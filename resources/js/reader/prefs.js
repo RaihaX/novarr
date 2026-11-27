@@ -32,7 +32,12 @@ export function createPrefs(storage, novelId) {
     let perNovel = null;
     try { perNovel = JSON.parse(storage.getItem(perNovelKey) || 'null'); } catch (e) { perNovel = null; }
 
-    const prefs = { autoNext: storage.getItem('reader_autonext') || '1' };
+    // Behavioural, global (not per novel): auto-load the next chapter, and
+    // scroll vs Kindle-style pages (reader/pages.js).
+    const prefs = {
+        autoNext: storage.getItem('reader_autonext') || '1',
+        pageMode: storage.getItem('reader_pagemode') === 'pages' ? 'pages' : 'scroll',
+    };
 
     function load() {
         for (const [k, sk] of Object.entries(PREF_KEYS)) {
@@ -55,6 +60,7 @@ export function createPrefs(storage, novelId) {
         prefs[k] = (k === 'font' || k === 'measure') ? parseInt(v, 10) : String(v);
         const stored = String(v);
         if (k === 'autoNext') { storage.setItem('reader_autonext', stored); return; }
+        if (k === 'pageMode') { storage.setItem('reader_pagemode', stored); return; }
         if (perNovel) {
             perNovel[k] = stored;
             storage.setItem(perNovelKey, JSON.stringify(perNovel));
@@ -130,6 +136,7 @@ export function applyPrefs(readerEl, store) {
     reflect('#familyGroup [data-family]', 'family', prefs.family);
     reflect('#lineHeightGroup [data-lineheight]', 'lineheight', prefs.lineHeight);
     reflect('#autoNextGroup [data-autonext]', 'autonext', prefs.autoNext);
+    reflect('#pageModeGroup [data-pagemode]', 'pagemode', prefs.pageMode);
     reflect('#marginGroup [data-margin]', 'margin', prefs.margin);
     reflect('#justifyGroup [data-justify]', 'justify', prefs.justify);
     document.getElementById('perNovelPrefs').checked = !!store.perNovel;

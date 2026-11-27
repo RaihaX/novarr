@@ -7,6 +7,27 @@ import { markLocalWrite, isLookupChapter } from './latest-position.js';
 const posKey = id => 'reader_pos_' + id;
 const WPM = 230;   // honest-ish adult reading pace for web fiction
 
+/** Scroll needed (px, from where the direction last changed) to hide / show the bar. */
+export const HIDE_AFTER_PX = 48, SHOW_AFTER_PX = 24, TOP_ZONE_PX = 80;
+/** After a tap shows the bar, scrolling can't hide it for this long. */
+export const HOLD_AFTER_TAP_MS = 900;
+
+/**
+ * The bar's auto-hide decision for scroll position `y`: true = hide, false =
+ * show, null = leave it. `s` ({anchorY, lastY, holdUntil}) is updated in
+ * place: anchorY is where the scroll direction last changed.
+ */
+export function chromeDecision(s, y, { fromResize = false, now = 0 } = {}) {
+    const dy = y - s.lastY;
+    if ((dy > 0 && s.lastY < s.anchorY) || (dy < 0 && s.lastY > s.anchorY)) s.anchorY = s.lastY;   // direction changed
+    s.lastY = y;
+    if (y < TOP_ZONE_PX) { s.anchorY = y; return false; }
+    if (fromResize) { s.anchorY = y; return null; }   // the browser's bar moving, not the reader
+    if (y - s.anchorY > HIDE_AFTER_PX) return now < s.holdUntil ? null : true;
+    if (s.anchorY - y > SHOW_AFTER_PX) return false;
+    return null;
+}
+
 export function initProgress(ctx) {
     const { state, signal, sections, root: readerEl } = ctx;
 
@@ -97,39 +118,49 @@ export function initProgress(ctx) {
         requestAnimationFrame(() => { rafPending = false; updateProgress(); updateChromeAutoHide(); });
     }
 
-    // ---- Reader bar auto-hide: slides away on scroll-down, returns on
-    // scroll-up, near the top, or a tap in the middle of the page. The
-    // progress rail (inside the chrome, under the bar) stays visible.
+    // ---- Reader bar auto-hide: slides away after a deliberate scroll down,
+    // returns on a deliberate scroll up, near the top, or a tap on the page.
+    // The progress rail (inside the chrome, under the bar) stays visible.
     // Never hides while the Aa popover or the contents drawer is open.
+    //
+    // Phones made this flaky: the browser's own address bar sliding in/out
+    // resizes the viewport and nudges scrollY by a few pixels, which read as
+    // "scrolled down" and hid a bar the reader had just tapped up. So: the
+    // distance is measured from where the direction last changed (not frame
+    // to frame), a resize never hides it, and a tap holds it up briefly.
     const chromeEl = document.getElementById('readerChrome');
     const tocPanelEl = document.getElementById('tocPanel');
-    let chromeLastY = window.scrollY;
+    const auto = { anchorY: window.scrollY, lastY: window.scrollY, holdUntil: 0 };
     function setChromeHidden(hidden) {
         if (hidden && (!ctx.settingsPop.classList.contains('d-none') || tocPanelEl?.classList.contains('show'))) hidden = false;
         chromeEl.classList.toggle('is-autohidden', hidden);
+        auto.anchorY = auto.lastY = window.scrollY;
     }
     ctx.setChromeHidden = setChromeHidden;
-    function updateChromeAutoHide() {
-        const y = window.scrollY;
-        const dy = y - chromeLastY;
-        if (y < 80) setChromeHidden(false);
-        else if (dy > 6) setChromeHidden(true);
-        else if (dy < -6) setChromeHidden(false);
-        if (Math.abs(dy) > 6 || y < 80) chromeLastY = y;
+    function toggleChrome() {
+        const show = chromeEl.classList.contains('is-autohidden');
+        setChromeHidden(!show);
+        if (show) auto.holdUntil = Date.now() + HOLD_AFTER_TAP_MS;
     }
-    // Centre tap toggles the bar (outside focus mode — focus mode has its own
-    // tap-to-peek in navigation.js). Taps on links/controls/selections are ignored.
+    ctx.toggleChrome = toggleChrome;
+    function updateChromeAutoHide(fromResize = false) {
+        if (ctx.isPaged?.()) return;   // pages mode: page turns and taps decide
+        const y = window.scrollY;
+        const decision = chromeDecision(auto, y, { fromResize, now: Date.now() });
+        if (decision !== null) setChromeHidden(decision);
+    }
+    // Tap on the page toggles the bar (outside focus mode — focus mode has its
+    // own tap-to-peek in navigation.js; pages mode has its own zones in
+    // pages.js). Taps on links/controls/selections are ignored.
     ctx.sectionsEl.addEventListener('click', (e) => {
-        if (document.body.classList.contains('reader-focus')) return;
+        if (document.body.classList.contains('reader-focus') || ctx.isPaged?.()) return;
         if (e.target.closest('a, button, input, select, textarea, mark.reader-highlight')) return;
         const selection = window.getSelection();
         if (selection && !selection.isCollapsed) return;
-        const band = window.innerHeight;
-        if (e.clientY < band * 0.25 || e.clientY > band * 0.75) return;
-        setChromeHidden(!chromeEl.classList.contains('is-autohidden'));
+        toggleChrome();
     }, { signal });
+    window.addEventListener('resize', () => requestAnimationFrame(() => { updateProgress(); updateChromeAutoHide(true); }), { passive: true, signal });
     window.addEventListener('scroll', onScroll, { passive: true, signal });
-    window.addEventListener('resize', onScroll, { passive: true, signal });
     window.addEventListener('pagehide', () => syncProgress(sections[ctx.currentIdx].id, currentProgressPct(), true), { signal });
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') syncProgress(sections[ctx.currentIdx].id, currentProgressPct(), true);

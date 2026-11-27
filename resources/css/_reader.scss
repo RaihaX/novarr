@@ -1410,3 +1410,28 @@ body.reader-keys-open { overflow: hidden; }
     font-size: 12px;
     color: var(--rd-muted);
 }
+
+// --- Pages mode (reader/pages.js) -----------------------------------------
+// Kindle-style page turns: no free scrolling (touch pans and overscroll are
+// off; taps, swipes, keys and the wheel turn pages), and the line cut by the
+// bottom edge is masked so a half line is never shown: it opens the next page.
+body.reader-paged {
+    overscroll-behavior: none;
+    scrollbar-width: none;
+    &::-webkit-scrollbar { display: none; }
+
+    #readerSections { touch-action: pinch-zoom; }
+}
+html:has(body.reader-paged) {
+    overscroll-behavior: none;
+    scrollbar-width: none;
+}
+
+.reader-page-mask {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 1010;   // under the bar (1020), the Aa sheet and the playback bar
+    background: var(--rd-ground);
+    pointer-events: none;
+}

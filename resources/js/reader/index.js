@@ -13,6 +13,7 @@ import { initChrome } from './chrome.js';
 import { initNavigation } from './navigation.js';
 import { initProgress } from './progress.js';
 import { initContinuous } from './continuous.js';
+import { initPages } from './pages.js';
 import { initToc } from './toc.js';
 import { initReadState } from './readstate.js';
 import { initHighlights } from './highlights.js';
@@ -44,7 +45,7 @@ export function mount(root) {
         dialogs: createDialogs(),
         store: createPrefs(localStorage, state.novelId),
     };
-    ctx.applyPrefs = () => applyPrefs(root, ctx.store);
+    ctx.applyPrefs = () => { applyPrefs(root, ctx.store); requestAnimationFrame(() => ctx.remaskPage?.()); };
 
     // Keep the screen awake while auto-scroll or read-aloud is running.
     const wake = createWakeLock();
@@ -59,6 +60,7 @@ export function mount(root) {
     // Before initProgress: its restore follows the "latest position" plan.
     planLatest(ctx);
     const cleanups = [initProgress(ctx)];
+    cleanups.push(initPages(ctx));
     const continuousCleanup = initContinuous(ctx);
     cleanups.push(initToc(ctx));
     initReadState(ctx);
