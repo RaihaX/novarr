@@ -6,8 +6,16 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlin.math.floor
+import android.os.SystemClock
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import studio.visns.novarr.api.ApiError
+import studio.visns.novarr.api.rethrowIfCancellation
+import studio.visns.novarr.domain.Requests
+import studio.visns.novarr.domain.SendToKindle
 import studio.visns.novarr.api.BulkReadRequest
 import studio.visns.novarr.api.ChapterListItem
 import studio.visns.novarr.api.Highlight
@@ -205,6 +213,59 @@ class NovelViewModel(private val app: AppModel, val novelId: Int) : ViewModel() 
         val store = app.active?.store ?: return@launch
         app.downloads.remove(novelId, store)
         refreshCachedIds()
+    }
+
+    // Send to my Kindle / email
+
+    /** The send dialog's state; null when it is closed. */
+    var send by mutableStateOf<SendToKindle.UiState?>(null)
+        private set
+    private var sendJob: Job? = null
+
+    /** POST then poll GET until sent / failed (or [SendToKindle.GIVE_UP_MS]); never queued offline. */
+    fun sendToKindle() {
+        val session = app.active ?: return
+        if (send is SendToKindle.UiState.Running) return
+        sendJob?.cancel()
+        send = SendToKindle.UiState.Running(null)
+        sendJob = viewModelScope.launch {
+            val client = session.client
+            val started = try {
+                client.startSend(novelId).also { app.noteSuccess() }
+            } catch (e: Exception) {
+                e.rethrowIfCancellation()
+                app.noteFailure(ApiError.from(e))
+                send = SendToKindle.refusal(e, client.baseUrl)
+                return@launch
+            }
+            send = SendToKindle.UiState.Running(started.to)
+            val began = SystemClock.elapsedRealtime()
+            var state = started
+            while (isActive) {
+                val elapsed = SystemClock.elapsedRealtime() - began
+                // The 202 answer itself may already be the end (a send that was running).
+                if (SendToKindle.phase(state) != SendToKindle.Phase.RUNNING || elapsed >= SendToKindle.GIVE_UP_MS) {
+                    send = SendToKindle.next(state, elapsed)
+                    break
+                }
+                delay(SendToKindle.POLL_MS)
+                state = try {
+                    client.sendState(novelId)
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
+                    val error = ApiError.from(e)
+                    // Offline for a moment: the send goes on on the server; keep asking.
+                    if (error.isConnectivity) continue
+                    send = SendToKindle.UiState.Failed(Requests.message(error))
+                    break
+                }
+            }
+        }
+    }
+
+    fun dismissSend() {
+        sendJob?.cancel()
+        send = null
     }
 
     companion object {

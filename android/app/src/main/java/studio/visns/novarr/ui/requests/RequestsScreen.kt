@@ -18,7 +18,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -238,11 +241,12 @@ private fun SearchPart(model: RequestsViewModel, online: Boolean, nav: NavContro
     ) {
         item(key = "form") {
             Column(Modifier.readableWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                MediumSwitch(model.medium, Modifier.fillMaxWidth()) { model.selectMedium(it) }
                 OutlinedTextField(
                     value = model.query,
-                    onValueChange = { model.query = it.take(Requests.QUERY_MAX) },
-                    label = { Text("Title") },
-                    placeholder = { Text("A novel or manga to request") },
+                    onValueChange = { model.query = it.take(Requests.queryLimit(it)) },
+                    label = { Text(if (model.medium == Medium.BOOK) "Title, author, ISBN or link" else "Title") },
+                    placeholder = { Text(Requests.placeholder(model.medium), maxLines = 2, overflow = TextOverflow.Ellipsis) },
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                     trailingIcon = {
                         if (model.query.isNotEmpty()) {
@@ -255,7 +259,11 @@ private fun SearchPart(model: RequestsViewModel, online: Boolean, nav: NavContro
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MediumSwitch(model.medium, Modifier.weight(1f)) { model.medium = it }
+                    Box(Modifier.weight(1f)) {
+                        Requests.queryHint(model.medium, model.query)?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                     Button(
                         onClick = ::search,
                         enabled = canSearch,
@@ -268,6 +276,11 @@ private fun SearchPart(model: RequestsViewModel, online: Boolean, nav: NavContro
         }
 
         val search = model.search
+        // The Discover shelf: first while no search is on screen, else after the results.
+        val shelfFirst = search == null && !model.searching
+        if (shelfFirst) {
+            item(key = "shelf") { DiscoverShelf(model, online, nav, Modifier.readableWidth()) }
+        }
         when {
             model.searchError != null -> item(key = "error") {
                 Text(
@@ -340,6 +353,131 @@ private fun SearchPart(model: RequestsViewModel, online: Boolean, nav: NavContro
                 }
             }
         }
+        if (!shelfFirst) {
+            item(key = "shelf") { DiscoverShelf(model, online, nav, Modifier.readableWidth()) }
+        }
+    }
+}
+
+/**
+ * The Discover shelf: a source's charts for the picker's medium, a list
+ * chip each, one horizontally scrolling row of cards to request from.
+ * Offline it shows the saved first page.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DiscoverShelf(model: RequestsViewModel, online: Boolean, nav: NavController, modifier: Modifier) {
+    // A medium without a shelf (no source offers a list): nothing at all.
+    if (model.browseLoaded && model.browseLists.isEmpty() && model.browseResults.isEmpty() && model.browseError == null) return
+    Column(modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Discover", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+            model.browseSourceName?.let {
+                Text("from $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            }
+            Spacer(Modifier.weight(1f))
+            if (model.browseLoading && model.browseResults.isNotEmpty()) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+        }
+        if (model.browseLists.size > 1) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(model.browseLists, key = { "list-${it.id}" }) { list ->
+                    FilterChip(
+                        selected = list.id == model.browseList,
+                        onClick = { model.selectBrowseList(list.id) },
+                        label = { Text(list.name.ifBlank { list.id }) },
+                    )
+                }
+            }
+        }
+        if (model.browseFromCache) {
+            Text("Saved copy · ${model.browseError ?: "offline"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        when {
+            model.browseResults.isEmpty() && (model.browseLoading || !model.browseLoaded) -> LinearProgressIndicator(Modifier.fillMaxWidth())
+            model.browseResults.isEmpty() && model.browseError != null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(model.browseError.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
+                TextButton(onClick = { model.loadBrowse(model.browseList) }, enabled = online) { Text("Try again") }
+            }
+            model.browseResults.isEmpty() -> Text(
+                "Nothing new on this list: the library has it all.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(end = 8.dp)) {
+                items(model.browseResults, key = { "browse-${it.key}" }) { result ->
+                    ShelfCard(
+                        result,
+                        action = Requests.cardAction(result, model.canJoin),
+                        online = online,
+                        joining = result.key in model.joining,
+                        onRequest = { model.openRequestSheet(result, fromShelf = true) },
+                        onMeToo = { model.meToo(result, fromShelf = true) },
+                        onOpen = { id -> nav.navigate(NovelRoute(id)) },
+                    )
+                }
+                if (model.browseHasMore) {
+                    item(key = "browse-more") {
+                        Box(Modifier.width(96.dp).heightIn(min = 160.dp), contentAlignment = Alignment.Center) {
+                            if (model.browseLoadingMore) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                            else TextButton(onClick = model::loadMoreBrowse, enabled = online) { Text("More") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShelfCard(
+    result: SearchResult,
+    action: CardAction,
+    online: Boolean,
+    joining: Boolean,
+    onRequest: () -> Unit,
+    onMeToo: () -> Unit,
+    onOpen: (Int) -> Unit,
+) {
+    Column(Modifier.width(124.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Cover(result.coverUrl, result.title, Modifier.fillMaxWidth(), corner = 6.dp)
+            Text(result.title, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            result.author?.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Requests.seriesLabel(result.series, result.seriesIndex)?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        val small = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+        when (action) {
+            CardAction.Request -> FilledTonalButton(
+                onClick = onRequest,
+                enabled = online,
+                contentPadding = small,
+                modifier = Modifier.semantics { contentDescription = "Request ${result.title}" },
+            ) { Text("Request", maxLines = 1) }
+            CardAction.MeToo -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilledTonalButton(
+                    onClick = onMeToo,
+                    enabled = online && !joining,
+                    contentPadding = small,
+                    modifier = Modifier.semantics { contentDescription = "Me too: someone already asked for ${result.title}. Join their request." },
+                ) { Text(Requests.cardActionLabel(action), maxLines = 1) }
+                if (joining) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            }
+            is CardAction.InLibrary -> OutlinedButton(
+                onClick = { action.novelId?.let(onOpen) },
+                enabled = action.novelId != null,
+                contentPadding = small,
+            ) { Text(Requests.cardActionLabel(action), maxLines = 1) }
+            is CardAction.Requested -> Text(
+                Requests.cardActionLabel(action),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 2,
+            )
+        }
     }
 }
 
@@ -376,6 +514,9 @@ private fun ResultCard(
                     Text(result.title, style = titleStyle(), maxLines = 3, overflow = TextOverflow.Ellipsis)
                     result.author?.takeIf { it.isNotBlank() }?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Requests.seriesLabel(result.series, result.seriesIndex)?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Requests.sourcesLabel(result.sources).takeIf { it.isNotEmpty() }?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -456,7 +597,7 @@ private fun MinePart(model: RequestsViewModel, online: Boolean, nav: NavControll
                         item {
                             EmptyState(
                                 "No requests yet",
-                                "Search for a novel or manga and request it. You'll hear when the owner decides.",
+                                "Search for a book, web novel or manga and request it. You'll hear when the owner decides.",
                                 Icons.Outlined.Inbox,
                             )
                         }
@@ -498,10 +639,13 @@ private fun MineRow(
                 Text(request.title, style = titleStyle(), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 StatusChip(status)
                 val caption = listOfNotNull(
-                    Requests.Medium.from(request.medium).singular,
+                    Requests.mediumLabel(request.medium).takeIf { it.isNotEmpty() },
                     Requests.date(request.createdAt)?.let { "requested $it" },
                 ).joinToString(" · ")
                 Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (Requests.showsWanted(request)) {
+                    Text(Requests.WANTED_LINE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                }
                 if (request.isFollower) {
                     Text("You joined this request", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -611,7 +755,7 @@ private fun ReviewCard(request: ReaderRequest, model: RequestsViewModel, online:
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(request.title, style = titleStyle(), maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
-                    val byline = listOfNotNull(request.author?.takeIf { it.isNotBlank() }, Medium.from(request.medium).singular).joinToString(" · ")
+                    val byline = listOfNotNull(request.author?.takeIf { it.isNotBlank() }, Requests.mediumLabel(request.medium).takeIf { it.isNotEmpty() }).joinToString(" · ")
                     Text(byline, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Requests.alsoWantedLabel(request)?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)

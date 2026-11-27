@@ -9,6 +9,7 @@ import studio.visns.novarr.api.AudiobookDetail
 import studio.visns.novarr.api.AudiobookSummary
 import studio.visns.novarr.api.AudiobooksPage
 import studio.visns.novarr.api.AuthUser
+import studio.visns.novarr.api.BrowsePage
 import studio.visns.novarr.api.ChapterContent
 import studio.visns.novarr.api.ChapterListItem
 import studio.visns.novarr.api.Highlight
@@ -54,6 +55,13 @@ class OfflineStore(val root: File) {
             /** The Audiobooks screen's first page and Home's "Continue listening", so they show offline. */
             val audiobooks = Key("audiobooks.json", AudiobooksPage.serializer())
             val continueListening = Key("continue-listening.json", ListSerializer(AudiobookSummary.serializer()))
+
+            /** The first page of a Requests Discover list per medium ([list] FIRST_LIST: the medium's first list), so the shelf shows offline. */
+            fun requestBrowse(medium: String, list: String?) =
+                Key("requests/browse/${safe(medium)}/${safe(list ?: FIRST_LIST)}.json", BrowsePage.serializer())
+
+            const val FIRST_LIST = "_first"
+            private fun safe(part: String) = part.filter { it.isLetterOrDigit() || it == '_' || it == '-' }.ifEmpty { "_" }
 
             /** An audiobook as last fetched (its part URLs may have expired: local files or a fresh fetch play). */
             fun audiobook(id: Int) = Key("audiobooks/$id/detail.json", AudiobookDetail.serializer())

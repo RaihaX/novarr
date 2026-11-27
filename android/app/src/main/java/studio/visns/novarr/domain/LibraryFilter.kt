@@ -10,7 +10,7 @@ import studio.visns.novarr.api.ReadingList
 object LibraryFilter {
     /** [noun]: the shelf's series in running text ("No books yet"). */
     enum class Shelf(val title: String, val noun: String) {
-        NOVELS("Novels", "novels"), MANGA("Manga", "manga"), BOOKS("Books", "books");
+        NOVELS("Web Novels", "web novels"), MANGA("Manga", "manga"), BOOKS("Books", "books");
 
         /** Novels takes every series that is neither manga nor a book (including a blank or unknown medium). */
         fun matches(novel: NovelSummary): Boolean = when (this) {

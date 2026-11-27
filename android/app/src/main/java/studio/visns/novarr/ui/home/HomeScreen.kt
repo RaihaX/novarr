@@ -380,7 +380,7 @@ private fun WantToReadTile(item: WantToReadItem, modifier: Modifier, onClick: ()
                 started -> "STARTED"
                 item.novel.isManga -> "MANGA"
                 item.novel.isBook -> "BOOK"
-                else -> "NOVEL"
+                else -> "WEB NOVEL"
             },
             style = MaterialTheme.typography.labelSmall,
             color = if (started) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -503,7 +503,7 @@ private fun RequestsEntry(unseen: Int, modifier: Modifier = Modifier, onClick: (
             Column(Modifier.weight(1f).padding(start = 16.dp)) {
                 Text("Requests", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    if (unseen > 0) "New activity on your requests" else "Ask for a novel or manga",
+                    if (unseen > 0) "New activity on your requests" else "Ask for a book, web novel or manga",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
