@@ -18,7 +18,9 @@ val releaseProps = Properties().apply {
 
 android {
     namespace = "studio.visns.novarr"
-    compileSdk = 36
+    compileSdk {
+        version = release(37) { minorApiLevel = 1 }
+    }
 
     signingConfigs {
         if (releaseProps.getProperty("storeFile") != null) {
@@ -64,8 +66,7 @@ android {
     }
 
     lint {
-        // compileSdk/targetSdk stay at 36 (Android 16) on purpose: Compose 1.12+, navigation 2.10,
-        // lifecycle 2.11, core 1.19, Coil 3.6 and OkHttp 5.5 need compileSdk 37, see libs.versions.toml.
+        // compileSdk 37.1 (Android 17, the minor release Compose 1.13 needs) for the newest AndroidX/Compose/Coil/OkHttp; targetSdk 36 (Android 16 behaviour).
         disable += setOf("GradleDependency", "NewerVersionAvailable", "OldTargetApi")
         // AAPT2 only finds the adaptive launcher icon under mipmap-anydpi-v26, even with minSdk 26.
         disable += "ObsoleteSdkInt"
