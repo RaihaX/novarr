@@ -1,0 +1,131 @@
+// ---------------------------------------------------------------------------
+// Searching Usenet & torrents (App\Downloads): the search widget
+// (resources/views/downloads/_finder.blade.php) on the wanted-book page, a
+// book's "Find the audiobook" and the audiobooks page; the Downloads page
+// (/downloads: Queue · History · Wanted · Blocklist · Settings).
+// Existing tokens only.
+// ---------------------------------------------------------------------------
+
+.dl-finder {
+    margin-top: $s-3;
+}
+
+.dl-finder-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-2;
+
+    .form-control { flex: 1 1 240px; min-width: 0; }
+}
+
+.dl-finder-note:empty { display: none; }
+
+.dl-results {
+    font-size: $fs-caption;
+
+    td { vertical-align: middle; }
+    .dl-title { overflow-wrap: anywhere; min-width: 200px; }
+    .dl-where { white-space: nowrap; }
+    .dl-why { color: $text-muted; }
+    tr.dl-blocked td { opacity: .6; }
+}
+
+.dl-auto {
+    display: block;
+    color: $text-muted;
+    font-size: $fs-micro;
+
+    &.is-ok { color: $success; }
+}
+
+.dl-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: $radius;
+    border: 1px solid $border;
+    font-size: $fs-micro;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+
+    &.dl-badge-usenet { color: $accent; }
+    &.dl-badge-torrent { color: $pending; }
+}
+
+.dl-grabs-title {
+    margin: $s-4 0 $s-2;
+    font-size: $fs-body;
+    font-weight: 600;
+}
+
+.dl-grabs {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.dl-grab {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-3;
+    padding: $s-3 0;
+    border-bottom: 1px solid $border;
+
+    .dl-grab-body { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 2px; }
+    .dl-grab-title { font-weight: 600; overflow-wrap: anywhere; }
+    .dl-grab-meta { color: $text-muted; font-size: $fs-caption; overflow-wrap: anywhere; }
+    .dl-grab-status { font-size: $fs-caption; }
+    .dl-grab-bar { width: 140px; max-width: 100%; }
+    form { margin: 0; }
+}
+
+.dl-status-failed { color: $danger; }
+.dl-status-done { color: $success; }
+
+.dl-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $s-1;
+    margin: 0 0 $s-5;
+    border-bottom: 1px solid $border;
+
+    .dl-tab {
+        padding: $s-2 $s-3;
+        color: $text-muted;
+        text-decoration: none;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+
+        &:hover { color: $text; }
+        &.is-active { color: $text; border-bottom-color: $accent; font-weight: 600; }
+    }
+}
+
+.dl-import {
+    display: flex;
+    gap: $s-2;
+
+    .form-control { width: 110px; }
+}
+
+.dl-settings { max-width: 760px; }
+
+.dl-wanted-line { font-size: $fs-caption; color: $text-muted; }
+
+.nv-find-audiobook {
+    margin: $s-3 0;
+    padding: $s-3;
+    border: 1px solid $border;
+    border-radius: $radius;
+
+    > summary { cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: $s-2; flex-wrap: wrap; }
+}
+
+.nv-audiobook-monitor {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-2;
+    margin: $s-3 0;
+}

@@ -117,6 +117,15 @@ return [
             'address' => (string) env('NOVARR_BOOKS_INBOX_ADDRESS', ''),
             'secret' => (string) env('NOVARR_BOOKS_INBOX_SECRET', ''),
         ],
+        // The books download inbox (App\Downloads): where NZBGet's
+        // Novarr-Books category and Transmission's books folder finish their
+        // downloads, as Novarr sees it (production: /mnt/books-inbox, the
+        // clients' /downloads/Novarr-Books). `downloads:poll` takes the ePub
+        // out of a finished download into the review queue. (Not `inbox`
+        // above: that is the books email address.)
+        'download_inbox' => ($booksInbox = trim((string) env('NOVARR_BOOKS_INBOX', ''))) === ''
+            ? storage_path('app/books-inbox')
+            : (str_starts_with($booksInbox, '/') ? $booksInbox : base_path($booksInbox)),
     ],
 
     /*
@@ -153,6 +162,107 @@ return [
         'settle_seconds' => (int) env('NOVARR_AUDIOBOOKS_SETTLE_SECONDS', 120),
         // Seconds one ffprobe / ffmpeg call may take (a long m4b on a slow disk).
         'probe_timeout' => (int) env('NOVARR_AUDIOBOOKS_PROBE_TIMEOUT', 120),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Searching and downloading books and audiobooks (App\Downloads)
+    |--------------------------------------------------------------------------
+    |
+    | prowlarr      searched across ALL its indexers (usenet and torrent) for
+    |               the owner's "Search Usenet & torrents" (ebooks: categories
+    |               7000, 7020; audiobooks: 3000, 3030). The feature is off
+    |               unless both url and api_key are set.
+    | nzbget        usenet results are sent here (JSON-RPC `append` with the
+    |               result's download URL) in the category per kind; the
+    |               categories must exist in NZBGet and complete into the
+    |               books inbox (books.download_inbox) and the audiobooks
+    |               inbox (audiobooks.inbox). Empty url = usenet results
+    |               cannot be grabbed.
+    | transmission  torrent results are sent here (`torrent-add`) with the
+    |               download-dir per kind: the client's own path of the same
+    |               two inboxes. Torrents are never removed (they keep
+    |               seeding); Novarr copies what it imports from them.
+    |               Empty url = torrent results cannot be grabbed.
+    | A url is the client's address (http://host:6789, http://host:9091);
+    | the RPC path (/jsonrpc, /transmission/rpc) is added when missing.
+    | Secrets come from the environment only.
+    |
+    */
+    'prowlarr' => [
+        'url' => rtrim(trim((string) env('NOVARR_PROWLARR_URL', '')), '/'),
+        'api_key' => trim((string) env('NOVARR_PROWLARR_API_KEY', '')),
+        // Seconds one search may take (every indexer is asked; slow ones hold it up).
+        'timeout' => (int) env('NOVARR_PROWLARR_TIMEOUT', 60),
+    ],
+    'nzbget' => [
+        'url' => rtrim(trim((string) env('NOVARR_NZBGET_URL', '')), '/'),
+        'username' => (string) env('NOVARR_NZBGET_USERNAME', ''),
+        'password' => (string) env('NOVARR_NZBGET_PASSWORD', ''),
+        'category_books' => (string) env('NOVARR_NZBGET_CATEGORY_BOOKS', 'Novarr-Books') ?: 'Novarr-Books',
+        'category_audiobooks' => (string) env('NOVARR_NZBGET_CATEGORY_AUDIOBOOKS', 'Novarr-Audiobooks') ?: 'Novarr-Audiobooks',
+        'timeout' => (int) env('NOVARR_NZBGET_TIMEOUT', 20),
+    ],
+    'transmission' => [
+        'url' => rtrim(trim((string) env('NOVARR_TRANSMISSION_URL', '')), '/'),
+        'username' => (string) env('NOVARR_TRANSMISSION_USERNAME', ''),
+        'password' => (string) env('NOVARR_TRANSMISSION_PASSWORD', ''),
+        'dir_books' => (string) env('NOVARR_TRANSMISSION_DIR_BOOKS', '/downloads/Novarr-Books') ?: '/downloads/Novarr-Books',
+        'dir_audiobooks' => (string) env('NOVARR_TRANSMISSION_DIR_AUDIOBOOKS', '/downloads/Audiobooks') ?: '/downloads/Audiobooks',
+        'timeout' => (int) env('NOVARR_TRANSMISSION_TIMEOUT', 20),
+    ],
+
+    /*
+    | Automation, Sonarr/Radarr style (App\Downloads\WantedList,
+    | WantedSearcher, DownloadProfile, FailedDownloads). The owner's
+    | Downloads page → Settings overrides the switches, seeders, protocol and
+    | daily cap (app_settings "downloads.*").
+    |
+    | auto_search       search the wanted list by itself: a new item at once
+    |                   (a queued job), then after backoff_hours (1 h, 6 h,
+    |                   24 h, then every 3 days: the last one repeats),
+    |                   `downloads:search-wanted` every 15 minutes, at most
+    |                   searches_per_run a run and searches_per_day in all
+    |                   (NZBgeek / NZBFinder have daily API limits; manual
+    |                   searches count too, but are never refused).
+    | auto_grab         grab the best result when it is a confident match
+    |                   (DownloadProfile::confident()); otherwise it waits for
+    |                   the owner ("Needs your choice", emailed once).
+    | auto_approve      a downloaded ePub whose own title and author are the
+    |                   wanted book's is added to the library at once with the
+    |                   request's catalogue details; else it waits in review.
+    | min_score         the ranking score a result needs to be grabbed alone.
+    | formats           allowed for automatic grabs, best first (pdf never);
+    |                   allow_unknown_format: a release name that names no
+    |                   format (common for mp3 audiobooks).
+    | prefer_protocol   usenet first, torrent when no usenet result passes
+    |                   (or torrent first).
+    | min_seeders       a torrent needs this many to be grabbed alone.
+    | max_age_days      usenet posts older than this are not grabbed alone (0 = any age).
+    | must_not_contain  words that rule a release out of automatic grabs.
+    | stall_hours       a download whose progress does not move for this long
+    |                   is failed, blocklisted and replaced (0 = never).
+    |
+    */
+    'downloads' => [
+        'auto_search' => (bool) env('NOVARR_DOWNLOADS_AUTO_SEARCH', true),
+        'auto_grab' => (bool) env('NOVARR_DOWNLOADS_AUTO_GRAB', true),
+        'auto_approve' => (bool) env('NOVARR_DOWNLOADS_AUTO_APPROVE', true),
+        'searches_per_day' => (int) env('NOVARR_DOWNLOADS_SEARCHES_PER_DAY', 60),
+        'searches_per_run' => (int) env('NOVARR_DOWNLOADS_SEARCHES_PER_RUN', 10),
+        'backoff_hours' => array_values(array_filter(array_map('floatval', explode(',', (string) env('NOVARR_DOWNLOADS_BACKOFF_HOURS', '1,6,24,72'))), fn($h) => $h > 0)) ?: [1, 6, 24, 72],
+        'min_score' => (float) env('NOVARR_DOWNLOADS_MIN_SCORE', 80),
+        'formats' => [
+            'ebook' => ['epub', 'azw3', 'mobi'],
+            'audiobook' => ['m4b', 'm4a', 'mp3'],
+        ],
+        'allow_unknown_format' => ['ebook' => false, 'audiobook' => true],
+        'prefer_protocol' => env('NOVARR_DOWNLOADS_PREFER_PROTOCOL', 'usenet') === 'torrent' ? 'torrent' : 'usenet',
+        'min_seeders' => (int) env('NOVARR_DOWNLOADS_MIN_SEEDERS', 2),
+        'max_age_days' => (int) env('NOVARR_DOWNLOADS_MAX_AGE_DAYS', 0),
+        'language' => (string) env('NOVARR_DOWNLOADS_LANGUAGE', 'en') ?: 'en',
+        'must_not_contain' => ['sample', 'summary', 'excerpt', 'workbook', 'cliffsnotes', 'sparknotes'],
+        'stall_hours' => (float) env('NOVARR_DOWNLOADS_STALL_HOURS', 6),
     ],
 
     /*

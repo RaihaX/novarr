@@ -2,6 +2,7 @@
 
 namespace App\Audiobooks;
 
+use App\Downloads\AudiobookGrabs;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -27,6 +28,12 @@ use Illuminate\Support\Facades\Log;
  * audio in it, already in the library) is moved to {inbox}/_failed/ with
  * a "{name}.reason.txt" beside it; nothing is ever deleted. The owner can
  * put it back (retry()) from the Audiobooks page.
+ *
+ * Grabbed downloads (App\Downloads\AudiobookGrabs): an entry that is a
+ * download still in NZBGet / Transmission waits whatever its sizes say; a
+ * finished one is imported for the book it was grabbed for, a torrent's
+ * copied (it keeps seeding) and then skipped while it stays here; a
+ * torrent's failed import stays in place (not _failed), the grab says why.
  */
 class AudiobookInbox
 {
@@ -97,6 +104,16 @@ class AudiobookInbox
             }
 
             foreach ($entries as $entry) {
+                // A grabbed download (App\Downloads\AudiobookGrabs): still
+                // downloading, or a torrent that stays here to seed.
+                if (($held = AudiobookGrabs::hold($entry['name'])) !== null) {
+                    if ($held[0] === AudiobookGrabs::DOWNLOADING) {
+                        $counts['waiting']++;
+                    }
+                    $say($entry['name'], $held[0] === AudiobookGrabs::DOWNLOADING ? 'waiting' : 'skipped', $held[1]);
+
+                    continue;
+                }
                 $state = $this->observe($entry);
                 if ($state !== self::READY) {
                     $counts['waiting']++;
@@ -111,12 +128,17 @@ class AudiobookInbox
                 }
 
                 try {
-                    $audiobook = $this->importer->import($entry);
+                    // A grab's entry: its book, and copy (not move) for a torrent.
+                    $audiobook = $this->importer->import($entry, AudiobookGrabs::options($entry['name']));
+                    AudiobookGrabs::imported($entry['name'], $audiobook);
                     $this->forget($entry['name']);
                     $counts['imported']++;
                     $say($entry['name'], 'imported', "#{$audiobook->id} “{$audiobook->title}”" . ($audiobook->novel_id ? ' (matched to a book)' : ' (unmatched: ' . $audiobook->match_note . ')'));
                 } catch (ImportFailed $e) {
-                    $this->fail($entry['path'], $e->getMessage());
+                    // A torrent's files stay where they are (seeding); the grab says why.
+                    if (!AudiobookGrabs::failed($entry['name'], $e->getMessage())) {
+                        $this->fail($entry['path'], $e->getMessage());
+                    }
                     $this->forget($entry['name']);
                     $counts['failed']++;
                     $say($entry['name'], 'failed', $e->getMessage());
@@ -393,15 +415,16 @@ class AudiobookInbox
     {
         $pending = [];
         foreach ($this->entries() as $entry) {
-            $state = $this->observe($entry);
+            $held = AudiobookGrabs::hold($entry['name']);
+            $state = $held !== null ? $held[0] : $this->observe($entry);
             $pending[] = [
                 'name' => $entry['name'],
                 'kind' => $entry['kind'],
                 'audio_files' => count($entry['audio']),
                 'size_bytes' => $entry['size_bytes'],
                 'state' => $state,
-                'stable_seconds' => $state === self::COPYING ? 0 : $this->stableFor($entry['name']),
-            ];
+                'stable_seconds' => $held !== null || $state === self::COPYING ? 0 : $this->stableFor($entry['name']),
+            ] + ($held !== null ? ['note' => $held[1]] : []);
         }
 
         return [

@@ -12,6 +12,7 @@
         <a href="{{ route('health.sources') }}" class="btn btn-secondary" id="sourcesLink">Sources</a>
         <a href="{{ route('health.storage') }}" class="btn btn-secondary" id="storageLink">Storage</a>
         <a href="{{ route('audiobooks.manage') }}" class="btn btn-secondary" id="audiobooksManageLink">Audiobooks</a>
+        <a href="{{ route('downloads.index') }}" class="btn btn-secondary" id="downloadsLink">Downloads</a>
     </div>
 </div>
 

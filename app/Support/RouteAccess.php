@@ -194,6 +194,8 @@ final class RouteAccess
         'api.v1.audiobooks.progress',
         'api.v1.audiobooks.bookmarks.store',
         'api.v1.audiobooks.bookmarks.destroy',
+        // Asking for a book's audiobook (App\Downloads\WantedList; the owner is told)
+        'novels.audiobook_ask',
     ];
 
     /**
@@ -227,6 +229,11 @@ final class RouteAccess
         // Audiobooks: the inbox, matching, "Scan now"
         'audiobooks.manage', 'audiobooks.manage.scan', 'audiobooks.manage.retry', 'audiobooks.manage.match',
         'api.v1.audiobooks.inbox', 'api.v1.audiobooks.match', 'api.v1.audiobooks.scan',
+        // Searching Usenet & torrents, grabbing, the Downloads page (App\Downloads)
+        'downloads.index', 'downloads.search', 'downloads.grab', 'downloads.poll', 'downloads.settings',
+        'downloads.grabs.show', 'downloads.grabs.fail', 'downloads.grabs.import',
+        'downloads.wanted.search', 'downloads.wanted.unmonitor', 'downloads.wanted.monitor',
+        'downloads.blocklist.destroy', 'novels.audiobook_monitor',
     ];
 
     /**

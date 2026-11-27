@@ -93,6 +93,33 @@
                 </form>
             </aside>
         </div>
+
+        {{-- Owner: search Usenet & torrents for it (App\Downloads); grabbed automatically when a clear match turns up. --}}
+        @if(\App\Downloads\Downloads::enabled())
+            @php
+                $wantedRow = \App\DownloadWanted::where('kind', 'ebook')->where('novel_request_id', $book->id)->first();
+            @endphp
+            <div class="book-review-panel mt-3">
+                @if($wantedRow)
+                    <p class="dl-wanted-line" id="wantedStatus">
+                        @if($wantedRow->monitored)
+                            Novarr searches for it by itself{{ $wantedRow->last_searched_at ? ' · last searched ' . $wantedRow->last_searched_at->diffForHumans() : '' }}{{ $wantedRow->next_search_at ? ' · next ' . $wantedRow->next_search_at->diffForHumans() : '' }}.
+                            @if($wantedRow->needs_choice) <strong>Needs your choice: {{ $wantedRow->results_count }} {{ \Illuminate\Support\Str::plural('result', $wantedRow->results_count) }}, none a clear match.</strong> @endif
+                        @else
+                            Not searched for automatically (unmonitored on the <a href="{{ route('downloads.index', ['tab' => 'wanted']) }}">Downloads</a> page).
+                        @endif
+                    </p>
+                @endif
+                @include('downloads._finder', [
+                    'kind' => 'ebook',
+                    'query' => \App\Downloads\DownloadSearch::defaultQuery($book, null),
+                    'requestId' => $book->id,
+                    'novelId' => null,
+                    'grabs' => \App\DownloadGrab::where('novel_request_id', $book->id)->orderByDesc('id')->limit(10)->get(),
+                    'finderId' => 'wantedFinder',
+                ])
+            </div>
+        @endif
     @endif
 </div>
 

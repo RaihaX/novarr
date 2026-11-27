@@ -281,3 +281,18 @@ $oneServer(Schedule::command('audiobooks:scan')
     ->name('audiobooks_scan')
     ->withoutOverlapping(60)
     ->runInBackground());
+
+// Searching Usenet & torrents (App\Downloads). downloads:poll follows the
+// grabbed downloads in NZBGet / Transmission and takes in finished ebooks
+// (it asks no client when nothing is downloading); downloads:search-wanted
+// searches the wanted list on its backoff, within the daily cap.
+$oneServer(Schedule::command('downloads:poll')
+    ->everyTwoMinutes()
+    ->name('downloads_poll')
+    ->withoutOverlapping(10)
+    ->runInBackground());
+$oneServer(Schedule::command('downloads:search-wanted')
+    ->everyFifteenMinutes()
+    ->name('downloads_search_wanted')
+    ->withoutOverlapping(30)
+    ->runInBackground());

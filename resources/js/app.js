@@ -50,6 +50,11 @@ document.addEventListener('turbo:load', initAudiobookPlayer);
 document.addEventListener('turbo:before-render', teardownAudiobookPlayer);
 document.addEventListener('turbo:before-cache', teardownAudiobookPlayer);
 
+// "Search Usenet & torrents" (owner: wanted books, book pages, audiobooks, Downloads); per visit.
+import { initDownloadFinders, teardownDownloadFinders } from './download-finder';
+document.addEventListener('turbo:load', initDownloadFinders);
+document.addEventListener('turbo:before-render', teardownDownloadFinders);
+
 // Reader requests page (search, my requests, review); re-initialised per visit.
 import { initRequestsPage } from './requests';
 document.addEventListener('turbo:load', initRequestsPage);

@@ -17,6 +17,8 @@
         \App\Audiobooks\AudiobookInbox::COPYING => 'Still copying',
         \App\Audiobooks\AudiobookInbox::SETTLING => 'Settling',
         \App\Audiobooks\AudiobookInbox::READY => 'Ready: next scan',
+        \App\Downloads\AudiobookGrabs::DOWNLOADING => 'Downloading',
+        \App\Downloads\AudiobookGrabs::SEEDING => 'Seeding',
     ];
     $last = $status['last_scan'];
 @endphp
@@ -60,6 +62,22 @@
     </span>
 </div>
 
+{{-- Search Usenet & torrents for an audiobook (App\Downloads), and the recent audiobook downloads --}}
+@if(\App\Downloads\Downloads::enabled())
+<div class="mb-4" id="audiobookSearch">
+    @include('downloads._finder', [
+        'kind' => 'audiobook',
+        'query' => '',
+        'requestId' => null,
+        'novelId' => null,
+        'grabs' => \App\DownloadGrab::where('kind', 'audiobook')->orderByDesc('id')->limit(15)->get(),
+        'heading' => 'Search for an audiobook',
+        'finderId' => 'audiobookManageFinder',
+    ])
+    <p class="form-text"><a href="{{ route('downloads.index') }}">All downloads</a> · <a href="{{ route('downloads.index', ['tab' => 'wanted']) }}">Wanted audiobooks</a></p>
+</div>
+@endif
+
 {{-- Waiting in the inbox --}}
 <section aria-labelledby="inboxTitle" class="mb-4">
     <h2 class="panel-title" id="inboxTitle">In the inbox <span class="count-chip">{{ count($status['pending']) }}</span></h2>
@@ -74,6 +92,7 @@
                         <span class="ab-row-meta">
                             {{ $p['kind'] === 'folder' ? 'Folder' : 'File' }} · {{ $p['audio_files'] }} audio {{ Str::plural('file', $p['audio_files']) }} · {{ $h($p['size_bytes']) }}
                             @if($p['state'] !== \App\Audiobooks\AudiobookInbox::COPYING && $p['stable_seconds'] > 0) · unchanged for {{ $dur($p['stable_seconds'] * 1000) }}@endif
+                            @if(!empty($p['note'])) · {{ $p['note'] }}@endif
                         </span>
                     </div>
                     <span class="chip-mono {{ $p['state'] === \App\Audiobooks\AudiobookInbox::READY ? 'chip-mono-success' : 'chip-mono-pending' }}">{{ $stateLabel[$p['state']] ?? $p['state'] }}</span>

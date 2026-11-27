@@ -179,6 +179,25 @@ Route::post('/audiobooks/manage/retry', [\App\Http\Controllers\AudiobookControll
 Route::post('/audiobooks/manage/{id}/match', [\App\Http\Controllers\AudiobookController::class, 'match'])->whereNumber('id')->name('audiobooks.manage.match');
 Route::get('/audiobooks/{id}', [\App\Http\Controllers\AudiobookController::class, 'show'])->whereNumber('id')->name('audiobooks.show');
 
+// Searching Usenet & torrents and downloading (App\Downloads; owner only,
+// except a reader's "Ask for the audiobook"): App\Http\Controllers\DownloadController.
+Route::controller(\App\Http\Controllers\DownloadController::class)->group(function () {
+    Route::get('/downloads', 'index')->name('downloads.index');
+    Route::post('/downloads/search', 'search')->name('downloads.search');
+    Route::post('/downloads/grab', 'grab')->name('downloads.grab');
+    Route::post('/downloads/poll', 'poll')->name('downloads.poll');
+    Route::post('/downloads/settings', 'settings')->name('downloads.settings');
+    Route::get('/downloads/grabs/{id}', 'show')->whereNumber('id')->name('downloads.grabs.show');
+    Route::post('/downloads/grabs/{id}/fail', 'fail')->whereNumber('id')->name('downloads.grabs.fail');
+    Route::post('/downloads/grabs/{id}/import', 'import')->whereNumber('id')->name('downloads.grabs.import');
+    Route::post('/downloads/wanted/{id}/search', 'wantedSearch')->whereNumber('id')->name('downloads.wanted.search');
+    Route::post('/downloads/wanted/{id}/unmonitor', 'wantedUnmonitor')->whereNumber('id')->name('downloads.wanted.unmonitor');
+    Route::post('/downloads/wanted/{id}/monitor', 'wantedMonitor')->whereNumber('id')->name('downloads.wanted.monitor');
+    Route::delete('/downloads/blocklist/{id}', 'blocklistDestroy')->whereNumber('id')->name('downloads.blocklist.destroy');
+    Route::post('/novels/{id}/audiobook/monitor', 'audiobookMonitor')->whereNumber('id')->name('novels.audiobook_monitor');
+    Route::post('/novels/{id}/audiobook/ask', 'audiobookAsk')->whereNumber('id')->name('novels.audiobook_ask');
+});
+
 // Covers in reader-request results: signed URLs only (RequestCoverController).
 Route::get('/requests/cover', [\App\Http\Controllers\RequestCoverController::class, 'cover'])
     ->withoutMiddleware($sessionless)

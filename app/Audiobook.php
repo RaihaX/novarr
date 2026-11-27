@@ -56,7 +56,13 @@ class Audiobook extends Model
             DB::table('audiobook_progress')->where('audiobook_id', $audiobook->id)->delete();
         });
         // The books' "has an audiobook" map (novel payloads) follows every change.
-        static::saved(fn() => AudiobookLibrary::forgetNovelMap());
+        static::saved(function (self $audiobook) {
+            AudiobookLibrary::forgetNovelMap();
+            // The book has its audiobook: no longer wanted (App\Downloads\WantedList).
+            if ($audiobook->novel_id) {
+                \App\Downloads\WantedList::audiobookArrived((int) $audiobook->novel_id);
+            }
+        });
         static::deleted(fn() => AudiobookLibrary::forgetNovelMap());
         static::restored(fn() => AudiobookLibrary::forgetNovelMap());
     }

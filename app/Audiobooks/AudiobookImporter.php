@@ -22,10 +22,12 @@ use Illuminate\Support\Facades\Storage;
  *     beside them; stored on the public disk like book covers, with
  *     thumbnails;
  *  4. the rows (audiobook, parts with their offsets, chapters) are written
- *     and the files MOVED to {root}/{id}/part-001.ext … (extension kept);
+ *     and the files MOVED to {root}/{id}/part-001.ext … (extension kept;
+ *     COPIED instead for a grabbed torrent, which keeps seeding);
  *     anything else in the folder goes to {root}/{id}/extras/. A move that
  *     fails half way puts back what it moved and fails the entry;
- *  5. the match to a book (App\Audiobooks\AudiobookMatcher::autoMatch()).
+ *  5. the match to a book (App\Audiobooks\AudiobookMatcher::autoMatch()),
+ *     or the book a grabbed download was for (AudiobookMatcher::expected()).
  *
  * Chapters: the embedded ones (each part's, shifted to whole-book
  * positions); else one per file (its title tag, else its name); a single
@@ -43,8 +45,17 @@ class AudiobookImporter
     {
     }
 
-    public function import(array $entry): Audiobook
+    /**
+     * @param  array{copy?: bool, novel_id?: ?int}  $options  for a grabbed download (App\Downloads\AudiobookGrabs::options()):
+     *         copy      copy the files into the library instead of moving them
+     *                   (a torrent keeps seeding from the inbox; nothing there
+     *                   is touched);
+     *         novel_id  the book it was grabbed for: linked to it
+     *                   (AudiobookMatcher::expected()) instead of guessed.
+     */
+    public function import(array $entry, array $options = []): Audiobook
     {
+        $copy = (bool) ($options['copy'] ?? false);
         $base = $entry['path'];
         $isFolder = $entry['kind'] === 'folder';
         $files = array_map(fn(string $rel) => $rel === '' ? $base : $base . '/' . $rel, $entry['audio']);
@@ -83,7 +94,7 @@ class AudiobookImporter
         // 3–4. Rows, cover and files.
         $moved = [];
         try {
-            $audiobook = DB::transaction(function () use ($entry, $files, $probes, $fingerprint, $meta, $isFolder, $base, &$moved) {
+            $audiobook = DB::transaction(function () use ($entry, $files, $probes, $fingerprint, $meta, $isFolder, $base, $copy, &$moved) {
                 $audiobook = Audiobook::create([
                     'title' => mb_substr($meta['title'], 0, 255),
                     'author' => $meta['author'] !== null ? mb_substr($meta['author'], 0, 255) : null,
@@ -115,7 +126,7 @@ class AudiobookImporter
                 foreach ($files as $i => $file) {
                     $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
                     $name = sprintf('part-%03d.%s', $i + 1, $ext);
-                    $this->move($file, $target . '/' . $name);
+                    $this->place($file, $target . '/' . $name, $copy);
                     $moved[] = [$file, $target . '/' . $name];
 
                     AudiobookPart::create([
@@ -141,7 +152,7 @@ class AudiobookImporter
                         if (!is_dir(dirname($to))) {
                             @mkdir(dirname($to), 0775, true);
                         }
-                        $this->move($base . '/' . $rel, $to);
+                        $this->place($base . '/' . $rel, $to, $copy);
                         $moved[] = [$base . '/' . $rel, $to];
                     }
                 }
@@ -149,8 +160,13 @@ class AudiobookImporter
                 return $audiobook;
             });
         } catch (\Throwable $e) {
-            // Put back what was moved: the entry goes to _failed whole.
+            // Put back what was moved (drop what was copied): the entry goes to _failed whole.
             foreach (array_reverse($moved) as [$from, $to]) {
+                if ($copy) {
+                    @unlink($to);
+
+                    continue;
+                }
                 if (!is_dir(dirname($from))) {
                     @mkdir(dirname($from), 0775, true);
                 }
@@ -164,16 +180,21 @@ class AudiobookImporter
             throw new ImportFailed('The files could not be moved into the audiobooks library (' . $e->getMessage() . '). Check that ' . AudiobookLibrary::root() . ' is writable.');
         }
 
-        if ($isFolder) {
+        if ($isFolder && !$copy) {
             $this->removeEmptyFolders($base);
         }
 
-        // 5. Its book.
-        return $this->matcher->autoMatch($audiobook->fresh(), [
+        // 5. Its book: the one it was grabbed for, else the confident match.
+        $hints = [
             'title' => $meta['raw_title'],
             'author' => $meta['author'],
             'source_name' => $entry['name'],
-        ]);
+        ];
+        if (!empty($options['novel_id'])) {
+            return $this->matcher->expected($audiobook->fresh(), (int) $options['novel_id'], $hints);
+        }
+
+        return $this->matcher->autoMatch($audiobook->fresh(), $hints);
     }
 
     /**
@@ -381,6 +402,19 @@ class AudiobookImporter
         }
 
         return count($images) === 1 ? $images[0] : null;
+    }
+
+    /** Move (or copy, leaving the original in place) a file into the library; a failure throws. */
+    private function place(string $from, string $to, bool $copy): void
+    {
+        if (!$copy) {
+            $this->move($from, $to);
+
+            return;
+        }
+        if (!@copy($from, $to)) {
+            throw new \RuntimeException('cannot copy ' . basename($from));
+        }
     }
 
     /** rename(), which copies across disks for a file; a failure throws. */

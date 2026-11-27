@@ -57,6 +57,24 @@ class AudiobookMatcher
     }
 
     /**
+     * The expected book for this inbox entry: the owner grabbed the download
+     * for $novelId (App\Downloads\AudiobookGrabs), so it is linked to that
+     * book without guessing. When that cannot be (the book is gone, or
+     * already has an audiobook) it is matched as any other import
+     * (autoMatch()).
+     */
+    public function expected(Audiobook $audiobook, int $novelId, array $hints = []): Audiobook
+    {
+        $refused = $this->match($audiobook, $novelId);
+        if ($refused === null) {
+            return $audiobook->refresh();
+        }
+        \Illuminate\Support\Facades\Log::info("Audiobooks: #{$audiobook->id} was grabbed for book {$novelId}, but: {$refused} Matching it as usual.");
+
+        return $this->autoMatch($audiobook, $hints);
+    }
+
+    /**
      * The confident book for $audiobook, or [null, why not].
      *
      * @return array{0: ?Novel, 1: ?string}

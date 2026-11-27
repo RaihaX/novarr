@@ -106,6 +106,19 @@ class BookLibrary
     }
 
     /**
+     * Do two author lists name the same author? Both must name one, and
+     * they share a word (surnames compared as existing() does): "Sanderson,
+     * Brandon" and "Brandon Sanderson" do.
+     */
+    public static function authorsAgree(?string $a, ?string $b): bool
+    {
+        $mine = self::surnames($a);
+        $theirs = self::surnames($b);
+
+        return $mine !== [] && $theirs !== [] && array_intersect($mine, $theirs) !== [];
+    }
+
+    /**
      * The words of an author list, each normalised ("Timothy Zahn, Albert
      * Agut" → [timothy, zahn, albert, agut]), names of 3+ letters only. Two
      * author lists agree when they share one: "Sanderson, Brandon" and

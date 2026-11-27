@@ -188,6 +188,47 @@
         </div>
     @endif
 
+    {{-- No audiobook yet (App\Downloads): the owner finds it or has Novarr look
+         for it ("Want the audiobook"); a reader asks for it. --}}
+    @if($isBook && empty($audiobook) && \App\Downloads\Downloads::enabled())
+        @php $abWanted = \App\Downloads\WantedList::audiobookFor((int) $data->id); @endphp
+        @if($isAdmin)
+            <details class="nv-find-audiobook" id="findAudiobook">
+                <summary><x-icon name="headphones" :size="14" /> Find the audiobook
+                    @if($abWanted)<span class="chip-mono chip-mono-pending">{{ $abWanted->needs_choice ? 'Needs your choice' : 'Wanted' }}{{ $abWanted->requester && !$abWanted->requester->isAdmin() ? ' · asked for by ' . $abWanted->requester->name : '' }}</span>@endif
+                </summary>
+                <form method="POST" action="{{ route('novels.audiobook_monitor', $data->id) }}" class="nv-audiobook-monitor">
+                    @csrf
+                    <input type="hidden" name="want" value="{{ $abWanted ? 0 : 1 }}">
+                    <button type="submit" class="btn btn-sm btn-secondary" id="audiobookMonitorBtn">{{ $abWanted ? 'Stop looking for it' : 'Want the audiobook' }}</button>
+                    <span class="form-text">{{ $abWanted ? 'Novarr searches for it by itself' . ($abWanted->next_search_at ? ', next ' . $abWanted->next_search_at->diffForHumans() : '') . ', and grabs a clear match.' : 'Novarr searches for it by itself, again later until it finds one, and grabs a clear match.' }}</span>
+                </form>
+                @include('downloads._finder', [
+                    'kind' => 'audiobook',
+                    'query' => \App\Downloads\DownloadSearch::defaultQuery(null, $data),
+                    'requestId' => null,
+                    'novelId' => $data->id,
+                    'grabs' => \App\DownloadGrab::where('kind', 'audiobook')->where('novel_id', $data->id)->orderByDesc('id')->limit(10)->get(),
+                    'heading' => 'Search Usenet & torrents for the audiobook',
+                    'finderId' => 'audiobookFinder',
+                ])
+            </details>
+        @else
+            <div class="nv-listen nv-listen-ask" id="askAudiobook">
+                <x-icon name="headphones" :size="16" />
+                @if($abWanted)
+                    <span class="nv-listen-meta">Audiobook asked for: it appears here once it is in the library.</span>
+                @else
+                    <span class="nv-listen-meta">No audiobook yet.</span>
+                    <form method="POST" action="{{ route('novels.audiobook_ask', $data->id) }}" class="ms-auto">
+                        @csrf
+                        <button type="submit" class="btn btn-secondary btn-sm" id="askAudiobookBtn">Ask for the audiobook</button>
+                    </form>
+                @endif
+            </div>
+        @endif
+    @endif
+
     {{-- Actions: one primary, Download for offline, and the overflow menu. --}}
     <div class="nv-actions">
         @if($continue_chapter_id)

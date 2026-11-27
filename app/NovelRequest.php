@@ -60,6 +60,17 @@ class NovelRequest extends Model
             // A cancelled book upload takes its parked file and cover with it.
             \App\Books\BookUploads::discard($request);
         });
+        // A wanted book (asked for by title) goes on the downloads' wanted
+        // list and is searched at once, when searching is set up.
+        static::created(function (self $request) {
+            if ($request->isWanted() && \App\Downloads\Downloads::enabled()) {
+                try {
+                    app(\App\Downloads\WantedList::class)->addRequest($request);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning("Downloads: request {$request->id} could not be put on the wanted list: " . $e->getMessage());
+                }
+            }
+        });
     }
 
     public function followers(): HasMany
