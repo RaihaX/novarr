@@ -89,7 +89,10 @@ class BookUploads
             throw new RequestRefused(409, 'This request already has its ePub, or is no longer waiting.', 'not_wanted');
         }
         $parked = $this->park($file, $originalName);
-        $meta = $parked['meta'] + ['requested' => ['title' => $request->title, 'author' => $request->author]];
+        // What the reader asked for, with the series / ISBN a pasted book link gave (its first candidate).
+        $asked = (array) ($request->candidateList()[0] ?? []);
+        $meta = $parked['meta'] + ['requested' => ['title' => $request->title, 'author' => $request->author]
+            + array_filter(['series' => $asked['series'] ?? null, 'series_index' => $asked['series_index'] ?? null, 'isbn' => $asked['isbn'] ?? null], fn($v) => $v !== null && $v !== '')];
 
         try {
             $request->forceFill([

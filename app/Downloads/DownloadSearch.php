@@ -80,7 +80,14 @@ class DownloadSearch
         return trim(($wanted['title'] ?? '') . ' ' . $author);
     }
 
-    /** @return array{title: ?string, author: ?string, language: ?string} */
+    /**
+     * What results are ranked against. A request's series_index and isbn
+     * come from its first candidate: set when it was asked for from a pasted
+     * book link (RequestSearch::askLink()), so ReleaseRanking can tell book
+     * 1 from book 6 of the series; null otherwise.
+     *
+     * @return array{title: ?string, author: ?string, language: ?string, series_index?: mixed, isbn?: ?string}
+     */
     public static function wanted(?NovelRequest $request, ?Novel $novel): array
     {
         if ($request !== null) {
@@ -90,6 +97,8 @@ class DownloadSearch
                 'title' => (string) $request->title,
                 'author' => $request->author,
                 'language' => \App\Books\Epub::languageCode($first['language'] ?? null),
+                'series_index' => $first['series_index'] ?? null,
+                'isbn' => $first['isbn'] ?? null,
             ];
         }
         if ($novel !== null) {

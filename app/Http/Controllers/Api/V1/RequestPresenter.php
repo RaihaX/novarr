@@ -66,7 +66,7 @@ class RequestPresenter
                 }
             }
 
-            return [
+            $result = [
                 'key' => (string) $group['key'],
                 'title' => (string) $group['title'],
                 'author' => $group['author'] ?? null,
@@ -83,6 +83,14 @@ class RequestPresenter
                 'novel_id' => $novelId !== null ? (int) $novelId : null,
                 'requested' => $requested[$group['medium'] . '|' . $group['normalized_title']] ?? null,
             ];
+            // A book read from a pasted link (RequestSearch::askLink()) has its
+            // series ("Scion", "1"); other results keep their shape.
+            if (!empty($group['series'])) {
+                $result['series'] = (string) $group['series'];
+                $result['series_index'] = $group['series_index'] ?? null;
+            }
+
+            return $result;
         }, $groups);
     }
 

@@ -29,7 +29,7 @@ import {
     rankingInProgress, retryAfterSeconds, relativeTime, oldestFirst, decidedOnly,
     isFollower, mineAction, alsoWantedLine, requestedAfterLeaving,
     browseUrl, browseState, browseLoadingLine, shelfMetaLine, newResults, requestBody,
-    MEDIUM_STORAGE_KEY, initialMedium, mediumNoun,
+    MEDIUM_STORAGE_KEY, initialMedium, mediumNoun, searchBox, seriesLine,
     MINE_PAGE, MINE_FILTERS, mineCounts, defaultMineFilter, mineFilterLabel, mineView, mineEmptyLine,
 } from './requests-logic';
 
@@ -226,6 +226,7 @@ export function initRequestsPage() {
     const errorEl = $('reqSearchError');
     const resultsEl = $('reqResults');
     const skippedEl = $('reqSkipped');
+    const hintEl = $('reqSearchHint');
     const mediumBtns = [...root.querySelectorAll('#reqMedium [data-medium]')];
 
     // Books first; the reader's last choice when there is one.
@@ -268,6 +269,15 @@ export function initRequestsPage() {
             b.classList.toggle('active', on);
             b.setAttribute('aria-pressed', on ? 'true' : 'false');
         });
+        // The box says what it takes (a book search also takes a pasted link).
+        const box = searchBox(medium);
+        queryEl.placeholder = box.placeholder;
+        queryEl.setAttribute('aria-label', box.label);
+        queryEl.maxLength = box.maxLength;
+        if (hintEl) {
+            hintEl.textContent = box.hint || '';
+            hintEl.hidden = !box.hint;
+        }
     }
 
     mediumBtns.forEach((btn) => btn.addEventListener('click', () => {
@@ -412,6 +422,11 @@ export function initRequestsPage() {
         title.textContent = result.title;
         title.title = result.title;
         card.querySelector('.disc-author').textContent = result.author || 'Unknown author';
+        const series = card.querySelector('.req-series');
+        if (series) {
+            series.textContent = seriesLine(result);
+            series.hidden = series.textContent === '';
+        }
         card.querySelector('.req-sources').textContent = sourceLine(result.sources);
         clampSynopsis(card.querySelector('.disc-synopsis'), result.description, null);
         resultsEl.append(card);

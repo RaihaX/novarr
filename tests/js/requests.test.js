@@ -10,7 +10,7 @@ import {
     SLOW_AFTER_MS, DEFAULT_RETRY_SECONDS, MAX_RETRY_SECONDS, BROWSE_SLOW_AFTER_MS,
     MEDIA, initialMedium, mediumNoun,
     MINE_PAGE, MINE_STALE_DAYS, MINE_FILTERS, mineGroup, inMineFilter, mineCounts, defaultMineFilter,
-    mineFilterLabel, isStale, mineView, mineEmptyLine,
+    mineFilterLabel, isStale, mineView, mineEmptyLine, searchBox, seriesLine,
 } from '../../resources/js/requests-logic.js';
 
 const NOW = Date.parse('2026-11-19T12:00:00Z');
@@ -338,4 +338,23 @@ test('an empty filter says what to do', () => {
     assert.match(mineEmptyLine('active', mineCounts([MINE[2]])).body, /Ready to read/);
     assert.equal(mineEmptyLine('ready', mineCounts([MINE[0]])).title, 'Nothing ready yet.');
     assert.equal(mineEmptyLine('declined', mineCounts([MINE[0]])).body, null);
+});
+
+test('a book search box also takes a pasted link; the others a title', () => {
+    const book = searchBox('book');
+    assert.equal(book.placeholder, 'Title, author, ISBN — or paste a Goodreads / Amazon link');
+    assert.ok(book.hint.includes('Goodreads'));
+    assert.equal(book.maxLength, 2048);
+    for (const medium of ['novel', 'manga', undefined]) {
+        assert.deepEqual(searchBox(medium), { placeholder: 'Title or author', label: 'Title or author to search for', hint: null, maxLength: 100 });
+    }
+});
+
+test('a result read from a link shows its series and number', () => {
+    assert.equal(seriesLine({ series: 'Scion', series_index: '1' }), 'Scion #1');
+    assert.equal(seriesLine({ series: 'Riftwake', series_index: 2.5 }), 'Riftwake #2.5');
+    assert.equal(seriesLine({ series: 'Riftwake', series_index: null }), 'Riftwake');
+    assert.equal(seriesLine({ series: '  ', series_index: '1' }), '');
+    assert.equal(seriesLine({ title: 'Dune' }), '');
+    assert.equal(seriesLine(null), '');
 });
