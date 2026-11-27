@@ -81,43 +81,41 @@ function watch(item, attempt = 0) {
 }
 
 function renderResults(root, data) {
-    const table = root.querySelector('[data-finder-results]');
-    const tbody = table.querySelector('tbody');
+    const list = root.querySelector('[data-finder-results]');
     const note = root.querySelector('[data-finder-note]');
-    tbody.replaceChildren();
-    table.hidden = data.results.length === 0;
+    list.replaceChildren();
+    list.hidden = data.results.length === 0;
     note.textContent = data.results.length === 0
         ? `Nothing found for “${data.query}”. Try fewer words, or the author's surname.`
         : `${data.results.length} ${data.results.length === 1 ? 'result' : 'results'} for “${data.query}”, best first.`;
 
     for (const result of data.results) {
-        const tr = el('tr', { class: result.blocklisted ? 'dl-blocked' : null });
-        const titleCell = el('td', { class: 'dl-title' });
+        // A card: the release name, then one line of facts; Grab on the right (below on a phone).
+        const li = el('li', { class: `dl-result${result.blocklisted ? ' dl-blocked' : ''}` });
+        const body = el('div', { class: 'dl-result-body' });
+        const title = el('span', { class: 'dl-result-title' });
         if (result.info_url) {
-            const a = el('a', { href: result.info_url, target: '_blank', rel: 'noopener noreferrer' }, result.title);
-            titleCell.append(a);
+            title.append(el('a', { href: result.info_url, target: '_blank', rel: 'noopener noreferrer' }, result.title));
         } else {
-            titleCell.append(document.createTextNode(result.title));
+            title.append(document.createTextNode(result.title));
         }
-        const auto = autoNote(result);
-        if (auto) titleCell.append(el('span', { class: `dl-auto ${result.auto === 'ok' ? 'is-ok' : ''}` }, auto));
-        tr.append(titleCell);
+        body.append(title);
 
-        const where = el('td', { class: 'dl-where' });
-        where.append(el('span', { class: `dl-badge dl-badge-${result.protocol}` }, result.protocol === 'torrent' ? 'Torrent' : 'Usenet'));
-        where.append(document.createTextNode(` ${result.indexer || ''}`));
-        tr.append(where);
-        tr.append(el('td', { class: 'mono-num' }, result.size ? humanSize(result.size) : '—'));
-        tr.append(el('td', {}, ageOrSeeders(result)));
-        tr.append(el('td', { class: 'dl-why' }, result.why));
+        const meta = el('span', { class: 'dl-result-meta' });
+        meta.append(el('span', { class: `dl-badge dl-badge-${result.protocol}` }, result.protocol === 'torrent' ? 'Torrent' : 'Usenet'));
+        const facts = [result.indexer, result.size ? humanSize(result.size) : null, ageOrSeeders(result)].filter(Boolean);
+        meta.append(document.createTextNode(` ${facts.join(' · ')}`));
+        body.append(meta);
+        if (result.why) body.append(el('span', { class: 'dl-result-why' }, result.why));
+        const auto = autoNote(result);
+        if (auto) body.append(el('span', { class: `dl-auto ${result.auto === 'ok' ? 'is-ok' : ''}` }, auto));
+        li.append(body);
 
         const button = grabButton(result);
-        const cell = el('td');
-        const btn = el('button', { type: 'button', class: 'btn btn-sm btn-primary', disabled: button.disabled, title: button.title }, button.label);
+        const btn = el('button', { type: 'button', class: 'btn btn-sm btn-primary dl-result-grab', disabled: button.disabled, title: button.title }, button.label);
         btn.addEventListener('click', () => grab(root, data.search_id, result, btn));
-        cell.append(btn);
-        tr.append(cell);
-        tbody.append(tr);
+        li.append(btn);
+        list.append(li);
     }
 }
 

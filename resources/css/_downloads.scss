@@ -21,13 +21,51 @@
 .dl-finder-note:empty { display: none; }
 
 .dl-results {
-    font-size: $fs-caption;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: $hairline solid $border;
+    border-radius: $radius;
+}
 
-    td { vertical-align: middle; }
-    .dl-title { overflow-wrap: anywhere; min-width: 200px; }
-    .dl-where { white-space: nowrap; }
-    .dl-why { color: $text-muted; }
-    tr.dl-blocked td { opacity: .6; }
+// One release: text on the left (wraps, never scrolls), Grab on the right.
+.dl-result {
+    display: flex;
+    align-items: center;
+    gap: $s-4;
+    padding: $s-3 $s-4;
+    min-width: 0;
+
+    & + & { border-top: $hairline solid $border; }
+    &.dl-blocked { opacity: .6; }
+}
+
+.dl-result-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.dl-result-title {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.dl-result-meta,
+.dl-result-why {
+    font-size: $fs-caption;
+    color: $text-muted;
+    overflow-wrap: anywhere;
+}
+
+.dl-result-grab { flex: 0 0 auto; }
+
+// A phone: Grab goes under the text, full width.
+@media (max-width: 575.98px) {
+    .dl-result { flex-direction: column; align-items: stretch; }
+    .dl-result-grab { width: 100%; }
 }
 
 .dl-auto {

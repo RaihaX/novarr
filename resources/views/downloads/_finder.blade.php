@@ -31,14 +31,8 @@
         <button type="submit" class="btn btn-primary"><x-icon name="search" :size="14" /> Search Usenet &amp; torrents</button>
     </form>
     <p class="form-text dl-finder-note" data-finder-note role="status" aria-live="polite"></p>
-    <div class="table-responsive">
-        <table class="table dl-results" data-finder-results hidden>
-            <thead>
-                <tr><th scope="col">Release</th><th scope="col">Indexer</th><th scope="col">Size</th><th scope="col">Age / seeders</th><th scope="col">Why</th><th scope="col"><span class="visually-hidden">Grab</span></th></tr>
-            </thead>
-            <tbody></tbody>
-        </table>
-    </div>
+    {{-- One card per release (title, then indexer · size · age or seeders · why), Grab always in view: fits any width. --}}
+    <ul class="dl-results" data-finder-results aria-label="Results" hidden></ul>
     <h3 class="dl-grabs-title" data-finder-grabs-title @if($grabs->isEmpty()) hidden @endif>Downloads</h3>
     <ul class="dl-grabs" data-finder-grabs @if($grabs->isEmpty()) hidden @endif>
         @foreach($grabs as $grab)
