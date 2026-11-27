@@ -225,3 +225,26 @@ T.it("store: highlight map and Wi-Fi time are small JSON files, kept over a relo
     T.eq(next(store:getHighlightMap()), nil)
     T.eq(store:getWifiTime().days["2026-11-16"].read, 60)
 end)
+
+T.it("manga (1.13.0): a downloaded CBZ is moved in, indexed, found again by a rescan", function()
+    local root = T.tmpdir()
+    local s = newStore(root)
+    local tmp = root .. "/dl.cbz.part"
+    s:writeFile(tmp, "PK fake zip")
+    local path = s:saveChapterFile({ id = 30, novel_id = 9, novel_name = "A Manga", label = "Chapter 1", number = 1,
+        page_count = 18, prev = nil, next = { id = 31, downloaded = true } }, tmp, 11)
+    T.eq(path, root .. "/chapters/9/30_Chapter 1.cbz")
+    T.eq(s:readFile(path), "PK fake zip")
+    T.eq(lfs.attributes(tmp, "mode"), nil, "the temp file is gone")
+    local e = s:chapterEntry(9, 30)
+    T.eq({ e.file, e.size, e.pages, e.next, e.manga }, { "30_Chapter 1.cbz", 11, 18, 31, true })
+    T.eq(s:chapterPath(9, 30), path)
+    -- Index lost: the file is found again by name.
+    os.remove(s:indexPath(9))
+    local fresh = newStore(root)
+    T.eq(fresh:chapterPath(9, 30), path)
+    -- A missing temp file: nothing indexed.
+    local none = s:saveChapterFile({ id = 32, novel_id = 9, label = "x" }, root .. "/missing.part", 1)
+    T.eq(none, nil)
+    T.eq(s:chapterEntry(9, 32), nil)
+end)

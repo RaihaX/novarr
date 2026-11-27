@@ -282,15 +282,18 @@ end
 --[[--
 The buttons along the bottom of Home, in order, as ids: library, books
 (only when has_books: the library holds one), discover (not for readers),
-downloads, sync (or "link" while the Kindle needs
-linking: nothing can be synced then), settings.
+downloads, more (1.13.0, has_more: the More menu, not while linking is
+needed), sync (or "link" while the Kindle needs linking: nothing can be
+synced then), settings.
 ]]
-function Auth.homeButtons(role, needs_link, has_books)
+function Auth.homeButtons(role, needs_link, has_books, has_more)
     local out = { "library" }
     -- Books (1.12.0): only when the library holds at least one.
     if has_books then table.insert(out, "books") end
     if Auth.allows(role, "discover") then table.insert(out, "discover") end
     table.insert(out, "downloads")
+    -- More (1.13.0: lists, requests, new chapters, stats): not while the Kindle must be linked.
+    if has_more and not needs_link then table.insert(out, "more") end
     table.insert(out, needs_link and "link" or "sync")
     table.insert(out, "settings")
     return out

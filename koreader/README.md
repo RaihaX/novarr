@@ -56,6 +56,7 @@ since 1.11.0; *sync now* works in the file browser too).
   chapters (a black badge on the cover shows how many), then the rest. Swipe left or
   right (or use the page keys / the ‹ › arrows) for more. The buttons at the bottom
   open the **Library**, **Discover** (find and add novels, see below), **Downloads**,
+  **More** (since 1.13.0, see [More](#more-lists-requests-new-chapters-stats)),
   **Sync** (it shows how many changes are waiting, e.g. "Sync (3)") and **Settings**.
 - **Tap a cover to read**: it opens straight at the chapter you are on. **Hold** a
   cover for the novel's page. A novel with nothing to read yet opens its page.
@@ -72,10 +73,27 @@ since 1.11.0; *sync now* works in the file browser too).
   when your library has a book), which opens the Library on your books. In the
   Library, the top row switches between *Novels* and *Books*. A book is complete, so
   it has no *Check for new chapters* (on its page, in the quick menu or at its end).
+  Since 1.13.0 a **book series** is one row in the Library ("Dune · 3 books"); tap it
+  for its books in order (#1, #2, …). A book's page offers **Download the original
+  ePub**: the file as it was uploaded (never rebuilt), to read as an ordinary book.
+- **Manga** (since 1.13.0, with a Novarr server that offers them as CBZ): manga appear
+  in the Library (the top row then switches between *Novels*, *Books* and *Manga*;
+  also **More → Manga**). Opening a chapter downloads it as a comic archive (CBZ) with
+  its pages scaled to this screen and in greys (much smaller), and KOReader opens it
+  like any comic. Turning past the last page opens the next chapter, the chapter is
+  marked read when its last page is on screen, and progress syncs like a novel's.
+  While you read, the next 3 chapters are fetched ahead (each is a few MB). A started
+  manga is on Home like a novel. Manga chapters are never joined, and they have no
+  highlights or EPUB.
+- **Audiobooks** can't play on a Kindle: a series with an audiobook says
+  *Audiobook available: listen in the Novarr app* on its page.
 - **A novel** shows its cover, how many chapters are left and roughly how long
   they will take, your reading stats (below), and these actions: *Continue / Start
   reading*, *Chapters*, *Check for new chapters*, *Download for offline…*, *Remove
-  downloads*, *Mark all as read*, *Download as EPUB* and *About this novel*.
+  downloads*, *Mark all as read*, *Download as EPUB* and *About this novel*. Since
+  1.13.0, with a server that has them: *Want to read* and *Favourite* (✓ when on; tap
+  to switch) and *Add to list…* (your own reading lists, ✓ on those that hold it; *New
+  list…* makes one).
 - **Continue** opens the same chapter on every device (the Kindle, the phone apps and
   the website; since 1.10.1): the chapter you read last if you have not finished it
   (or are only part-way into it again), otherwise the first unread chapter after it.
@@ -92,6 +110,34 @@ since 1.11.0; *sync now* works in the file browser too).
   the device, ✓ when it is read. The magnifier at the top left jumps to a chapter
   number. Hold a chapter for: mark read / unread, mark all up to here as read,
   download this chapter, remove this download.
+
+### More: lists, requests, new chapters, stats
+
+Since 1.13.0 Home's **More** button (also *More…* in the Novarr menu while reading)
+opens these, each only when your Novarr server offers it:
+
+- **My lists**: *Favourites*, *Want to read* and your own reading lists. A list opens
+  its series like the Library (tap reads, hold opens the page).
+- **New chapters**: the series you read that got new chapters since you last looked,
+  newest first, each opening at the first new chapter. Until the server's feed has
+  something, it shows the series of your library with new chapters.
+- **Request a book, web novel or manga…**: choose what (books first), type a title,
+  an author or an ISBN, and the server searches every source of that kind while a
+  small dialog waits (you can stop waiting). Each result says *Request*, *Me too?*
+  (someone asked already: you follow their request), *Requested* or *In library*
+  (open it). A request can carry a note.
+- **My requests**: what you asked for, with its status (waiting, approved, ready to
+  read, declined and why). Tap one to open it when it is ready, cancel
+  it while it waits, or see its details.
+- **Notifications**: news about your requests. When Home refreshes (at start, on
+  Sync) and a request has become ready, a small notice says *Ready to read: X* with
+  **Open**; each piece of news is shown once.
+- **My stats** (with a server that keeps reading stats): today, this week, all time,
+  your streak and top series, as plain text.
+- **Manga** (when your library has some) and **Downloads**.
+
+Opening these screens never asks to turn Wi-Fi on (they show what was saved);
+changing a list, requesting or cancelling does, like Sync.
 
 ### Reading
 

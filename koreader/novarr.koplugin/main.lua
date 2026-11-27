@@ -18,10 +18,12 @@ local _ = require("gettext")
 -- package.path). They load lazily, on first use.
 local plugin_dir = (debug.getinfo(1, "S").source or ""):match("^@(.*)/[^/]*$") or "."
 local MODULES = {
-    "address", "api", "auth", "autopilot", "chapterdoc", "checks", "checkstate", "covers", "discover", "epub", "epubflow",
-    "groups", "highlights", "http_client", "json", "model", "queue", "reading", "readinginfo", "searchstate", "session",
+    "address", "api", "auth", "autopilot", "chapterdoc", "checks", "checkstate", "collections", "covers", "discover",
+    "epub", "epubflow", "feeds", "groups", "highlights", "http_client", "json", "manga", "model", "queue", "reading",
+    "readinginfo", "requests", "searchstate", "session",
     "position", "quickmenu", "stats", "store", "sync", "ui_highlights", "ui_quickmenu", "wifitime",
-    "ui_caughtup", "ui_chapters", "ui_common", "ui_coverlist", "ui_discover", "ui_downloads", "ui_home", "ui_library",
+    "ui_caughtup", "ui_chapters", "ui_common", "ui_coverlist", "ui_discover", "ui_downloads", "ui_feeds", "ui_home",
+    "ui_library", "ui_lists", "ui_more", "ui_requests",
     "ui_auth", "ui_novel", "ui_progress", "ui_settings", "ui_shelf", "ui_update", "updater", "wifi", "wifipolicy",
 }
 for _i, name in ipairs(MODULES) do
@@ -182,6 +184,8 @@ function Novarr:addToMainMenu(menu_items)
                     if self.reading then Session:showNovel(self.reading.novel_id) end
                 end) },
                 { text = _("Novarr home"), callback = Session.wrap(function() Session:showHome() end) },
+                -- 1.13.0: My lists, New chapters, Requests, My stats.
+                { text = _("More…"), callback = Session.wrap(function() require("novarr.ui_more").show(Session) end) },
                 { text = _("Next chapter"), callback = Session.wrap(function() Reading.goNext(self) end) },
                 { text = _("Previous chapter"), callback = Session.wrap(function() Reading.goPrev(self) end) },
                 { text = _("Sync now"), callback = Session.wrap(function() Session:syncNow() end) },

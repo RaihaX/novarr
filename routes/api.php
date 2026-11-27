@@ -87,6 +87,8 @@ Route::prefix('v1')
         Route::post('/chapters/bulk-read', [NovelChapterController::class, 'bulkRead'])->name('chapters.bulk_read');
         Route::get('/chapters/{id}', [ApiV1\ChapterController::class, 'show'])->whereNumber('id')->name('chapters.show');
         Route::get('/chapters/{id}/pages', [ApiV1\ChapterController::class, 'pages'])->whereNumber('id')->name('chapters.pages');
+        // A manga chapter as a CBZ (the KOReader plugin: KOReader opens comic archives).
+        Route::get('/chapters/{id}/cbz', [ApiV1\MangaCbzController::class, 'show'])->whereNumber('id')->name('chapters.cbz');
         Route::post('/chapters/{id}/progress', [NovelChapterController::class, 'progress'])->whereNumber('id')->name('chapters.progress');
         Route::post('/chapters/{id}/read', [NovelChapterController::class, 'setRead'])->whereNumber('id')->name('chapters.read');
 

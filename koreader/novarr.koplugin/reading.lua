@@ -46,6 +46,7 @@ local logger = require("logger")
 local _ = require("gettext")
 local T = require("ffi/util").template
 
+local ChapterDoc = require("novarr.chapterdoc")
 local Groups = require("novarr.groups")
 local Model = require("novarr.model")
 local Position = require("novarr.position")
@@ -104,11 +105,15 @@ function Reading.attach(plugin, novel_id, chapter_id, group)
         dirty = false,
         ended = false,
         ready = false,
+        -- A manga chapter (1.13.0): a comic archive, read page by page.
+        manga = not grp and ChapterDoc.isCbz(ui.document.file) or nil,
     }
     plugin.reading = r
     Session.reader = plugin
-    -- Did KOReader already have a position for this file (sidecar)?
-    r.had_position = ui.doc_settings ~= nil and ui.doc_settings:readSetting("last_xpointer") ~= nil
+    -- Did KOReader already have a position for this file (sidecar)? A paging
+    -- document (a manga's CBZ) keeps a page, not an xpointer.
+    r.had_position = ui.doc_settings ~= nil and (ui.doc_settings:readSetting("last_xpointer") ~= nil
+        or (r.manga and ui.doc_settings:readSetting("last_page") ~= nil))
 
     -- Suppress KOReader's end-of-book dialog for this document only: the
     -- ReaderStatus module of *this* ReaderUI handles EndOfBook before any
@@ -174,8 +179,8 @@ function Reading.attach(plugin, novel_id, chapter_id, group)
 
     -- Reading info at the top: the alt status bar is switched on (or back
     -- off) now, before ReaderUI reads the settings and lays the document
-    -- out, so it costs no second render.
-    Session.guard(Reading.prepareTopBar, plugin)
+    -- out, so it costs no second render. (A manga's pages have no status line.)
+    if not r.manga then Session.guard(Reading.prepareTopBar, plugin) end
 end
 
 -- ---------------------------------------------------------------- progress
@@ -335,9 +340,25 @@ function Reading.onMove(plugin)
     if r.timer then ReadingInfo.tick(r.timer, os.time()) end
     r.percent = p
     r.dirty = true
+    -- A manga chapter is read once its last page is on screen (the next page
+    -- turn opens the next chapter, Reading.onEnd).
+    if r.manga and not r.ended and Reading.onLastPage(plugin) then
+        Reading.finishChapter(plugin)
+        return
+    end
     if Session.nowMs() - r.last_saved >= Reading.SAVE_INTERVAL_MS then
         Reading.persist(plugin)
     end
+end
+
+--- Whether the last page of a paging document (a manga's CBZ) is on screen.
+function Reading.onLastPage(plugin)
+    local ui = plugin.ui
+    local doc = ui and ui.document
+    if not doc or not doc.getPageCount then return false end
+    local okc, count = pcall(doc.getPageCount, doc)
+    local okp, page = pcall(ui.getCurrentPage, ui)
+    return okc and okp and type(count) == "number" and type(page) == "number" and count > 0 and page >= count
 end
 
 --- Saves the position locally and queues it (no network).
@@ -725,7 +746,8 @@ end
 --- An annotation was added, changed or removed in a Novarr chapter (see Reading.attach).
 function Reading.onAnnotation(plugin, items)
     local r = plugin.reading
-    if not r then return end
+    -- A manga page has no text to excerpt: its highlights stay in KOReader.
+    if not r or r.manga then return end
     local Highlights = require("novarr.highlights")
     local kind, item, before = Highlights.change(items)
     if not kind then return end
@@ -1348,6 +1370,10 @@ end
 --- Next chapters to prefetch (not stored yet), in reading order.
 function Reading.prefetchIds(r)
     local n = tonumber(Session:get("prefetch")) or 0
+    -- A manga chapter is a few MB: only a few ahead (setting "manga_prefetch").
+    if r.manga or Session:isManga(r.novel_id) then
+        n = require("novarr.manga").prefetchCount(Session:get("manga_prefetch"), n)
+    end
     if n <= 0 then return {} end
     local store = Session.store
     local out = {}
@@ -1524,7 +1550,7 @@ function Reading.prefetchStep(plugin)
     local id = table.remove(r.prefetch, 1)
     if not Session.store:hasChapter(r.novel_id, id) then
         local t0 = Session.nowMs()
-        local path, why = Session:downloadChapter(id)
+        local path, why = Session:downloadChapter(id, { novel_id = r.novel_id })
         r.prefetch_last_ms = Session.nowMs() - t0
         if not path then
             logger.info("Novarr: prefetch stopped at chapter", id, type(why) == "table" and why.kind or why)

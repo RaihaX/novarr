@@ -67,14 +67,23 @@ function ChapterDoc.fatSafe(name, max_bytes)
     return s
 end
 
---- File name for a stored chapter: "<chapterId>_<slug>.html" or "<chapterId>.html".
-function ChapterDoc.fileName(chapter_id, label)
+--[[--
+File name for a stored chapter: "<chapterId>_<slug>.html" or "<chapterId>.html".
+ext: "cbz" for a manga chapter (1.13.0: its pages in a comic archive), else html.
+]]
+function ChapterDoc.fileName(chapter_id, label, ext)
     local id = tostring(math.floor(tonumber(chapter_id) or 0))
+    local suffix = "." .. (ext == "cbz" and "cbz" or "html")
     local slug = ChapterDoc.fatSafe(label or "", ChapterDoc.SLUG_MAX_BYTES)
     if slug == "" then
-        return id .. ".html"
+        return id .. suffix
     end
-    return id .. "_" .. slug .. ".html"
+    return id .. "_" .. slug .. suffix
+end
+
+--- Whether a stored chapter file is a manga chapter's comic archive (.cbz).
+function ChapterDoc.isCbz(path)
+    return type(path) == "string" and path:lower():sub(-4) == ".cbz"
 end
 
 --- FAT-safe file name for a whole-novel EPUB: "<name>.epub" (max ~120 bytes).
@@ -90,6 +99,7 @@ end
 function ChapterDoc.idFromFileName(name)
     if type(name) ~= "string" then return nil end
     local id = name:match("^(%d+)%.html$") or name:match("^(%d+)_.*%.html$")
+        or name:match("^(%d+)%.cbz$") or name:match("^(%d+)_.*%.cbz$")
     return id and tonumber(id) or nil
 end
 

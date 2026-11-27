@@ -150,6 +150,7 @@ final class RouteAccess
         'api.v1.novels.check.start',
         'api.v1.chapters.show',
         'api.v1.chapters.pages',
+        'api.v1.chapters.cbz', // a manga chapter as a CBZ (Api\V1\MangaCbzController)
         'api.v1.chapters.progress',
         'api.v1.chapters.read',
         'api.v1.chapters.bulk_read',

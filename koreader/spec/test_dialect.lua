@@ -66,7 +66,7 @@ end)
 
 T.it("no accidental globals in plugin modules", function()
     -- Load each logic module in a sandbox that records global writes.
-    for _, name in ipairs({ "json", "chapterdoc", "queue", "store", "model", "api", "sync" }) do
+    for _, name in ipairs({ "json", "chapterdoc", "queue", "store", "model", "api", "sync", "collections", "requests", "feeds" }) do
         local fn = assert(loadfile(plugin_dir .. "/" .. name .. ".lua"))
         local writes = {}
         local env = setmetatable({}, {
