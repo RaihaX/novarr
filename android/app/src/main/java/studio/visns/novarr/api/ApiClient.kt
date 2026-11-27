@@ -220,6 +220,13 @@ class ApiClient(
         return decode(CreatedRequest.serializer(), execute(prepare("POST", "requests", body = body)))
     }
 
+    // Ask for the audiobook
+
+    /** Puts the book's audiobook on the owner's wanted list: the server's message. 422 when it cannot be asked for. */
+    suspend fun askAudiobook(novelId: Int): String =
+        decode(AudiobookAskAnswer.serializer(), execute(prepare("POST", "novels/$novelId/audiobook/ask", body = JsonObject(emptyMap())))).message
+            ?: "Asked for. The audiobook shows up on this book once it is here."
+
     // Send to my Kindle / email
 
     /** The last send of this series ({status: null} when none). */

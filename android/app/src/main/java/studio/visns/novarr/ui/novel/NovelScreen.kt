@@ -76,11 +76,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import studio.visns.novarr.api.ApiError
 import studio.visns.novarr.api.BulkReadRequest
 import studio.visns.novarr.api.ChapterListItem
 import studio.visns.novarr.api.NovelDetail
 import studio.visns.novarr.api.NovelSummary
 import studio.visns.novarr.domain.ReadingLists
+import studio.visns.novarr.domain.Requests
 import studio.visns.novarr.domain.SendToKindle
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -258,6 +260,31 @@ fun NovelScreen(nav: NavController, novelId: Int) {
                                             if (audiobook.durationMs > 0) "Listen · ${ListeningSync.length(audiobook.durationMs)}" else "Listen",
                                             style = MaterialTheme.typography.titleSmall,
                                         )
+                                    }
+                                }
+                                // A book without one: a reader can ask for its audiobook (the owner's wanted list).
+                                if (audiobooksOffered && audiobook == null && summary.isBook) {
+                                    var asking by remember { mutableStateOf(false) }
+                                    TextButton(
+                                        enabled = reachable && !asking,
+                                        onClick = {
+                                            asking = true
+                                            scope.launch {
+                                                val session = app.active
+                                                val message = if (session == null) "Sign in to ask for audiobooks." else try {
+                                                    session.client.askAudiobook(novelId)
+                                                } catch (e: Exception) {
+                                                    if (e is kotlinx.coroutines.CancellationException) throw e
+                                                    Requests.message(ApiError.from(e))
+                                                }
+                                                asking = false
+                                                snackbar.showSnackbar(message)
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(Icons.Outlined.Headphones, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                                        Text("Ask for the audiobook")
                                     }
                                 }
                                 if (!summary.isBook) CheckForChaptersControl(novelId)

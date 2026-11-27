@@ -198,3 +198,7 @@ object AudiobookDetailSerializer : KSerializer<AudiobookDetail> {
         json.encodeJsonElement(JsonObject(summary + extras))
     }
 }
+
+/** POST /novels/{id}/audiobook/ask: {asked, message}. */
+@kotlinx.serialization.Serializable
+data class AudiobookAskAnswer(val asked: Boolean = false, val message: String? = null)
