@@ -15,10 +15,12 @@ use App\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Tests\Support\FakeFetcher;
 use Tests\Support\FakeMangaA;
 use Tests\Support\FakeMangaB;
 use Tests\Support\FakeMangaC;
+use Tests\Support\FakeNovelB;
 use Tests\Support\FakePagedManga;
 use Tests\Support\FakeRequestSource;
 use Tests\Support\UsesAccounts;
@@ -124,7 +126,7 @@ class RequestBrowseTest extends TestCase
         $this->assertSame(['Berserk'], array_column($this->browse(['list' => 'top'])->assertOk()->json('results'), 'title'));
         $this->browse(['list' => 'trending'])->assertStatus(422)->assertJsonValidationErrors('list');
         $this->browse(['list' => 'search'])->assertStatus(422);
-        $this->browse(['medium' => 'novel'])->assertStatus(422)->assertJsonValidationErrors('medium');
+        $this->browse(['medium' => 'audiobook'])->assertStatus(422)->assertJsonValidationErrors('medium');
         $this->browse(['page' => RequestBrowse::MAX_PAGE + 1])->assertStatus(422)->assertJsonValidationErrors('page');
     }
 
@@ -485,11 +487,140 @@ class RequestBrowseTest extends TestCase
         $this->assertSame('0 */3 * * *', $event->expression);
     }
 
-    public function test_the_warm_command_is_a_no_op_when_no_source_offers_a_list(): void
+    public function test_the_warm_command_refreshes_only_the_books_when_no_series_source_offers_a_list(): void
     {
+        $this->fakeOpenLibrary();
         $this->artisan('requests:browse-warm')
-            ->expectsOutput('No source offers a Discover shelf list: nothing to refresh.')
+            ->expectsOutput('book popular: refreshed.')
+            ->expectsOutput('book trending: refreshed.')
+            ->expectsOutput('book classics: refreshed.')
+            ->doesntExpectOutput('No source offers a Discover shelf list: nothing to refresh.')
             ->assertSuccessful();
         $this->assertSame([], $this->browseCalls());
+    }
+
+    // ---- Books (Open Library through the book catalogue) ----------------------
+
+    private const TRENDING = ['works' => [
+        ['key' => '/works/OL1W', 'title' => 'Project Hail Mary', 'author_name' => ['Andy Weir'], 'cover_i' => 101, 'first_publish_year' => 2021],
+        ['key' => '/works/OL2W', 'title' => 'Dune', 'author_name' => ['Frank Herbert'], 'first_publish_year' => 1965],
+        ['key' => '/works/OL3W', 'title' => 'Dune', 'author_name' => ['Someone Else']],
+        ['key' => '/books/OL9M', 'title' => 'Not a work'],
+        ['key' => '/works/OL4W', 'title' => '   '],
+    ]];
+
+    private function fakeOpenLibrary(array $weekly = self::TRENDING): void
+    {
+        Http::fake([
+            'openlibrary.org/trending/weekly.json*' => Http::response($weekly),
+            'openlibrary.org/trending/daily.json*' => Http::response(['works' => [['key' => '/works/OL5W', 'title' => 'Today Book', 'author_name' => ['A. Writer']]]]),
+            'openlibrary.org/subjects/classics.json*' => Http::response(['work_count' => 30, 'works' => [
+                ['key' => '/works/OL6W', 'title' => 'Pride and Prejudice', 'authors' => [['name' => 'Jane Austen']], 'cover_id' => 202, 'first_publish_year' => 1813],
+            ]]),
+        ]);
+    }
+
+    private static function bookKey(string $title, string $author): string
+    {
+        return RequestSearch::groupKey('book', Discover::normalizeName($title) . '|' . Discover::normalizeName($author));
+    }
+
+    public function test_books_browse_lists_open_library_charts_with_cached_pages(): void
+    {
+        $this->fakeOpenLibrary();
+        Novel::create(['name' => 'Project Hail Mary', 'author' => 'Andy Weir', 'group_id' => 1, 'translator_url' => 'upload://phm', 'medium' => Novel::MEDIUM_BOOK]);
+
+        $response = $this->browse(['medium' => 'book'])->assertOk();
+        $this->assertSame('book', $response->json('medium'));
+        $this->assertSame([
+            ['id' => 'popular', 'name' => 'Popular this week'],
+            ['id' => 'trending', 'name' => 'Trending today'],
+            ['id' => 'classics', 'name' => 'Classics'],
+        ], $response->json('lists'));
+        $this->assertSame('popular', $response->json('list'));
+        $this->assertSame('Book catalogues', $response->json('source_name'));
+        $this->assertFalse($response->json('has_more'), 'fewer works than a page');
+        // In the library: left out. The same title by another author is another book. No key or title: dropped.
+        $results = $response->json('results');
+        $this->assertSame([['Dune', 'Frank Herbert'], ['Dune', 'Someone Else']], array_map(fn($r) => [$r['title'], $r['author']], $results));
+        $this->assertSame(self::bookKey('Dune', 'Frank Herbert'), $results[0]['key']);
+        $this->assertSame([['source' => 'book-catalogue', 'source_name' => 'Book catalogues', 'chapters' => null, 'status' => '1965']], $results[0]['sources']);
+
+        // The subject list (its own shape), with paging from work_count.
+        $classics = $this->browse(['medium' => 'book', 'list' => 'classics'])->assertOk();
+        $this->assertSame('Pride and Prejudice', $classics->json('results.0.title'));
+        $this->assertSame('Jane Austen', $classics->json('results.0.author'));
+        $this->assertStringContainsString('202', (string) $classics->json('results.0.cover_url'));
+        $this->assertTrue($classics->json('has_more'));
+        Http::assertSent(fn($r) => str_contains($r->url(), 'subjects/classics.json') && $r['limit'] == 24 && $r['offset'] == 0);
+
+        // Cached: asked again, Open Library is not.
+        $sent = count(Http::recorded());
+        $this->browse(['medium' => 'book'])->assertOk();
+        $this->assertCount($sent, Http::recorded());
+
+        // A list the books don't offer.
+        $this->browse(['medium' => 'book', 'list' => 'top'])->assertStatus(422);
+    }
+
+    public function test_books_browse_answers_502_when_open_library_fails(): void
+    {
+        Http::fake(['openlibrary.org/*' => Http::response('down', 500)]);
+        $this->browse(['medium' => 'book'])->assertStatus(502)->assertJsonPath('code', 'browse_unavailable');
+    }
+
+    public function test_requesting_a_book_from_the_shelf_makes_a_wanted_book_request(): void
+    {
+        Bus::fake([FindRequestCandidates::class]);
+        $this->fakeOpenLibrary();
+        $this->browse(['medium' => 'book'])->assertOk();
+
+        $response = $this->asToken($this->readerToken)->postJson('/api/v1/requests', [
+            'medium' => 'book', 'list' => 'popular', 'key' => self::bookKey('Project Hail Mary', 'Andy Weir'), 'note' => 'please',
+        ])->assertCreated();
+        $this->assertTrue($response->json('request.wanted'));
+
+        $request = NovelRequest::findOrFail($response->json('request.id'));
+        $this->assertSame('book', $request->medium);
+        $this->assertSame('Project Hail Mary', $request->title);
+        $this->assertSame('Andy Weir', $request->author);
+        $this->assertSame('please', $request->note);
+        $this->assertTrue($request->isWanted());
+        $this->assertSame([[
+            'source' => 'book-catalogue', 'source_name' => 'Book catalogues', 'url' => 'https://openlibrary.org/works/OL1W',
+            'title' => 'Project Hail Mary', 'cover_url' => 'https://covers.openlibrary.org/b/id/101-M.jpg', 'chapters' => null, 'status' => '2021',
+        ]], $request->candidateList());
+        // One source for books: no shortlist job.
+        Bus::assertNotDispatched(FindRequestCandidates::class);
+
+        // Now shown as requested on the shelf.
+        $this->browse(['medium' => 'book'])->assertOk()->assertJsonPath('results.0.requested.by_me', true);
+    }
+
+    // ---- Novels -----------------------------------------------------------------
+
+    public function test_novels_browse_uses_the_first_novel_source_with_a_chart_and_requests_from_it(): void
+    {
+        Bus::fake([FindRequestCandidates::class]);
+        FakeRequestSource::$lists[FakeNovelB::class] = ['popular', 'new'];
+        FakeRequestSource::$browse[FakeNovelB::class] = [
+            'popular' => [1 => [['name' => 'Lord of the Mysteries', 'url' => 'https://novel-b.test/lotm', 'author' => 'Cuttlefish']]],
+            'new' => [1 => [['name' => 'Fresh Novel', 'url' => 'https://novel-b.test/fresh']]],
+        ];
+
+        $response = $this->browse(['medium' => 'novel'])->assertOk();
+        $this->assertSame([['id' => 'popular', 'name' => 'Popular'], ['id' => 'new', 'name' => 'New']], $response->json('lists'));
+        $this->assertSame(['Lord of the Mysteries'], array_column($response->json('results'), 'title'));
+        $this->assertSame(['Fresh Novel'], array_column($this->browse(['medium' => 'novel', 'list' => 'new'])->assertOk()->json('results'), 'title'));
+        // The manga shelf is its own (no manga source offers a list here).
+        $this->assertSame([], $this->browse(['medium' => 'manga'])->assertOk()->json('lists'));
+
+        $id = $this->asToken($this->readerToken)->postJson('/api/v1/requests', [
+            'medium' => 'novel', 'list' => 'popular', 'key' => RequestSearch::groupKey('novel', Discover::normalizeName('Lord of the Mysteries')),
+        ])->assertCreated()->json('request.id');
+        $request = NovelRequest::findOrFail($id);
+        $this->assertSame('novel', $request->medium);
+        $this->assertSame(['https://novel-b.test/lotm'], array_column($request->candidateList(), 'url'));
+        Bus::assertDispatched(FindRequestCandidates::class);
     }
 }

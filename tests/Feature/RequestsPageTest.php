@@ -85,9 +85,14 @@ class RequestsPageTest extends TestCase
     public function test_the_page_renders_the_discover_shelf_hidden_until_the_script_shows_it(): void
     {
         $html = $this->asSignedIn($this->reader)->get('/requests')->assertOk()
-            ->assertSee('Discover manga')
             ->assertSee('Request anything that isn’t in the library yet.')
             ->getContent();
+        // The title follows the medium picker (requests.js); Books first and pressed.
+        $this->assertStringContainsString('Discover <span id="reqDiscoverNoun">books</span>', $html);
+        $this->assertMatchesRegularExpression('/id="reqMedium">\s*<button[^>]*data-medium="book" aria-pressed="true">Books<\/button>\s*<button[^>]*data-medium="novel"[^>]*>Novels<\/button>\s*<button[^>]*data-medium="manga"/', $html);
+        // My requests: the filter slot (built by JS) and Show more.
+        $this->assertStringContainsString('id="reqMineFilters" hidden', $html);
+        $this->assertStringContainsString('id="reqMineMore">Show more</button>', $html);
 
         // The section is hidden until the browse call answers with lists.
         $this->assertMatchesRegularExpression('/<section class="req-section req-discover" id="reqDiscover"[^>]*\shidden>/', $html);

@@ -488,7 +488,59 @@
     input { accent-color: $accent; }
 }
 
-.req-more { display: flex; justify-content: center; }
+.req-more { display: flex; flex-wrap: wrap; justify-content: center; gap: $s-2; }
+
+// My requests: the state filter. One row that scrolls sideways on a phone
+// rather than wrapping into a ragged block.
+.req-mine-filters {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar { display: none; }
+    .btn { height: 34px; display: inline-flex; align-items: center; white-space: nowrap; flex: none; }
+}
+
+// Compact rows (My requests, the decided list): a small cover, the title
+// line and one meta line, the actions at the right end on wider screens
+// (under the text on a phone). requests.js moves .req-row-actions out of
+// the body into the row for these.
+.req-row.req-row-compact {
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: center;
+    gap: $s-2 $s-4;
+    padding: $s-3 $s-5;
+    outline: none;
+
+    &:focus-visible { outline: 2px solid $accent; outline-offset: -2px; }
+
+    .req-row-body { gap: 2px; }
+    .req-row-title { font-size: 15px; }
+    .req-row-note {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    > .req-row-actions {
+        grid-column: 2;
+        margin-top: 0;
+    }
+
+    @media (min-width: 768px) {
+        grid-template-columns: 44px minmax(0, 1fr) auto;
+
+        > .req-row-actions {
+            grid-column: 3;
+            justify-content: flex-end;
+        }
+    }
+
+    @media (max-width: 575.98px) {
+        grid-template-columns: 40px minmax(0, 1fr);
+        padding: $s-3 $s-4;
+    }
+}
 
 .req-tab-count { font-family: $font-mono; font-size: $fs-mono; }
 
@@ -541,5 +593,6 @@
     .req-cand-label { padding: $s-3; }
     .req-card-action .req-action { min-height: 44px; }
     .req-discover-tabs .btn { height: 44px; }
+    .req-mine-filters .btn { height: 44px; }
     .req-shelf-card.req-card .req-card-action .req-action { min-height: max(44px, calc(2.5em + 10px)); }
 }

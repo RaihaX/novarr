@@ -17,7 +17,7 @@ use Illuminate\Validation\Rule;
  * a reader route, allowed on the public address, throttled per reader
  * (novarr-request-browse).
  *
- *   GET /api/v1/requests/browse?medium=manga&list=&page=
+ *   GET /api/v1/requests/browse?medium=book|novel|manga (default manga)&list=&page=
  *       → 200 {medium, lists: [{id, name}], list, source_name, page,
  *              has_more, results: [...request-search results...]}
  *         (lists [] and list null when the shelf has nothing to show);

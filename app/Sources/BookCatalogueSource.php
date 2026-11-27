@@ -4,6 +4,8 @@ namespace App\Sources;
 
 use App\Books\BookLookup;
 use App\Novel;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 /**
  * The book catalogues (Google Books and Open Library, App\Books\BookLookup)
@@ -15,10 +17,27 @@ use App\Novel;
  * (so never on Discover, the health page or a scrape), and nothing is ever
  * downloaded from it. A request for one of its books is fulfilled by the
  * owner uploading the ePub (App\Books\BookUploads::attach()).
+ *
+ * It also lists Open Library's charts for the Requests page's Discover
+ * shelf (App\Services\Requests\RequestBrowse): 'popular' (trending this
+ * week), 'trending' (trending today) and 'classics' (the classics subject),
+ * paged (PagedDiscover). RequestBrowse caches the pages.
  */
-class BookCatalogueSource extends AbstractSource
+class BookCatalogueSource extends AbstractSource implements PagedDiscover
 {
     public const KEY = 'book-catalogue';
+
+    public const OPEN_LIBRARY = 'https://openlibrary.org';
+
+    /** Items asked of Open Library per shelf page. */
+    public const PAGE_SIZE = 24;
+
+    /** Shelf list id => Open Library path (trending answers `works` with cover_i / author_name; a subject `works` with cover_id / authors). */
+    public const LISTS = [
+        'popular' => '/trending/weekly.json',
+        'trending' => '/trending/daily.json',
+        'classics' => '/subjects/classics.json',
+    ];
 
     public function name(): string
     {
@@ -52,7 +71,7 @@ class BookCatalogueSource extends AbstractSource
 
     public function discoverLists(): array
     {
-        return ['search'];
+        return ['search', ...array_keys(self::LISTS)];
     }
 
     public function tableOfContents(Novel $novel): array
@@ -68,6 +87,11 @@ class BookCatalogueSource extends AbstractSource
     /** Discover-shaped items (name, author, cover, description, url), best match first. */
     public function discover(string $type, ?string $query = null): ?array
     {
+        if (isset(self::LISTS[$type])) {
+            $page = $this->discoverPage($type, null, 1);
+
+            return $page === null ? null : $page['items'];
+        }
         $query = trim((string) $query);
         if ($type !== 'search' || $query === '') {
             return [];
@@ -101,5 +125,75 @@ class BookCatalogueSource extends AbstractSource
         }
 
         return $items;
+    }
+
+    /**
+     * One page of an Open Library chart, as discover() items (the url is
+     * the work's page, as a book search hit's). Null when Open Library
+     * could not be reached.
+     */
+    public function discoverPage(string $type, ?string $query, int $page): ?array
+    {
+        if (!isset(self::LISTS[$type]) || $page < 1 || $page > self::MAX_PAGE) {
+            return ['items' => [], 'has_more' => false];
+        }
+        $subject = str_starts_with(self::LISTS[$type], '/subjects/');
+        $params = $subject
+            ? ['limit' => self::PAGE_SIZE, 'offset' => ($page - 1) * self::PAGE_SIZE]
+            : ['limit' => self::PAGE_SIZE, 'page' => $page];
+
+        try {
+            $response = Http::timeout(max(1, (int) config('novarr.books.timeout', 15)))
+                ->acceptJson()
+                ->withUserAgent('Novarr (self-hosted reading server)')
+                ->get(self::OPEN_LIBRARY . self::LISTS[$type], $params);
+        } catch (\Throwable $e) {
+            Log::info("Book catalogue: Open Library {$type} failed: " . $e->getMessage());
+
+            return null;
+        }
+        $json = $response->successful() ? $response->json() : null;
+        if (!is_array($json) || !is_array($json['works'] ?? null)) {
+            Log::info("Book catalogue: Open Library {$type} answered " . $response->status());
+
+            return null;
+        }
+
+        $items = [];
+        foreach ($json['works'] as $work) {
+            if (is_array($work) && ($item = self::workItem($work)) !== null) {
+                $items[] = $item;
+            }
+        }
+        $hasMore = $subject
+            ? ($page * self::PAGE_SIZE) < (int) ($json['work_count'] ?? 0)
+            : count($json['works']) >= self::PAGE_SIZE;
+
+        return ['items' => $items, 'has_more' => $hasMore && $page < self::MAX_PAGE];
+    }
+
+    /** An Open Library work (trending or subject shape) as a discover() item; null without a title or key. */
+    public static function workItem(array $work): ?array
+    {
+        $title = trim((string) ($work['title'] ?? ''));
+        $key = (string) ($work['key'] ?? '');
+        if ($title === '' || !str_starts_with($key, '/works/')) {
+            return null;
+        }
+        $authors = isset($work['author_name'])
+            ? (array) $work['author_name']
+            : array_map(fn($a) => is_array($a) ? (string) ($a['name'] ?? '') : (string) $a, (array) ($work['authors'] ?? []));
+        $authors = array_values(array_filter(array_map('trim', array_map('strval', $authors)), fn($a) => $a !== ''));
+        $cover = (int) ($work['cover_i'] ?? $work['cover_id'] ?? 0);
+        $year = $work['first_publish_year'] ?? null;
+
+        return [
+            'name' => $title,
+            'author' => implode(', ', array_slice($authors, 0, 3)) ?: null,
+            'cover' => $cover > 0 ? BookLookup::OPEN_LIBRARY_COVERS . '/id/' . $cover . '-M.jpg' : null,
+            'description' => null,
+            'url' => self::OPEN_LIBRARY . $key,
+            'status' => is_numeric($year) ? (string) (int) $year : null,
+        ];
     }
 }

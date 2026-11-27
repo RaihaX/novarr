@@ -14,8 +14,10 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * The Requests page's Discover shelf (GET /api/v1/requests/browse): a
- * source's charts — popular, new & popular, top rated — for readers to
- * request from. The source is the first of the medium's request-search
+ * source's charts — popular, new & popular, top rated… — for readers to
+ * request from, for every medium (books: Open Library's trending and
+ * classics through BookCatalogueSource; novels: the first novel source
+ * with a chart, NovelPing's popular / new). The source is the first of the medium's request-search
  * sources (RequestSearch::sources(): search order, hidden Discover sources
  * left out) that offers any of LISTS.
  *
@@ -36,11 +38,21 @@ use Illuminate\Support\Facades\Log;
  */
 class RequestBrowse
 {
-    /** List id => name, in shelf order. */
-    public const LISTS = ['popular' => 'Popular', 'trending' => 'New & popular', 'top' => 'Top rated'];
+    /**
+     * List id => name, in shelf order. A source offers some of them
+     * (Source::discoverLists()): MangaDex popular / trending / top, the
+     * novel catch-all (NovelPing) popular / new, the book catalogue
+     * (Open Library) popular / trending / classics.
+     */
+    public const LISTS = ['popular' => 'Popular', 'trending' => 'New & popular', 'new' => 'New', 'top' => 'Top rated', 'classics' => 'Classics'];
 
-    /** The media the shelf is offered for. */
-    public const MEDIA = [Novel::MEDIUM_MANGA];
+    /** A medium's own name for a list, where LISTS' would mislead. */
+    public const LIST_NAMES = [
+        Novel::MEDIUM_BOOK => ['popular' => 'Popular this week', 'trending' => 'Trending today'],
+    ];
+
+    /** The media the shelf is offered for (the Requests page's picker order). */
+    public const MEDIA = [Novel::MEDIUM_BOOK, Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA];
 
     /** The last page a reader may open. */
     public const MAX_PAGE = 10;
@@ -107,11 +119,11 @@ class RequestBrowse
     {
         $chosen = $this->source($medium);
 
-        return $chosen === null ? [] : static::listsOf($chosen['source']);
+        return $chosen === null ? [] : static::listsOf($chosen['source'], $medium);
     }
 
     /** @return array<int, array{id: string, name: string}> */
-    private static function listsOf(Source $source): array
+    private static function listsOf(Source $source, string $medium): array
     {
         try {
             $offered = $source->discoverLists();
@@ -121,7 +133,7 @@ class RequestBrowse
         $lists = [];
         foreach (self::LISTS as $id => $name) {
             if (in_array($id, $offered, true)) {
-                $lists[] = ['id' => $id, 'name' => $name];
+                $lists[] = ['id' => $id, 'name' => self::LIST_NAMES[$medium][$id] ?? $name];
             }
         }
 

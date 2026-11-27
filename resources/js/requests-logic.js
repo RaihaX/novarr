@@ -251,9 +251,10 @@ export function relativeTime(iso, now = Date.now()) {
 /** How long before the shelf's loading line says a first load is slow (a cold list takes ~10 s). */
 export const BROWSE_SLOW_AFTER_MS = 6000;
 
-/** The browse endpoint's URL; list and page are left out when not given (the server's defaults). */
-export function browseUrl({ list = null, page = null } = {}) {
+/** The browse endpoint's URL; medium, list and page are left out when not given (the server's defaults). */
+export function browseUrl({ medium = null, list = null, page = null } = {}) {
     const params = new URLSearchParams();
+    if (medium !== null && medium !== undefined && String(medium) !== '') params.set('medium', String(medium));
     if (list !== null && list !== undefined && String(list) !== '') params.set('list', String(list));
     const n = Number(page);
     if (page !== null && page !== undefined && Number.isInteger(n) && n > 0) params.set('page', String(n));
@@ -315,12 +316,12 @@ export function newResults(results, shownKeys) {
 /**
  * POST /api/v1/requests body for a card, by where it came from:
  *   {type: 'search', searchId}  → {search_id, key}
- *   {type: 'shelf', list, page} → {list, page, key}
+ *   {type: 'shelf', list, page, medium?} → {medium?, list, page, key}
  * plus the note when there is one.
  */
 export function requestBody(origin, key, note = '') {
     const base = origin && origin.type === 'shelf'
-        ? { list: origin.list, page: Number(origin.page) || 1, key }
+        ? { ...(origin.medium ? { medium: origin.medium } : {}), list: origin.list, page: Number(origin.page) || 1, key }
         : { search_id: origin ? origin.searchId : null, key };
     const text = String(note || '').trim();
     return text ? { ...base, note: text } : base;
@@ -337,4 +338,127 @@ export function oldestFirst(requests) {
 /** The decided tab: approved / available / declined only. */
 export function decidedOnly(requests) {
     return (requests || []).filter((r) => r && r.status !== 'pending');
+}
+
+// ---- The medium picker -----------------------------------------------------------
+
+/** The picker's media, in its order; the first is the default. */
+export const MEDIA = ['book', 'novel', 'manga'];
+
+/** localStorage key of the reader's last medium. */
+export const MEDIUM_STORAGE_KEY = 'novarr.requests.medium';
+
+/** The medium to start on: the remembered one when it is still offered, else books. */
+export function initialMedium(stored) {
+    return MEDIA.includes(stored) ? stored : MEDIA[0];
+}
+
+/** The Discover shelf's noun for a medium ("Discover books"). */
+export function mediumNoun(medium) {
+    return { book: 'books', novel: 'novels', manga: 'manga' }[medium] || 'series';
+}
+
+// ---- My requests: filter, age, paging -------------------------------------------
+
+/** Rows shown at first, and added by each "Show more". */
+export const MINE_PAGE = 10;
+
+/** Ready / declined requests settled longer ago than this are "older" (collapsed in All). */
+export const MINE_STALE_DAYS = 30;
+
+/** The filter buttons, in order. */
+export const MINE_FILTERS = [
+    { id: 'active', label: 'In progress' },
+    { id: 'ready', label: 'Ready to read' },
+    { id: 'declined', label: 'Declined' },
+    { id: 'all', label: 'All' },
+];
+
+/** A request's group: waiting (pending), approved (downloading), ready (available), declined, other. */
+export function mineGroup(request) {
+    switch (request && request.status) {
+        case 'pending': return 'waiting';
+        case 'approved': return 'approved';
+        case 'available': return 'ready';
+        case 'declined': return 'declined';
+        default: return 'other';
+    }
+}
+
+/** Whether a request is in a filter ('active' = waiting + approved). */
+export function inMineFilter(request, filter) {
+    const g = mineGroup(request);
+    switch (filter) {
+        case 'active': return g === 'waiting' || g === 'approved';
+        case 'ready': return g === 'ready';
+        case 'declined': return g === 'declined';
+        default: return true;
+    }
+}
+
+/** How many loaded requests each filter holds: {active, waiting, approved, ready, declined, all}. */
+export function mineCounts(requests) {
+    const counts = { active: 0, waiting: 0, approved: 0, ready: 0, declined: 0, all: 0 };
+    for (const r of requests || []) {
+        if (!r) continue;
+        counts.all++;
+        const g = mineGroup(r);
+        if (g in counts) counts[g]++;
+        if (g === 'waiting' || g === 'approved') counts.active++;
+    }
+    return counts;
+}
+
+/** The filter to open on: in progress when anything is, else ready to read, else all. */
+export function defaultMineFilter(counts) {
+    if (counts && counts.active > 0) return 'active';
+    if (counts && counts.ready > 0) return 'ready';
+    return 'all';
+}
+
+/** A filter button's text: "In progress (3)", "All (50+)" while more pages wait on the server; no count at 0. */
+export function mineFilterLabel(filter, counts, hasMore = false) {
+    const f = MINE_FILTERS.find((x) => x.id === filter);
+    const label = f ? f.label : String(filter);
+    const n = counts ? Number(counts[filter]) || 0 : 0;
+    if (n === 0) return label;
+    return `${label} (${n}${hasMore ? '+' : ''})`;
+}
+
+/** Whether a ready / declined request was settled more than MINE_STALE_DAYS ago (available_at, else decided_at). */
+export function isStale(request, now = Date.now(), days = MINE_STALE_DAYS) {
+    const g = mineGroup(request);
+    if (g !== 'ready' && g !== 'declined') return false;
+    const t = Date.parse((g === 'ready' && request.available_at) || request.decided_at || request.created_at || '');
+    return !Number.isNaN(t) && now - t > days * 86_400_000;
+}
+
+/**
+ * What the list shows for a filter: the first `limit` matching requests
+ * (the API's order, newest first). In All, older ready / declined requests
+ * are left out unless showOld (`older` counts them). `more`: matching rows
+ * beyond the limit (already loaded).
+ *
+ * @returns {{items: object[], older: number, more: boolean, total: number}}
+ */
+export function mineView(requests, filter, { limit = MINE_PAGE, showOld = false, now = Date.now() } = {}) {
+    let matching = (requests || []).filter((r) => r && inMineFilter(r, filter));
+    let older = 0;
+    if (filter === 'all' && !showOld) {
+        const fresh = matching.filter((r) => !isStale(r, now));
+        older = matching.length - fresh.length;
+        matching = fresh;
+    }
+    return { items: matching.slice(0, Math.max(0, limit)), older, more: matching.length > limit, total: matching.length };
+}
+
+/** The empty line of a filter with nothing in it (given what the other filters hold). */
+export function mineEmptyLine(filter, counts) {
+    if (!counts || counts.all === 0) return { title: 'No requests yet.', body: 'Search above for something to read, or request it by title.' };
+    switch (filter) {
+        case 'active': return { title: 'Nothing in progress.', body: counts.ready > 0 ? 'See Ready to read for what has arrived.' : 'Search above to request something new.' };
+        case 'ready': return { title: 'Nothing ready yet.', body: 'Requests the owner adds appear here.' };
+        case 'declined': return { title: 'Nothing declined.', body: null };
+        default: return { title: 'No recent requests.', body: null };
+    }
 }
