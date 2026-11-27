@@ -159,7 +159,7 @@ class WordCountAndHomeQueriesTest extends TestCase
         // chapters' read-from follows the shared resume rule
         // (App\Services\ResumePoint): its anchors statement adds one, also
         // fixed (the targets statement replaced the old read-from UNION).
-        // The "Want to read" shelf adds one (the reader's list, never used
+        // The "Want to read" and "Favourites" shelves add one (both lists in one statement, never used
         // here; a used one adds its members, started, novels and covers),
         // and Continue listening one (the reader's audiobook progress).
         // The admin's Downloads "Needs you" nav badge adds one (one statement,

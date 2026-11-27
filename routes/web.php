@@ -98,6 +98,8 @@ Route::view('/offline', 'offline')->name('offline');
 Route::view('/library', 'library')->name('library');
 // "Want to read": the reader's built-in list, every medium, newest first.
 Route::get('/want-to-read', [HomeController::class, 'wantToRead'])->name('want_to_read');
+// "Favourites": the reader's second built-in list (the heart), every medium, newest first.
+Route::get('/favourites', [HomeController::class, 'favourites'])->name('favourites');
 
 // Novels
 Route::get('/novels', [NovelController::class, 'index'])->name('novels.index');

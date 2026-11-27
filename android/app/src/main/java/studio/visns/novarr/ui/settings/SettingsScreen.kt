@@ -163,6 +163,19 @@ fun SettingsScreen(nav: NavController) {
                     }
                 }
 
+                Section("Home")
+                val homeLayout by app.prefs.homeLayout.collectAsStateWithLifecycle(studio.visns.novarr.store.HomeLayout())
+                StartOnChoice(homeLayout.startOn, listen = audiobooksOffered) { start -> scope.launch { app.prefs.updateHomeLayout { it.copy(startOn = start) } } }
+                SwitchRow("Show Continue reading on Home", homeLayout.continueReading) { on ->
+                    scope.launch { app.prefs.updateHomeLayout { it.copy(continueReading = on) } }
+                }
+                if (audiobooksOffered) {
+                    SwitchRow("Show Continue listening on Home", homeLayout.continueListening) { on ->
+                        scope.launch { app.prefs.updateHomeLayout { it.copy(continueListening = on) } }
+                    }
+                }
+                Note("Home gathers your favourites, Want to read, what you're reading and listening to, and your folders. Everything in progress also stays under Library and Listen.")
+
                 Section("Reading")
                 Link("Reader defaults", chevron = true) { nav.navigate(ReaderSettingsRoute) }
                 // Untouched, it shows on: the volume keys turn pages in the novel Pages mode (everywhere on e-ink).
@@ -372,6 +385,24 @@ private fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Un
     ) {
         Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = null)
+    }
+}
+
+/** "Start on": the tab the app opens on (Listen only on servers with audiobooks). */
+@Composable
+private fun StartOnChoice(current: studio.visns.novarr.store.StartOn, listen: Boolean, onChange: (studio.visns.novarr.store.StartOn) -> Unit) {
+    Text("Start on", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+    val choices = studio.visns.novarr.store.StartOn.entries.filter { listen || it != studio.visns.novarr.store.StartOn.LISTEN }
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp).semantics { contentDescription = "Start on" }) {
+        choices.forEachIndexed { index, choice ->
+            SegmentedButton(
+                selected = choice == current,
+                onClick = { onChange(choice) },
+                shape = SegmentedButtonDefaults.itemShape(index, choices.size),
+                modifier = Modifier.heightIn(min = 48.dp),
+                label = { Text(choice.title) },
+            )
+        }
     }
 }
 

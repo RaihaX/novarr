@@ -32,6 +32,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -58,7 +60,9 @@ import studio.visns.novarr.ui.connect.ConnectScreen
 import studio.visns.novarr.ui.highlights.HighlightsScreen
 import studio.visns.novarr.ui.home.HomeScreen
 import studio.visns.novarr.ui.library.LibraryScreen
+import studio.visns.novarr.ui.lists.FolderScreen
 import studio.visns.novarr.ui.lists.WantToReadScreen
+import studio.visns.novarr.store.StartOn
 import studio.visns.novarr.ui.novel.NovelScreen
 import studio.visns.novarr.ui.reader.MangaReaderScreen
 import studio.visns.novarr.ui.reader.ReaderSettingsScreen
@@ -104,6 +108,9 @@ import studio.visns.novarr.ui.theme.LocalEink
 
 /** The reader's whole "Want to read" (Home's shelf "See all"). */
 @Serializable data object WantToReadRoute
+
+/** One reading list as a folder of covers (Home's folders, Favourites' "See all"). */
+@Serializable data class FolderRoute(val id: Int)
 
 /** Every audiobook (a tab when the server has them). */
 @Serializable data object AudiobooksRoute
@@ -152,6 +159,23 @@ fun MainNavigation() {
             launchSingleTop = true
             restoreState = true
         }
+    }
+
+    // Settings › Home › "Start on": once per launch (not after rotation), the chosen tab instead of Home.
+    var startApplied by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(audiobooksOffered) {
+        if (startApplied) return@LaunchedEffect
+        val start = app.prefs.homeLayout.first().startOn
+        val tab = when (start) {
+            StartOn.HOME -> null
+            StartOn.LIBRARY -> libraryTab
+            // "Listen" only where the server has audiobooks; otherwise Home.
+            StartOn.LISTEN -> audiobooksTab.takeIf { audiobooksOffered }
+        }
+        // Listen may only become available once meta arrives: wait for it rather than settle on Home.
+        if (start == StartOn.LISTEN && !audiobooksOffered && !app.metaKnown) return@LaunchedEffect
+        startApplied = true
+        if (tab != null && destination?.hasRoute(HomeRoute::class) != false) select(tab)
     }
 
     // The playback notification: the full-screen player, over whatever was on screen.
@@ -300,6 +324,7 @@ private fun NovarrNavHost(nav: NavHostController) {
         composable<HighlightsRoute> { HighlightsScreen(nav, it.toRoute()) }
         composable<DownloadsRoute> { DownloadsScreen(nav) }
         composable<WantToReadRoute> { WantToReadScreen(nav) }
+        composable<FolderRoute> { FolderScreen(nav, it.toRoute<FolderRoute>().id) }
         composable<AudiobooksRoute> { AudiobooksScreen(nav) }
         composable<PlayerRoute> { PlayerScreen(nav, it.toRoute<PlayerRoute>().id) }
         composable<AudiobookUploadRoute> { entry ->

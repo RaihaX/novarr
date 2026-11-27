@@ -75,6 +75,16 @@ data class ListeningPrefs(
     }
 }
 
+/** Which tab the app opens on (Settings › Home). */
+enum class StartOn(val title: String) { HOME("Home"), LIBRARY("Library"), LISTEN("Listen") }
+
+/** Home's choices: the compact Continue strip's two halves (Settings › Home) and the start tab. */
+data class HomeLayout(
+    val continueReading: Boolean = true,
+    val continueListening: Boolean = true,
+    val startOn: StartOn = StartOn.HOME,
+)
+
 enum class ReaderTheme(val title: String) { SYSTEM("System"), LIGHT("Light"), SEPIA("Sepia"), DARK("Dark"), BLACK("Black") }
 enum class ReaderFont(val title: String) { LITERATA("Literata"), GEIST("Geist"), SERIF("Serif"), SANS("Sans") }
 
@@ -255,6 +265,25 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
     suspend fun listeningNotifyAsked(): Boolean = snapshot()[A_NOTIFY_ASKED] ?: false
     suspend fun setListeningNotifyAsked() = store.edit { it[A_NOTIFY_ASKED] = true }
 
+    // Home: what it shows, and which tab the app opens on.
+
+    val homeLayout: Flow<HomeLayout> = store.data.map { p ->
+        HomeLayout(
+            continueReading = p[H_CONTINUE_READING] ?: true,
+            continueListening = p[H_CONTINUE_LISTENING] ?: true,
+            startOn = enumOr(p[H_START_ON], StartOn.HOME),
+        )
+    }
+
+    suspend fun updateHomeLayout(transform: (HomeLayout) -> HomeLayout) {
+        val next = transform(homeLayout.first())
+        store.edit {
+            it[H_CONTINUE_READING] = next.continueReading
+            it[H_CONTINUE_LISTENING] = next.continueListening
+            it[H_START_ON] = next.startOn.name
+        }
+    }
+
     suspend fun string(name: String): String? = snapshot()[stringPreferencesKey(name)]
     suspend fun setString(name: String, value: String) = store.edit { it[stringPreferencesKey(name)] = value }
 
@@ -346,6 +375,9 @@ class AppPrefs internal constructor(private val store: DataStore<Preferences>) {
         val A_WIFI_ONLY = booleanPreferencesKey("listening.wifiOnlyDownloads")
         val A_WIFI_ONLY_UPLOADS = booleanPreferencesKey("listening.wifiOnlyUploads")
         val A_NOTIFY_ASKED = booleanPreferencesKey("listening.notifyAsked")
+        val H_CONTINUE_READING = booleanPreferencesKey("home.continueReading")
+        val H_CONTINUE_LISTENING = booleanPreferencesKey("home.continueListening")
+        val H_START_ON = stringPreferencesKey("home.startOn")
 
         inline fun <reified E : Enum<E>> enumOr(raw: String?, default: E): E =
             raw?.let { name -> enumValues<E>().firstOrNull { it.name == name } } ?: default

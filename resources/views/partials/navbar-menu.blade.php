@@ -26,6 +26,7 @@
     }
     $libraryLinks[] = ['href' => route('audiobooks.index'), 'label' => 'Audiobooks', 'on' => $r->routeIs('audiobooks.index', 'audiobooks.show')];
     $libraryLinks[] = ['href' => route('want_to_read'), 'label' => 'Want to read', 'on' => $r->routeIs('want_to_read')];
+    $libraryLinks[] = ['href' => route('favourites'), 'label' => 'Favourites', 'on' => $r->routeIs('favourites')];
     $libraryLinks[] = ['divider' => true];
     $libraryLinks[] = ['href' => route('bookmarks.index'), 'label' => 'Highlights', 'on' => $r->routeIs('bookmarks.*')];
     $libraryLinks[] = ['href' => route('stats.index'), 'label' => 'Stats', 'on' => $r->routeIs('stats.*')];

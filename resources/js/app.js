@@ -40,7 +40,8 @@ document.addEventListener('turbo:load', initNovelPage);
 import { initLists } from './lists';
 document.addEventListener('turbo:load', initLists);
 
-// "Want to read" toggles: the novel page's bookmark, the Want to read page's tiles; per visit.
+// Built-in list toggles: the novel page's bookmark (Want to read) and heart (Favourites),
+// and those pages' tiles; per visit.
 import { initWantToRead } from './want-to-read';
 document.addEventListener('turbo:load', initWantToRead);
 

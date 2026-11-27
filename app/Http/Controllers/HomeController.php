@@ -24,6 +24,9 @@ class HomeController extends Controller
     /** Covers on Home's "Want to read" shelf (web and API); the page has them all. */
     public const WANT_TO_READ_SHELF = 12;
 
+    /** Covers on Home's "Favourites" shelf (web); the page has them all. */
+    public const FAVOURITES_SHELF = 12;
+
     /** Audiobooks on Home's Continue listening. */
     public const CONTINUE_LISTENING_SHELF = 6;
 
@@ -87,7 +90,8 @@ class HomeController extends Controller
         return view('home', [
             'hero' => $hero,
             'shelf' => $shelf,
-            'want_to_read' => $this->wantToReadShelf(self::WANT_TO_READ_SHELF),
+            // Both built-in lists' shelves, the lists found in one statement.
+            ...$this->builtInShelves(),
             // Audiobooks the reader is part way through (Api\V1\AudiobookController::continueShelf()).
             'continue_listening' => \App\Http\Controllers\Api\V1\AudiobookController::continueShelf(
                 app(\App\Audiobooks\ListeningProgress::class),
@@ -506,7 +510,57 @@ class HomeController extends Controller
      */
     public function wantToReadShelf(?int $limit = null): array
     {
-        $shelf = \App\Services\ReadingLists::wantToReadItems($this->readState->userId(), null, $limit);
+        return $this->builtInShelf(\App\ReadingList::KIND_WANT_TO_READ, $limit);
+    }
+
+    /**
+     * GET /favourites — the reader's whole "Favourites" (the second built-in
+     * reading list, the heart), every medium, newest first.
+     */
+    public function favourites()
+    {
+        return view('favourites', ['favourites' => $this->favouritesShelf()]);
+    }
+
+    /** The reader's "Favourites" with its novels (and covers), newest first: as wantToReadShelf(). */
+    public function favouritesShelf(?int $limit = null): array
+    {
+        return $this->builtInShelf(\App\ReadingList::KIND_FAVOURITES, $limit);
+    }
+
+    /**
+     * A built-in reading list of $kind with its novels (and covers), newest
+     * first: the first $limit (null: all) and how many there are.
+     *
+     * @return array{count:int, items: list<array{novel: Novel, added_at: ?string, started: bool}>}
+     */
+    private function builtInShelf(string $kind, ?int $limit = null): array
+    {
+        return $this->withNovels(\App\Services\ReadingLists::itemsOfKind($this->readState->userId(), $kind, null, $limit));
+    }
+
+    /**
+     * Home's two built-in shelves: ['favourites' => …, 'want_to_read' => …]
+     * as favouritesShelf() / wantToReadShelf() with Home's limits, both
+     * lists read in one statement (an unused one costs nothing more).
+     */
+    private function builtInShelves(): array
+    {
+        $userId = $this->readState->userId();
+        $lists = \App\Services\ReadingLists::builtInListsOrNull($userId);
+        $shelf = fn(string $kind, int $limit) => $this->withNovels(
+            \App\Services\ReadingLists::itemsOfList($userId, $lists[$kind] ?? null, null, $limit)
+        );
+
+        return [
+            'want_to_read' => $shelf(\App\ReadingList::KIND_WANT_TO_READ, self::WANT_TO_READ_SHELF),
+            'favourites' => $shelf(\App\ReadingList::KIND_FAVOURITES, self::FAVOURITES_SHELF),
+        ];
+    }
+
+    /** A built-in shelf's items with their novels (and covers); gone ones dropped. */
+    private function withNovels(array $shelf): array
+    {
         $ids = array_column($shelf['items'], 'novel_id');
         $novels = $ids === [] ? collect() : Novel::with('file')->whereIn('id', $ids)->get()->keyBy('id');
 

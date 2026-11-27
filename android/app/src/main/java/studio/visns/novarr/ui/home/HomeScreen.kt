@@ -56,7 +56,39 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.CollectionsBookmark
+import androidx.compose.material.icons.outlined.CreateNewFolder
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Headphones
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.input.ImeAction
+import coil3.compose.AsyncImage
+import studio.visns.novarr.api.NovelSummary
+import studio.visns.novarr.api.rethrowIfCancellation
+import studio.visns.novarr.domain.AutoSearch
+import studio.visns.novarr.domain.HomeShelves
+import studio.visns.novarr.store.HomeLayout
+import studio.visns.novarr.ui.FolderRoute
+import studio.visns.novarr.ui.LibraryRoute
+import studio.visns.novarr.ui.audiobooks.caption
+import studio.visns.novarr.ui.lists.LibraryNovels
+import studio.visns.novarr.ui.lists.NewFolderDialog
+import studio.visns.novarr.ui.lists.seriesCount
 import studio.visns.novarr.api.AudiobookSummary
 import studio.visns.novarr.api.ContinueItem
 import studio.visns.novarr.api.HomeFeed
@@ -111,6 +143,46 @@ class HomeViewModel(private val app: AppModel) : ViewModel() {
     private var loadedRevision = -1
     private var loadedAt = 0L
 
+    /** The library by id (Favourites' and folders' covers, the search): the saved copy, refreshed with Home. */
+    val library = LibraryNovels(app)
+
+    fun refreshLibrary() = viewModelScope.launch { library.load(fetch = true) }
+
+    // Search: the library on this device at once, the server's audiobooks after a pause in typing.
+
+    var query by mutableStateOf("")
+        private set
+    var seriesResults by mutableStateOf<List<NovelSummary>>(emptyList())
+        private set
+    var audiobookResults by mutableStateOf<List<AudiobookSummary>>(emptyList())
+        private set
+    var searchingAudiobooks by mutableStateOf(false)
+        private set
+    private var audiobookSearch: Job? = null
+
+    fun search(text: String) {
+        query = text
+        seriesResults = HomeShelves.search(text, library.novels.values)
+        audiobookSearch?.cancel()
+        if (text.isBlank() || !app.audiobooksOffered.value) {
+            audiobookResults = emptyList()
+            searchingAudiobooks = false
+            return
+        }
+        searchingAudiobooks = true
+        audiobookSearch = viewModelScope.launch {
+            delay(400)
+            val found = runCatching { app.active?.client?.audiobooks(search = text.trim())?.audiobooks }
+                .onFailure { it.rethrowIfCancellation() }
+                .getOrNull()
+            // Offline: what this device has seen (Continue listening, the saved first page).
+            audiobookResults = found ?: (listening + app.cached(OfflineStore.Key.audiobooks)?.audiobooks.orEmpty())
+                .distinctBy { it.id }
+                .filter { AutoSearch.normalize("${it.title} ${it.author.orEmpty()} ${it.narrator.orEmpty()}").contains(AutoSearch.normalize(text)) }
+            searchingAudiobooks = false
+        }
+    }
+
     /** Reloads when read state changed elsewhere or the data is a minute old. */
     fun refreshIfStale() {
         val stale = System.currentTimeMillis() - loadedAt > 60_000
@@ -132,6 +204,8 @@ class HomeViewModel(private val app: AppModel) : ViewModel() {
         applyUnsentReading()
         refreshing = false
         loadListening()
+        // The library copy: fetched with a pull, or when none is saved yet.
+        library.load(fetch = pull || !library.loaded)
     }
 
     fun refreshListening() = viewModelScope.launch { loadListening() }
@@ -169,6 +243,13 @@ class HomeViewModel(private val app: AppModel) : ViewModel() {
 private fun readerRoute(item: ContinueItem) =
     ReaderRoute(item.novel.id, item.chapter.id, manga = item.novel.isManga, offerLatest = true)
 
+/**
+ * Home is "my stuff" across books, manga, web novels and audiobooks: a
+ * search over everything, a compact strip to pick up where you left off
+ * (each half can be hidden in Settings), Favourites, Want to read, what is in
+ * progress, the reader's folders (their own reading lists) and a way into
+ * the full Library.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(nav: NavController) {
@@ -195,15 +276,26 @@ fun HomeScreen(nav: NavController) {
     val playingId = app.listening.nowPlaying.collectAsStateWithLifecycle().value?.id
     LaunchedEffect(audiobooksOffered, playingId) { if (audiobooksOffered) model.refreshListening() }
     val unseenRequests by app.requestsUnseen.collectAsStateWithLifecycle(0)
-    // "Want to read": the feed's shelf, kept in step with the local list (the series screen's bookmark).
+    val layout by app.prefs.homeLayout.collectAsStateWithLifecycle(HomeLayout())
+    // The lists: "Want to read" (the feed's shelf, kept in step with the local list), Favourites and the folders.
     val listsOffered by app.listsOffered.collectAsStateWithLifecycle()
+    val favouritesOffered by app.favouritesOffered.collectAsStateWithLifecycle()
     val listsState by app.lists.state.collectAsStateWithLifecycle()
+    val listsLoaded by app.lists.loaded.collectAsStateWithLifecycle()
     val wantList = if (listsOffered) ReadingLists.wantToRead(listsState.lists) else null
+    val favouritesList = if (listsOffered && favouritesOffered) ReadingLists.favourites(listsState.lists) else null
     LaunchedEffect(listsOffered) { if (listsOffered && !app.lists.loaded.value) app.lists.refresh() }
     LaunchedEffect(wantList?.novelIds) {
         val feed = model.feed
         if (feed != null && ReadingLists.needsRefetch(feed.wantToRead, wantList, WANT_TO_READ_SHELF)) model.load()
     }
+    // Favourites and folders show covers from the library: fetched again when a list holds a series it doesn't know.
+    val allListIds = listsState.lists.flatMap { it.novelIds }
+    LaunchedEffect(allListIds, model.library.loaded) {
+        if (listsOffered && model.library.loaded && allListIds.any { it !in model.library.novels }) model.refreshLibrary()
+    }
+    var newFolder by remember { mutableStateOf(false) }
+    val hPad = if (wide) 28.dp else 16.dp
 
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
@@ -228,7 +320,7 @@ fun HomeScreen(nav: NavController) {
             val feed = model.feed
             LazyColumn(
                 Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = if (wide) 28.dp else 16.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(horizontal = hPad, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 update?.let { release ->
@@ -237,6 +329,14 @@ fun HomeScreen(nav: NavController) {
                     }
                 }
                 if (model.fromCache) item { OfflinePill(modifier = Modifier.padding(bottom = 12.dp)) }
+                // Search everything: the library (this device's copy) and, online, the server's audiobooks.
+                item(key = "search") {
+                    HomeSearchField(model.query, onChange = model::search, modifier = Modifier.readableWidth(1000.dp).padding(bottom = 12.dp))
+                }
+                if (model.query.isNotBlank()) {
+                    searchResults(model, nav)
+                    return@LazyColumn
+                }
                 // Phones: a labelled entry besides the top bar's icon, which is easy to miss. Tablets have the labelled rail item.
                 if (requestsOffered && !wide) {
                     // No key: the list then stays at the top when the update banner arrives above it.
@@ -246,20 +346,29 @@ fun HomeScreen(nav: NavController) {
                 }
                 when {
                     feed != null -> {
-                        item { ContinueSection(model.continueItems, wide, nav) }
-                        // Only on servers with audiobooks, once something is started.
-                        if (audiobooksOffered && model.listening.isNotEmpty()) {
-                            item(key = "continue-listening") {
-                                Column(Modifier.readableWidth(1000.dp).padding(top = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        SectionTitle("Continue listening", Modifier.weight(1f))
-                                        TextButton(onClick = { nav.navigate(AudiobooksRoute) }) { Text("All audiobooks") }
-                                    }
-                                    ContinueListeningRow(model.listening, wide) { nav.navigate(PlayerRoute(it.id)) }
-                                }
+                        val listening = if (audiobooksOffered) model.listening else emptyList()
+                        // 1. Pick up where you left off: compact, one row (Settings › Home can hide either half).
+                        val quick = HomeShelves.quickResume(model.continueItems, listening, layout.continueReading, layout.continueListening)
+                        if (quick.isNotEmpty()) {
+                            item(key = "quick") {
+                                QuickResumeStrip(quick, Modifier.readableWidth(1000.dp)) { open(nav, it) }
                             }
                         }
-                        // Shown once the server has the list (an older server sends neither).
+                        // 2. Favourites (servers with the built-in list).
+                        if (favouritesList != null) {
+                            item(key = "favourites") {
+                                CoverShelf(
+                                    title = ReadingLists.FAVOURITES,
+                                    novels = HomeShelves.shelf(favouritesList, model.library.novels).take(SHELF_MAX),
+                                    total = favouritesList.count,
+                                    wide = wide,
+                                    empty = "Tap the heart at the top of any book, web novel or manga and it lives here.",
+                                    onSeeAll = { nav.navigate(FolderRoute(favouritesList.id)) },
+                                    onOpen = { nav.navigate(NovelRoute(it)) },
+                                )
+                            }
+                        }
+                        // 3. Want to read (shown once the server has the list; an older server sends neither).
                         if (wantList != null || feed.wantToRead.isNotEmpty()) {
                             item(key = "want-to-read") {
                                 WantToReadSection(
@@ -268,6 +377,32 @@ fun HomeScreen(nav: NavController) {
                                     wide = wide,
                                     onSeeAll = { nav.navigate(WantToReadRoute) },
                                     onOpen = { nav.navigate(NovelRoute(it)) },
+                                )
+                            }
+                        }
+                        // 4. Everything in progress, reading and listening, as covers (beyond what the strip shows).
+                        val progress = HomeShelves.inProgress(model.continueItems, listening).filterNot { p -> quick.any { it.key == p.key } }
+                        if (progress.isNotEmpty()) {
+                            item(key = "in-progress") {
+                                InProgressShelf(progress, wide, audiobooksOffered, onAllAudiobooks = { nav.navigate(AudiobooksRoute) }) { open(nav, it) }
+                            }
+                        } else if (quick.isEmpty() && model.continueItems.isEmpty()) {
+                            item(key = "nothing") {
+                                Text(
+                                    "Nothing in progress. Pick something from your Library to start.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.readableWidth(1000.dp).padding(top = 20.dp),
+                                )
+                            }
+                        }
+                        // 5. The reader's folders (their own lists), with "New folder".
+                        if (listsOffered && listsLoaded) {
+                            item(key = "folders") {
+                                FoldersSection(
+                                    HomeShelves.folders(listsState.lists, model.library.novels),
+                                    wide = wide,
+                                    onOpen = { nav.navigate(FolderRoute(it)) },
+                                    onNew = { newFolder = true },
                                 )
                             }
                         }
@@ -284,6 +419,16 @@ fun HomeScreen(nav: NavController) {
                                     }
                                 }
                                 if (item != newChapters.last()) HorizontalDivider(Modifier.readableWidth(1000.dp).padding(start = 64.dp))
+                            }
+                        }
+                        // 6. The full Library.
+                        item(key = "library") {
+                            FilledTonalButton(
+                                onClick = { nav.navigate(LibraryRoute) { launchSingleTop = true } },
+                                modifier = Modifier.readableWidth(1000.dp).padding(top = 28.dp).heightIn(min = 48.dp),
+                            ) {
+                                Icon(Icons.Outlined.CollectionsBookmark, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                                Text("Open the full Library")
                             }
                         }
                         feed.stats?.let { stats ->
@@ -307,6 +452,15 @@ fun HomeScreen(nav: NavController) {
             }
         }
     }
+    if (newFolder) NewFolderDialog { newFolder = false }
+}
+
+/** Covers on Home's Favourites row. */
+private const val SHELF_MAX = 12
+
+private fun open(nav: NavController, item: HomeShelves.InProgress) = when (item) {
+    is HomeShelves.InProgress.Reading -> nav.navigate(readerRoute(item.item))
+    is HomeShelves.InProgress.Listening -> nav.navigate(PlayerRoute(item.book.id))
 }
 
 @Composable
@@ -315,25 +469,295 @@ private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ContinueSection(items: List<ContinueItem>, wide: Boolean, nav: NavController) {
-    Column(Modifier.readableWidth(1000.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionTitle("Continue reading", Modifier.padding(top = 8.dp))
-        val first = items.firstOrNull()
-        if (first == null) {
+private fun HomeSearchField(query: String, onChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onChange,
+        placeholder = { Text("Search books, manga, web novels, audiobooks") },
+        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+        trailingIcon = {
+            if (query.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Outlined.Close, contentDescription = "Clear search") }
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(28.dp),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        modifier = modifier.fillMaxWidth(),
+    )
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.searchResults(model: HomeViewModel, nav: NavController) {
+    val series = model.seriesResults
+    val audiobooks = model.audiobookResults
+    if (series.isEmpty() && audiobooks.isEmpty()) {
+        item(key = "no-results") {
             Text(
-                "Nothing in progress. Pick something from your Library to start reading.",
+                if (model.searchingAudiobooks) "Searching…" else "Nothing matches “${model.query.trim()}”.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.readableWidth(1000.dp).padding(vertical = 16.dp),
             )
+        }
+        return
+    }
+    if (series.isNotEmpty()) {
+        item(key = "results-series") { SectionTitle("Series", Modifier.readableWidth(1000.dp).padding(top = 8.dp, bottom = 4.dp)) }
+        items(series, key = { "s-${it.id}" }) { novel ->
+            ResultRow(novel.coverUrl, novel.name, listOfNotNull(novel.authorOrNull, mediumLabel(novel)).joinToString(" · "), Modifier.readableWidth(1000.dp)) {
+                nav.navigate(NovelRoute(novel.id))
+            }
+        }
+    }
+    if (audiobooks.isNotEmpty()) {
+        item(key = "results-audio") { SectionTitle("Audiobooks", Modifier.readableWidth(1000.dp).padding(top = 16.dp, bottom = 4.dp)) }
+        items(audiobooks, key = { "a-${it.id}" }) { book ->
+            ResultRow(book.coverUrl, book.title, listOfNotNull(book.authorOrNull, caption(book)).joinToString(" · "), Modifier.readableWidth(1000.dp)) {
+                nav.navigate(PlayerRoute(book.id))
+            }
+        }
+    }
+}
+
+private fun mediumLabel(novel: studio.visns.novarr.api.NovelSummary) = when {
+    novel.isManga -> "Manga"
+    novel.isBook -> "Book"
+    else -> "Web novel"
+}
+
+@Composable
+private fun ResultRow(cover: String?, title: String, subtitle: String, modifier: Modifier, onClick: () -> Unit) {
+    Row(
+        modifier
+            .clickable(role = Role.Button, onClick = onClick)
+            .heightIn(min = 56.dp)
+            .padding(vertical = 6.dp)
+            .semantics(mergeDescendants = true) {},
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Cover(cover, title, Modifier.width(40.dp), corner = 4.dp)
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (subtitle.isNotBlank()) {
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+/**
+ * The compact Continue strip: one small card each for the latest read and the
+ * latest listen — a 60 dp cover, the title, where you are, a thin progress
+ * line and a 48 dp play button — side by side, scrolling sideways on narrow
+ * screens.
+ */
+@Composable
+private fun QuickResumeStrip(items: List<HomeShelves.InProgress>, modifier: Modifier, onOpen: (HomeShelves.InProgress) -> Unit) {
+    Column(modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionTitle("Continue")
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(items, key = { it.key }) { item -> QuickResumeCard(item, Modifier.width(300.dp)) { onOpen(item) } }
+        }
+    }
+}
+
+@Composable
+private fun QuickResumeCard(item: HomeShelves.InProgress, modifier: Modifier, onClick: () -> Unit) {
+    val eink = LocalEink.current
+    val (detail, action, icon) = when (item) {
+        is HomeShelves.InProgress.Reading -> Triple(item.item.chapter.title, "Continue reading", Icons.AutoMirrored.Outlined.MenuBook)
+        is HomeShelves.InProgress.Listening -> Triple(caption(item.book), "Continue listening", Icons.Filled.PlayArrow)
+    }
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = if (eink) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
+        modifier = modifier.semantics(mergeDescendants = true) { contentDescription = "$action: ${item.title}" },
+    ) {
+        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Cover(item.coverUrl, item.title, Modifier.width(40.dp), corner = 4.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(item.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                ProgressLine(item.fraction)
+            }
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp)) {
+                Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = null) }
+            }
+        }
+    }
+}
+
+/** A titled row of covers with "See all" (Favourites). */
+@Composable
+private fun CoverShelf(
+    title: String,
+    novels: List<studio.visns.novarr.api.NovelSummary>,
+    total: Int,
+    wide: Boolean,
+    empty: String,
+    onSeeAll: () -> Unit,
+    onOpen: (Int) -> Unit,
+) {
+    Column(Modifier.readableWidth(1000.dp).padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionTitle(title, Modifier.weight(1f))
+            if (total > 0) {
+                TextButton(onClick = onSeeAll, modifier = Modifier.semantics { contentDescription = "See all $total in $title" }) { Text("See all") }
+            }
+        }
+        if (novels.isEmpty()) {
+            Text(empty, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@Column
         }
-        HeroCard(first, wide) { nav.navigate(readerRoute(first)) }
-        if (items.size > 1) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                items(items.drop(1), key = { it.novel.id }) { item ->
-                    ShelfItem(item, Modifier.width(if (wide) 130.dp else 108.dp)) { nav.navigate(readerRoute(item)) }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(novels, key = { it.id }) { novel ->
+                Column(
+                    Modifier.width(if (wide) 120.dp else 96.dp)
+                        .clickable(onClickLabel = "Open the series", role = Role.Button) { onOpen(novel.id) }
+                        .semantics(mergeDescendants = true) {},
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Cover(novel.coverUrl, novel.name)
+                    Text(novel.name, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        listOfNotNull(mediumLabel(novel).uppercase(), if (novel.audiobook != null) "AUDIO" else null).joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
+    }
+}
+
+/** "Currently reading & listening": every series and audiobook in progress, as covers with a progress line. */
+@Composable
+private fun InProgressShelf(
+    items: List<HomeShelves.InProgress>,
+    wide: Boolean,
+    audiobooks: Boolean,
+    onAllAudiobooks: () -> Unit,
+    onOpen: (HomeShelves.InProgress) -> Unit,
+) {
+    Column(Modifier.readableWidth(1000.dp).padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionTitle(if (audiobooks) "Reading & listening" else "Reading", Modifier.weight(1f))
+            if (audiobooks) TextButton(onClick = onAllAudiobooks) { Text("All audiobooks") }
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(items, key = { it.key }) { item ->
+                Column(
+                    Modifier.width(if (wide) 120.dp else 96.dp)
+                        .clickable(onClickLabel = if (item is HomeShelves.InProgress.Listening) "Listen" else "Open the reader", role = Role.Button) { onOpen(item) }
+                        .semantics(mergeDescendants = true) {},
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Cover(item.coverUrl, item.title) {
+                        Box(Modifier.align(Alignment.BottomCenter).padding(6.dp)) {
+                            ProgressLine(item.fraction, color = Color.White, track = Color.Black.copy(alpha = 0.35f))
+                        }
+                        if (item is HomeShelves.InProgress.Listening) {
+                            Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.55f), modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+                                Icon(Icons.Outlined.Headphones, contentDescription = null, tint = Color.White, modifier = Modifier.padding(4.dp).size(14.dp))
+                            }
+                        }
+                    }
+                    Text(item.title, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        when (item) {
+                            is HomeShelves.InProgress.Reading -> item.item.chapter.title
+                            is HomeShelves.InProgress.Listening -> caption(item.book)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** The reader's folders as tiles (a 2×2 collage of covers, the name and count), then "New folder". */
+@Composable
+private fun FoldersSection(folders: List<HomeShelves.Folder>, wide: Boolean, onOpen: (Int) -> Unit, onNew: () -> Unit) {
+    Column(Modifier.readableWidth(1000.dp).padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionTitle("Folders", Modifier.weight(1f))
+            TextButton(onClick = onNew) { Text("New folder") }
+        }
+        if (folders.isEmpty()) {
+            Text(
+                "Make folders for anything — “Manga – Action”, “Comfort reads” — then add series from their page (Lists, at the top).",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        val columns = if (wide) 4 else 2
+        (folders.map<HomeShelves.Folder, HomeShelves.Folder?> { it } + null).chunked(columns).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                row.forEach { folder ->
+                    if (folder == null) NewFolderTile(Modifier.weight(1f), onNew) else FolderTile(folder, Modifier.weight(1f)) { onOpen(folder.id) }
+                }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FolderTile(folder: HomeShelves.Folder, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier
+            .clickable(onClickLabel = "Open the folder", role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) {},
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
+            if (folder.covers.isEmpty()) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(40.dp))
+                }
+            } else {
+                Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    folder.covers.chunked(2).take(2).let { rows -> if (rows.size == 1) rows + listOf(emptyList()) else rows }.forEach { pair ->
+                        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            pair.forEach { url ->
+                                AsyncImage(
+                                    model = url,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(6.dp)),
+                                )
+                            }
+                            repeat(2 - pair.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
+            }
+        }
+        Text(folder.name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(seriesCount(folder.count), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun NewFolderTile(modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier.clickable(onClickLabel = "Make a new folder", role = Role.Button, onClick = onClick).semantics(mergeDescendants = true) {},
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.CreateNewFolder, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
+            }
+        }
+        Text("New folder", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }
 
@@ -385,67 +809,6 @@ private fun WantToReadTile(item: WantToReadItem, modifier: Modifier, onClick: ()
             style = MaterialTheme.typography.labelSmall,
             color = if (started) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    }
-}
-
-@Composable
-private fun HeroCard(item: ContinueItem, large: Boolean, onClick: () -> Unit) {
-    val eink = LocalEink.current
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = if (eink) 0.dp else 1.dp,
-        border = if (eink) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Cover(item.novel.coverLargeUrl ?: item.novel.coverUrl, item.novel.name, Modifier.width(if (large) 170.dp else 116.dp), corner = 8.dp)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    item.novel.name,
-                    style = if (large) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                item.novel.authorOrNull?.let {
-                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text(item.chapter.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(4.dp))
-                ProgressLine(item.novel.readFraction)
-                Text(
-                    "${item.novel.chaptersRead} of ${item.novel.chaptersTotal} chapters · ${item.novel.readPercent}%",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(4.dp))
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
-                    Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
-                        Text("Continue", style = MaterialTheme.typography.labelLarge)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ShelfItem(item: ContinueItem, modifier: Modifier, onClick: () -> Unit) {
-    Column(
-        modifier
-            .clickable(onClickLabel = "Open the reader", role = Role.Button, onClick = onClick)
-            .semantics(mergeDescendants = true) {},
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Cover(item.novel.coverUrl, item.novel.name) {
-            Box(Modifier.align(Alignment.BottomCenter).padding(6.dp)) {
-                ProgressLine(item.novel.readFraction, color = Color.White, track = Color.Black.copy(alpha = 0.35f))
-            }
-        }
-        Text(item.novel.name, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(item.chapter.title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

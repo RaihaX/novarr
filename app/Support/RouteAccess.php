@@ -168,6 +168,11 @@ final class RouteAccess
         'api.v1.want_to_read',
         'api.v1.novels.want_to_read.add',
         'api.v1.novels.want_to_read.remove',
+        // Own "Favourites" (the second built-in reading list)
+        'favourites',
+        'api.v1.favourites',
+        'api.v1.novels.favourite.add',
+        'api.v1.novels.favourite.remove',
         // Reader requests: the page, search, request, cancel own, the notification feed
         'requests.index',
         'api.v1.requests.searches.store',

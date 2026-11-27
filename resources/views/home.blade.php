@@ -282,6 +282,39 @@
         </section>
     @endif
 
+    {{-- Favourites: the reader's hearted series (the second built-in reading
+         list), newest first, up to HomeController::FAVOURITES_SHELF covers.
+         Only once there is one: the heart on a series page fills it. --}}
+    @php $favs = $favourites ?? ['count' => 0, 'items' => []]; @endphp
+    @if(count($favs['items']) > 0)
+        <section class="home-section" aria-labelledby="favouritesTitle" id="favourites-section">
+            <div class="home-section-head">
+                <h2 class="home-section-title" id="favouritesTitle">Favourites</h2>
+                <a href="{{ route('favourites') }}" class="home-section-link">See all<span class="visually-hidden"> {{ number_format($favs['count']) }} in Favourites</span></a>
+            </div>
+            <div class="home-shelf">
+                @foreach($favs['items'] as $item)
+                    @php $n = $item['novel']; @endphp
+                    <a href="{{ route('novels.show', $n->id) }}" class="home-tile" aria-label="{{ $n->name }}">
+                        <div class="home-cover{{ $n->isManga() ? ' has-chip' : '' }}">
+                            @if($cover = $n->coverUrl('sm'))
+                                @php $cover2x = $n->coverThumbnailUrl('md'); @endphp
+                                <img src="{{ $cover }}"{!! $cover2x ? ' srcset="' . e($cover) . ' 1x, ' . e($cover2x) . ' 2x"' : '' !!} alt="" loading="lazy" decoding="async">
+                            @else
+                                <span class="home-cover-title">{{ $n->name }}</span>
+                            @endif
+                            @if($n->isManga())
+                                <span class="cover-chip">MANGA</span>
+                            @endif
+                        </div>
+                        <span class="home-tile-title">{{ $n->name }}</span>
+                        <span class="home-tile-meta">{{ $n->isBook() ? 'Book' : ($n->isManga() ? 'Manga' : 'Web Novel') }}</span>
+                    </a>
+                @endforeach
+            </div>
+        </section>
+    @endif
+
     {{-- Want to read: the reader's shortlist (the built-in reading list),
          newest first, up to HomeController::WANT_TO_READ_SHELF covers. --}}
     @php $wtr = $want_to_read ?? ['count' => 0, 'items' => []]; @endphp

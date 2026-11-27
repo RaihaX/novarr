@@ -17,6 +17,7 @@
     $moreLinks = [
         ['route' => 'audiobooks.index', 'match' => ['audiobooks.index', 'audiobooks.show'], 'label' => 'Audiobooks', 'icon' => 'headphones'],
         ['route' => 'want_to_read', 'match' => 'want_to_read', 'label' => 'Want to read', 'icon' => 'bookmark'],
+        ['route' => 'favourites', 'match' => 'favourites', 'label' => 'Favourites', 'icon' => 'heart'],
         ['route' => 'library', 'match' => 'library', 'label' => 'Offline', 'icon' => 'wifi-off', 'meta' => 'Saved on this device'],
         ['route' => 'bookmarks.index', 'match' => 'bookmarks.*', 'label' => 'Highlights', 'icon' => 'highlighter'],
         ['route' => 'stats.index', 'match' => 'stats.*', 'label' => 'Stats', 'icon' => 'chart-column'],

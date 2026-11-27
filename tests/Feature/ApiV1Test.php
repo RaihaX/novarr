@@ -30,6 +30,8 @@ class ApiV1Test extends TestCase
         'want_to_read',
         // The book's audiobook: null | {id, duration_ms}.
         'audiobook',
+        // In the reader's "Favourites" (the second built-in reading list).
+        'favourite',
     ];
 
     private const REF_KEYS = ['id', 'label', 'chapter', 'book'];
@@ -97,7 +99,7 @@ class ApiV1Test extends TestCase
         $json = $this->getJson('/api/v1/meta')->assertOk()->json();
 
         // `auth`: added by sign-in (auth contract); off by default. `requests`: reader requests offered.
-        $this->assertSame(['android', 'api_version', 'app', 'audiobooks', 'auth', 'book_uploads', 'books', 'instance', 'lists', 'requests', 'server_version', 'updates'], $this->sorted(array_keys($json)));
+        $this->assertSame(['android', 'api_version', 'app', 'audiobooks', 'auth', 'book_uploads', 'books', 'favourites', 'instance', 'lists', 'requests', 'server_version', 'updates'], $this->sorted(array_keys($json)));
         $this->assertTrue($json['requests']);
         // No APK published in tests; the instance id is stable and not the key.
         $this->assertNull($json['android']);
@@ -310,7 +312,7 @@ class ApiV1Test extends TestCase
         }
 
         // Warm caches: only the three statements that load the novels, and
-        // the reader's "Want to read" ids.
+        // the reader's built-in lists' ids ("Want to read" and "Favourites", one statement).
         DB::flushQueryLog();
         DB::enableQueryLog();
         $this->getJson('/api/v1/novels')->assertOk();

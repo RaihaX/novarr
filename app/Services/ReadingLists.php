@@ -20,25 +20,29 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * restore brings it back) but is never shown or counted; a hard-deleted one
  * leaves them (App\Novel's hook).
  *
- * "Want to read" (ReadingList::KIND_WANT_TO_READ) is every reader's built-in
- * list: made on first use (wantToRead()), listed first, never renamed or
- * deleted, not counted against MAX_LISTS, its series newest first. Novels,
- * manga and books alike; reading one keeps it on the list ("started").
+ * "Want to read" (ReadingList::KIND_WANT_TO_READ) and "Favourites"
+ * (KIND_FAVOURITES) are every reader's built-in lists (ReadingList::BUILT_IN):
+ * made on first use (builtIn()), listed first in that order, never renamed
+ * or deleted, not counted against MAX_LISTS, their series newest first.
+ * Novels, manga and books alike; reading one keeps it on ("started").
  */
 class ReadingLists
 {
     /**
-     * A reader's lists — "Want to read" first (made here on first use), then
-     * their own by name (case-insensitive) — each with its live series:
-     * [{id, name, count, novel_ids, kind}] (the API's shape). novel_ids are
-     * by id, except "Want to read"'s: newest first. Two statements whatever
-     * the number of lists (plus one insert, once per reader).
+     * A reader's lists — "Want to read", then "Favourites" (both made here
+     * on first use), then their own by name (case-insensitive) — each with
+     * its live series: [{id, name, count, novel_ids, kind}] (the API's
+     * shape). novel_ids are by id, except the built-in lists': newest first.
+     * Two statements whatever the number of lists (plus the inserts, once
+     * per reader).
      *
      * @return list<array{id:int, name:string, count:int, novel_ids:list<int>, kind:?string}>
      */
     public static function forReader(int $userId): array
     {
-        static::wantToRead($userId);
+        foreach (array_keys(ReadingList::BUILT_IN) as $kind) {
+            static::builtIn($userId, $kind);
+        }
         $lists = static::ordered($userId);
 
         $members = static::liveMembers()
@@ -64,64 +68,66 @@ class ReadingLists
         return static::shape($list, static::memberIds($list, $rows));
     }
 
-    // --- Want to read -------------------------------------------------------
+    // --- Built-in lists ("Want to read", "Favourites") ---------------------
 
     /**
-     * The reader's "Want to read" list, made on first use. Two first uses
-     * racing end with one list: the loser's insert hits the (user_id, kind)
-     * unique key and it reads the winner's.
+     * The reader's built-in list of $kind (ReadingList::BUILT_IN), made on
+     * first use. Two first uses racing end with one list: the loser's
+     * insert hits the (user_id, kind) unique key and it reads the winner's.
      */
-    public static function wantToRead(int $userId): ReadingList
+    public static function builtIn(int $userId, string $kind): ReadingList
     {
-        if ($list = static::wantToReadOrNull($userId)) {
+        [$name, $key] = static::builtInSpec($kind);
+        if ($list = static::builtInOrNull($userId, $kind)) {
             return $list;
         }
         try {
             return ReadingList::create([
                 'user_id' => $userId,
-                'name' => ReadingList::WANT_TO_READ_NAME,
-                'name_key' => ReadingList::SYSTEM_KEY,
-                'kind' => ReadingList::KIND_WANT_TO_READ,
+                'name' => $name,
+                'name_key' => $key,
+                'kind' => $kind,
             ]);
         } catch (QueryException $e) {
-            if (static::isUniqueViolation($e) && ($list = static::wantToReadOrNull($userId))) {
+            if (static::isUniqueViolation($e) && ($list = static::builtInOrNull($userId, $kind))) {
                 return $list;
             }
             throw $e;
         }
     }
 
-    /** The reader's "Want to read" list if it was ever used (never makes one). */
-    public static function wantToReadOrNull(int $userId): ?ReadingList
+    /** The reader's built-in list of $kind if it was ever used (never makes one). */
+    public static function builtInOrNull(int $userId, string $kind): ?ReadingList
     {
-        return ReadingList::where('user_id', $userId)->where('kind', ReadingList::KIND_WANT_TO_READ)->first();
+        return ReadingList::where('user_id', $userId)->where('kind', $kind)->first();
     }
 
     /**
-     * Put a series on, or take it off, the reader's "Want to read"
+     * Put a series on, or take it off, the reader's built-in list of $kind
      * (idempotent). 404 for an unknown series (or a soft-deleted one, adding).
      */
-    public static function setWantToRead(int $userId, $novelId, bool $want): ReadingList
+    public static function setOfKind(int $userId, string $kind, $novelId, bool $on): ReadingList
     {
-        $list = static::wantToRead($userId);
-        $want ? static::add($list, $novelId) : static::remove($list, $novelId);
+        $list = static::builtIn($userId, $kind);
+        $on ? static::add($list, $novelId) : static::remove($list, $novelId);
 
         return $list;
     }
 
     /**
-     * Ids of the live series on the reader's "Want to read", as a set (the
-     * summaries' want_to_read flag). One statement; none made.
+     * Ids of the live series on the reader's built-in list of $kind, as a
+     * set (the summaries' want_to_read / favourite flags). One statement;
+     * none made.
      *
      * @return array<int, true>
      */
-    public static function wantToReadIds(int $userId): array
+    public static function idsOfKind(int $userId, string $kind): array
     {
         return array_fill_keys(
             static::liveMembers()
                 ->join('reading_lists as l', 'l.id', '=', 'm.reading_list_id')
                 ->where('l.user_id', $userId)
-                ->where('l.kind', ReadingList::KIND_WANT_TO_READ)
+                ->where('l.kind', $kind)
                 ->pluck('m.novel_id')
                 ->map(fn($id) => (int) $id)
                 ->all(),
@@ -129,30 +135,73 @@ class ReadingLists
         );
     }
 
-    /** Whether one series is on the reader's "Want to read". */
-    public static function isWanted(int $userId, int $novelId): bool
+    /**
+     * idsOfKind() for every built-in kind at once (the summaries' flags):
+     * kind => set of live series ids. One statement; none made.
+     *
+     * @return array<string, array<int, true>>
+     */
+    public static function builtInIds(int $userId): array
+    {
+        $sets = array_fill_keys(array_keys(ReadingList::BUILT_IN), []);
+        $rows = static::liveMembers()
+            ->join('reading_lists as l', 'l.id', '=', 'm.reading_list_id')
+            ->where('l.user_id', $userId)
+            ->whereIn('l.kind', array_keys(ReadingList::BUILT_IN))
+            ->get(['l.kind', 'm.novel_id']);
+        foreach ($rows as $row) {
+            $sets[$row->kind][(int) $row->novel_id] = true;
+        }
+
+        return $sets;
+    }
+
+    /** Whether one series is on the reader's built-in list of $kind. */
+    public static function inKind(int $userId, string $kind, int $novelId): bool
     {
         return DB::table(ReadingList::PIVOT . ' as m')
             ->join('reading_lists as l', 'l.id', '=', 'm.reading_list_id')
             ->where('l.user_id', $userId)
-            ->where('l.kind', ReadingList::KIND_WANT_TO_READ)
+            ->where('l.kind', $kind)
             ->where('m.novel_id', $novelId)
             ->exists();
     }
 
     /**
-     * The reader's "Want to read", newest first: how many live series it
-     * holds of $media (null: every medium) and the first $limit of them
-     * (null: all), each with when it was added and whether the reader has
-     * started it (a chapter read, or progress in one). Three statements at
-     * most; none made.
+     * The reader's built-in list of $kind, newest first: how many live
+     * series it holds of $media (null: every medium) and the first $limit
+     * of them (null: all), each with when it was added and whether the
+     * reader has started it (a chapter read, or progress in one). Three
+     * statements at most; none made.
      *
      * @param  list<string>|null  $media  novels.medium values (a row without one is a novel)
      * @return array{count:int, items: list<array{novel_id:int, added_at:?string, started:bool}>}
      */
-    public static function wantToReadItems(int $userId, ?array $media = null, ?int $limit = null): array
+    public static function itemsOfKind(int $userId, string $kind, ?array $media = null, ?int $limit = null): array
     {
-        $list = static::wantToReadOrNull($userId);
+        return static::itemsOfList($userId, static::builtInOrNull($userId, $kind), $media, $limit);
+    }
+
+    /**
+     * Every built-in list the reader has used, by kind (null: never used),
+     * in one statement; none made. For a page showing several of them
+     * (Home's shelves), with itemsOfList().
+     *
+     * @return array<string, ?ReadingList>
+     */
+    public static function builtInListsOrNull(int $userId): array
+    {
+        $found = ReadingList::where('user_id', $userId)->whereIn('kind', array_keys(ReadingList::BUILT_IN))->get()->keyBy('kind');
+
+        return array_map(fn($kind) => $found->get($kind), array_combine(array_keys(ReadingList::BUILT_IN), array_keys(ReadingList::BUILT_IN)));
+    }
+
+    /**
+     * itemsOfKind() for a list already in hand (null: never used, empty).
+     * $list must be the reader's own (its started flags are theirs).
+     */
+    public static function itemsOfList(int $userId, ?ReadingList $list, ?array $media = null, ?int $limit = null): array
+    {
         if ($list === null) {
             return ['count' => 0, 'items' => []];
         }
@@ -190,14 +239,90 @@ class ReadingLists
         ];
     }
 
+    // --- Want to read -------------------------------------------------------
+
+    /** The reader's "Want to read" list, made on first use (builtIn()). */
+    public static function wantToRead(int $userId): ReadingList
+    {
+        return static::builtIn($userId, ReadingList::KIND_WANT_TO_READ);
+    }
+
+    /** The reader's "Want to read" list if it was ever used (never makes one). */
+    public static function wantToReadOrNull(int $userId): ?ReadingList
+    {
+        return static::builtInOrNull($userId, ReadingList::KIND_WANT_TO_READ);
+    }
+
+    /** Put a series on, or take it off, the reader's "Want to read" (setOfKind()). */
+    public static function setWantToRead(int $userId, $novelId, bool $want): ReadingList
+    {
+        return static::setOfKind($userId, ReadingList::KIND_WANT_TO_READ, $novelId, $want);
+    }
+
+    /** @return array<int, true> the live series on the reader's "Want to read" (idsOfKind()) */
+    public static function wantToReadIds(int $userId): array
+    {
+        return static::idsOfKind($userId, ReadingList::KIND_WANT_TO_READ);
+    }
+
+    /** Whether one series is on the reader's "Want to read". */
+    public static function isWanted(int $userId, int $novelId): bool
+    {
+        return static::inKind($userId, ReadingList::KIND_WANT_TO_READ, $novelId);
+    }
+
+    /** The reader's "Want to read", newest first (itemsOfKind()). */
+    public static function wantToReadItems(int $userId, ?array $media = null, ?int $limit = null): array
+    {
+        return static::itemsOfKind($userId, ReadingList::KIND_WANT_TO_READ, $media, $limit);
+    }
+
+    // --- Favourites ---------------------------------------------------------
+
+    /** The reader's "Favourites" list, made on first use (builtIn()). */
+    public static function favourites(int $userId): ReadingList
+    {
+        return static::builtIn($userId, ReadingList::KIND_FAVOURITES);
+    }
+
+    /** The reader's "Favourites" list if it was ever used (never makes one). */
+    public static function favouritesOrNull(int $userId): ?ReadingList
+    {
+        return static::builtInOrNull($userId, ReadingList::KIND_FAVOURITES);
+    }
+
+    /** Put a series in, or take it out of, the reader's "Favourites" (setOfKind()). */
+    public static function setFavourite(int $userId, $novelId, bool $favourite): ReadingList
+    {
+        return static::setOfKind($userId, ReadingList::KIND_FAVOURITES, $novelId, $favourite);
+    }
+
+    /** @return array<int, true> the live series in the reader's "Favourites" (idsOfKind()) */
+    public static function favouriteIds(int $userId): array
+    {
+        return static::idsOfKind($userId, ReadingList::KIND_FAVOURITES);
+    }
+
+    /** Whether one series is in the reader's "Favourites". */
+    public static function isFavourite(int $userId, int $novelId): bool
+    {
+        return static::inKind($userId, ReadingList::KIND_FAVOURITES, $novelId);
+    }
+
+    /** The reader's "Favourites", newest first (itemsOfKind()). */
+    public static function favouriteItems(int $userId, ?array $media = null, ?int $limit = null): array
+    {
+        return static::itemsOfKind($userId, ReadingList::KIND_FAVOURITES, $media, $limit);
+    }
+
     /**
-     * Delete one of the reader's own lists; "Want to read" can't be
+     * Delete one of the reader's own lists; a built-in one can't be
      * (ValidationException).
      */
     public static function delete(ReadingList $list): void
     {
-        if ($list->isWantToRead()) {
-            throw ValidationException::withMessages(['list' => '“' . ReadingList::WANT_TO_READ_NAME . '” is built in and can’t be deleted.']);
+        if ($list->isBuiltIn()) {
+            throw ValidationException::withMessages(['list' => '“' . static::builtInName($list) . '” is built in and can’t be deleted.']);
         }
         $list->delete();
     }
@@ -234,11 +359,11 @@ class ReadingLists
         ]));
     }
 
-    /** Rename (a change of case or spacing only is allowed); "Want to read" can't be. */
+    /** Rename (a change of case or spacing only is allowed); a built-in list can't be. */
     public static function rename(ReadingList $list, $name): ReadingList
     {
-        if ($list->isWantToRead()) {
-            throw ValidationException::withMessages(['name' => '“' . ReadingList::WANT_TO_READ_NAME . '” is built in and can’t be renamed.']);
+        if ($list->isBuiltIn()) {
+            throw ValidationException::withMessages(['name' => '“' . static::builtInName($list) . '” is built in and can’t be renamed.']);
         }
         $name = static::validName($name);
         static::assertFree((int) $list->user_id, $name, (int) $list->id);
@@ -289,7 +414,7 @@ class ReadingLists
     /**
      * For the Library: the reader's lists with how many live series of
      * $medium each holds (and how many of the other medium, for the empty
-     * state), "Want to read" first once it was used.
+     * state), "Want to read" and "Favourites" first once each was used.
      * @return list<array{id:int, name:string, count:int, other:int, kind:?string}>
      */
     public static function forLibrary(int $userId, string $medium): array
@@ -320,8 +445,8 @@ class ReadingLists
 
     /**
      * For a series page's Lists menu: the reader's own lists, by name, and
-     * whether this series is in each ("Want to read" has its own button:
-     * isWanted()). @return list<array{id:int, name:string, in:bool}>
+     * whether this series is in each (the built-in lists have their own
+     * buttons: isWanted(), isFavourite()). @return list<array{id:int, name:string, in:bool}>
      */
     public static function forNovel(int $userId, int $novelId): array
     {
@@ -359,20 +484,20 @@ class ReadingLists
 
     // ---------------------------------------------------------------------
 
-    /** The reader's lists: "Want to read" first, then by name. */
+    /** The reader's lists: "Want to read", "Favourites", then their own by name. */
     private static function ordered(int $userId)
     {
         return ReadingList::where('user_id', $userId)
-            ->orderByRaw('CASE WHEN kind IS NULL THEN 1 ELSE 0 END')
+            ->orderByRaw('CASE kind WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END', [ReadingList::KIND_WANT_TO_READ, ReadingList::KIND_FAVOURITES])
             ->orderBy('name_key')
             ->orderBy('id')
             ->get(['id', 'name', 'kind']);
     }
 
-    /** A list's member ids from its rows: by id, "Want to read" newest first. */
+    /** A list's member ids from its rows: by id, a built-in list's newest first. */
     private static function memberIds(ReadingList $list, $rows): array
     {
-        if ($list->isWantToRead()) {
+        if ($list->isBuiltIn()) {
             $rows = $rows->sort(fn($a, $b) => [(string) $b->added_at, (int) $b->novel_id] <=> [(string) $a->added_at, (int) $a->novel_id]);
         }
 
@@ -394,9 +519,25 @@ class ReadingLists
             'name' => (string) $list->name,
             'count' => count($novelIds),
             'novel_ids' => $novelIds,
-            // null: the reader's own list; 'want_to_read': the built-in one.
+            // null: the reader's own list; 'want_to_read' / 'favourites': a built-in one.
             'kind' => $list->kind,
         ];
+    }
+
+    /** [name, name_key] of a built-in kind; InvalidArgumentException for any other. */
+    private static function builtInSpec(string $kind): array
+    {
+        if (!isset(ReadingList::BUILT_IN[$kind])) {
+            throw new \InvalidArgumentException("Not a built-in reading list: {$kind}");
+        }
+
+        return ReadingList::BUILT_IN[$kind];
+    }
+
+    /** A built-in list's fixed name (its stored one if the kind is unknown). */
+    private static function builtInName(ReadingList $list): string
+    {
+        return ReadingList::BUILT_IN[$list->kind][0] ?? (string) $list->name;
     }
 
     /** A row from before the medium column is a novel (App\Novel::isManga()). */
@@ -436,8 +577,11 @@ class ReadingLists
 
     private static function assertFree(int $userId, string $name, ?int $exceptId = null): void
     {
-        if (ReadingList::key($name) === ReadingList::key(ReadingList::WANT_TO_READ_NAME)) {
-            throw ValidationException::withMessages(['name' => '“' . ReadingList::WANT_TO_READ_NAME . '” is already one of your lists.']);
+        // The built-in lists' names are reserved.
+        foreach (ReadingList::BUILT_IN as [$builtIn]) {
+            if (ReadingList::key($name) === ReadingList::key($builtIn)) {
+                throw ValidationException::withMessages(['name' => '“' . $builtIn . '” is already one of your lists.']);
+            }
         }
         $taken = ReadingList::where('user_id', $userId)
             ->where('name_key', ReadingList::key($name))

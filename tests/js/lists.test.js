@@ -11,23 +11,23 @@ test('names are cleaned like the server: trimmed, whitespace and control charact
     assert.equal(cleanName('A\u0000B​C'), 'A B C');
     assert.equal(cleanName(null), '');
     assert.equal(cleanName(undefined), '');
-    assert.equal(nameKey(' FAVOURITES '), 'favourites');
+    assert.equal(nameKey(' CLASSICS '), 'classics');
 });
 
 test('nameError words the server messages', () => {
-    const lists = [{ id: 1, name: 'Favourites' }, { id: 2, name: 'To read' }];
+    const lists = [{ id: 1, name: 'Classics' }, { id: 2, name: 'To read' }];
     assert.equal(nameError('', lists), 'Give the list a name.');
     assert.equal(nameError('   ', lists), 'Give the list a name.');
     assert.equal(nameError('x'.repeat(MAX_NAME + 1), lists), 'A list name can be up to 40 characters.');
     // Length counts characters, not UTF-16 units.
     assert.equal(nameError('😀'.repeat(MAX_NAME), lists), null);
-    assert.equal(nameError(' favourites ', lists), 'You already have a list called “favourites”.');
+    assert.equal(nameError(' classics ', lists), 'You already have a list called “classics”.');
     assert.equal(nameError('New', lists), null);
 });
 
 test('a rename may keep its own name in another case', () => {
-    const lists = [{ id: 1, name: 'Favourites' }, { id: 2, name: 'To read' }];
-    assert.equal(nameError('FAVOURITES', lists, 1), null);
+    const lists = [{ id: 1, name: 'Classics' }, { id: 2, name: 'To read' }];
+    assert.equal(nameError('CLASSICS', lists, 1), null);
     assert.equal(nameError('to read', lists, 1), 'You already have a list called “to read”.');
 });
 
@@ -36,25 +36,26 @@ test('lists sort by name case-insensitively, then id; upsert keeps that order', 
     assert.deepEqual(sortLists(lists).map((l) => l.id), [2, 1, 3]);
     assert.deepEqual(lists.map((l) => l.id), [3, 1, 2], 'does not mutate');
 
-    const next = upsertList([{ id: 1, name: 'Favourites' }], { id: 5, name: 'Ahead' });
-    assert.deepEqual(next.map((l) => l.name), ['Ahead', 'Favourites']);
+    const next = upsertList([{ id: 1, name: 'Classics' }], { id: 5, name: 'Ahead' });
+    assert.deepEqual(next.map((l) => l.name), ['Ahead', 'Classics']);
     const renamed = upsertList(next, { id: 5, name: 'Zed' });
-    assert.deepEqual(renamed.map((l) => l.name), ['Favourites', 'Zed']);
+    assert.deepEqual(renamed.map((l) => l.name), ['Classics', 'Zed']);
 });
 
 test('starters are offered in order, minus names already taken', () => {
     assert.deepEqual(startersFor([]), STARTERS);
-    assert.deepEqual(startersFor([{ id: 1, name: 'to read' }]), ['Favourites', 'Finished']);
+    assert.deepEqual(STARTERS, ['To read', 'Finished']);
+    assert.deepEqual(startersFor([{ id: 1, name: 'to read' }]), ['Finished']);
 });
 
 test('button label and announcements', () => {
     assert.equal(buttonLabel(0), 'Lists');
     assert.equal(buttonLabel(1), 'Lists, in 1 list');
     assert.equal(buttonLabel(3), 'Lists, in 3 lists');
-    assert.equal(toggleAnnouncement('Favourites', true, true), 'Added to Favourites.');
-    assert.equal(toggleAnnouncement('Favourites', false, true), 'Removed from Favourites.');
-    assert.equal(toggleAnnouncement('Favourites', true, false), 'Could not add to Favourites.');
-    assert.equal(toggleAnnouncement('Favourites', false, false), 'Could not remove from Favourites.');
+    assert.equal(toggleAnnouncement('Classics', true, true), 'Added to Classics.');
+    assert.equal(toggleAnnouncement('Classics', false, true), 'Removed from Classics.');
+    assert.equal(toggleAnnouncement('Classics', true, false), 'Could not add to Classics.');
+    assert.equal(toggleAnnouncement('Classics', false, false), 'Could not remove from Classics.');
 });
 
 test('urlWithoutList drops the list and page, keeps the rest', () => {

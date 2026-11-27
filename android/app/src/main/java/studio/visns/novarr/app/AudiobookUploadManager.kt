@@ -386,6 +386,8 @@ class AudiobookUploadWorker(context: Context, params: WorkerParameters) : Corout
         try {
             checkFiles(entry)
             var rounds = 0
+            // Chunks complete asked for again (422 checksum / incomplete), sent in the next round.
+            var resend: Map<Int, Set<Int>> = emptyMap()
             while (true) {
                 if (++rounds > MAX_ROUNDS) throw IOException("The server keeps asking for the same chunks.")
                 // 1. Create it on the server (once; the id is saved before anything else).
@@ -422,7 +424,10 @@ class AudiobookUploadWorker(context: Context, params: WorkerParameters) : Corout
                 }
                 // 3. The missing chunks, three at a time.
                 val plan = AudiobookUploads.plan(entry.files.map { it.size }, entry.chunkSize)
-                val missing = AudiobookUploads.missing(plan, server.present, server.doneFiles)
+                // Plus any chunks complete said to send again (damaged: the server may still list them as present).
+                val missing = (AudiobookUploads.missing(plan, server.present, server.doneFiles) + AudiobookUploads.named(plan, resend))
+                    .distinctBy { it.file to it.index }
+                resend = emptyMap()
                 val confirmed = AtomicLong(total - AudiobookUploads.bytesOf(missing))
                 entry = save(store) { it.copy(status = Status.UPLOADING.name, doneBytes = confirmed.get()) } ?: return Result.success()
                 report(confirmed.get(), total, force = true)
@@ -433,6 +438,12 @@ class AudiobookUploadWorker(context: Context, params: WorkerParameters) : Corout
                 val answer = try {
                     client.completeAudiobookUpload(serverId)
                 } catch (e: ApiError.Http) {
+                    // 422 `checksum` / `incomplete` with `missing`: re-send those chunks and complete again.
+                    val named = AudiobookUploads.resendAfterComplete(e.status, e.code, e.body)
+                    if (named != null) {
+                        resend = named
+                        continue
+                    }
                     when (e.status) {
                         404 -> throw Gone()
                         // Refused (not audio, a size or checksum mismatch, a limit): the server says why.
@@ -676,7 +687,7 @@ class AudiobookUploadWorker(context: Context, params: WorkerParameters) : Corout
     private companion object {
         const val MAX_ATTEMPTS = 10
         const val CHUNK_TRIES = 5
-        const val MAX_ROUNDS = 4
+        const val MAX_ROUNDS = 6
         const val POLLS = 120
         const val POLL_MS = 5_000L
     }

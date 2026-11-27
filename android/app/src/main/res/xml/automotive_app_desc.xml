@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Auto: Novarr is a media app (audiobooks), browsed and played through PlaybackService. -->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>

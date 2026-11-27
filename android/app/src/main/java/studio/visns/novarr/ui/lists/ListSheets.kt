@@ -185,7 +185,7 @@ fun LibraryListsSheet(selected: Int?, onSelect: (ReadingList?) -> Unit, onDismis
             lists.forEach { list ->
                 // "Want to read" is built in: never renamed or deleted, so no options.
                 ChoiceRow(list.name, seriesCount(list.count), selected == list.id, onClick = { onSelect(list) }) {
-                    if (list.isWantToRead) return@ChoiceRow
+                    if (list.isBuiltIn) return@ChoiceRow
                     var menu by remember { mutableStateOf(false) }
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "Options for ${list.name}") }
@@ -284,7 +284,7 @@ private fun NewListField(lists: List<ReadingList>, enabled: Boolean, label: Stri
 }
 
 @Composable
-private fun RenameListDialog(list: ReadingList, lists: List<ReadingList>, onDone: () -> Unit) {
+internal fun RenameListDialog(list: ReadingList, lists: List<ReadingList>, onDone: () -> Unit) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf(list.name) }
@@ -294,7 +294,7 @@ private fun RenameListDialog(list: ReadingList, lists: List<ReadingList>, onDone
     val unchanged = ReadingLists.clean(name) == list.name
     AlertDialog(
         onDismissRequest = { if (!sending) onDone() },
-        title = { Text("Rename list") },
+        title = { Text(if (list.isBuiltIn) "Rename" else "Rename folder") },
         text = {
             OutlinedTextField(
                 value = name,
@@ -323,7 +323,7 @@ private fun RenameListDialog(list: ReadingList, lists: List<ReadingList>, onDone
 }
 
 @Composable
-private fun DeleteListDialog(list: ReadingList, onDeleted: () -> Unit, onDone: () -> Unit) {
+internal fun DeleteListDialog(list: ReadingList, onDeleted: () -> Unit, onDone: () -> Unit) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
