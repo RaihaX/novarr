@@ -3,6 +3,7 @@
 import { sectionTop, sectionHeight } from './navigation.js';
 import { appendDeviceFields } from '../device.js';
 import { markLocalWrite, isLookupChapter } from './latest-position.js';
+import { onTap, isTouchFirst } from './tap.js';
 
 const posKey = id => 'reader_pos_' + id;
 const WPM = 230;   // honest-ish adult reading pace for web fiction
@@ -17,14 +18,17 @@ export const HOLD_AFTER_TAP_MS = 900;
  * show, null = leave it. `s` ({anchorY, lastY, holdUntil}) is updated in
  * place: anchorY is where the scroll direction last changed.
  */
-export function chromeDecision(s, y, { fromResize = false, now = 0 } = {}) {
+export function chromeDecision(s, y, { fromResize = false, now = 0, touch = false } = {}) {
     const dy = y - s.lastY;
     if ((dy > 0 && s.lastY < s.anchorY) || (dy < 0 && s.lastY > s.anchorY)) s.anchorY = s.lastY;   // direction changed
     s.lastY = y;
     if (y < TOP_ZONE_PX) { s.anchorY = y; return false; }
     if (fromResize) { s.anchorY = y; return null; }   // the browser's bar moving, not the reader
     if (y - s.anchorY > HIDE_AFTER_PX) return now < s.holdUntil ? null : true;
-    if (s.anchorY - y > SHOW_AFTER_PX) return false;
+    // On a phone, scrolling up never brings it back (iPhone's bounce and
+    // momentum reverse direction for a moment and made it flicker): a tap
+    // does, or reaching the top.
+    if (!touch && s.anchorY - y > SHOW_AFTER_PX) return false;
     return null;
 }
 
@@ -146,17 +150,14 @@ export function initProgress(ctx) {
     function updateChromeAutoHide(fromResize = false) {
         if (ctx.isPaged?.()) return;   // pages mode: page turns and taps decide
         const y = window.scrollY;
-        const decision = chromeDecision(auto, y, { fromResize, now: Date.now() });
+        const decision = chromeDecision(auto, y, { fromResize, now: Date.now(), touch: isTouchFirst() });
         if (decision !== null) setChromeHidden(decision);
     }
     // Tap on the page toggles the bar (outside focus mode — focus mode has its
     // own tap-to-peek in navigation.js; pages mode has its own zones in
     // pages.js). Taps on links/controls/selections are ignored.
-    ctx.sectionsEl.addEventListener('click', (e) => {
+    onTap(document, () => {
         if (document.body.classList.contains('reader-focus') || ctx.isPaged?.()) return;
-        if (e.target.closest('a, button, input, select, textarea, mark.reader-highlight')) return;
-        const selection = window.getSelection();
-        if (selection && !selection.isCollapsed) return;
         toggleChrome();
     }, { signal });
     window.addEventListener('resize', () => requestAnimationFrame(() => { updateProgress(); updateChromeAutoHide(true); }), { passive: true, signal });

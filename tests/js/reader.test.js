@@ -428,3 +428,23 @@ test('bar: scrolling back up shows it; near the top it always shows', () => {
     assert.equal(chromeDecision(st, 2060, { now: 1 }), false);
     assert.equal(chromeDecision(st, 40, { now: 1 }), false);
 });
+
+// ---- Taps (iPhone Safari sends no click for some taps) ----
+import { isTap } from '../../resources/js/reader/tap.js';
+
+test('tap: a still, quick press is a tap; a drag, a long press or a scroll is not', () => {
+    const d = { x: 100, y: 300, t: 0, scrollY: 500 };
+    assert.equal(isTap(d, { x: 104, y: 303, t: 120, scrollY: 500 }), true);
+    assert.equal(isTap(d, { x: 100, y: 340, t: 120, scrollY: 500 }), false);   // dragged
+    assert.equal(isTap(d, { x: 100, y: 300, t: 900, scrollY: 500 }), false);   // long press (selecting text)
+    assert.equal(isTap(d, { x: 100, y: 300, t: 120, scrollY: 560 }), false);   // the page moved
+    assert.equal(isTap(null, d), false);
+});
+
+test('bar on a phone: scrolling up never brings it back (no bounce flicker); the top does', () => {
+    const st = { anchorY: 2000, lastY: 2000, holdUntil: 0 };
+    assert.equal(chromeDecision(st, 2100, { now: 1, touch: true }), true);
+    assert.equal(chromeDecision(st, 1900, { now: 1, touch: true }), null);
+    assert.equal(chromeDecision(st, 2050, { now: 1, touch: true }), true);
+    assert.equal(chromeDecision(st, 30, { now: 1, touch: true }), false);
+});

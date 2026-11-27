@@ -8,6 +8,7 @@
 // Tap the left third = back, the right third = forward, the middle = show /
 // hide the bar. Swipe left / right, ← →, Space, PageUp/PageDown and the
 // mouse wheel turn pages too. Free scrolling is blocked while it is on.
+import { onTap } from './tap.js';
 
 /** Which part of the page a tap at clientX `x` on a `width`-wide screen is. */
 export function tapZone(x, width) {
@@ -92,8 +93,17 @@ export function initPages(ctx) {
         const rail = Math.max(0, (chromeEl?.offsetHeight || 0) - (toolbarEl?.offsetHeight || 0));
         const top = (parseFloat(getComputedStyle(chromeEl).top) || 0) + rail + 4;
         const playbar = document.body.classList.contains('reader-playbar-open') ? (ctx.playbackBar?.offsetHeight || 0) : 0;
-        const bottom = window.innerHeight - playbar - 8;
+        const bottom = visibleBottom() - playbar - 8;
         return { top, bottom };
+    }
+    // The bottom of what is actually visible: on iPhone Safari the address bar
+    // sits over the bottom of the window and window.innerHeight can include
+    // the part behind it, so a page would end under the bar and its last lines
+    // were skipped. visualViewport is what the reader really sees.
+    function visibleBottom() {
+        const vv = window.visualViewport;
+        const vvBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+        return Math.min(window.innerHeight, vvBottom);
     }
     // Probe the text column, not the gutter: the middle of the sections box.
     function probeX() {
@@ -120,7 +130,7 @@ export function initPages(ctx) {
     // exactly the page you saw; jumps from elsewhere (contents, a link) reset it.
     let history = [];
     let landedAt = null;
-    const atEnd = () => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+    const atEnd = () => window.scrollY + visibleBottom() >= document.documentElement.scrollHeight - 2;
 
     function land(y) {
         window.scrollTo({ top: Math.max(0, Math.round(y)), behavior: 'instant' });
@@ -154,12 +164,9 @@ export function initPages(ctx) {
     ctx.prevPage = prevPage;
 
     // ---- Taps: left third back, right third forward, middle = the bar ----
-    sectionsEl.addEventListener('click', (e) => {
+    onTap(document, ({ x }) => {
         if (!on()) return;
-        if (e.target.closest('a, button, input, select, textarea, mark.reader-highlight')) return;
-        const selection = window.getSelection();
-        if (selection && !selection.isCollapsed) return;
-        const zone = tapZone(e.clientX, window.innerWidth);
+        const zone = tapZone(x, window.innerWidth);
         if (zone === 'next') nextPage();
         else if (zone === 'prev') prevPage();
         else if (document.body.classList.contains('reader-focus')) document.body.classList.toggle('chrome-peek');
@@ -195,6 +202,8 @@ export function initPages(ctx) {
 
     // Re-line-up after anything that moves text: a resize, a font change.
     window.addEventListener('resize', () => { history = []; requestAnimationFrame(remask); }, { passive: true, signal });
+    // Safari's bar showing / hiding changes the visible area without a resize.
+    window.visualViewport?.addEventListener('resize', () => requestAnimationFrame(remask), { passive: true, signal });
     // A jump from elsewhere (contents, "latest position") ends on a fresh page.
     window.addEventListener('scroll', () => { if (on() && landedAt !== null && window.scrollY !== landedAt) requestAnimationFrame(remask); }, { passive: true, signal });
 

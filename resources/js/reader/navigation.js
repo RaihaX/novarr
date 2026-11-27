@@ -4,6 +4,7 @@ import { chLabel } from './format.js';
 import { applyFooterState } from './footer.js';
 import { SHORTCUTS, shortcutBlocked, isTypingTarget } from './shortcuts.js';
 import { markInReaderNav } from './latest-position.js';
+import { onTap } from './tap.js';
 
 export const sectionTop = (s, scrollY = window.scrollY) => s.el.getBoundingClientRect().top + scrollY;
 export const sectionHeight = s => s.el.offsetHeight || 1;
@@ -241,11 +242,8 @@ export function initNavigation(ctx) {
         if (dx < 0) goNext(); else goPrev();
     }, { passive: true, signal });
 
-    sectionsEl.addEventListener('click', (e) => {
+    onTap(document, () => {
         if (!document.body.classList.contains('reader-focus') || ctx.isPaged?.()) return;
-        if (e.target.closest('a, button, input, select, textarea, mark.reader-highlight')) return;
-        const selection = window.getSelection();
-        if (selection && !selection.isCollapsed) return;
         document.body.classList.toggle('chrome-peek');
-    });
+    }, { signal });
 }
