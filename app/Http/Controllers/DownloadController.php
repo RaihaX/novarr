@@ -310,12 +310,39 @@ class DownloadController extends Controller
     /** A reader's "Ask for the audiobook": the book's audiobook is wanted (monitored), and the owner is told once. */
     public function audiobookAsk(int $id, CurrentReader $reader, WantedList $list, AdminAlert $alert): RedirectResponse
     {
-        $novel = Novel::findOrFail($id);
-        $before = WantedList::audiobookFor($id);
+        $error = self::askForAudiobook(Novel::findOrFail($id), $reader, $list, $alert);
+
+        return $error !== null
+            ? back()->with('error', $error)
+            : back()->with('success', 'Asked for. You will find the audiobook on this page once it is here.');
+    }
+
+    /**
+     * POST /api/v1/novels/{id}/audiobook/ask — the apps' "Ask for the
+     * audiobook": the same as the web button. 200 {asked: true, message},
+     * 422 {message} when it cannot be asked for (not a book, already has one).
+     */
+    public function audiobookAskApi(int $id, CurrentReader $reader, WantedList $list, AdminAlert $alert): \Illuminate\Http\JsonResponse
+    {
+        $novel = Novel::find($id);
+        if ($novel === null) {
+            return response()->json(['message' => 'This series is not in the library.'], 404);
+        }
+        $error = self::askForAudiobook($novel, $reader, $list, $alert);
+
+        return $error !== null
+            ? response()->json(['message' => $error, 'code' => 'cannot_ask'], 422)
+            : response()->json(['asked' => true, 'message' => 'Asked for. The audiobook shows up on this book once it is here.']);
+    }
+
+    /** Put the book's audiobook on the wanted list; the owner is told when a reader asks. Null, or why it cannot be. */
+    private static function askForAudiobook(Novel $novel, CurrentReader $reader, WantedList $list, AdminAlert $alert): ?string
+    {
+        $before = WantedList::audiobookFor((int) $novel->id);
         try {
-            $row = $list->monitorAudiobook($novel, $reader->user());
+            $list->monitorAudiobook($novel, $reader->user());
         } catch (DownloadFailed $e) {
-            return back()->with('error', $e->getMessage());
+            return $e->getMessage();
         }
         if (Gate::denies('admin') && ($before === null || $before->requested_by === null)) {
             $who = RequestNotifier::nameOf($reader->user());
@@ -326,7 +353,7 @@ class DownloadController extends Controller
             );
         }
 
-        return back()->with('success', 'Asked for. You will find the audiobook on this page once it is here.');
+        return null;
     }
 
     /** @return array{0: ?NovelRequest, 1: ?Novel} */

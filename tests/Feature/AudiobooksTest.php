@@ -36,7 +36,7 @@ class AudiobooksTest extends TestCase
     use RefreshDatabase;
     use UsesAccounts;
 
-    private const SUMMARY_KEYS = ['id', 'novel_id', 'title', 'author', 'narrator', 'cover_url', 'duration_ms', 'progress'];
+    private const SUMMARY_KEYS = ['id', 'novel_id', 'title', 'author', 'narrator', 'cover_url', 'duration_ms', 'progress', 'series', 'series_index'];
 
     private const DETAIL_KEYS = [
         'id', 'novel_id', 'title', 'author', 'narrator', 'cover_url', 'duration_ms', 'progress',

@@ -145,6 +145,7 @@ final class RouteAccess
         'api.v1.novels.epub.build',
         'api.v1.novels.send.show',
         'api.v1.novels.send',
+        'api.v1.novels.audiobook_ask',
         'api.v1.novels.check',
         'api.v1.novels.check.start',
         'api.v1.chapters.show',

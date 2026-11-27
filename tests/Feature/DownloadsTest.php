@@ -582,6 +582,17 @@ class DownloadsTest extends TestCase
         $this->assertSame([], \App\Downloads\ReleaseRanking::bookNumbers('Dune 1965 Retail 1080p'));
     }
 
+    public function test_a_reader_asks_for_an_audiobook_from_the_app(): void
+    {
+        $book = $this->book('The Final Empire');
+        $reader = $this->makeReader('kim', 'Kim');
+
+        $this->asToken($this->tokenFor($reader))->postJson("/api/v1/novels/{$book->id}/audiobook/ask")
+            ->assertOk()->assertJsonPath('asked', true);
+        $this->assertNotNull(WantedList::audiobookFor($book->id));
+        $this->asToken($this->tokenFor($reader))->postJson('/api/v1/novels/999999/audiobook/ask')->assertNotFound();
+    }
+
     public function test_needs_you_and_seeding_tabs(): void
     {
         $book = $this->book('The Final Empire');

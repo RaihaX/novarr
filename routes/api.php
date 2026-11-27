@@ -67,6 +67,8 @@ Route::prefix('v1')
         Route::get('/novels/{id}/chapters', [ApiV1\LibraryController::class, 'chapters'])->whereNumber('id')->middleware($conditionalGet)->name('novels.chapters');
         Route::get('/novels/{id}/epub', [ApiV1\EpubController::class, 'show'])->whereNumber('id')->name('novels.epub');
         Route::post('/novels/{id}/epub', [ApiV1\EpubController::class, 'build'])->whereNumber('id')->middleware('throttle:novarr-reader-actions')->name('novels.epub.build');
+        // "Ask for the audiobook" (the apps; the web has its own form route).
+        Route::post('/novels/{id}/audiobook/ask', [\App\Http\Controllers\DownloadController::class, 'audiobookAskApi'])->whereNumber('id')->name('novels.audiobook_ask');
         // "Send to my Kindle / email" (App\Services\SendEpub): start, and its progress.
         Route::get('/novels/{id}/send', [ApiV1\SendEpubController::class, 'show'])->whereNumber('id')->name('novels.send.show');
         Route::post('/novels/{id}/send', [ApiV1\SendEpubController::class, 'store'])->whereNumber('id')->name('novels.send');

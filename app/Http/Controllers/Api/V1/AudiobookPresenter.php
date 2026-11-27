@@ -51,6 +51,9 @@ class AudiobookPresenter
             'cover_url' => Presenter::url($audiobook->coverUrl('md')),
             'duration_ms' => (int) $audiobook->duration_ms,
             'progress' => ListeningProgress::present($progress),
+            // From Audible (App\Audiobooks\AudiobookEnricher): the Listen tiles show "Series #N".
+            'series' => $audiobook->series ?: null,
+            'series_index' => $audiobook->series_index !== null ? (float) $audiobook->series_index : null,
         ];
     }
 
@@ -75,7 +78,8 @@ class AudiobookPresenter
             'end_ms' => (int) $c->end_ms,
         ])->values()->all();
 
-        return static::summary($audiobook, $progress) + [
+        // The detail keeps its shape: the summary's keys, then these (series last, with the asin).
+        return array_diff_key(static::summary($audiobook, $progress), ['series' => 1, 'series_index' => 1]) + [
             'description' => $audiobook->description ?: null,
             'year' => $audiobook->year !== null ? (int) $audiobook->year : null,
             'size_bytes' => (int) $audiobook->size_bytes,
