@@ -59,7 +59,15 @@ class BookReviewController extends Controller
             'cover' => $chosen !== null && !empty($chosen['cover_url']) ? 'match' : (!empty($meta['cover_path']) ? 'file' : 'none'),
         ];
 
+        // A book the library already has (by the details about to be used, or the file's own).
+        $existing = $bookRequest->isPending()
+            ? (\App\Books\BookLibrary::existing($form['title'], $form['author'])
+                ?? \App\Books\BookLibrary::existing($meta['title'] ?? null, implode(', ', (array) ($meta['authors'] ?? []))))
+            : null;
+
         return view('books.review', [
+            'existing' => $existing,
+            'existingCover' => $existing?->coverUrl('sm'),
             'book' => $bookRequest,
             'meta' => $meta,
             'candidates' => $candidates,
@@ -128,6 +136,27 @@ class BookReviewController extends Controller
         }
 
         return $this->next($bookRequest, "“{$novel->name}” is in the library.", route('novels.show', $novel->id));
+    }
+
+    /** It is a book the library already has: the request is closed as that book (the reader can read it now). */
+    public function useExisting(int $id, Request $request, BookUploads $uploads, CurrentReader $reader): RedirectResponse
+    {
+        $bookRequest = $this->find($id);
+        $data = $request->validate(['novel_id' => ['required', 'integer']]);
+        $existing = Novel::where(fn($q) => $q->where('medium', Novel::MEDIUM_BOOK)->orWhere('translator_url', 'like', \App\Books\BookLibrary::URL_PREFIX . '%'))
+            ->find((int) $data['novel_id']);
+        if ($existing === null) {
+            return back()->withErrors(['approve' => 'That book is no longer in the library.']);
+        }
+
+        try {
+            $uploads->useExisting($bookRequest, $reader->user(), $existing);
+        } catch (RequestRefused $e) {
+            return back()->withErrors(['approve' => $e->getMessage()]);
+        }
+        $who = $bookRequest->requester?->name;
+
+        return $this->next($bookRequest, "Marked ready: “{$existing->name}” was already in the library" . ($who ? ", and {$who} can read it now." : '.'), route('novels.show', $existing->id));
     }
 
     /** The owner fulfils a book asked for by title with the ePub they found (BookUploads::attach()). */

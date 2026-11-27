@@ -164,6 +164,7 @@ Route::get('/books/calibre/cover/{id}', [\App\Http\Controllers\CalibreController
 Route::get('/books/review/{id}', [\App\Http\Controllers\BookReviewController::class, 'show'])->whereNumber('id')->name('books.review');
 Route::post('/books/review/{id}/search', [\App\Http\Controllers\BookReviewController::class, 'search'])->whereNumber('id')->name('books.review.search');
 Route::post('/books/review/{id}/approve', [\App\Http\Controllers\BookReviewController::class, 'approve'])->whereNumber('id')->name('books.review.approve');
+Route::post('/books/review/{id}/use-existing', [\App\Http\Controllers\BookReviewController::class, 'useExisting'])->whereNumber('id')->name('books.review.use_existing');
 Route::post('/books/review/{id}/upload', [\App\Http\Controllers\BookReviewController::class, 'upload'])->whereNumber('id')->name('books.review.upload');
 Route::post('/books/review/{id}/decline', [\App\Http\Controllers\BookReviewController::class, 'decline'])->whereNumber('id')->name('books.review.decline');
 

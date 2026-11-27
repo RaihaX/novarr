@@ -55,6 +55,29 @@ class ReaderActivityTest extends TestCase
         return $response->viewData('overview')['readers'][$user->id];
     }
 
+    public function test_a_reader_who_only_opened_chapters_shows_the_newest_with_its_device(): void
+    {
+        $owner = $this->enableSignIn();
+        $reader = $this->makeReader();
+        $novel = Novel::create(['name' => 'Opened Only', 'status' => 0, 'group_id' => 1]);
+        $chapter = NovelChapter::create(['novel_id' => $novel->id, 'chapter' => 3, 'label' => 'Chapter 3', 'url' => 'https://example.test/c3', 'status' => 1]);
+
+        // The app reports progress (not read) with its device name.
+        $this->asToken($this->tokenFor($reader, 'Pixel 10 Pro'))
+            ->postJson(route('api.v1.chapters.progress', $chapter->id), ['progress' => 27])
+            ->assertOk();
+        $row = DB::table('chapter_reads')->where('user_id', $reader->id)->first();
+        $this->assertNull($row->read_at);
+        $this->assertSame('Pixel 10 Pro', $row->device);
+
+        $response = $this->asSignedIn($owner)->get(route('readers.index'))->assertOk();
+        $last = $this->figures($response, $reader)['last'];
+        $this->assertSame('Opened Only', $last['novel_name']);
+        $this->assertTrue($last['opened']);
+        $this->assertSame(27, $last['progress']);
+        $response->assertSee('opened, 27%');
+    }
+
     // ---- Dashboard figures -------------------------------------------------
 
     public function test_dashboard_shows_each_readers_figures_with_the_stats_rules(): void

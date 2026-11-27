@@ -224,6 +224,30 @@ class StorageUsageTest extends TestCase
         $this->assertContains('Manga pages', array_merge(...array_map(fn($d) => $d['meta']['labels'], $disks)));
     }
 
+    public function test_books_are_measured_as_their_own_medium_with_their_files(): void
+    {
+        $booksDir = $this->storage . '/app/books';
+        $calibreDir = $this->manga . '/novarr-books';
+        config(['novarr.books.path' => $booksDir, 'novarr.books.calibre_path' => $calibreDir]);
+        $book = Novel::create(['name' => 'A Book', 'status' => 1, 'group_id' => 1, 'medium' => Novel::MEDIUM_BOOK, 'translator_url' => 'book://library/abc']);
+        $this->putFile(\App\Books\BookLibrary::path($book), 300);
+        $this->putFile("{$calibreDir}/calibre.epub", 700);
+
+        $usage = app(StorageUsage::class);
+        $usage->store($usage->measure());
+        $report = $usage->report();
+
+        $this->assertSame(1, $report['mediums'][Novel::MEDIUM_BOOK]['series']);
+        $this->assertSame([$book->id], array_column($report['top'][Novel::MEDIUM_BOOK], 'novel_id'));
+        $books = collect($report['buckets'])->firstWhere('key', 'books');
+        $this->assertSame(1000, $books['bytes']);
+        $this->assertSame(2, $books['files']);
+        // Not counted again under "Other" or the manga pages.
+        $this->assertSame(0, (int) collect($report['buckets'])->firstWhere('key', 'manga_pages')['bytes']);
+
+        $this->get(route('health.storage'))->assertOk()->assertSee('Novels, manga and books')->assertSee('Book files');
+    }
+
     public function test_missing_folders_measure_as_zero(): void
     {
         File::deleteDirectory($this->manga);

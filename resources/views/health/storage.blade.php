@@ -36,8 +36,9 @@
         'snapshots' => 'var(--nv-danger)',
         'cache' => 'var(--nv-text-muted)',
         'other' => 'var(--nv-muted)',
+        'books' => 'var(--nv-amber-ink)',
     ];
-    $mediumLabel = [\App\Novel::MEDIUM_NOVEL => 'Novel', \App\Novel::MEDIUM_MANGA => 'Manga'];
+    $mediumLabel = [\App\Novel::MEDIUM_NOVEL => 'Novel', \App\Novel::MEDIUM_MANGA => 'Manga', \App\Novel::MEDIUM_BOOK => 'Book'];
     $fmtPct = fn ($v) => rtrim(rtrim(number_format((float) $v, 1), '0'), '.') . '%';
 @endphp
 
@@ -180,7 +181,7 @@
     {{-- Novels vs Manga --}}
     <div class="card mb-4" id="storageMediums">
         <div class="panel-head">
-            <h2 class="panel-title">Novels and manga</h2>
+            <h2 class="panel-title">Novels, manga and books</h2>
             <span class="panel-note">Per series: text or pages, cover, ePub</span>
         </div>
         <div class="table-responsive">
@@ -195,7 +196,10 @@
                 <tbody>
                     @foreach($report['mediums'] as $medium => $m)
                         <tr data-medium="{{ $medium }}">
-                            <td class="cell-primary"><strong>{{ $medium === \App\Novel::MEDIUM_MANGA ? 'Manga' : 'Novels' }}</strong>
+                            <td class="cell-primary"><strong>{{ ['manga' => 'Manga', 'book' => 'Books'][$medium] ?? 'Novels' }}</strong>
+                                @if($medium === \App\Novel::MEDIUM_BOOK)
+                                    <span class="stg-meta">ePubs: the original files</span>
+                                @endif
                                 @if($medium === \App\Novel::MEDIUM_NOVEL && ($text['meta']['estimated'] ?? false))
                                     <span class="stg-meta">Text sizes estimated from stored word counts</span>
                                 @endif
@@ -222,9 +226,10 @@
                 <button type="button" class="btn btn-secondary active" data-top="all" aria-pressed="true">All</button>
                 <button type="button" class="btn btn-secondary" data-top="novel" aria-pressed="false">Novels</button>
                 <button type="button" class="btn btn-secondary" data-top="manga" aria-pressed="false">Manga</button>
+                <button type="button" class="btn btn-secondary" data-top="book" aria-pressed="false">Books</button>
             </div>
         </div>
-        @foreach(['all' => 'All series', 'novel' => 'Novels', 'manga' => 'Manga'] as $which => $caption)
+        @foreach(['all' => 'All series', 'novel' => 'Novels', 'manga' => 'Manga', 'book' => 'Books'] as $which => $caption)
             <div class="table-responsive" data-top-table="{{ $which }}" @if($which !== 'all') hidden @endif>
                 @if(count($report['top'][$which]))
                     <table class="table align-middle table-responsive-cards mb-0">

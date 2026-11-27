@@ -305,4 +305,45 @@ class BookUploadsTest extends TestCase
         // The owner is not emailed about their own upload.
         Mail::assertNothingSent();
     }
+
+    public function test_an_upload_of_a_book_already_in_the_library_is_refused_with_a_link(): void
+    {
+        $have = app(BookLibrary::class)->import(EpubBuilder::epub3(['title' => 'Star Wars: Thrawn', 'author' => 'Timothy Zahn']), 'a.epub', false, false)['novel'];
+
+        // Another file (different bytes) of the same book, titled a little differently.
+        $this->upload($this->reader, EpubBuilder::epub3(['title' => 'Star Wars - Thrawn', 'author' => 'Timothy Zahn', 'description' => 'other file']))
+            ->assertSessionHasErrors('epub')
+            ->assertSessionHas('in_library', route('novels.show', $have->id));
+        $this->assertStringContainsString('“Star Wars: Thrawn” by Timothy Zahn is already in the library.', session('errors')->first('epub'));
+        $this->assertSame(0, NovelRequest::count());
+
+        // The same title by someone else is another book.
+        $this->upload($this->reader, EpubBuilder::epub3(['title' => 'Star Wars: Thrawn', 'author' => 'Someone Else', 'description' => 'third']))
+            ->assertSessionHasNoErrors();
+    }
+
+    public function test_the_review_page_offers_the_book_already_in_the_library_and_marks_the_request_ready(): void
+    {
+        $this->reader->forceFill(['email' => 'sam@example.test'])->save();
+        // Waiting first, then the same book arrives from elsewhere (Calibre).
+        $this->upload($this->reader, EpubBuilder::epub3(['title' => 'Star Wars: Thrawn', 'author' => 'Timothy Zahn']));
+        $request = NovelRequest::sole();
+        $have = app(BookLibrary::class)->import(EpubBuilder::epub3(['title' => 'Star Wars: Thrawn', 'author' => 'Timothy Zahn', 'description' => 'calibre copy']), 'b.epub', false, false)['novel'];
+
+        $this->asSignedIn($this->owner)->get(route('books.review', $request->id))
+            ->assertOk()
+            ->assertSee('Already in the library')
+            ->assertSee('mark the request ready')
+            ->assertSee('add it anyway');
+
+        $this->asSignedIn($this->owner)->post(route('books.review.use_existing', $request->id), ['novel_id' => $have->id])
+            ->assertRedirect();
+
+        $request->refresh();
+        $this->assertSame((int) $have->id, (int) $request->novel_id);
+        $this->assertNotNull($request->available_at);
+        $this->assertNull($request->upload_path);
+        $this->assertSame(1, Novel::books()->count(), 'no second copy');
+        Mail::assertSent(\App\Mail\RequestAvailable::class, fn($m) => $m->hasTo('sam@example.test'));
+    }
 }

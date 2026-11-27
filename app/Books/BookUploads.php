@@ -147,6 +147,11 @@ class BookUploads
         if ($waiting !== null) {
             throw new RequestRefused(409, "This file is already waiting for the owner ({$waiting->title}).", 'already_requested', ['request_id' => (int) $waiting->id]);
         }
+        // Another file of a book the library has (same title and author): say so now.
+        $existing = BookLibrary::existing($metadata['title'] ?: BookLibrary::titleFromFilename($originalName), implode(', ', (array) $metadata['authors']));
+        if ($existing !== null) {
+            throw new RequestRefused(409, self::inLibraryMessage($existing), 'in_library', ['novel_id' => (int) $existing->id]);
+        }
 
         $token = (string) Str::uuid();
         $relative = self::PENDING_DIR . "/{$token}.epub";
@@ -181,6 +186,35 @@ class BookUploads
                 'cover_path' => $coverPath,
             ],
         ];
+    }
+
+    /** "“Star Wars: Thrawn” by Timothy Zahn is already in the library." */
+    public static function inLibraryMessage(Novel $book): string
+    {
+        $by = trim((string) $book->author) !== '' ? ' by ' . trim((string) $book->author) : '';
+
+        return "\u{201C}{$book->name}\u{201D}{$by} is already in the library.";
+    }
+
+    /**
+     * The pending upload is a book the library already has: approve the
+     * request as that book (the reader is told it is ready to read), and
+     * drop the uploaded file.
+     *
+     * @throws RequestRefused  not pending
+     */
+    public function useExisting(NovelRequest $request, User $admin, Novel $existing): NovelRequest
+    {
+        if (!$request->isPending()) {
+            throw new RequestRefused(409, 'Only a pending request can be approved.', 'not_pending');
+        }
+        $this->requests->approve($request, $admin, ['novel_id' => (int) $existing->id]);
+        $this->requests->markAvailableNow($request);
+        self::discard($request);
+        $request->forceFill(['upload_path' => null])->saveQuietly();
+        Log::info('Book request matched to a book already in the library', ['request' => $request->id, 'novel' => $existing->id]);
+
+        return $request->refresh();
     }
 
     private static function unpark(array $parked): void
@@ -278,7 +312,7 @@ class BookUploads
         }
 
         if ($outcome['result'] === BookLibrary::DUPLICATE) {
-            throw new RequestRefused(409, \App\Services\DuplicateSeries::message($outcome['novel']), 'duplicate', [
+            throw new RequestRefused(409, self::inLibraryMessage($outcome['novel']), 'duplicate', [
                 'duplicate' => \App\Services\DuplicateSeries::describe($outcome['novel']),
             ]);
         }

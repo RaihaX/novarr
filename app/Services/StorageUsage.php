@@ -51,6 +51,7 @@ class StorageUsage
         'database' => 'Database',
         'covers' => 'Covers & uploads',
         'epubs' => 'ePubs',
+        'books' => 'Book files',
         'backups' => 'Backups',
         'logs' => 'Logs',
         'snapshots' => 'Failure snapshots',
@@ -100,6 +101,7 @@ class StorageUsage
                 $id = (int) $novel->id;
                 $knownIds[$id] = true;
                 $isManga = $novel->medium === Novel::MEDIUM_MANGA;
+                $medium = in_array($novel->medium, [Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK], true) ? $novel->medium : Novel::MEDIUM_NOVEL;
 
                 $pages = $manga['series'][$id] ?? ['bytes' => 0, 'files' => 0, 'chapters' => 0];
                 $text = $this->textUsage($id, $exact);
@@ -115,7 +117,7 @@ class StorageUsage
                 $rows[] = [
                     'scope' => self::SCOPE_SERIES,
                     'key' => (string) $id,
-                    'medium' => $isManga ? Novel::MEDIUM_MANGA : Novel::MEDIUM_NOVEL,
+                    'medium' => $medium,
                     'novel_id' => $id,
                     'bytes' => $content + $cover['bytes'] + $epub,
                     'files' => $pages['files'] + $cover['files'] + ($epub > 0 ? 1 : 0),
@@ -166,6 +168,8 @@ class StorageUsage
         ]);
         $bucket('covers', $this->walk($paths['public']), ['paths' => [$paths['public']]]);
         $bucket('epubs', $this->walkAll($paths['epubs']), ['paths' => $paths['epubs']]);
+        // The Books library's original ePubs: uploads, and Calibre's (on the big disk).
+        $bucket('books', $this->walkAll($paths['books']), ['paths' => $paths['books']]);
         $bucket('backups', $this->walkAll($paths['backups']), ['paths' => $paths['backups'], 'remote' => $paths['remote_backups']]);
         $bucket('logs', $this->walk($paths['logs']), ['paths' => [$paths['logs']]]);
         $bucket('snapshots', $this->walk($paths['snapshots']), ['paths' => [$paths['snapshots']]]);
@@ -174,6 +178,7 @@ class StorageUsage
         $claimed = array_merge(
             [$paths['manga'], $paths['public'], $paths['logs'], $paths['snapshots'], $paths['cache']],
             $paths['epubs'],
+            $paths['books'],
             $paths['backups'],
         );
         $bucket('other', $this->walk($paths['storage'], $claimed), ['paths' => [$paths['storage']]]);
@@ -267,11 +272,11 @@ class StorageUsage
 
         // Series rows are a few hundred: totals per medium in PHP.
         $mediums = [];
-        foreach ([Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA] as $medium) {
+        foreach ([Novel::MEDIUM_NOVEL, Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK] as $medium) {
             $mediums[$medium] = ['series' => 0, 'bytes' => 0, 'chapters' => 0, 'content_bytes' => 0, 'cover_bytes' => 0, 'epub_bytes' => 0];
         }
         foreach (DB::table('storage_usage')->where('scope', self::SCOPE_SERIES)->select(['medium', 'bytes', 'chapters', 'meta'])->cursor() as $row) {
-            $m = $row->medium === Novel::MEDIUM_MANGA ? Novel::MEDIUM_MANGA : Novel::MEDIUM_NOVEL;
+            $m = in_array($row->medium, [Novel::MEDIUM_MANGA, Novel::MEDIUM_BOOK], true) ? $row->medium : Novel::MEDIUM_NOVEL;
             $meta = self::meta($row);
             $mediums[$m]['series']++;
             $mediums[$m]['bytes'] += (int) $row->bytes;
@@ -306,6 +311,7 @@ class StorageUsage
                 'all' => $topRows(null),
                 Novel::MEDIUM_NOVEL => $topRows(Novel::MEDIUM_NOVEL),
                 Novel::MEDIUM_MANGA => $topRows(Novel::MEDIUM_MANGA),
+                Novel::MEDIUM_BOOK => $topRows(Novel::MEDIUM_BOOK),
             ],
         ];
     }
@@ -386,6 +392,10 @@ class StorageUsage
             'manga' => rtrim((string) config('filesystems.disks.' . ChapterPage::DISK . '.root', storage_path('app/manga')), '/'),
             'public' => rtrim((string) config('filesystems.disks.public.root', storage_path('app/public')), '/'),
             'epubs' => [storage_path('app/ePub'), storage_path('app/epub-build'), storage_path('app/Novel')],
+            'books' => array_values(array_unique(array_filter([
+                rtrim((string) config('novarr.books.path', storage_path('app/books')), '/'),
+                config('novarr.books.calibre_path') ? rtrim((string) config('novarr.books.calibre_path'), '/') : null,
+            ]))),
             'snapshots' => rtrim((string) (config('novarr.snapshots.path') ?: storage_path('app/snapshots')), '/'),
             'logs' => storage_path('logs'),
             'cache' => storage_path('framework'),

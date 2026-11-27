@@ -296,6 +296,11 @@ class ReadState
             $values['bulk'] = false;
             $values['manual'] ??= $lookup;
             $values += ReadingClient::columnsOf($client);
+        } elseif (isset($values['progress']) && $client !== null && $current?->read_at === null) {
+            // A chapter opened but not finished yet: where it is being read
+            // (the Readers page shows it until a chapter is read). A read
+            // chapter keeps the stamp of where it was finished.
+            $values += ReadingClient::columnsOf($client);
         }
 
         if ($values !== []) {

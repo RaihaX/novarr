@@ -61,6 +61,29 @@
         <div class="alert alert-danger" role="alert">The uploaded file is no longer on the server. Decline this request and ask for it again.</div>
     @endif
 
+    {{-- Already in the library: say so first, with the one-click way out. --}}
+    @if($existing)
+        <section class="book-existing" aria-labelledby="existingTitle">
+            <div class="cover book-existing-cover">
+                @if($existingCover)<img src="{{ $existingCover }}" alt="">@endif
+            </div>
+            <div class="book-existing-main">
+                <h2 class="book-existing-title" id="existingTitle">Already in the library</h2>
+                <p class="mb-2">
+                    <a href="{{ route('novels.show', $existing->id) }}"><strong>{{ $existing->name }}</strong></a>{{ $existing->author ? ' · ' . $existing->author : '' }}
+                    @if($existing->medium !== \App\Novel::MEDIUM_BOOK) · in Novels @endif
+                </p>
+                <p class="form-text mb-2">If it is the same book, mark the request ready: {{ $requester?->name ?? 'the reader' }} is told it is there to read, and this upload is dropped. If it is a different book or edition, add it below with “add it anyway”.</p>
+                <form method="POST" action="{{ route('books.review.use_existing', $book->id) }}" class="d-inline">
+                    @csrf
+                    <input type="hidden" name="novel_id" value="{{ $existing->id }}">
+                    <button type="submit" class="btn btn-primary btn-sm">It’s this one: mark the request ready</button>
+                </form>
+                <a href="{{ route('novels.show', $existing->id) }}" class="btn btn-ghost btn-sm">Open it</a>
+            </div>
+        </section>
+    @endif
+
     {{-- The file at a glance --}}
     <section class="book-file-strip" aria-labelledby="fileTitle">
         <div class="cover book-file-cover">
@@ -189,7 +212,7 @@
                             <span class="book-cover-caption"><input type="radio" name="cover" value="none" @checked($coverChoice === 'none' || (!$chosenCover && !$fileCover))> None</span>
                         </label>
                     </fieldset>
-                    @if(session('duplicate'))
+                    @if(session('duplicate') || $existing)
                         <label class="form-check">
                             <input type="checkbox" name="force" value="1" class="form-check-input">
                             <span class="form-check-label">It is a different book (or edition): add it anyway</span>

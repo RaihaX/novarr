@@ -246,7 +246,7 @@
                                 {{-- One cell child, so the phone card layout keeps the two lines together. --}}
                                 <span class="reader-last">
                                     <a href="{{ route('novels.show', $f['last']['novel_id']) }}">{{ $f['last']['novel_name'] }}</a>
-                                    <span class="reader-last-meta mono-muted">{{ $f['last']['number'] !== '' ? 'Ch. ' . $f['last']['number'] : $f['last']['label'] }} · <time datetime="{{ $lastAt->toIso8601String() }}">{{ $lastAt->diffForHumans() }}</time>@if(!empty($f['last']['device'])) · {{ $f['last']['device'] }}@endif</span>
+                                    <span class="reader-last-meta mono-muted">{{ $f['last']['number'] !== '' ? 'Ch. ' . $f['last']['number'] : $f['last']['label'] }}@if(!empty($f['last']['opened'])) · opened{{ isset($f['last']['progress']) ? ', ' . $f['last']['progress'] . '%' : '' }}@endif · <time datetime="{{ $lastAt->toIso8601String() }}">{{ $lastAt->diffForHumans() }}</time>@if(!empty($f['last']['device'])) · {{ $f['last']['device'] }}@endif</span>
                                 </span>
                             @else
                                 <span class="text-muted">—</span>

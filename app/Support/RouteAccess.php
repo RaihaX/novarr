@@ -207,7 +207,7 @@ final class RouteAccess
         'api.v1.discover', 'api.v1.discover.browse', 'api.v1.discover.searches.store', 'api.v1.discover.searches.show',
         'api.v1.novels.store',
         'api.v1.requests.approve', 'api.v1.requests.decline', 'api.v1.requests.rerank',
-        'books.review', 'books.review.search', 'books.review.approve', 'books.review.decline', 'books.review.upload',
+        'books.review', 'books.review.search', 'books.review.approve', 'books.review.decline', 'books.review.upload', 'books.review.use_existing',
         'books.calibre', 'books.calibre.import', 'books.calibre.cover',
     ];
 

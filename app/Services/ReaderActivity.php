@@ -311,6 +311,38 @@ class ReaderActivity
                     'device' => self::deviceLabel($row),
                 ];
             }
+
+            // A reader who has opened chapters but finished none yet: the
+            // newest chapter opened, with how far in (instead of "—").
+            $unfinished = array_keys(array_filter($readers, fn($r) => $r['last'] === null));
+            if ($unfinished !== []) {
+                $opened = DB::table('chapter_reads as cr')
+                    ->join('novel_chapters as c', 'c.id', '=', 'cr.novel_chapter_id')
+                    ->join('novels as n', 'n.id', '=', 'cr.novel_id')
+                    ->whereIn('cr.user_id', $unfinished)
+                    ->whereNotNull('cr.progress_at')
+                    ->whereNull('c.deleted_at')
+                    ->whereNull('n.deleted_at')
+                    ->orderByDesc('cr.progress_at')
+                    ->get(['cr.user_id', 'cr.novel_id', 'cr.progress', 'cr.progress_at', 'c.id as chapter_id', 'c.chapter', 'c.book', 'c.number', 'c.part', 'c.label', 'n.name as novel_name', 'cr.device', 'cr.client']);
+                foreach ($opened as $row) {
+                    $uid = (int) $row->user_id;
+                    if ($readers[$uid]['last'] !== null) {
+                        continue;
+                    }
+                    $readers[$uid]['last'] = [
+                        'novel_id' => (int) $row->novel_id,
+                        'novel_name' => (string) $row->novel_name,
+                        'chapter_id' => (int) $row->chapter_id,
+                        'number' => self::chapterNumber($row),
+                        'label' => (string) $row->label,
+                        'at' => Carbon::parse($row->progress_at)->format('Y-m-d H:i:s'),
+                        'device' => self::deviceLabel($row),
+                        'opened' => true,
+                        'progress' => $row->progress !== null ? (int) $row->progress : null,
+                    ];
+                }
+            }
         }
 
         // 5. Most popular in the window: distinct readers, then chapters.

@@ -73,6 +73,53 @@ class BookLibrary
         return $id !== null ? Novel::find($id) : null;
     }
 
+    /**
+     * The book already in the library that this title (and author) names,
+     * if any: the same normalised title among the books (and books moved to
+     * Novels as web novels), "Star Wars - Thrawn" = "Star Wars: Thrawn". When
+     * both sides name an author they must share one (surnames compared), so
+     * two different books that happen to share a title are not mixed up.
+     */
+    public static function existing(?string $title, ?string $author = null): ?Novel
+    {
+        $key = DuplicateSeries::normalize((string) $title);
+        if ($key === '') {
+            return null;
+        }
+        $wanted = self::surnames($author);
+
+        $candidates = Novel::query()
+            ->where(fn($q) => $q->where('medium', Novel::MEDIUM_BOOK)->orWhere('translator_url', 'like', self::URL_PREFIX . '%'))
+            ->orderBy('id')
+            ->get(['id', 'name', 'author', 'medium', 'translator_url', 'source_ref']);
+        foreach ($candidates as $book) {
+            if (DuplicateSeries::normalize((string) $book->name) !== $key) {
+                continue;
+            }
+            $theirs = self::surnames($book->author);
+            if ($wanted === [] || $theirs === [] || array_intersect($wanted, $theirs) !== []) {
+                return Novel::with('file')->find($book->id);
+            }
+        }
+
+        return null;
+    }
+
+    /** Lower-case surnames of an author list ("Timothy Zahn, Albert Agut" → [zahn, agut]). */
+    private static function surnames(?string $authors): array
+    {
+        $out = [];
+        foreach (preg_split('/\s*(?:,|&|;|\band\b)\s*/iu', (string) $authors) ?: [] as $name) {
+            $words = preg_split('/\s+/u', trim(DuplicateSeries::normalize($name))) ?: [];
+            $last = end($words);
+            if ($last !== false && mb_strlen($last) > 1) {
+                $out[] = $last;
+            }
+        }
+
+        return array_values(array_unique($out));
+    }
+
     /** source_ref of a book imported from Calibre-Web: "calibre:{uuid}". */
     public const CALIBRE_REF = 'calibre:';
 
