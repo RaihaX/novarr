@@ -160,7 +160,7 @@ class Hardcover
     public static function candidate(array $doc, ?string $isbn = null): array
     {
         $title = trim((string) $doc['title']);
-        $subtitle = trim((string) ($doc['subtitle'] ?? ''));
+        $subtitle = static::realSubtitle(trim((string) ($doc['subtitle'] ?? '')), static::series($doc));
         $authors = static::authors($doc);
         $isbns = array_values(array_filter(array_map('strval', (array) ($doc['isbns'] ?? [])), fn($v) => strlen($v) === 13 && Epub::validIsbn($v)));
         $series = static::series($doc);
@@ -336,5 +336,25 @@ class Hardcover
         }
 
         return ['series' => $name, 'series_index' => BookSeries::index($position)];
+    }
+
+    /**
+     * Hardcover's subtitle when it is one: series markers ("Book 1", "Skyward
+     * Legacy 1", "Mistborn #1", "Volume 3", the book's own series name and
+     * number) are not, and are dropped (the series is kept on its own).
+     */
+    public static function realSubtitle(string $subtitle, ?array $series): string
+    {
+        if ($subtitle === '') {
+            return '';
+        }
+        if (preg_match('/^(?:(?:book|volume|vol\.?|part|#)\s*)?[\d.]+$/iu', $subtitle)
+            || preg_match('/^[\p{L}\p{N}\'’ ,.&:-]{1,60}?\s*(?:book\s*|#|,\s*)?\d+(?:\.\d+)?$/iu', $subtitle)
+            || preg_match('/\b(?:book|volume|vol\.?)\s*(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/iu', $subtitle)
+            || ($series !== null && stripos($subtitle, (string) ($series['series'] ?? "\0")) !== false)) {
+            return '';
+        }
+
+        return $subtitle;
     }
 }

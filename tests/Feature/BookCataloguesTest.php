@@ -455,4 +455,14 @@ class BookCataloguesTest extends TestCase
         app(Hardcover::class)->searchBooks('one');
         $this->assertLessThan(0.1, microtime(true) - $start);
     }
+
+    public function test_hardcover_series_marker_subtitles_are_dropped(): void
+    {
+        $this->assertSame('', \App\Books\Hardcover::realSubtitle('Book 1', null));
+        $this->assertSame('', \App\Books\Hardcover::realSubtitle('Skyward Legacy 1', null));
+        $this->assertSame('', \App\Books\Hardcover::realSubtitle('Mistborn #1', null));
+        $this->assertSame('', \App\Books\Hardcover::realSubtitle('A Riftwake Novel', ['series' => 'Riftwake']));
+        $this->assertSame('A Novel', \App\Books\Hardcover::realSubtitle('A Novel', null));
+        $this->assertSame('The Story of a Lost Sea', \App\Books\Hardcover::realSubtitle('The Story of a Lost Sea', null));
+    }
 }
