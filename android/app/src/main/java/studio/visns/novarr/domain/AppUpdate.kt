@@ -39,6 +39,17 @@ object AppUpdate {
     fun shouldNotify(release: AndroidRelease?, installed: Int, lastNotified: Int?, enabled: Boolean): Boolean =
         enabled && available(release, installed, lastNotified)
 
+    /** At most this many release notes are shown under the update notice. */
+    const val MAX_NOTES = 8
+
+    /**
+     * The release notes to show under the notice ("What's new"): trimmed,
+     * blank lines dropped, at most [MAX_NOTES]. Empty for a server that
+     * sends none (the notice then shows no "What's new").
+     */
+    fun notes(release: AndroidRelease?): List<String> =
+        release?.notes.orEmpty().map { it.trim() }.filter { it.isNotEmpty() }.take(MAX_NOTES)
+
     /** "1.3", or "build 4" when the server doesn't name the version. */
     fun label(release: AndroidRelease): String =
         release.version?.takeIf { it.isNotBlank() } ?: "build ${release.build}"

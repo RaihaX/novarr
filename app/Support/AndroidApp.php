@@ -8,7 +8,8 @@ use Illuminate\Support\Facades\Cache;
 /**
  * The Android app readers can install from this server (GET /app/android).
  * The APK is put at config novarr.android_apk_path out of band; an optional
- * sidecar "<apk>.json" holds {"version": "1.0", "build": 1}. Read from disk
+ * sidecar "<apk>.json" holds {"version": "1.0", "build": 1, "notes": ["…"]}
+ * (written by `make release-android` from android/CHANGELOG.md). Read from disk
  * on every call (no static state): Octane-safe, and a new APK shows up
  * without a restart.
  */
@@ -49,6 +50,19 @@ final class AndroidApp
             : route('app.android');
     }
 
+    /**
+     * The app's page with "What's new" and the download button
+     * (/app/android/whats-new), on the public address when one is
+     * configured: the new version email's link (made in the console).
+     */
+    public static function pageUrl(): string
+    {
+        $relative = route('app.android.whats_new', [], false);
+        $public = PublicAddress::url();
+
+        return ($public ?? rtrim(url('/'), '/')) . $relative;
+    }
+
     /** "Get the Android app (version 1.0, build 3)": the link text in the views. */
     public static function linkText(): string
     {
@@ -72,11 +86,12 @@ final class AndroidApp
 
     /**
      * What an installed app needs to notice a newer APK (GET /api/v1/meta):
-     * {version, build, url, size, sha256}, or null when no APK is published.
+     * {version, build, url, size, sha256, notes}, or null when no APK is published.
      * `build` is the integer the app compares with its own version code; null
      * when the sidecar does not give one. `size` (bytes) and `sha256` (hex)
      * let the app check the file it downloads; sha256 is null when the file
-     * can't be hashed.
+     * can't be hashed. `notes` is the release notes of that version (a list
+     * of strings, [] when the sidecar has none).
      */
     public static function release(?Request $request = null): ?array
     {
@@ -93,7 +108,37 @@ final class AndroidApp
             'url' => static::url($request),
             'size' => (int) filesize(static::path()),
             'sha256' => static::sha256(),
+            'notes' => static::notes(),
         ];
+    }
+
+    /** The published version's number ("1.17") from the sidecar, null when unknown. */
+    public static function versionName(): ?string
+    {
+        $meta = static::meta();
+        $version = isset($meta['version']) && is_scalar($meta['version']) ? trim((string) $meta['version']) : '';
+
+        return $version !== '' ? $version : null;
+    }
+
+    /** The published build (version code) from the sidecar, null when unknown. */
+    public static function build(): ?int
+    {
+        $meta = static::meta();
+
+        return isset($meta['build']) && is_numeric($meta['build']) ? (int) $meta['build'] : null;
+    }
+
+    /**
+     * The release notes of the published version (sidecar `notes`), cleaned
+     * (App\Support\AndroidChangelog::clean): [] when there are none, as for
+     * an APK published before release notes existed.
+     *
+     * @return list<string>
+     */
+    public static function notes(): array
+    {
+        return AndroidChangelog::clean(static::meta()['notes'] ?? null);
     }
 
     /**

@@ -73,7 +73,9 @@ data class ServerMeta(
  * `meta.android`: the sideloadable APK on the server. [build] is compared
  * with this app's version code; [url] is the download page (/app/android).
  * [size] (bytes) and [sha256] (hex) let the app check what it downloads;
- * older servers send neither.
+ * older servers send neither. [notes] is that version's release notes
+ * ("What's new"), one line each; empty when the server sends none (older
+ * servers) or anything but a list of strings.
  */
 @Serializable
 data class AndroidRelease(
@@ -82,6 +84,7 @@ data class AndroidRelease(
     val url: String = "",
     val size: Long? = null,
     val sha256: String? = null,
+    @Serializable(with = StringList::class) val notes: List<String> = emptyList(),
 )
 
 @Serializable

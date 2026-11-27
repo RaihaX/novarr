@@ -11,7 +11,8 @@ use Illuminate\Routing\Route;
  * on any that is not listed here).
  *
  *   public — no credentials (sign-in itself, accepting an invite, the
- *            daily summary's signed "Stop these emails" link, health
+ *            daily summary's signed "Stop these emails" link and the app
+ *            update email's "Stop app update emails" link, health
  *            checks, discovery, the KOReader plugin's self-update, the
  *            Android app download, the offline shell)
  *   reader — any signed-in account
@@ -50,8 +51,12 @@ final class RouteAccess
         // "Stop these emails" in a reader's daily summary (the signed link is the credential; throttled)
         'summary.unsubscribe',
         'summary.unsubscribe.stop',
-        // The Android app download (before or right after accepting an invite)
+        // "Stop app update emails" in the new Android version email (signed link; throttled)
+        'app_updates.unsubscribe',
+        'app_updates.unsubscribe.stop',
+        // The Android app download (before or right after accepting an invite) and its "What's new" page
         'app.android',
+        'app.android.whats_new',
         // The PWA's offline fallback page (no reader data on it)
         'offline',
         // Health checks (Docker, monitoring)
@@ -118,6 +123,7 @@ final class RouteAccess
         'account.browsers.sign_out_others',
         'account.browsers.sign_out',
         'account.summary_email',
+        'account.app_update_emails',
         'account.send_to',
         // Own sign-in steps and catalogue passwords (each change needs a recent confirmation)
         'account.confirm',

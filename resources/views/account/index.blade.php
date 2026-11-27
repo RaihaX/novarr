@@ -293,6 +293,24 @@
                 </section>
             @endif
 
+            {{-- The new Android version email (app:announce-android); the owner's too. --}}
+            <section class="card form-panel acct-card" aria-labelledby="appUpdateEmailsTitle" id="app-update-emails">
+                <div class="card-body">
+                    <h2 class="acct-card-title" id="appUpdateEmailsTitle">Email me about app updates</h2>
+                    <p class="acct-text">An email when a new version of the Novarr app for Android is out, with what's new. Sent if you use the app.</p>
+                    @if(!$appUpdates->email)
+                        <p class="form-text" id="appUpdateEmailsState">Not available: your account has no email.</p>
+                    @else
+                        <p class="form-text" id="appUpdateEmailsState">{{ $appUpdates->on ? 'On: to ' . $appUpdates->email . '.' : 'Off.' }}</p>
+                        <form method="POST" action="{{ route('account.app_update_emails') }}" class="acct-actions">
+                            @csrf
+                            <input type="hidden" name="on" value="{{ $appUpdates->on ? '0' : '1' }}">
+                            <button type="submit" class="btn btn-secondary btn-sm">{{ $appUpdates->on ? 'Turn app update emails off' : 'Turn app update emails on' }}</button>
+                        </form>
+                    @endif
+                </div>
+            </section>
+
             {{-- Own sign-ins and failed attempts (App\AuthEvent): spot one that was not you. --}}
             <section class="card form-panel acct-card" aria-labelledby="signInsTitle" id="sign-ins">
                 <div class="card-body">

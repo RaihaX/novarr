@@ -77,6 +77,11 @@ class AccountController extends Controller
                 'on' => $user->summary_email_off_at === null,
                 'time' => setting('summary_time', '08:00'),
             ],
+            // The new Android version email (app:announce-android), owner included.
+            'appUpdates' => (object) [
+                'email' => $email,
+                'on' => $user->app_update_emails_off_at === null,
+            ],
             'pairing' => session('pairing_id') ? DevicePairing::find(session('pairing_id')) : null,
             'browsers' => app(BrowserSessions::class)->forUser($user, request()),
             'signIns' => AuthEvent::where('user_id', $user->id)
@@ -215,6 +220,22 @@ class AccountController extends Controller
 
         return redirect()->route('account')->withFragment('summary-email')
             ->with('status', $on ? 'The daily summary email is on.' : 'The daily summary email is off.');
+    }
+
+    /**
+     * "Email me about app updates" on / off (users.app_update_emails_off_at):
+     * the new Android version email (app:announce-android). Any account,
+     * the owner too; no "Confirm it's you" (it is only about their own mail).
+     */
+    public function appUpdateEmails(Request $request, CurrentReader $reader)
+    {
+        abort_unless(AuthMode::required(), 404);
+        $user = $reader->user();
+        $on = $request->boolean('on');
+        $user->forceFill(['app_update_emails_off_at' => $on ? null : ($user->app_update_emails_off_at ?? now())])->save();
+
+        return redirect()->route('account')->withFragment('app-update-emails')
+            ->with('status', $on ? 'App update emails are on.' : 'App update emails are off.');
     }
 
     public function revokeToken(Request $request, CurrentReader $reader, $id)
