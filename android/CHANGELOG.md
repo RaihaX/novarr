@@ -9,11 +9,18 @@ missing or still says "Notes to come".
 
 ## 1.18 (19)
 
-- Notes to come
+- Categories: hold any book, web novel, manga or audiobook to select it, then add it to your categories or mark it read or unread in one go.
+- Your Library has a tab for each category, plus Uncategorised.
+- Hold a book in Browse to request it straight into a category; it greys out once it's taken.
+- Home is now a summary of your categories, with new chapters underneath. Turn Continue, Favourites and Want to read back on in Settings › Home if you miss them.
+- Manage categories: create, rename, reorder and hide them.
+- Your stats: streaks, chapters and hours, a year of activity and more. Find them on Home and in Settings.
+- Finishing a chapter, or tapping Next chapter, now always counts it as read, so your progress and stats are right.
+- The update prompt shows what's new.
 
 ## 1.17 (18)
 
-- Notes to come
+- Released as part of 1.18.
 
 ## 1.16 (17)
 
