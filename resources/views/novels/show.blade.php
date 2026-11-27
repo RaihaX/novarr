@@ -38,6 +38,8 @@
     // An uploaded book's book:// identity is no page to link to.
     $isBook = $data->isBook();
     if ($data->translator_url && !$data->hasLibraryFile()) $metaItems[] = ['href' => $data->translator_url, 'text' => parse_url($data->translator_url, PHP_URL_HOST)];
+    // A book moved to Novels: where the story was published (its ePub's source, the Royal Road page).
+    elseif ($data->web_source_url && preg_match('#^https?://#i', $data->web_source_url)) $metaItems[] = ['href' => $data->web_source_url, 'text' => preg_replace('/^www\./', '', (string) parse_url($data->web_source_url, PHP_URL_HOST))];
     if ($data->isManga()) $metaItems[] = ['text' => 'Manga'];
     if ($isBook) $metaItems[] = ['text' => 'Book'];
     if ($originLabel = $data->originLabel()) $metaItems[] = ['text' => $originLabel];
@@ -121,6 +123,20 @@
                 @endisset
             @endforeach
         </p>
+        {{-- Moved from Books by books:webnovel-check (App\Books\WebNovelCheck): why, and the owner's Undo. --}}
+        @if($data->wasConvertedFromBook())
+            <p class="nv-moved" id="movedFromBooks">
+                Moved from Books: {{ $data->converted_reason ?: \App\Books\WebNovelCheck::REASON_NOVELUPDATES }}
+                @if($isAdmin)
+                    <form method="POST" action="{{ route('novels.undo_conversion', $data->id) }}" class="d-inline"
+                          data-confirm="Put this back in Books, with its own title, author and cover? It will not be moved to Novels again."
+                          data-confirm-title="Back to Books" data-confirm-text="Undo">
+                        @csrf
+                        <button type="submit" class="nv-link-btn">Undo</button>
+                    </form>
+                @endif
+            </p>
+        @endif
     </div>
 
     <div class="nv-about">

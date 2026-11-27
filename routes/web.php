@@ -117,6 +117,8 @@ Route::post('/novels/{id}/tags', [NovelController::class, 'syncTags'])->name('no
 Route::post('/tags', [NovelController::class, 'storeTag'])->name('tags.store');
 Route::get('/novels/{id}/jump', [NovelController::class, 'jumpChapter'])->name('novels.jump_chapter');
 Route::post('/novels/{id}/remove-duplicates', [NovelController::class, 'removeDuplicates'])->name('novels.remove_duplicates');
+// A book moved to Novels by books:webnovel-check, back to Books (App\Books\WebNovelCheck::undo()).
+Route::post('/novels/{id}/undo-conversion', [NovelController::class, 'undoConversion'])->whereNumber('id')->name('novels.undo_conversion');
 Route::delete('/novels/{id}', [NovelController::class, 'destroy'])->name('novels.destroy');
 Route::get('/novels/{id}/epub', [NovelController::class, 'download_epub'])->name('novels.download_epub');
 Route::get('/novels/{id}/metadata/candidates', [\App\Http\Controllers\MetadataController::class, 'candidates'])->name('novels.metadata_candidates');

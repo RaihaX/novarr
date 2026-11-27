@@ -32,6 +32,13 @@ class EpubBuilder
             'subjects' => ['Fantasy', 'England--Fiction', 'Coming of age (Fiction)'],
             'cover' => true,
             'nav' => true,
+            // Provenance (App\Books\WebFictionEvidence): dc:source values, the
+            // publisher, contributors as [name, role], identifiers as
+            // [value, scheme, id] (scheme / id may be null).
+            'sources' => [],
+            'publisher' => 'Small Press',
+            'contributors' => [],
+            'identifiers' => [],
         ], $overrides);
 
         $w = self::words(40);
@@ -71,16 +78,20 @@ class EpubBuilder
 
         $subjects = implode('', array_map(fn($s) => "<dc:subject>{$s}</dc:subject>", $o['subjects']));
         $isbn = $o['isbn'] ? "<dc:identifier id=\"isbn\">urn:isbn:{$o['isbn']}</dc:identifier>" : '';
+        $esc = fn($v) => htmlspecialchars((string) $v, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+        $provenance = implode('', array_map(fn($u) => '<dc:source>' . $esc($u) . '</dc:source>', $o['sources']))
+            . implode('', array_map(fn($c) => '<dc:contributor' . (!empty($c[1]) ? ' opf:role="' . $esc($c[1]) . '"' : '') . '>' . $esc($c[0]) . '</dc:contributor>', $o['contributors']))
+            . implode('', array_map(fn($i) => '<dc:identifier' . (!empty($i[2]) ? ' id="' . $esc($i[2]) . '"' : '') . (!empty($i[1]) ? ' opf:scheme="' . $esc($i[1]) . '"' : '') . '>' . $esc($i[0]) . '</dc:identifier>', $o['identifiers']));
         $files['OEBPS/content.opf'] = '<?xml version="1.0" encoding="UTF-8"?>'
             . '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">'
-            . '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
-            . '<dc:identifier id="uid">urn:uuid:12345678-1234-1234-1234-123456789012</dc:identifier>' . $isbn
+            . '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">'
+            . '<dc:identifier id="uid">urn:uuid:12345678-1234-1234-1234-123456789012</dc:identifier>' . $isbn . $provenance
             . "<dc:title>{$o['title']}</dc:title>"
             . ($o['author'] !== null ? "<dc:creator id=\"a1\">{$o['author']}</dc:creator><meta refines=\"#a1\" property=\"role\">aut</meta>" : '')
             . '<dc:creator id="ill">Ian Illustrator</dc:creator><meta refines="#ill" property="role">ill</meta>'
             . "<dc:language>{$o['language']}</dc:language>"
             . "<dc:description>{$o['description']}</dc:description>"
-            . '<dc:date>2019-04-01</dc:date><dc:publisher>Small Press</dc:publisher>' . $subjects
+            . '<dc:date>2019-04-01</dc:date>' . ($o['publisher'] !== null ? '<dc:publisher>' . $esc($o['publisher']) . '</dc:publisher>' : '') . $subjects
             . '<meta name="calibre:series" content="Orchard Cycle"/><meta name="calibre:series_index" content="2.0"/>'
             . $meta
             . '</metadata>'

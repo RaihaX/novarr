@@ -107,6 +107,39 @@ return [
         // limited), and how many failed lookups in a row end the run early.
         'webnovel_check_delay' => (float) env('NOVARR_BOOKS_WEBNOVEL_CHECK_DELAY', 3),
         'webnovel_check_max_failures' => (int) env('NOVARR_BOOKS_WEBNOVEL_CHECK_MAX_FAILURES', 5),
+        // …and after NovelUpdates, a Royal Road search by title (exact title
+        // and the same author only). Off: NovelUpdates and the ePub only.
+        'webnovel_check_royalroad' => (bool) env('NOVARR_BOOKS_WEBNOVEL_CHECK_ROYALROAD', true),
+        // Web-fiction hosts (App\Books\WebFictionEvidence): a book whose own
+        // ePub names one of these as its source (dc:source, a URL
+        // identifier, a FanFicFare uid, the publisher) is web fiction and
+        // moves to Novels without a lookup. Subdomains count
+        // (forums.spacebattles.com is spacebattles.com). The hosts of
+        // Novarr's own novel sources (`sources` above) are added to the
+        // list. More can be added with NOVARR_BOOKS_WEB_FICTION_HOSTS
+        // (comma-separated).
+        'web_fiction_hosts' => array_values(array_filter(array_merge([
+            // Original (English) web fiction and fan fiction
+            'royalroad.com', 'scribblehub.com', 'storiesonline.net',
+            'spacebattles.com', 'sufficientvelocity.com', 'questionablequesting.com',
+            'archiveofourown.org', 'fanfiction.net', 'fictionpress.com', 'ficwad.com',
+            'wattpad.com', 'tapas.io', 'inkitt.com',
+            // Translated web novels (also in web_fiction_translated_hosts)
+            'webnovel.com', 'wuxiaworld.com', 'novelupdates.com', 'creativenovels.com',
+            'lightnovelpub.com', 'lightnovelworld.com', 'novelbin.com', 'readnovelfull.com',
+            'freewebnovel.com', 'novelfull.com', 'novelfire.net',
+            // Adult story sites: uncomment to move their downloads too.
+            // 'literotica.com', 'asstr.org', 'adult-fanfiction.org',
+        ], array_map('trim', explode(',', (string) env('NOVARR_BOOKS_WEB_FICTION_HOSTS', '')))))),
+        // Of those, the hosts whose stories are translations (Chinese, Korean,
+        // Japanese web novels): converted with origin "translated" instead of
+        // English original web fiction.
+        'web_fiction_translated_hosts' => [
+            'webnovel.com', 'wuxiaworld.com', 'novelupdates.com', 'creativenovels.com',
+            'lightnovelpub.com', 'lightnovelworld.com', 'novelbin.com', 'readnovelfull.com',
+            'freewebnovel.com', 'novelfull.com', 'novelfire.net', 'empirenovel.com',
+            'novelarrow.com', 'novelping.com',
+        ],
         'google_books_key' => (string) env('NOVARR_GOOGLE_BOOKS_KEY', ''),
         'timeout' => (int) env('NOVARR_BOOKS_LOOKUP_TIMEOUT', 15),
         // "Send to Kindle" for Novarr: readers email ePubs to this address

@@ -213,7 +213,7 @@ final class RouteAccess
         'logs.index', 'logs.tail', 'logs.clear', 'logs.download', 'logs.destroy', 'logs.show',
         'novels.create', 'novels.discover', 'novels.discover.browse', 'novels.store', 'novels.edit', 'novels.update',
         'novels.destroy', 'novels.toggle_pause', 'novels.toggle_frequent', 'novels.toggle_complete',
-        'novels.attention_snooze', 'novels.sync_tags', 'tags.store', 'novels.remove_duplicates',
+        'novels.attention_snooze', 'novels.sync_tags', 'tags.store', 'novels.remove_duplicates', 'novels.undo_conversion',
         'novels.metadata_candidates', 'novels.metadata_choose', 'novels.snapshots', 'novels.reading_mode',
         'settings.index', 'settings.update', 'settings.test_email', 'settings.test_flaresolverr',
         'settings.test_notification', 'settings.tailscale_status', 'settings.tailscale_serve', 'settings.tailscale_funnel',

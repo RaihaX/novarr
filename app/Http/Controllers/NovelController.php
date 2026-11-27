@@ -751,6 +751,24 @@ class NovelController extends Controller
     }
 
     /**
+     * Undo: a book that books:webnovel-check moved to Novels goes back to
+     * Books exactly as it was (App\Books\WebNovelCheck::undo()), and is never
+     * moved again. Admin (RouteAccess).
+     */
+    public function undoConversion($id, \App\Books\WebNovelCheck $check)
+    {
+        $novel = $this->novels->findOrFail($id);
+        try {
+            $check->undo($novel);
+        } catch (\RuntimeException $e) {
+            return redirect()->route('novels.show', $novel->id)->with('error', $e->getMessage());
+        }
+
+        return redirect()->route('novels.show', $novel->id)
+            ->with('status', "Back in Books as \"{$novel->name}\". It will not be moved to Novels again.");
+    }
+
+    /**
      * Remove duplicate chapters (same novel + chapter + book), keeping the
      * best copy: prefer a downloaded one, then the earliest.
      */
