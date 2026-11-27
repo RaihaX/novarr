@@ -1,4 +1,4 @@
-# Plan: readers upload audiobooks (with the owner's approval)
+# Plan: readers upload audiobooks (with the owner's approval) + audiobooks on the Storage page
 
 Status: **planned, not started** (2026-11-27). Owner asked: "an upload audiobook for readers that
 want to upload their own audiobook to be part of the Novarr library".
@@ -79,9 +79,46 @@ owner approve → imported + linked + reader email; decline → files gone + ema
 sample streaming admin-only; RouteAccess; tidy-up of abandoned uploads; JS logic (chunk planning,
 retry/backoff, resume state). Android: chunk planner + resume logic unit tests.
 
+## Part 2: audiobooks on the Storage page (System → Storage)
+
+Today the page has one "Audiobooks" line in *Where it goes* (the library folder's total size, from
+`App\Services\StorageUsage`'s `audiobooks` bucket). Make audiobooks a first-class part of it, like
+Web Novels, Manga and Books:
+
+- **Measure each audiobook** in `StorageUsage::measure()`: one `SCOPE_SERIES`-style row per
+  audiobook (scope `audiobook`, key = audiobook id): its parts' bytes (from `audiobook_parts`,
+  checked against the files on disk), cover bytes, part count, duration, linked book id/name.
+  Removed (soft-deleted) audiobooks are counted and flagged "deleted (files still on disk)".
+- **Medium table** ("Web novels, manga and books" → "…and audiobooks"): an **Audiobooks** row —
+  size, count, total hours, average per audiobook, **average per listening hour** (MB/h: shows
+  low-bitrate vs huge FLAC rips), covers.
+- **Biggest series** gets an **Audiobooks** tab: biggest audiobooks with book link, narrator,
+  parts, hours, size, MB per hour.
+- **Book rows include their audiobook**: a book's size line shows "text … · ePub … · audiobook …",
+  and the "All series" ranking counts the book + its audiobook together (with the split shown).
+- **Where it goes** splits the audio into its own buckets so nothing is double-counted or hidden:
+  - *Audiobook library* (`/mnt/manga/novarr-audiobooks`, minus `_uploads`),
+  - *Audiobook uploads waiting* (`_uploads`, from Part 1: pending + in-progress chunks),
+  - *Download inboxes* (`/mnt/audiobooks-inbox` + `/mnt/books-inbox`), with the part that is
+    **still seeding** shown separately ("X GB kept for seeding — a second copy of imported
+    audiobooks"), from Transmission's torrent list (same source as the tidy-up).
+  Note: the inboxes live on the Unraid array (NFS), not Novarr's disks — label them as such and
+  keep them out of the Novarr disk totals.
+- **Disk bars**: the big-HDD bar ("Manga pages + Backups") becomes "Big drive: manga, audiobooks,
+  Calibre books, backups"; add an "Unraid Download share" line (free space via `df` on the NFS
+  mount) so a full array is visible before downloads fail.
+- **Per-book page**: the existing storage line on a book (`StorageUsage::forSeries`) adds its
+  audiobook's size.
+- **Low-space alert**: the existing low-disk owner alert also covers the Unraid share mount, and
+  Part 1's upload limit uses the same free-space reading.
+- **Tests**: measure an audiobook with two parts + cover → its row, medium totals (count, hours,
+  MB/h), Audiobooks tab, book+audiobook combined ranking, uploads/inbox buckets not double-counted,
+  seeding split with a faked Transmission list, NFS share disk line.
+
 ## Order of work
 
 1. Server: migration, chunk API, assembly/probe, owner review + approve/decline, emails, tidy.
 2. Web upload page + book-page button + My requests status.
 3. Deploy, test with a real 1 GB m4b and a folder of MP3s over the public address.
 4. Android 1.15 upload + share.
+5. Part 2: audiobooks on the Storage page (can be done before or alongside 1–3; independent).
