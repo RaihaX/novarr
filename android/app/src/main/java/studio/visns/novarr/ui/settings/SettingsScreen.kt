@@ -65,6 +65,7 @@ import studio.visns.novarr.ui.CategoriesRoute
 import studio.visns.novarr.ui.ChangeServerRoute
 import studio.visns.novarr.ui.DownloadsRoute
 import studio.visns.novarr.ui.ReaderSettingsRoute
+import studio.visns.novarr.ui.StatsRoute
 import studio.visns.novarr.ui.components.LocalApp
 import studio.visns.novarr.ui.components.UpdateRow
 import studio.visns.novarr.ui.components.formatBytes
@@ -139,6 +140,8 @@ fun SettingsScreen(nav: NavController) {
     Scaffold(topBar = { TopAppBar(title = { Text("Settings") }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
             Column(Modifier.readableWidth(720.dp)) {
+                // Streaks, totals and graphs of the reader's own reading and listening.
+                Link("Your stats", trailing = "Streaks, totals, graphs", chevron = true) { nav.navigate(StatsRoute) }
                 Section("Server")
                 Value("Address", active?.server ?: "Not set")
                 Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -55,13 +55,13 @@ class BulkReadStatsTest extends TestCase
 
         $this->get(route('stats.index'))
             ->assertOk()
-            ->assertViewHas('read_total', 30)
-            ->assertViewHas('read_today', 0)
-            ->assertViewHas('read_week', 0)
-            ->assertViewHas('streak', 0)
-            ->assertViewHas('window_chapters', 0)
-            ->assertViewHas('top_novels', fn($top) => $top->isEmpty())
-            ->assertSee('Chapters marked read in bulk count here but not in daily activity.');
+            ->assertViewHas('s', fn($s) => $s['headline']['chapters_read'] === 30
+                && $s['headline']['chapters_today'] === 0
+                && $s['headline']['chapters_week'] === 0
+                && $s['headline']['current_streak'] === 0
+                && $s['range_totals']['chapters'] === 0
+                && $s['top_series'] === [])
+            ->assertSee('Chapters marked read in bulk count in the totals but not as activity.');
     }
 
     public function test_single_reads_still_count_as_activity(): void
@@ -82,9 +82,9 @@ class BulkReadStatsTest extends TestCase
 
         $this->get(route('stats.index'))
             ->assertOk()
-            ->assertViewHas('read_total', 4)
-            ->assertViewHas('read_today', 3)
-            ->assertViewHas('streak', 1);
+            ->assertViewHas('s', fn($s) => $s['headline']['chapters_read'] === 4
+                && $s['headline']['chapters_today'] === 3
+                && $s['headline']['current_streak'] === 1);
     }
 
     public function test_re_marking_a_bulk_row_after_unread_is_a_single_read(): void

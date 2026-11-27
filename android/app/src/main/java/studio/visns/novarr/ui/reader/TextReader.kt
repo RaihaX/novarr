@@ -126,6 +126,7 @@ import studio.visns.novarr.app.AppModel
 import studio.visns.novarr.domain.Highlights
 import studio.visns.novarr.domain.LatestPosition
 import studio.visns.novarr.domain.Pagination
+import studio.visns.novarr.domain.ReadMark
 import studio.visns.novarr.domain.TextOffsets
 import studio.visns.novarr.domain.TextReadingMode
 import studio.visns.novarr.store.OfflineStore
@@ -182,6 +183,7 @@ class TextReaderViewModel(app: AppModel, route: ReaderRoute, saved: SavedStateHa
     override val itemCount: Int get() = content?.paragraphs?.size ?: 0
     override val shownChapterId: Int? get() = content?.id
     override val hasContent: Boolean get() = content?.hasText == true
+    override val nextChapterId: Int? get() = content?.next?.id
 
     init {
         load()
@@ -377,6 +379,17 @@ class TextReaderViewModel(app: AppModel, route: ReaderRoute, saved: SavedStateHa
 
 private const val HEADER_ITEMS = 1
 
+/** The end of a scrolled chapter is in view: its footer, or the bottom of 95% of its paragraphs (ReadMark). */
+private fun endInView(list: androidx.compose.foundation.lazy.LazyListState, footerIndex: Int, paragraphCount: Int, hasText: Boolean): Boolean {
+    val info = list.layoutInfo
+    if (info.visibleItemsInfo.any { it.index == footerIndex }) return true
+    if (!hasText) return false
+    val lastFull = info.visibleItemsInfo
+        .filter { it.index in HEADER_ITEMS until HEADER_ITEMS + paragraphCount && it.offset + it.size <= info.viewportEndOffset + 2 }
+        .maxOfOrNull { it.index - HEADER_ITEMS } ?: -1
+    return ReadMark.textEndReached(lastFull, paragraphCount)
+}
+
 /** The highlights list is read in pages of this size (the server's maximum), up to this many pages. */
 private const val HIGHLIGHTS_PER_PAGE = 200
 private const val HIGHLIGHTS_MAX_PAGES = 10
@@ -570,7 +583,7 @@ private fun ScrollChapterText(
             model.tracking = true
         }
         // Short chapters show the end straight away.
-        if (list.layoutInfo.visibleItemsInfo.any { it.index == footerIndex }) model.endVisible(true)
+        if (endInView(list, footerIndex, paragraphCount, content.hasText)) model.endVisible(true)
     }
     LaunchedEffect(content.id) {
         snapshotFlow { list.firstVisibleItemIndex }
@@ -595,8 +608,9 @@ private fun ScrollChapterText(
                 }
             }
     }
+    // The end: the footer on screen, or the bottom of 95% of the paragraphs (ReadMark).
     LaunchedEffect(content.id) {
-        snapshotFlow { list.layoutInfo.visibleItemsInfo.any { it.index == footerIndex } }
+        snapshotFlow { endInView(list, footerIndex, paragraphCount, content.hasText) }
             .distinctUntilChanged()
             .collect { visible -> model.endVisible(visible) }
     }

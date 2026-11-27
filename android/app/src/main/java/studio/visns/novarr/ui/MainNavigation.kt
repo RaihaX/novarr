@@ -72,6 +72,7 @@ import studio.visns.novarr.ui.components.RequestsIcon
 import studio.visns.novarr.ui.requests.RequestsScreen
 import studio.visns.novarr.ui.settings.DownloadsScreen
 import studio.visns.novarr.ui.settings.SettingsScreen
+import studio.visns.novarr.ui.stats.StatsScreen
 import studio.visns.novarr.ui.theme.LocalEink
 
 // Type-safe routes.
@@ -101,6 +102,9 @@ import studio.visns.novarr.ui.theme.LocalEink
 /** All highlights, or one series' when [novelId] > 0. */
 @Serializable data class HighlightsRoute(val novelId: Int = 0, val novelName: String = "")
 @Serializable data object DownloadsRoute
+
+/** The reader's own stats (Settings › Your stats, Home's stats card). */
+@Serializable data object StatsRoute
 
 /** Reader requests, opened on [section] (Requests.Section's name: SEARCH, MINE, REVIEW). */
 @Serializable data class RequestsRoute(val section: String = "SEARCH")
@@ -327,6 +331,7 @@ private fun NovarrNavHost(nav: NavHostController) {
         }
         composable<HighlightsRoute> { HighlightsScreen(nav, it.toRoute()) }
         composable<DownloadsRoute> { DownloadsScreen(nav) }
+        composable<StatsRoute> { StatsScreen(nav) }
         composable<WantToReadRoute> { WantToReadScreen(nav) }
         composable<FolderRoute> { FolderScreen(nav, it.toRoute<FolderRoute>().id) }
         composable<CategoriesRoute> { ManageCategoriesScreen(nav) }

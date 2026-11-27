@@ -244,7 +244,7 @@ class UiP2Test extends TestCase
     {
         $html = $this->get(route('stats.index'))->assertOk()->getContent();
         $this->assertStringNotContainsString('value-amber', $html);
-        $this->assertSame(4, substr_count($html, 'class="dash-stat-value text-muted"'));
+        $this->assertSame(6, substr_count($html, 'class="dash-stat-value text-muted"'));
 
         $novel = $this->novel();
         $c = $this->chapter($novel, 1);
@@ -252,7 +252,8 @@ class UiP2Test extends TestCase
         \Illuminate\Support\Facades\Cache::flush();
 
         $html = $this->get(route('stats.index'))->assertOk()->getContent();
-        $this->assertMatchesRegularExpression('#class="dash-stat-value value-amber">1</div>\s*<div class="dash-stat-label">Chapters today#', $html);
+        $this->assertMatchesRegularExpression('#class="dash-stat-value value-amber">1<span class="dash-stat-unit">day</span></div>\s*<div class="dash-stat-label">Current streak#', $html);
+        $this->assertMatchesRegularExpression('#class="dash-stat-value ">1</div>\s*<div class="dash-stat-label">Chapters read#', $html);
     }
 
     public function test_pending_chapter_kicker_has_no_dangling_separator(): void

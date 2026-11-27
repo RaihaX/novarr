@@ -22,6 +22,9 @@ use Illuminate\Support\Facades\DB;
  * back. The age check and the write are one statement (no race between
  * two devices). The row also keeps the device, client and address of the
  * write (App\Support\ReadingClient), as chapter progress does.
+ *
+ * An applied write also adds the time listened since the reader's previous
+ * position in the book (App\Audiobooks\ListeningTime) to their stats.
  */
 class ListeningProgress
 {
@@ -81,6 +84,9 @@ class ListeningProgress
             $values['finished_at'] = $finished ? $at : null;
         }
 
+        // The previous position, for the time listened since (ListeningTime).
+        $previous = $this->get($userId, (int) $audiobook->id);
+
         $applied = $this->updateIfNotNewer($userId, (int) $audiobook->id, $values) > 0;
         if (!$applied && $this->get($userId, (int) $audiobook->id) === null) {
             try {
@@ -90,6 +96,17 @@ class ListeningProgress
                 // Another write made the row first: ours applies if it is not older.
                 $applied = $this->updateIfNotNewer($userId, (int) $audiobook->id, $values) > 0;
             }
+        }
+
+        if ($applied && $previous !== null && $previous->updated_at !== null) {
+            $seconds = ListeningTime::listenedSeconds(
+                (int) $previous->position_ms,
+                Carbon::parse($previous->updated_at, $now->getTimezone()),
+                (int) $values['position_ms'],
+                $at,
+                (float) $values['speed'],
+            );
+            app(ListeningTime::class)->add($userId, (int) $audiobook->id, $at, $seconds);
         }
 
         return ['row' => $this->get($userId, (int) $audiobook->id), 'stale' => !$applied];

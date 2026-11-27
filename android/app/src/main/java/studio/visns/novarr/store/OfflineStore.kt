@@ -19,6 +19,7 @@ import studio.visns.novarr.api.NovarrJson
 import studio.visns.novarr.api.NovelDetail
 import studio.visns.novarr.api.NovelSummary
 import studio.visns.novarr.api.ReadingList
+import studio.visns.novarr.api.ReadingStats
 import studio.visns.novarr.api.ServerUrl
 import studio.visns.novarr.api.WantToReadEnvelope
 
@@ -62,6 +63,9 @@ class OfflineStore(val root: File) {
 
             const val FIRST_LIST = "_first"
             private fun safe(part: String) = part.filter { it.isLetterOrDigit() || it == '_' || it == '-' }.ifEmpty { "_" }
+
+            /** The last Stats answer per range (30, 90, 365), so the screen and Home's card show offline. */
+            fun stats(range: Int) = Key("stats/$range.json", ReadingStats.serializer())
 
             /** An audiobook as last fetched (its part URLs may have expired: local files or a fresh fetch play). */
             fun audiobook(id: Int) = Key("audiobooks/$id/detail.json", AudiobookDetail.serializer())

@@ -38,6 +38,9 @@ class ReadState
 {
     public const TABLE = 'chapter_reads';
 
+    /** A position at or past this (0–100) counts as finishing the chapter (recordProgress()). */
+    public const FINISHED_PROGRESS = 98;
+
     /** Prefix of the columns join() selects, turned back into state by attachJoined(). */
     private const JOINED_PREFIX = 'cr_';
 
@@ -272,6 +275,12 @@ class ReadState
      * search to check a passage): that mark is manual, not activity, so it
      * does not move Continue (ResumePoint). $client is stamped on the row
      * when this call marks it read.
+     *
+     * A position of FINISHED_PROGRESS or more is a finished chapter: it
+     * marks the chapter read as if $markRead were set, so a client that lost
+     * or never sent its read flag (Android before 1.17 moving on with Next
+     * chapter) still ends up read. Look-ups never store a position, so they
+     * pass $progress = null and are unaffected.
      */
     public function recordProgress(NovelChapter $chapter, ?int $progress, bool $markRead, CarbonInterface $at, ?int $userId = null, bool $lookup = false, ?ReadingClient $client = null): bool
     {
@@ -290,7 +299,8 @@ class ReadState
                 $stale = true;
             }
         }
-        $markRead = $markRead && $chapter->status && $current?->read_at === null;
+        $markRead = ($markRead || ($progress !== null && $progress >= self::FINISHED_PROGRESS))
+            && $chapter->status && $current?->read_at === null;
         if ($markRead) {
             $values['read_at'] = now();
             $values['bulk'] = false;

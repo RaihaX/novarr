@@ -1,0 +1,257 @@
+// ---------------------------------------------------------------------------
+// Stats 2.0 — stats/index (App\Services\ReaderStats). Server-drawn charts:
+// HTML bars (.bar-chart, see _views.scss) in three tones, an SVG heatmap
+// and donut, horizontal genre bars, ranked lists and milestone badges.
+// Amber stays the reading colour; listening is cyan ($pending); patterns
+// (hour, weekday) are indigo. Media: novel indigo, manga violet, book cyan,
+// audiobook green.
+// ---------------------------------------------------------------------------
+
+$stats-novel: $brand-indigo;
+$stats-manga: $brand-violet;
+$stats-book: $pending;
+$stats-audio: $success;
+
+.stats-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: $s-3;
+}
+
+.stats-range .btn { min-width: 76px; }
+
+.stats-tiles {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: $s-3;
+
+    @media (min-width: 768px) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    @media (min-width: 1200px) { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+
+    .stats-tile { height: 100%; }
+    .stats-tile.is-hero .dash-stat-value { font-size: 2.1rem; }
+    .health-detail { color: $text-muted; font-size: $fs-micro; margin-top: 2px; }
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: $s-4;
+
+    @media (min-width: 992px) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    > .card { margin: 0; }
+}
+
+// Bar chart tones.
+.stats-bars.is-listen .bar-chart-bar { background: $stats-book; }
+.stats-bars.is-listen .bar-chart-col:hover .bar-chart-bar { background: $stats-book; filter: brightness(1.15); }
+.stats-bars.is-pattern .bar-chart-bar { background: $brand-indigo; }
+.stats-bars.is-pattern .bar-chart-col:hover .bar-chart-bar { background: $brand-violet; }
+.stats-bars { grid-template-rows: 180px auto; }
+
+// Heatmap.
+.stats-heatmap-scroll {
+    overflow-x: auto;
+    padding-bottom: $s-2;
+    scrollbar-width: thin;
+}
+
+.stats-heatmap {
+    display: block;
+
+    .hm-label { font-family: $font-mono; font-size: 10px; fill: $text-muted; }
+    rect { shape-rendering: geometricPrecision; }
+}
+
+.hm-0 { fill: $surface-alt; background: $surface-alt; }
+.hm-1 { fill: rgba($brand-amber, 0.28); background: rgba($brand-amber, 0.28); }
+.hm-2 { fill: rgba($brand-amber, 0.5); background: rgba($brand-amber, 0.5); }
+.hm-3 { fill: rgba($brand-amber, 0.75); background: rgba($brand-amber, 0.75); }
+.hm-4 { fill: $brand-amber; background: $brand-amber; }
+
+.hm-legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    margin-top: $s-2;
+    font-family: $font-mono;
+    font-size: $fs-micro;
+    color: $text-muted;
+}
+
+.hm-swatch { display: inline-block; width: 11px; height: 11px; border-radius: 2px; }
+
+// Donut.
+.stats-donut-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $s-5;
+}
+
+.stats-donut {
+    flex: none;
+
+    .donut-track { fill: none; stroke: $surface-alt; stroke-width: 22; }
+    .donut-arc { fill: none; stroke-width: 22; }
+    .donut-arc.is-novel { stroke: $stats-novel; }
+    .donut-arc.is-manga { stroke: $stats-manga; }
+    .donut-arc.is-book { stroke: $stats-book; }
+    .donut-arc.is-audio { stroke: $stats-audio; }
+    .donut-total { font-family: $font-mono; font-size: 15px; fill: $text; }
+    .donut-caption { font-size: 11px; fill: $text-muted; }
+}
+
+.legend-dot {
+    flex: none;
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: $text-muted;
+
+    &.is-novel { background: $stats-novel; }
+    &.is-manga { background: $stats-manga; }
+    &.is-book { background: $stats-book; }
+    &.is-audio { background: $stats-audio; }
+}
+
+.stats-legend {
+    flex: 1 1 180px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+
+    li {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: $s-2;
+        padding: 6px 0;
+        border-bottom: $hairline solid $border;
+    }
+    li:last-child { border-bottom: 0; }
+    .legend-figure { font-family: $font-mono; color: $text; }
+    .legend-detail { font-family: $font-mono; font-size: $fs-micro; color: $text-muted; min-width: 7ch; text-align: right; }
+}
+
+// Horizontal bars (genres).
+.stats-hbars {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+
+    li {
+        display: grid;
+        grid-template-columns: minmax(90px, 30%) minmax(0, 1fr) auto;
+        align-items: center;
+        gap: $s-3;
+        padding: 5px 0;
+    }
+    .hbar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hbar-track { height: 10px; background: $surface-alt; border-radius: 5px; overflow: hidden; }
+    .hbar-fill { display: block; height: 100%; background: $brand-gradient; border-radius: 5px; }
+    .hbar-figure { font-family: $font-mono; font-size: $fs-micro; color: $text-muted; min-width: 8ch; text-align: right; }
+}
+
+// Ranked lists.
+.stats-rank {
+    list-style: none;
+    margin: 0;
+    padding: 0 $s-4 $s-2;
+
+    li {
+        display: grid;
+        grid-template-columns: 2ch minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: $s-3;
+        padding: 9px 0;
+        border-bottom: $hairline solid $border;
+    }
+    li:last-child { border-bottom: 0; }
+    .rank-no { font-family: $font-mono; color: $text-muted; text-align: right; }
+    .rank-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rank-figure { font-family: $font-mono; color: $brand-amber; min-width: 7ch; text-align: right; }
+}
+
+// Year in review.
+.stats-year {
+    background:
+        radial-gradient(120% 140% at 0% 0%, rgba($brand-indigo, 0.16), transparent 60%),
+        radial-gradient(120% 140% at 100% 100%, rgba($brand-violet, 0.14), transparent 60%),
+        $surface;
+}
+
+.stats-year-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: $s-4;
+    margin-bottom: $s-4;
+
+    @media (min-width: 768px) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+
+    > div { display: flex; flex-direction: column; }
+    .year-figure { font-family: $font-mono; font-size: 1.9rem; line-height: 1.1; color: $text; }
+    .year-label { color: $text-muted; font-size: $fs-micro; text-transform: uppercase; letter-spacing: 0.06em; }
+}
+
+.stats-year-line { color: $text; }
+
+// Milestones.
+.stats-badges {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: $s-3;
+}
+
+.stats-badge {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: $s-3;
+    border: $hairline solid $border;
+    border-radius: $radius;
+    background: $surface-alt;
+    opacity: 0.85;
+
+    .badge-mark { font-size: 1.2rem; color: $text-muted; line-height: 1; }
+    .badge-title { font-weight: 600; color: $text; }
+    .badge-detail { font-size: $fs-micro; color: $text-muted; }
+    .badge-progress { display: block; height: 4px; margin-top: 4px; background: $border; border-radius: 2px; overflow: hidden; }
+    .badge-progress span { display: block; height: 100%; background: $brand-amber; }
+    .badge-count { font-family: $font-mono; font-size: $fs-micro; color: $text-muted; }
+
+    &.is-earned {
+        opacity: 1;
+        border-color: rgba($brand-amber, 0.55);
+        background: linear-gradient(160deg, rgba($brand-amber, 0.14), transparent 70%), $surface;
+
+        .badge-mark { color: $brand-amber; }
+    }
+}
+
+// Phones: nothing may widen the page (cards are flex columns, so their
+// bodies would grow to the heatmap's width without min-width: 0).
+.stats-tiles .card,
+.stats-grid .card,
+.stats-heatmap-scroll { min-width: 0; max-width: 100%; }
+.stats-tiles + * .card-body,
+.card-body:has(> .stats-heatmap-scroll) { min-width: 0; }
+
+@media (max-width: 575.98px) {
+    .stats-toolbar { align-items: flex-start; }
+    .stats-range { width: 100%; }
+    .stats-range .btn { flex: 1 1 0; min-width: 0; }
+    .stats-tiles .dash-stat-value { font-size: 1.5rem; }
+    .stats-tiles .stats-tile.is-hero .dash-stat-value { font-size: 1.7rem; }
+    .stats-year-grid .year-figure { font-size: 1.5rem; }
+    .panel-head .chart-note { flex-basis: 100%; }
+}
+
+.stats-rank-table .legend-dot { margin-right: 6px; vertical-align: middle; }

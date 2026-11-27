@@ -1,5 +1,8 @@
 package studio.visns.novarr.ui.home
 
+import studio.visns.novarr.ui.StatsRoute
+import studio.visns.novarr.ui.stats.HomeStatsCard
+import studio.visns.novarr.ui.stats.StatsCardViewModel
 import studio.visns.novarr.ui.theme.LocalEink
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -266,6 +269,14 @@ fun HomeScreen(nav: NavController, statsCard: (@Composable () -> Unit)? = null) 
     val app = LocalApp.current
     val model = viewModel { HomeViewModel(app) }
     val revision by app.readStateRevision.collectAsStateWithLifecycle()
+    // "Your stats" (1.17): today's figures and the streak, from the 30-day answer (saved copy, then fresh),
+    // drawn in the STATS SLOT unless the caller passes its own card. Hidden on servers without stats
+    // or with nothing read yet.
+    val statsModel = viewModel { StatsCardViewModel(app) }
+    LaunchedEffect(revision) { statsModel.refreshIfStale() }
+    val yourStats: (@Composable () -> Unit)? = statsCard ?: statsModel.stats?.takeIf { !it.isEmpty }?.let { stats ->
+        { HomeStatsCard(stats, Modifier) { nav.navigate(StatsRoute) } }
+    }
     LaunchedEffect(revision) { model.refreshIfStale() }
     // Reading queued (or sent) since: Continue follows it without a reload, offline too.
     val queueRevision by app.queueRevision.collectAsStateWithLifecycle()
@@ -364,7 +375,7 @@ fun HomeScreen(nav: NavController, statsCard: (@Composable () -> Unit)? = null) 
                             layout = layout,
                             listsOffered = listsOffered,
                             listsLoaded = listsLoaded,
-                            hasStats = statsCard != null,
+                            hasStats = yourStats != null,
                             wantToReadShelf = feed.wantToRead.isNotEmpty(),
                         )
                         // Pick up where you left off: compact, one row (Settings › Home can hide either half).
@@ -377,7 +388,7 @@ fun HomeScreen(nav: NavController, statsCard: (@Composable () -> Unit)? = null) 
                             when (section) {
                                 HomeShelves.Section.Search -> Unit
                                 // STATS SLOT: the card the Stats feature passes to HomeScreen(statsCard = …), right after Search.
-                                HomeShelves.Section.Stats -> statsCard?.let { card ->
+                                HomeShelves.Section.Stats -> yourStats?.let { card ->
                                     item(key = section.key) { Box(Modifier.readableWidth(1000.dp).padding(bottom = 12.dp)) { card() } }
                                 }
                                 HomeShelves.Section.FirstCategory -> item(key = section.key) {

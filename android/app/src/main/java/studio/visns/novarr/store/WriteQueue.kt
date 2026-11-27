@@ -149,6 +149,26 @@ class WriteQueue(private val file: File, private val now: () -> Long = System::c
      * failure (or a 401) so ordering is preserved.
      */
     suspend fun flush(send: suspend (WriteKind, Long) -> Unit): FlushOutcome {
+        var total = flushOnce(send)
+        // A write queued while this flush was finishing (after it found the
+        // queue empty, before it let go) had its own flush turned away as
+        // Busy: without another pass it would wait for the next trigger,
+        // which may never come (the reader's last write, a read mark).
+        while (total is FlushOutcome.Drained && count() > 0) {
+            val again = flushOnce(send)
+            if (again !is FlushOutcome.Drained) {
+                return when (again) {
+                    is FlushOutcome.Stalled -> again.copy(sent = again.sent + total.sent)
+                    is FlushOutcome.Unauthenticated -> again.copy(sent = again.sent + total.sent)
+                    else -> total
+                }
+            }
+            total = FlushOutcome.Drained(total.sent + again.sent, total.dropped + again.dropped)
+        }
+        return total
+    }
+
+    private suspend fun flushOnce(send: suspend (WriteKind, Long) -> Unit): FlushOutcome {
         if (!flushing.tryLock()) return FlushOutcome.Busy
         try {
             var sent = 0
