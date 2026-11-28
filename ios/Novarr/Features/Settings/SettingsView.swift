@@ -18,9 +18,13 @@ struct SettingsView: View {
                 LabeledContent("Address", value: app.serverURL?.absoluteString ?? "Not set")
                     .textSelection(.enabled)
                 LabeledContent("Status") {
-                    Label(app.isReachable ? "Connected" : "Unreachable",
-                          systemImage: app.isReachable ? "checkmark.circle.fill" : "icloud.slash")
-                        .foregroundStyle(app.isReachable ? Color.green : Color.orange)
+                    // An HStack, not a Label: a Label here made the row very tall on iOS 26+.
+                    HStack(spacing: 6) {
+                        Image(systemName: app.isReachable ? "checkmark.circle.fill" : "icloud.slash")
+                        Text(app.isReachable ? "Connected" : "Unreachable")
+                    }
+                    .foregroundStyle(app.isReachable ? Color.green : Color.orange)
+                    .fixedSize()
                 }
                 Button("Change Server…") { showConnect = true }
             }
