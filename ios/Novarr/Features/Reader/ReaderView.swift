@@ -244,12 +244,19 @@ struct ReaderView: View {
                     .foregroundStyle(theme.secondaryText)
                     .multilineTextAlignment(.center)
             } else if content.downloaded {
-                Text("You're all caught up.")
-                    .font(.ui(.footnote))
-                    .foregroundStyle(theme.secondaryText)
-                CheckForChaptersControl(novelId: model.novelId, compact: true)
-                    .foregroundStyle(theme.secondaryText)
-                Button("Back to novel") { dismiss() }
+                if model.isBook {
+                    // A book is complete on arrival: nothing to check for.
+                    Text("The end.")
+                        .font(.ui(.footnote))
+                        .foregroundStyle(theme.secondaryText)
+                } else {
+                    Text("You're all caught up.")
+                        .font(.ui(.footnote))
+                        .foregroundStyle(theme.secondaryText)
+                    CheckForChaptersControl(novelId: model.novelId, compact: true)
+                        .foregroundStyle(theme.secondaryText)
+                }
+                Button("Back to series") { dismiss() }
                     .font(.ui(.footnote, .semibold))
             }
         }
@@ -276,9 +283,9 @@ struct ReaderView: View {
     /// Shown for a moment before the manga reader takes over.
     private var mangaNotice: some View {
         ContentUnavailableView {
-            Label("This is a manga chapter", systemImage: "photo.on.rectangle")
+            Label("This chapter is page images", systemImage: "photo.on.rectangle")
         } description: {
-            Text("Opening it in the manga reader…")
+            Text("Opening it in the page reader…")
         }
         .foregroundStyle(theme.text)
         .task {

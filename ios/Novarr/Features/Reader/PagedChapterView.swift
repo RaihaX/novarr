@@ -227,7 +227,7 @@ struct PagedChapterView<Header: View, Footer: View>: View {
         // The restored page, or one a re-pagination moved to, is not a new
         // position (reporting its first line would creep backwards); only
         // the end still counts.
-        if let current = measured, page >= textPages(current) - 1 { model.reachedEnd(app: app) }
+        if let current = measured { model.endVisible(page >= textPages(current) - 1, app: app) }
         #if DEBUG
         await debugTurns()
         #endif
@@ -295,9 +295,10 @@ struct PagedChapterView<Header: View, Footer: View>: View {
         // The place is kept even before tracking starts, so a re-pagination stays on this text.
         model.anchorOffset = index < texts ? measured.pages[index].startOffset : model.offsets.total
         guard report else { return }
-        if index >= texts - 1 {
-            model.reachedEnd(app: app)
-        } else {
+        // The last text page (or the end page after it) is the end of the chapter.
+        let last = index >= texts - 1
+        model.endVisible(last, app: app)
+        if !last {
             let start = measured.pages[index].startOffset
             model.scrolled(toParagraph: model.offsets.paragraphAt(start), offset: start, app: app)
         }

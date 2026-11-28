@@ -26,12 +26,9 @@ final class MangaReaderModel {
     /// Asks the view to show a page (restore, "Go to latest", a mode change).
     private(set) var scrollRequest: ReaderModel.ScrollRequest?
 
-    @ObservationIgnored private var pendingProgress: Int?
-    @ObservationIgnored private var lastSentProgress: Int?
-    @ObservationIgnored private var lastSentAt = Date.distantPast
+    /// The progress-write rules (throttling, the read mark once).
+    @ObservationIgnored private var tracker = ProgressTracker()
     @ObservationIgnored private var sendTask: Task<Void, Never>?
-    @ObservationIgnored private var markedRead = false
-    @ObservationIgnored private var pendingSince: Date?
     @ObservationIgnored private let offersLatest: Bool
     @ObservationIgnored private var firstCheckStarted = false
     @ObservationIgnored private var fetchedPosition: ReadingPosition?
@@ -79,10 +76,7 @@ final class MangaReaderModel {
     func load(app: AppModel) async {
         phase = .loading
         isTracking = false
-        markedRead = false
-        pendingProgress = nil
-        pendingSince = nil
-        lastSentProgress = nil
+        tracker.reset(read: false, progress: nil)
         scrollRequest = nil
         server = app.serverURL
         override = MangaModeOverride.stored(server: server, novelId: novelId)
@@ -139,14 +133,22 @@ final class MangaReaderModel {
         }
         pages = chapter
         currentPage = restore ?? 0
-        markedRead = chapter.chapter.read
-        lastSentProgress = chapter.chapter.progress
+        tracker.reset(read: chapter.chapter.read, progress: chapter.chapter.progress)
         scrollRequest = ReaderModel.ScrollRequest(index: currentPage)
         phase = .loaded
         await evaluateLatestOffer(app: app)
     }
 
-    func go(to ref: ChapterRef, app: AppModel) async {
+    /// Opens `ref`. Moving on to the open chapter's next chapter (Next
+    /// chapter in the bars or on the end page, a tap or swipe past the last
+    /// page) finishes the one being left first: it is marked read
+    /// (`ReadMark`), even if its last page never reached the tracker.
+    /// `finishing` false: a jump that says nothing about this chapter ("Go to latest").
+    func go(to ref: ChapterRef, finishing: Bool = true, app: AppModel) async {
+        let loaded = phase == .loaded && pages?.chapter.id == chapterId && !(pages?.pages.isEmpty ?? true)
+        if finishing, ReadMark.finishesOnOpen(target: ref.id, next: pages?.next?.id, loaded: loaded) {
+            markFinished(app: app)
+        }
         // Moving on answers the prompt ("stay") as far as this reader is concerned.
         latestOffer = nil
         apply(hold.moveOn(), app: app)
@@ -159,8 +161,8 @@ final class MangaReaderModel {
     // MARK: Progress
 
     /// A page is on screen (paged: the page turned to; vertical: the top
-    /// page, or the last one once its end is in view). The last page is the
-    /// end of the chapter (the read mark), not a position.
+    /// page, or the last one once its bottom is in view). The last page is
+    /// the end of the chapter (the read mark), not a position.
     func pageShown(_ index: Int, app: AppModel) {
         currentPage = index
         guard isTracking, pageCount > 0 else { return }
@@ -168,28 +170,40 @@ final class MangaReaderModel {
             reachedEnd(app: app)
             return
         }
-        pendingProgress = MangaProgress.progress(page: index, count: pageCount)
-        // Held positions don't date local reading: they'd hide the very prompt the hold waits for.
-        guard !hold.isHolding else { return }
-        if pendingSince == nil { pendingSince = Date() }
-        scheduleSend(app: app)
+        switch tracker.moved(MangaProgress.progress(page: index, count: pageCount), now: Date(),
+                             holding: hold.isHolding) {
+        case .sendNow:
+            sendTask?.cancel()
+            sendTask = Task { await sendPending(app: app) }
+        case .sendAfter(let delay):
+            sendTask?.cancel()
+            sendTask = Task {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                await sendPending(app: app)
+            }
+        case .alreadyScheduled, .held:
+            break
+        }
     }
 
+    /// The last page is on screen: mark the chapter read, once.
     func reachedEnd(app: AppModel) {
-        guard isTracking, var current = pages, !current.pages.isEmpty else { return }
+        guard isTracking, let current = pages, !current.pages.isEmpty else { return }
+        markFinished(app: app)
+    }
+
+    /// Marks the open chapter read (once): position 100 with the read flag,
+    /// queued like any write. The read mark goes out regardless of the hold,
+    /// and answers any prompt.
+    private func markFinished(app: AppModel) {
         sendTask?.cancel()
         sendTask = nil
-        pendingProgress = nil
-        pendingSince = nil
-        guard !markedRead else { return }
-        markedRead = true
-        // The read mark goes out regardless of the hold, and answers any prompt.
+        guard var current = pages, tracker.reachedEnd(now: Date()) else { return }
         if latestOffer != nil {
             latestOffer = nil
             apply(hold.dismissOffer(), app: app)
         }
-        lastSentProgress = 100
-        lastSentAt = Date()
         current.chapter.read = true
         current.chapter.progress = 100
         pages = current
@@ -211,9 +225,14 @@ final class MangaReaderModel {
         }
     }
 
+    /// Carries out what the hold says about the unsent position: once
+    /// nothing holds it, it goes out straight away.
     private func apply(_ release: PositionHold.Release, app: AppModel) {
         switch release {
-        case .send: if pendingProgress != nil { scheduleSend(app: app) }
+        case .send:
+            guard tracker.pending != nil else { return }
+            sendTask?.cancel()
+            sendTask = Task { await sendPending(app: app) }
         case .discard: discardPending()
         case .keep: break
         }
@@ -222,33 +241,11 @@ final class MangaReaderModel {
     private func discardPending() {
         sendTask?.cancel()
         sendTask = nil
-        pendingProgress = nil
-        pendingSince = nil
-    }
-
-    private func scheduleSend(app: AppModel) {
-        let elapsed = Date().timeIntervalSince(lastSentAt)
-        if elapsed >= ReaderModel.progressInterval {
-            sendTask?.cancel()
-            sendTask = Task { await sendPending(app: app) }
-        } else if sendTask == nil {
-            let delay = ReaderModel.progressInterval - elapsed
-            sendTask = Task {
-                try? await Task.sleep(for: .seconds(delay))
-                guard !Task.isCancelled else { return }
-                await sendPending(app: app)
-            }
-        }
+        tracker.discardPending()
     }
 
     private func sendPending(app: AppModel) async {
-        sendTask = nil
-        guard !hold.isHolding, let progress = pendingProgress else { return }
-        pendingProgress = nil
-        pendingSince = nil
-        guard progress != lastSentProgress else { return }
-        lastSentProgress = progress
-        lastSentAt = Date()
+        guard let progress = tracker.takePending(now: Date(), holding: hold.isHolding) else { return }
         let id = chapterId
         await app.store?.updateChapterState(id: id, novelId: novelId, progress: progress, read: nil)
         await app.record(.progress(chapterId: id, progress: progress, read: false), novelId: novelId)
@@ -302,7 +299,7 @@ final class MangaReaderModel {
         guard phase == .loaded, pages?.chapter.id == check.chapterId else { return }
 
         var localTimes = await app.unsentWriteTimes(novelId: novelId)
-        if let pendingSince { localTimes.append(pendingSince) }
+        if let pendingSince = tracker.pendingSince { localTimes.append(pendingSince) }
         let localNewer = LatestPosition.localIsNewer(
             localWriteTimes: localTimes, ageSeconds: position.ageSeconds, now: Date())
         var canOpen = position.chapterId == check.chapterId || position.downloaded == true
@@ -316,7 +313,7 @@ final class MangaReaderModel {
         }
         let offered = LatestPosition.shouldOffer(
             position: position, deviceID: app.device.id, chapterID: check.chapterId,
-            localProgress: pendingProgress ?? lastSentProgress ?? pages?.chapter.progress, localNewer: localNewer,
+            localProgress: tracker.current ?? pages?.chapter.progress, localNewer: localNewer,
             declinedAt: app.declinedLatestPosition(novelId: novelId), canOpen: canOpen)
         if offered {
             latestOffer = ReaderModel.LatestOffer(position: position, message: LatestPosition.message(for: position))
@@ -339,7 +336,7 @@ final class MangaReaderModel {
             scrollRequest = ReaderModel.ScrollRequest(index: MangaProgress.page(progress: progress, count: pageCount) ?? 0)
         } else {
             forcedProgress = (target.chapterId, target.progress ?? 0)
-            await go(to: ChapterRef(id: target.chapterId, label: ""), app: app)
+            await go(to: ChapterRef(id: target.chapterId, label: ""), finishing: false, app: app)
         }
     }
 
