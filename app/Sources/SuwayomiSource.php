@@ -100,9 +100,49 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDis
         return 'suwayomi';
     }
 
+    /**
+     * Manga, or comic for a scoped instance of a comic source
+     * (comicSources()). The registered, unscoped instance says manga: a
+     * series URL's own medium is mediumForUrl().
+     */
     public function medium(): string
     {
-        return Novel::MEDIUM_MANGA;
+        return self::isComicSource($this->sourceName) ? Novel::MEDIUM_COMIC : Novel::MEDIUM_MANGA;
+    }
+
+    /**
+     * The medium of a series on the server: comic when its Suwayomi source
+     * is a comic source, else manga. One cheap query (Suwayomi answers from
+     * its own database), its answer kept a day per manga; manga when the
+     * server could not say or no comic source is configured.
+     */
+    public function mediumForUrl(string $url): string
+    {
+        $id = self::mangaId($url);
+        if ($id === null || self::comicSources() === []) {
+            return Novel::MEDIUM_MANGA;
+        }
+
+        $key = 'suwayomi_manga_source_v1_' . md5(self::baseUrl()) . '_' . $id;
+        try {
+            $name = Cache::get($key);
+        } catch (\Throwable $e) {
+            $name = null;
+        }
+        if (!is_string($name)) {
+            $data = $this->graphql(self::QUERY_MANGA_SOURCE, ['id' => $id], min(self::SOURCE_REF_TIMEOUT, self::timeout()));
+            if (!isset($data['manga'])) {
+                return Novel::MEDIUM_MANGA;
+            }
+            $name = trim((string) ($data['manga']['source']['name'] ?? ''));
+            try {
+                Cache::put($key, $name, 86400);
+            } catch (\Throwable $e) {
+                // Uncached is fine.
+            }
+        }
+
+        return self::isComicSource($name) ? Novel::MEDIUM_COMIC : Novel::MEDIUM_MANGA;
     }
 
     /** The Suwayomi source this instance lists on Discover, or null. */
@@ -156,6 +196,26 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDis
             fn($n) => mb_strtolower(trim((string) $n)),
             (array) config('novarr.suwayomi.exclude_sources', [])
         ), fn($n) => $n !== ''));
+    }
+
+    /**
+     * Suwayomi source names whose series are comics, lower-cased, in the
+     * configured (preference) order: config novarr.suwayomi.comic_sources.
+     */
+    public static function comicSources(): array
+    {
+        return array_values(array_filter(array_map(
+            fn($n) => mb_strtolower(trim((string) $n)),
+            (array) config('novarr.suwayomi.comic_sources', [])
+        ), fn($n) => $n !== ''));
+    }
+
+    /** Is this Suwayomi source name a comic source? Case-insensitive. Pure but for config. */
+    public static function isComicSource(?string $name): bool
+    {
+        $name = mb_strtolower(trim((string) $name));
+
+        return $name !== '' && in_array($name, self::comicSources(), true);
     }
 
     // ---- URLs ----------------------------------------------------------------
@@ -568,8 +628,9 @@ class SuwayomiSource extends AbstractSource implements ExpandsDiscover, PagedDis
             'image' => $cover,
             'genres' => normalizeGenres($genres),
             'cover_candidates' => $cover !== '' ? [$cover] : [],
-            // Japanese right-to-left unless the genres say long strip.
-            'reading_mode' => $vertical ? 'vertical' : 'rtl',
+            // Japanese right-to-left unless the genres say long strip; a
+            // comic source's series (western comics) left to right.
+            'reading_mode' => self::isComicSource((string) ($manga['source']['name'] ?? '')) ? 'ltr' : ($vertical ? 'vertical' : 'rtl'),
         ];
 
         // The site behind the server: the novel's download lane.

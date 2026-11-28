@@ -86,7 +86,7 @@ class AddSeries
         $novel->group_id = 1;
         $novel->medium = $medium;
         $novel->save();
-        if (!$novel->isManga()) {
+        if (!$novel->hasPages()) {
             $novel->inferOrigin();
         }
 

@@ -381,6 +381,10 @@ class Requests
             $this->queueFindCandidates($request, (array) ($fields['alt_titles'] ?? []));
         } elseif ($request->medium === Novel::MEDIUM_MANGA && $request->candidateList() !== []) {
             $this->queueRanking($request);
+        } elseif ($request->medium === Novel::MEDIUM_COMIC && \App\Comics\SuwayomiComicFinder::enabled()) {
+            // Look it up on the Suwayomi comic sources; a clear match is
+            // added and downloaded (FindRequestCandidates → findComic()).
+            $this->queueFindCandidates($request);
         }
 
         return $made;
@@ -524,8 +528,12 @@ class Requests
 
         // A comic arrives through the comics inbox (a download or a drop-in),
         // which approves its request; the owner may also point it at a comic
-        // series already in the library (novel_id).
-        if ($request->isComic() && !isset($data['novel_id'])) {
+        // series already in the library (novel_id), or add it from a
+        // Suwayomi comic source (a url, or a candidate, on the server).
+        if ($request->isComic() && !isset($data['novel_id'])
+            && \App\Sources\SuwayomiSource::mangaId(isset($data['url'])
+                ? (string) $data['url']
+                : (string) ($request->candidateList()[(int) ($data['candidate'] ?? 0)]['url'] ?? '')) === null) {
             throw new RequestRefused(422, 'A requested comic is added when it is downloaded or dropped into the comics inbox (Manage comics), or approve it with a comic series already in the library.', 'comic_import', [
                 'manage_url' => route('comics.manage', [], false),
             ]);
@@ -670,6 +678,64 @@ class Requests
         } catch (\Throwable $e) {
             Log::warning("Request {$request->id}: finding candidates not queued: " . $e->getMessage());
         }
+    }
+
+    /**
+     * A pending comic request looked up on the Suwayomi comic sources
+     * (App\Comics\SuwayomiComicFinder): the matches not yet on it are added
+     * to its candidates, and with novarr.suwayomi.comic_auto_add a clear
+     * match is approved on the owner's behalf: the series is added as a
+     * comic and its issues start downloading (approve()). Returns the
+     * approval's outcome, or null when nothing was added. Nothing it meets
+     * is thrown: a failure is logged and the request stays pending (the
+     * Usenet / torrent wanted list keeps looking).
+     *
+     * @return ?array{request: NovelRequest, novel: Novel, created: bool}
+     */
+    public function findComic(NovelRequest $request): ?array
+    {
+        if (!$request->isComic() || !$request->isPending() || !\App\Comics\SuwayomiComicFinder::enabled()) {
+            return null;
+        }
+
+        $found = app(\App\Comics\SuwayomiComicFinder::class)->find($request);
+        $candidates = $request->candidateList();
+        $have = array_flip(array_map(fn(array $c) => (string) ($c['url'] ?? ''), $candidates));
+        $new = array_values(array_filter($found['matches'], fn(array $m) => !isset($have[$m['url']])));
+        $room = static::maxCandidates() - count($candidates);
+        if ($new !== [] && $room > 0) {
+            $request->candidates = array_merge($candidates, static::candidatesFromHits(array_map(
+                fn(array $m) => $m + ['chapters' => null, 'status' => $m['year'] !== null ? (string) $m['year'] : null],
+                $new
+            ), $room));
+            $request->save();
+        }
+
+        $pick = $found['pick'];
+        if ($pick === null) {
+            Log::info("Request {$request->id}: comic " . ($found['matches'] === [] ? 'not found' : 'found in several runs, left to the owner') . ' on the Suwayomi comic sources');
+            return null;
+        }
+        if (!config('novarr.suwayomi.comic_auto_add', true)) {
+            return null;
+        }
+        $owner = User::where('role', User::ROLE_ADMIN)->orderBy('id')->first();
+        if ($owner === null) {
+            return null;
+        }
+
+        try {
+            $outcome = $this->approve($request, $owner, ['url' => $pick['url'], 'title' => $pick['title']]);
+            Log::info("Request {$request->id}: comic added from {$pick['source_name']} as novel {$outcome['novel']->id}; its issues are downloading");
+
+            return $outcome;
+        } catch (RequestRefused $e) {
+            Log::warning("Request {$request->id}: the comic match on {$pick['source_name']} was not added: " . $e->getMessage());
+        } catch (\Throwable $e) {
+            Log::warning("Request {$request->id}: adding the comic from {$pick['source_name']} failed: " . $e->getMessage());
+        }
+
+        return null;
     }
 
     /**

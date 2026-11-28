@@ -713,6 +713,16 @@ return [
     | has its own MangaDex source — and the local source). `timeout`: seconds
     | a GraphQL call may take; a chapter list makes Suwayomi fetch from the
     | site and can take a minute (NOVARR_SUWAYOMI_TIMEOUT, default 90).
+    | `comic_sources`: Suwayomi source names (case-insensitive) whose series
+    | are comics, not manga (NOVARR_SUWAYOMI_COMIC_SOURCES): on Discover and
+    | in the request search they are Comics sources, a series added from one
+    | is a comic (medium 'comic', read left to right, downloaded issue by
+    | issue like manga), and a comic request is looked up on them
+    | (App\Comics\SuwayomiComicFinder). Listed in preference order.
+    | `comic_auto_add`: a comic request with one clear match on those sources
+    | is added and downloaded without waiting for the owner, as the Usenet /
+    | torrent automation already grabs comics (NOVARR_SUWAYOMI_COMIC_AUTO_ADD,
+    | default true); otherwise the matches wait as the request's candidates.
     |
     */
     'suwayomi' => [
@@ -726,6 +736,11 @@ return [
             explode(',', (string) env('NOVARR_SUWAYOMI_EXCLUDE_SOURCES', 'MangaDex,Local source'))
         ), fn($n) => $n !== '')),
         'timeout' => (int) env('NOVARR_SUWAYOMI_TIMEOUT', 90),
+        'comic_sources' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('NOVARR_SUWAYOMI_COMIC_SOURCES', 'ReadComicsOnline.lol,Read Comics Online,XOXO Comics,ZipComic,ComicHubFree'))
+        ), fn($n) => $n !== '')),
+        'comic_auto_add' => (bool) env('NOVARR_SUWAYOMI_COMIC_AUTO_ADD', true),
     ],
 
     /*

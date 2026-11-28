@@ -601,7 +601,13 @@ class SuwayomiSourceTest extends GoldenTestCase
 
     // ---- End to end: one chapter downloaded through the manga path ------------
 
-    public function testAChapterDownloadsThroughTheSweep(): void
+    public static function pagedMedia(): array
+    {
+        return ['manga' => ['manga'], 'comic (a Suwayomi comic source)' => ['comic']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('pagedMedia')]
+    public function testAChapterDownloadsThroughTheSweep(string $medium): void
     {
         Storage::fake('manga');
         config(['novarr.manga.page_delay_ms' => 0]);
@@ -620,7 +626,7 @@ class SuwayomiSourceTest extends GoldenTestCase
         $group = new Group();
         $group->forceFill(['id' => 9100, 'label' => 'Default', 'url' => 'https://novelping.com'])->save();
         $novel = Novel::create(['name' => 'Hajime no Ippo', 'status' => 0, 'group_id' => 9100, 'translator_url' => self::SERIES]);
-        $novel->forceFill(['medium' => 'manga'])->save();
+        $novel->forceFill(['medium' => $medium])->save();
         $chapter = NovelChapter::create(['novel_id' => $novel->id, 'chapter' => 1, 'label' => 'Chapter 1', 'url' => self::CHAPTER]);
 
         $scraper = new class extends ChapterScraper {

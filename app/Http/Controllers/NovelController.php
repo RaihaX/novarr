@@ -1004,7 +1004,7 @@ class NovelController extends Controller
         // anyway (force — two works can share a title); the same source
         // page cannot.
         $medium = $request->filled('translator_url')
-            ? \App\Sources\SourceResolver::forUrl((string) $request->translator_url)->medium()
+            ? \App\Sources\SourceResolver::mediumForUrl((string) $request->translator_url)
             : Novel::MEDIUM_NOVEL;
         $existing = app(DuplicateSeries::class)->find((string) $request->name, $medium, [], $request->input('translator_url'));
         if ($existing !== null && ($existing['by'] === DuplicateSeries::BY_SOURCE || !$request->boolean('force'))) {
@@ -1089,7 +1089,7 @@ class NovelController extends Controller
         // which the book:// URL alone would turn back into a book.
         if (!$object->hasLibraryFile()) {
             $object->medium = $object->translator_url
-                ? \App\Sources\SourceResolver::forUrl((string) $object->translator_url)->medium()
+                ? \App\Sources\SourceResolver::mediumForUrl((string) $object->translator_url)
                 : Novel::MEDIUM_NOVEL;
         }
 

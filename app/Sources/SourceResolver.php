@@ -58,6 +58,18 @@ class SourceResolver
     }
 
     /**
+     * The medium a series at this URL is: its source's, except that a
+     * Suwayomi series is a comic when its Suwayomi source is a comic source
+     * (one cached lookup on the server). Used when a series is created.
+     */
+    public static function mediumForUrl(string $url): string
+    {
+        $source = static::forUrl($url);
+
+        return $source instanceof SuwayomiSource ? $source->mediumForUrl($url) : $source->medium();
+    }
+
+    /**
      * Registered adapter classes in registry order.
      *
      * @return array<string, class-string<Source>>

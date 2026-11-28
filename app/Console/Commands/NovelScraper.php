@@ -723,7 +723,7 @@ class NovelScraper extends Command
             $chapter->status = 0;
             // A manga chapter's pages belong to the old page too: removed
             // now, downloaded again from the new URL.
-            if ($chapter->novel?->isManga()) {
+            if ($chapter->novel?->hasPages()) {
                 \App\ChapterPage::purgeChapter($chapter);
                 $chapter->forceFill(["page_count" => null]);
             }

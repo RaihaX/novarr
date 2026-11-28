@@ -173,7 +173,7 @@ class DuplicateSeries
     {
         $url = trim((string) $url);
 
-        return $url !== '' ? SourceResolver::forUrl($url)->medium() : Novel::MEDIUM_NOVEL;
+        return $url !== '' ? SourceResolver::mediumForUrl($url) : Novel::MEDIUM_NOVEL;
     }
 
     /**

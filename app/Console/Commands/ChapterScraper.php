@@ -185,7 +185,7 @@ class ChapterScraper extends Command
         $this->info("Downloading: {$chapter->novel->name} - {$chapter->label}");
         self::recordAttempt($chapter);
 
-        if ($chapter->novel->isManga()) {
+        if ($chapter->novel->hasPages()) {
             $result = $this->downloadChapterPages($chapter);
             if ($result->ok) {
                 $this->updateMangaChapter($chapter, $result->pages);
@@ -1060,7 +1060,7 @@ class ChapterScraper extends Command
 
         // A manga chapter is page images, not text: its own download, the
         // same bookkeeping.
-        if ($novel->isManga()) {
+        if ($novel->hasPages()) {
             self::recordAttempt($item);
             return $this->stepManga($run, $item, $newChapters);
         }
@@ -1149,7 +1149,7 @@ class ChapterScraper extends Command
         // Any other result between two content failures breaks the run.
         $run->consecutiveContent = SourceUnavailable::isContentFailure($category) ? $run->consecutiveContent + 1 : 0;
         $this->hostPace()->record($lane, $category);
-        SourceHealth::record(SourceHealth::keyForNovel($run->novel), SourceHealth::KIND_CHAPTER, false, $category, "{$item->label}: " . self::failureHint($category, $run->novel->isManga()));
+        SourceHealth::record(SourceHealth::keyForNovel($run->novel), SourceHealth::KIND_CHAPTER, false, $category, "{$item->label}: " . self::failureHint($category, $run->novel->hasPages()));
 
         if (self::isNeedsReview($attempts) || $item->unavailable_until !== null) {
             // A long-dead chapter: retried on the slow cadence but kept out
@@ -1941,7 +1941,7 @@ class ChapterScraper extends Command
             // line says what is going on and when it is re-checked. The
             // webhook hears about it at most once a week per novel, however
             // often the canary re-check trips again.
-            $issue = self::summarizeScrapeIssue($stats, $minWords, (bool) $novel->isManga());
+            $issue = self::summarizeScrapeIssue($stats, $minWords, (bool) $novel->hasPages());
             $novel->scrape_failures = 0;
             $novel->last_scrape_issue = $issue;
             $novel->save();
@@ -1970,7 +1970,7 @@ class ChapterScraper extends Command
                 $novel->save();
             }
         } elseif ($failed > 0) {
-            $issue = self::summarizeScrapeIssue($stats, $minWords, (bool) $novel->isManga());
+            $issue = self::summarizeScrapeIssue($stats, $minWords, (bool) $novel->hasPages());
 
             $novel->scrape_failures = $novel->scrape_failures + 1;
             $novel->last_scrape_issue = $issue;

@@ -52,6 +52,12 @@ class FindRequestCandidates implements ShouldQueue
                 return;
             }
 
+            // A comic: the Suwayomi comic sources, and a clear match added.
+            if ($request->medium === Novel::MEDIUM_COMIC) {
+                app(\App\Services\Requests\Requests::class)->findComic($request);
+                return;
+            }
+
             try {
                 $this->addCandidates($request, $searches, $discover);
             } catch (\Throwable $e) {

@@ -260,13 +260,18 @@ class DownloadLanesTest extends TestCase
 
     public function testNovelCreateStoresTheSuwayomiSource(): void
     {
-        $fake = $this->gql([SuwayomiSource::MUTATION_FETCH_MANGA => 'suwayomi/fetch-manga.json']);
+        $fake = $this->gql([
+            SuwayomiSource::MUTATION_FETCH_MANGA => 'suwayomi/fetch-manga.json',
+            // Manga or comic: the series' Suwayomi source (MangaPill: manga).
+            SuwayomiSource::QUERY_MANGA_SOURCE => json_encode(['data' => ['manga' => ['sourceId' => '8448310129093543312', 'source' => ['name' => 'MangaPill']]]]),
+        ]);
         // No deciding genre: the origin's one MangaDex title lookup (nothing found).
         $fake->route('https://api.mangadex.org/manga?' . \App\Sources\MangaDexSource::query(['title' => 'Hajime no Ippo', 'limit' => 10, 'contentRating' => \App\Sources\MangaDexSource::CONTENT_RATINGS]), '{"result":"ok","data":[]}');
 
         $this->assertSame(0, Artisan::call('novel:create', ['name' => 'Hajime no Ippo', 'url' => SuwayomiSource::seriesUrl(2132)]), Artisan::output());
 
         $novel = Novel::where('name', 'Hajime no Ippo')->firstOrFail();
+        $this->assertSame(Novel::MEDIUM_MANGA, $novel->medium);
         $this->assertSame('8448310129093543312', $novel->source_ref);
         $this->assertSame('suwayomi:8448310129093543312', (new SuwayomiSource())->downloadLane($novel));
         $this->assertSame('8448310129093543312', SuwayomiSource::seriesMetadata(['id' => 1, 'sourceId' => '8448310129093543312'])['source_ref']);

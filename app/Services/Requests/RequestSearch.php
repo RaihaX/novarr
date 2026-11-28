@@ -289,9 +289,11 @@ class RequestSearch
         if ($medium === \App\Novel::MEDIUM_BOOK) {
             return [\App\Sources\BookCatalogueSource::KEY => new \App\Sources\BookCatalogueSource()];
         }
-        // Comics: Comic Vine (with a key) and the catalogues' graphic novels.
+        // Comics: Comic Vine (with a key) and the catalogues' graphic novels,
+        // then the Suwayomi comic sources, in their configured order.
         if ($medium === \App\Novel::MEDIUM_COMIC) {
-            return [\App\Sources\ComicCatalogueSource::KEY => new \App\Sources\ComicCatalogueSource()];
+            return [\App\Sources\ComicCatalogueSource::KEY => new \App\Sources\ComicCatalogueSource()]
+                + static::suwayomiComicSources($discover);
         }
         $sources = array_filter($discover->sourcesFor($medium), fn(Source $s) => in_array('search', $s->discoverLists(), true));
         $names = [];
@@ -312,6 +314,25 @@ class RequestSearch
         }
 
         return $result;
+    }
+
+    /**
+     * The Suwayomi comic sources on Discover (SuwayomiSource::isComicSource()),
+     * keyed as Discover keys them, in novarr.suwayomi.comic_sources order.
+     *
+     * @return array<string, \App\Sources\SuwayomiSource>
+     */
+    public static function suwayomiComicSources(Discover $discover): array
+    {
+        $found = array_filter(
+            $discover->sourcesFor(\App\Novel::MEDIUM_COMIC),
+            fn(Source $s) => $s instanceof \App\Sources\SuwayomiSource && in_array('search', $s->discoverLists(), true)
+        );
+        $rank = array_flip(\App\Sources\SuwayomiSource::comicSources());
+        uksort($found, fn($a, $b) => ($rank[mb_strtolower((string) $found[$a]->sourceName())] ?? PHP_INT_MAX)
+            <=> ($rank[mb_strtolower((string) $found[$b]->sourceName())] ?? PHP_INT_MAX));
+
+        return $found;
     }
 
     /**
