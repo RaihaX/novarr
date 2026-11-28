@@ -369,8 +369,18 @@ class AiCoversTest extends TestCase
         $ok = fn(Novel $n, ...$args) => $generator->eligibility($n, ...$args)['ok'];
 
         $this->assertTrue($ok($this->series()), 'no cover');
-        $this->assertTrue($ok($this->series([], BookCoversTest::textCard())), 'a text card');
         $this->assertTrue($ok($this->series([], self::blankPage())), 'a blank page');
+
+        // A source's own art is real even when small or plain (2026-11-28: the first
+        // nightly run painted over Berserk's and Webnovel's ~200×280 thumbnails).
+        $this->assertFalse($ok($this->series([], BookCoversTest::photo(200, 280))), 'a small source thumbnail');
+        $this->assertFalse($ok($this->series(['medium' => Novel::MEDIUM_MANGA], BookCoversTest::photo(200, 284))), 'a manga thumbnail');
+        $this->assertFalse($ok($this->series([], BookCoversTest::textCard())), 'a plain cover from a source');
+        $this->assertTrue($ok($this->series([], BookCoversTest::photo(60, 90))), 'an icon-sized image');
+        $this->assertTrue($ok($this->series([], BookCoversTest::textCard()), false, true), 'the owner can still ask by id');
+        // Text cards come from ePubs: a series converted from a book still gets painted.
+        $converted = $this->series(['converted_from' => Novel::MEDIUM_BOOK], BookCoversTest::textCard());
+        $this->assertTrue($ok($converted), 'a converted book\'s text card');
 
         $real = $this->series([], BookCoversTest::photo(400, 600));
         $this->assertSame(['ok' => false, 'reason' => CoverGenerator::REASON_REAL_COVER], $generator->eligibility($real));
@@ -492,7 +502,7 @@ class AiCoversTest extends TestCase
         $this->fakeServices();
         $real = $this->series(['name' => 'Real'], BookCoversTest::photo(400, 600));
         $a = $this->series(['name' => 'A']);
-        $b = $this->series(['name' => 'B'], BookCoversTest::textCard());
+        $b = $this->series(['name' => 'B', 'converted_from' => Novel::MEDIUM_BOOK], BookCoversTest::textCard());
         $c = $this->series(['name' => 'C']);
         $manual = $this->series(['name' => 'Mine', 'cover_source' => BookCovers::SOURCE_MANUAL]);
 

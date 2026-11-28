@@ -103,6 +103,9 @@ class CoverGenerator
         if (!$current['placeholder']) {
             return ['ok' => false, 'reason' => self::REASON_REAL_COVER];
         }
+        if (!$explicit && !static::placeholderForAi($novel, $current)) {
+            return ['ok' => false, 'reason' => self::REASON_REAL_COVER];
+        }
         if (!$explicit) {
             if ($novel->isBook() && $novel->cover_checked_at === null && BookLookup::sources() !== []) {
                 return ['ok' => false, 'reason' => 'the online cover search has not looked yet'];
@@ -214,6 +217,34 @@ class CoverGenerator
         $novel->setRelation('file', $file);
         $snapshot['generated_cover'] = (int) $file->id;
         $novel->forceFill(['converted_snapshot' => $snapshot])->saveQuietly();
+    }
+
+    /** Below this height even a source's own art is too small to show (a broken or icon-sized image). */
+    public const MIN_SOURCE_COVER_HEIGHT = 120;
+
+    /**
+     * Does BookCovers' "placeholder" verdict mean "paint one" for this series?
+     *
+     * BookCovers judges BOOKS: there a small image means a better real cover
+     * should be searched for, and a text card is what Calibre / FanFicFare /
+     * FicHub put on an ePub. Manga, comics and web novels from a source carry
+     * the source's own art, usually a ~200×280 thumbnail (Berserk, Kaiju No. 8,
+     * Webnovel covers): real covers, not placeholders. The first nightly run
+     * (2026-11-28) painted over 20 of them. So for those only no cover, a blank
+     * page or an icon-sized image qualifies; a text card counts only for books
+     * and series converted from a book (where the ePub's card came from).
+     */
+    public static function placeholderForAi(Novel $novel, array $current): bool
+    {
+        if ($novel->isBook() || $novel->wasConvertedFromBook()) {
+            return true;
+        }
+        $reason = (string) ($current['reason'] ?? '');
+        if (str_starts_with($reason, 'too small')) {
+            return (int) ($current['height'] ?? 0) < self::MIN_SOURCE_COVER_HEIGHT;
+        }
+
+        return $reason !== 'a generated text cover';
     }
 
     /** Remember that this series has a real cover (the nightly run skips it). */
