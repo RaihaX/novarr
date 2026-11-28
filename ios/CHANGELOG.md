@@ -14,6 +14,7 @@ Everything the Android app can do, now on iPhone and iPad.
 - Comics and graphic novels have their own tab in your Library. They open in the page reader, left to right, and download for offline reading like manga.
 - Books from your library open in the reader and show "The end" when you finish.
 - Finishing a chapter, or tapping Next chapter, now always counts it as read, so your progress and stats are right.
+- Showing the reader's controls is easier: in scroll mode tap anywhere, and in page mode tap the top of the screen or the middle. The sides turn pages.
 - Listen to audiobooks in the new Listen tab. It has a full player with chapters, speed, skip back and forward, bookmarks with notes and a sleep timer.
 - Audiobooks keep playing when your iPhone is locked. You can control them from the Lock Screen, Control Centre, headphones and car Bluetooth.
 - Download audiobooks to listen offline. Novarr remembers where you stopped, on every device.
