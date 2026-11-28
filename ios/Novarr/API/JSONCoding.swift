@@ -68,6 +68,16 @@ extension KeyedDecodingContainer {
         return nil
     }
 
+    func lenientInt64(_ key: Key) -> Int64? {
+        if let value = try? decodeIfPresent(Int64.self, forKey: key) { return value }
+        if let value = try? decodeIfPresent(Double.self, forKey: key), value.isFinite { return Int64(value) }
+        if let value = try? decodeIfPresent(String.self, forKey: key) {
+            let trimmed = value.trimmingCharacters(in: .whitespaces)
+            return Int64(trimmed) ?? Double(trimmed).flatMap { $0.isFinite ? Int64($0) : nil }
+        }
+        return nil
+    }
+
     func lenientDouble(_ key: Key) -> Double? {
         if let value = try? decodeIfPresent(Double.self, forKey: key) { return value }
         if let value = try? decodeIfPresent(String.self, forKey: key) { return Double(value) }

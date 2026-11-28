@@ -59,6 +59,8 @@ final class AppModel {
     let downloads = DownloadManager()
     /// "Check for new chapters" runs, watched app-wide.
     let checks = ChapterChecks()
+    /// The reader's categories (reading lists), shared by every screen.
+    let lists = ListsModel()
 
     /// This install's identity, sent with read-state writes and sign-in.
     let device: DeviceIdentity
@@ -89,6 +91,7 @@ final class AppModel {
         self.storageBase = storageBase
         device = DeviceIdentity.loadOrCreate(defaults: defaults, name: DeviceIdentity.currentName())
         checks.onChaptersChanged = { [weak self] _ in self?.libraryChanged() }
+        lists.attach(self)
         // Also honours `-serverURL http://…` as a launch argument (argument domain).
         if let raw = defaults.string(forKey: Self.serverDefaultsKey), let url = ServerURL.normalize(raw) {
             configure(url)
@@ -139,6 +142,7 @@ final class AppModel {
     private func activate(_ url: URL, credential: Credential?) {
         checks.cancelAll()
         downloads.cancelAll()
+        lists.reset()
         resetSignInFlows()
         account = credential
         needsSignIn = false
@@ -162,6 +166,7 @@ final class AppModel {
     private func requireSignIn(notice: String?) {
         checks.cancelAll()
         downloads.cancelAll()
+        lists.reset()
         if pendingWrites > 0, let notice {
             signInNotice = notice + " Your unsynced reading progress is kept and will be sent after you sign in."
         } else {

@@ -86,6 +86,10 @@ extension View {
         .navigationDestination(for: HighlightsRoute.self) { route in
             HighlightsView(route: route)
         }
+        .listsDestinations()
+        .requestsDestinations()
+        .audiobooksDestinations()
+        .statsDestinations()
         #if DEBUG
         .navigationDestination(for: DebugDownloadsRoute.self) { _ in DownloadsView() }
         #endif

@@ -1,0 +1,1 @@
+{"app":"novarr","api_version":1,"server_version":"9a1b292","instance":"a9700fdf45711785","android":null,"auth":{"required":false,"available":true,"second_step":false,"methods":["password","pairing"]},"requests":true,"lists":true,"updates":true,"books":true,"audiobooks":true,"book_uploads":{"max_mb":50,"max_files":20,"email":null},"manga_cbz":true,"comics":true,"favourites":true}

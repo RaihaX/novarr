@@ -21,6 +21,10 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
     /// many wrong codes); sign in again from the password. Carries the
     /// server's message, which says which.
     case challengeExpired(String?)
+    /// A non-2xx answer from one of the feature endpoints (requests, lists,
+    /// audiobooks, uploads, stats, send…), keeping the body's machine `code`,
+    /// `Retry-After` and the raw body so callers can tell answers apart.
+    case rejected(HTTPFailure)
 
     static func from(_ error: Error) -> APIError {
         if let api = error as? APIError { return api }
@@ -46,15 +50,39 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
 
     /// 401: the token is missing, invalid or revoked. The app forgets the
     /// token and asks for a sign-in; queued writes are kept.
-    var isUnauthenticated: Bool {
-        if case .http(401, _) = self { return true }
-        return false
-    }
+    var isUnauthenticated: Bool { status == 401 }
 
     /// 403: signed in, but this account may not do that.
-    var isForbidden: Bool {
-        if case .http(403, _) = self { return true }
-        return false
+    var isForbidden: Bool { status == 403 }
+
+    /// The HTTP status of an answer that wasn't a success; nil when there was no answer.
+    var status: Int? {
+        switch self {
+        case .http(let status, _): status
+        case .rejected(let failure): failure.status
+        default: nil
+        }
+    }
+
+    /// The error body's machine `code` (`.rejected` only).
+    var code: String? {
+        if case .rejected(let failure) = self { return failure.code }
+        return nil
+    }
+
+    /// The server's own sentence, if it sent one.
+    var serverMessage: String? {
+        switch self {
+        case .http(_, let message): message.flatMap { $0.isEmpty ? nil : $0 }
+        case .rejected(let failure): failure.message
+        default: nil
+        }
+    }
+
+    /// Seconds from `Retry-After` (`.rejected` only).
+    var retryAfter: TimeInterval? {
+        if case .rejected(let failure) = self { return failure.retryAfter }
+        return nil
     }
 
     /// Whether a queued write that failed this way should be kept and retried.
@@ -63,6 +91,7 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
         switch self {
         case .unreachable, .timedOut: true
         case .http(let status, _): status >= 500 || status == 408 || status == 429
+        case .rejected(let failure): failure.status >= 500 || failure.status == 408 || failure.status == 429
         case .invalidServerURL, .decoding, .notNovarr, .apiTooOld, .mangaChapter,
              .secondStepUnavailable, .wrongCode, .challengeExpired: false
         }
@@ -73,7 +102,8 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
         switch self {
         case .unreachable, .timedOut, .invalidServerURL: "Can't reach your server"
         case .http(401, _): "You're signed out"
-        case .http: "Server error"
+        case .rejected(let failure) where failure.status == 401: "You're signed out"
+        case .http, .rejected: "Server error"
         case .secondStepUnavailable, .wrongCode, .challengeExpired: "Couldn't sign in"
         case .decoding, .notNovarr, .apiTooOld, .mangaChapter: "Unexpected response"
         }
@@ -110,6 +140,32 @@ enum APIError: Error, Equatable, Sendable, LocalizedError {
         case .challengeExpired(let message):
             message.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
                 ?? "That took too long. Sign in again."
+        case .rejected(let failure):
+            APIError.http(status: failure.status, message: failure.message).errorDescription
         }
+    }
+}
+
+/// A non-2xx answer with what the body said about it.
+struct HTTPFailure: Equatable, Sendable {
+    var status: Int
+    var message: String?
+    var code: String?
+    /// Seconds, from the `Retry-After` header.
+    var retryAfter: TimeInterval?
+    /// The raw body (JSON for Novarr's own errors), for answers that carry more than a message.
+    var body: Data
+
+    init(status: Int, message: String? = nil, code: String? = nil, retryAfter: TimeInterval? = nil, body: Data = Data()) {
+        self.status = status
+        self.message = message.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        self.code = code.flatMap { $0.isEmpty ? nil : $0 }
+        self.retryAfter = retryAfter
+        self.body = body
+    }
+
+    /// Decodes the body as `T` (an error body that carries data, like a 422 upload answer).
+    func decode<T: Decodable>(_ type: T.Type) -> T? {
+        try? JSONCoding.decoder().decode(T.self, from: body)
     }
 }

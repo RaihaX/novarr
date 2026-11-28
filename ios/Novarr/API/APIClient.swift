@@ -268,7 +268,7 @@ struct APIClient: Sendable {
         return request
     }
 
-    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type,
+    func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type,
                                    timeout: TimeInterval = 20, fresh: Bool = false,
                                    authenticated: Bool = true) async throws -> T {
         let request = makeRequest("GET", path, query: query, timeout: timeout, fresh: fresh,
@@ -277,7 +277,7 @@ struct APIClient: Sendable {
         return try decode(T.self, from: data)
     }
 
-    private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+    func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do {
             return try JSONCoding.decoder().decode(T.self, from: data)
         } catch {
@@ -321,7 +321,7 @@ struct APIClient: Sendable {
     }
 
     /// Sends a request; throws only when no HTTP answer came back.
-    private func load(_ request: URLRequest) async throws -> (Int, Data) {
+    func load(_ request: URLRequest) async throws -> (Int, Data) {
         let data: Data
         let response: URLResponse
         do {
@@ -343,7 +343,7 @@ struct APIClient: Sendable {
             let body = try? JSONDecoder().decode(ErrorBody.self, from: data)
             if status == 401, reportUnauthorized { onUnauthorized?(token) }
             // The text endpoint's answer for a chapter that is page images.
-            if status == 422, body?.medium?.lowercased() == Medium.manga { throw APIError.mangaChapter }
+            if status == 422, Medium.isPaged(body?.medium) { throw APIError.mangaChapter }
             throw APIError.http(status: status, message: body?.message)
         }
         return data

@@ -77,15 +77,18 @@ struct AuthUser: Codable, Sendable, Equatable {
     var name: String
     var username: String
     var role: UserRole
+    /// Only when the server sends it (newer servers); for the "email ePubs from ..." hint.
+    var email: String?
 
-    init(id: Int, name: String, username: String, role: UserRole) {
+    init(id: Int, name: String, username: String, role: UserRole, email: String? = nil) {
         self.id = id
         self.name = name
         self.username = username
         self.role = role
+        self.email = email
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, username, role }
+    private enum CodingKeys: String, CodingKey { case id, name, username, role, email }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -96,6 +99,7 @@ struct AuthUser: Codable, Sendable, Equatable {
         username = c.lenientString(.username) ?? ""
         name = c.lenientString(.name) ?? username
         role = UserRole(raw: c.lenientString(.role) ?? "")
+        email = c.lenientString(.email).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -104,6 +108,7 @@ struct AuthUser: Codable, Sendable, Equatable {
         try c.encode(name, forKey: .name)
         try c.encode(username, forKey: .username)
         try c.encode(role, forKey: .role)
+        try c.encodeIfPresent(email, forKey: .email)
     }
 }
 

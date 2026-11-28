@@ -46,6 +46,12 @@ struct SettingsView: View {
                 }
             }
 
+            // 2.0: each area's rows.
+            SettingsListsSection()
+            SettingsStatsSection()
+            SettingsRequestsSection()
+            SettingsListenSection()
+
             Section {
                 Picker("Appearance", selection: $appearance) {
                     ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }

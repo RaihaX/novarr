@@ -10,6 +10,22 @@ struct ServerMeta: Codable, Sendable, Equatable {
     var serverVersion: String?
     /// Missing on servers that predate accounts.
     var auth: ServerAuth? = nil
+    /// Reader requests (search, request, the notification feed); absent on older servers.
+    var requests: Bool = false
+    /// `GET /updates` (new chapters since a cursor); absent on older servers.
+    var updates: Bool = false
+    /// Reading lists / categories (`/lists`); absent on older servers: the app hides them.
+    var lists: Bool = false
+    /// The server knows books (medium "book"). Informational.
+    var books: Bool = false
+    /// ePubs sent from the app (`POST /books/uploads`); nil on older servers.
+    var bookUploads: BookUploadsMeta? = nil
+    /// Audiobooks (`/audiobooks`, the player); absent on older servers: the app hides them.
+    var audiobooks: Bool = false
+    /// The built-in "Favourites" list; absent on older servers: the app hides it.
+    var favourites: Bool = false
+    /// Comics (medium "comic": page images); absent on older servers: no Comics tab or request option.
+    var comics: Bool = false
 
     /// Only an explicit `auth.required: true` turns sign-in on.
     var requiresSignIn: Bool { auth?.required == true }
@@ -22,7 +38,10 @@ struct ServerMeta: Codable, Sendable, Equatable {
 }
 
 extension ServerMeta {
-    private enum CodingKeys: String, CodingKey { case app, apiVersion, serverVersion, auth }
+    private enum CodingKeys: String, CodingKey {
+        case app, apiVersion, serverVersion, auth, requests, updates, lists, books, bookUploads, audiobooks
+        case favourites, comics
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -31,6 +50,14 @@ extension ServerMeta {
         serverVersion = c.lenientString(.serverVersion)
         // A malformed `auth` is treated like a missing one rather than failing meta.
         auth = try? c.decodeIfPresent(ServerAuth.self, forKey: .auth)
+        requests = c.lenientBool(.requests) ?? false
+        updates = c.lenientBool(.updates) ?? false
+        lists = c.lenientBool(.lists) ?? false
+        books = c.lenientBool(.books) ?? false
+        bookUploads = try? c.decodeIfPresent(BookUploadsMeta.self, forKey: .bookUploads)
+        audiobooks = c.lenientBool(.audiobooks) ?? false
+        favourites = c.lenientBool(.favourites) ?? false
+        comics = c.lenientBool(.comics) ?? false
     }
 }
 
@@ -108,14 +135,43 @@ struct NovelSummary: Codable, Hashable, Sendable, Identifiable {
     var lastReadAt: Date?
     var updatedAt: Date?
     var resumeChapterId: Int?
-    /// "novel" or "manga" (`Medium`); servers before manga send nothing.
+    /// "novel", "manga", "comic" or "book" (`Medium`); servers before manga send nothing.
     var medium: String = Medium.novel
+    /// "JP" | "KR" | "CN" | "EN" | nil; absent on older servers.
+    var originCountry: String? = nil
+    /// On the reader's "Want to read" (an older server sends none: false).
+    var wantToRead: Bool = false
+    /// The book's audiobook; nil without one, or from a server that predates audiobooks.
+    var audiobook: AudiobookRef? = nil
+    /// On the reader's "Favourites" (an older server sends none: false).
+    var favourite: Bool = false
 }
 
-/// What a series is made of: text chapters or manga page images.
+/// What a series is made of: text chapters (web novels, books) or page
+/// images (manga, comics).
 enum Medium {
     static let novel = "novel"
     static let manga = "manga"
+    /// Comics and graphic novels: page images like manga, read left to right unless the series says otherwise.
+    static let comic = "comic"
+    /// An ePub upload or Calibre import: read like a novel, complete on arrival, no origin.
+    static let book = "book"
+
+    /// Whether `medium` is read as page images (the page reader, page downloads, no ePub).
+    static func isPaged(_ medium: String?) -> Bool {
+        let value = medium?.lowercased()
+        return value == manga || value == comic
+    }
+
+    /// A series' medium as a label; blank or unknown reads as a web novel.
+    static func label(_ medium: String?) -> String {
+        switch medium?.trimmingCharacters(in: .whitespaces).lowercased() {
+        case manga: "Manga"
+        case comic: "Comic"
+        case book: "Book"
+        default: "Web novel"
+        }
+    }
 }
 
 extension NovelSummary {
@@ -123,10 +179,16 @@ extension NovelSummary {
         case id, name, author, coverUrl, coverLargeUrl, state, completed, paused, origin, tags
         case chaptersTotal, chaptersDownloaded, chaptersRead, chaptersNew
         case readPercent, downloadPercent, finished, lastReadAt, updatedAt, resumeChapterId, medium
+        case originCountry, wantToRead, audiobook, favourite
     }
 
-    /// Read in the manga reader (pages), not the text reader.
     var isManga: Bool { medium.lowercased() == Medium.manga }
+    /// A comic or graphic novel: page images, like manga.
+    var isComic: Bool { medium.lowercased() == Medium.comic }
+    /// Read as page images (manga or a comic): the page reader, page downloads, no ePub or Send to Kindle.
+    var isPaged: Bool { Medium.isPaged(medium) }
+    /// A book (ePub/Calibre): read like a novel, complete on arrival, never checked for new chapters.
+    var isBook: Bool { medium.lowercased() == Medium.book }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -155,6 +217,10 @@ extension NovelSummary {
         updatedAt = c.lenientDate(.updatedAt)
         resumeChapterId = c.lenientInt(.resumeChapterId)
         medium = c.lenientString(.medium).flatMap { $0.isEmpty ? nil : $0 } ?? Medium.novel
+        originCountry = c.lenientString(.originCountry).flatMap { $0.isEmpty ? nil : $0 }
+        wantToRead = c.lenientBool(.wantToRead) ?? false
+        audiobook = try? c.decodeIfPresent(AudiobookRef.self, forKey: .audiobook)
+        favourite = c.lenientBool(.favourite) ?? false
     }
 
     /// The short caption under a cover in the library grid.
@@ -245,12 +311,16 @@ struct HomeFeed: Codable, Hashable, Sendable {
     var continueReading: [ContinueItem]
     var newChapters: [NewChaptersItem]
     var stats: HomeStats?
+    /// Home's "Want to read" shelf, newest first (up to 12); an older server sends none.
+    var wantToRead: [WantToReadItem] = []
+    /// How many the list holds.
+    var wantToReadCount: Int = 0
 }
 
 extension HomeFeed {
     enum CodingKeys: String, CodingKey {
         case continueReading = "continue"
-        case newChapters, stats
+        case newChapters, stats, wantToRead, wantToReadCount
     }
 
     init(from decoder: Decoder) throws {
@@ -258,6 +328,8 @@ extension HomeFeed {
         continueReading = c.lossyArray(ContinueItem.self, .continueReading)
         newChapters = c.lossyArray(NewChaptersItem.self, .newChapters)
         stats = try? c.decodeIfPresent(HomeStats.self, forKey: .stats)
+        wantToRead = c.lossyArray(WantToReadItem.self, .wantToRead)
+        wantToReadCount = c.lenientInt(.wantToReadCount) ?? 0
     }
 }
 
@@ -332,12 +404,14 @@ struct ChapterListItem: Codable, Hashable, Sendable, Identifiable {
     var reason: String?
     var downloadedAt: Date?
     var wordCount: Int?
+    /// A manga / comic chapter's page count; nil for text or an older server.
+    var pageCount: Int? = nil
 }
 
 extension ChapterListItem {
     enum CodingKeys: String, CodingKey {
         case id, chapter, book, label, downloaded, read, readProgress, note, state, reason
-        case downloadedAt, wordCount
+        case downloadedAt, wordCount, pageCount
     }
 
     init(from decoder: Decoder) throws {
@@ -358,6 +432,7 @@ extension ChapterListItem {
         reason = c.lenientString(.reason).flatMap { $0.isEmpty ? nil : $0 }
         downloadedAt = c.lenientDate(.downloadedAt)
         wordCount = c.lenientInt(.wordCount)
+        pageCount = c.lenientInt(.pageCount)
     }
 
     var ref: ChapterRef {

@@ -16,11 +16,23 @@ import os
 actor OfflineStore {
     enum Key: Sendable {
         case novels, home, novel(Int), chapters(Int), highlights(Int)
+        /// The reader's categories, saved with each refresh so they show offline (read-only).
+        case lists
+        /// The whole "Want to read" (its screen).
+        case wantToRead
+        /// The last stats answer per range (30, 90, 365).
+        case stats(Int)
+        /// A feature's own file under the store root (e.g. "audiobooks/continue.json").
+        case custom(String)
 
         var relativePath: String {
             switch self {
             case .novels: "novels.json"
             case .home: "home.json"
+            case .lists: "lists.json"
+            case .wantToRead: "want-to-read.json"
+            case .stats(let range): "stats-\(range).json"
+            case .custom(let path): path
             case .novel(let id): "novels/\(id)/detail.json"
             case .chapters(let id): "novels/\(id)/chapters.json"
             case .highlights(let id): "novels/\(id)/highlights.json"

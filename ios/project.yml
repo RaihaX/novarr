@@ -12,7 +12,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     DEVELOPMENT_TEAM: QSK3QCWCH2
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "1.1"
+    MARKETING_VERSION: "2.0"
     CURRENT_PROJECT_VERSION: "2"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 
@@ -59,6 +59,29 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: Novarr connects to your Novarr server on your local network to load your library and chapters.
+        # Audiobooks keep playing with the screen locked or the app in the background.
+        UIBackgroundModes:
+          - audio
+        # "Open in Novarr" / the Share sheet for ePubs (sent to the owner's
+        # approval queue) and audiobook files (uploaded). Copied into the
+        # app's Inbox, never opened in place. No share extension (that would
+        # need an App Group).
+        LSSupportsOpeningDocumentsInPlace: false
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: ePub book
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - org.idpf.epub-container
+          - CFBundleTypeName: Audiobook file
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.audio
+              - public.mp3
+              - public.mpeg-4-audio
+              - com.apple.m4a-audio
+              - com.apple.protected-mpeg-4-audio
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: studio.visns.novarr

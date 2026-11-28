@@ -27,6 +27,13 @@ struct NovelView: View {
                             .listRowSeparator(.hidden)
                         primaryButton(summary)
                             .listRowSeparator(.hidden)
+                        // 2.0: each area's controls (categories, audiobook, book).
+                        NovelCategoryActions(summary: summary)
+                            .listRowSeparator(.hidden)
+                        NovelAudiobookActions(summary: summary)
+                            .listRowSeparator(.hidden)
+                        NovelBookActions(summary: summary, detail: model.detail)
+                            .listRowSeparator(.hidden)
                         CheckForChaptersControl(novelId: model.novelId)
                             .listRowSeparator(.hidden)
                         downloadBlock
