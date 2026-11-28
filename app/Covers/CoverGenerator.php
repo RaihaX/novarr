@@ -111,7 +111,8 @@ class CoverGenerator
                 return ['ok' => false, 'reason' => 'the online cover search has not looked yet'];
             }
             $days = max(0, (int) config('novarr.covers.ai.new_series_days', 2));
-            if (!$novel->isBook() && $days > 0 && $novel->created_at !== null && $novel->created_at->gt(now()->subDays($days))) {
+            // A series converted from a book has no source to bring a cover: no wait.
+            if (!$novel->isBook() && !$novel->wasConvertedFromBook() && $days > 0 && $novel->created_at !== null && $novel->created_at->gt(now()->subDays($days))) {
                 return ['ok' => false, 'reason' => 'new: its source may still bring a cover'];
             }
         }

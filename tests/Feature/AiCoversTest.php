@@ -400,6 +400,8 @@ class AiCoversTest extends TestCase
         $new = $this->series(['created_at' => now()]);
         $this->assertFalse($ok($new));
         $this->assertTrue($ok($new, false, true));
+        // A series converted from a book has no source to wait for.
+        $this->assertTrue($ok($this->series(['created_at' => now(), 'converted_from' => Novel::MEDIUM_BOOK], BookCoversTest::textCard())));
 
         // A book waits for the online search (books:covers) to find nothing.
         $book = $this->series(['medium' => Novel::MEDIUM_BOOK, 'translator_url' => 'book://library/' . sha1('x')], BookCoversTest::textCard());
