@@ -76,6 +76,37 @@ class BookCoversTest extends TestCase
         return (string) ob_get_clean();
     }
 
+    /**
+     * A real cover with a flat, type-led design (Yellowface-like): one flat
+     * colour and few colours overall, but fine line-work in the artwork.
+     */
+    public static function flatDesignCover(int $w = 600, int $h = 900): string
+    {
+        $im = imagecreatetruecolor($w, $h);
+        imagefill($im, 0, 0, imagecolorallocate($im, 245, 205, 20));
+        $ink = imagecolorallocate($im, 15, 15, 15);
+        // Artwork detail at a scale that survives downsampling: alternating bands.
+        $band = max(2, intdiv($w, 48));
+        for ($x = (int) ($w * 0.15); $x < (int) ($w * 0.85); $x += 2 * $band) {
+            imagefilledrectangle($im, $x, (int) ($h * 0.2), $x + $band - 1, (int) ($h * 0.7), $ink);
+        }
+        imagestring($im, 5, 40, (int) ($h * 0.8), 'A Novel', $ink);
+        ob_start();
+        imagejpeg($im, null, 90);
+
+        return (string) ob_get_clean();
+    }
+
+    public function test_a_flat_type_led_real_cover_is_not_a_text_card(): void
+    {
+        $this->assertTrue(BookCovers::textCard(self::textCard()), 'a generated card');
+        $this->assertFalse(BookCovers::textCard(self::flatDesignCover()), 'flat colours with fine artwork');
+        $this->assertFalse(BookCovers::textCard(self::photo(600, 900)));
+        $stats = BookCovers::colourStats(self::flatDesignCover());
+        $this->assertGreaterThan(BookCovers::CARD_MAX_EDGES, $stats['edges']);
+        $this->assertLessThanOrEqual(BookCovers::CARD_MAX_COLOURS, $stats['colours'], 'the colour rule alone would have called it a card');
+    }
+
     // --- Fixtures --------------------------------------------------------------
 
     private function book(string $name = 'Dune', ?string $author = 'Frank Herbert', ?string $cover = null, ?string $coverSource = null): Novel

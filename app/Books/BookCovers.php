@@ -71,6 +71,16 @@ class BookCovers
     public const FLAT_MAX_COLOURS = 12;
     public const FLAT_BACKGROUND_SHARE = 0.55;
     public const CARD_MAX_COLOURS = 48;
+    /**
+     * A generated card is flat fills and a few lines of type: few sharp
+     * neighbouring-pixel changes. Measured 2026-11-28: FanFicFare / Calibre
+     * cards 0.05-0.07, real covers with flat, type-led designs (Yellowface,
+     * The Atlas Six, Ana Huang's King of... books) 0.12-0.52. Without it the
+     * CARD_MAX_COLOURS rule called those real covers placeholders.
+     */
+    public const CARD_MAX_EDGES = 0.09;
+    /** A neighbouring-pixel difference (sum of R, G, B) that counts as an edge. */
+    public const EDGE_STEP = 24;
 
     /**
      * The blank-page test (blankPage()): at least BLANK_LIGHT_SHARE of the
@@ -106,8 +116,9 @@ class BookCovers
             return false;
         }
 
-        return $stats['colours'] <= self::FLAT_MAX_COLOURS
-            || ($stats['background_share'] >= self::FLAT_BACKGROUND_SHARE && $stats['colours'] <= self::CARD_MAX_COLOURS);
+        return ($stats['colours'] <= self::FLAT_MAX_COLOURS
+                || ($stats['background_share'] >= self::FLAT_BACKGROUND_SHARE && $stats['colours'] <= self::CARD_MAX_COLOURS))
+            && $stats['edges'] <= self::CARD_MAX_EDGES;
     }
 
     /**
@@ -123,7 +134,7 @@ class BookCovers
             && $stats['coloured_share'] <= self::BLANK_COLOURED_SHARE;
     }
 
-    /** @return ?array{colours: int, background_share: float, light_share: float, coloured_share: float} */
+    /** @return ?array{colours: int, background_share: float, light_share: float, coloured_share: float, edges: float} */
     public static function colourStats(string $bytes): ?array
     {
         if (!function_exists('imagecreatefromstring')) {
@@ -151,8 +162,31 @@ class BookCovers
             }
         }
         $total = $n * $n;
+        imagedestroy($small);
 
-        return ['colours' => count($counts), 'background_share' => max($counts) / $total, 'light_share' => $light / $total, 'coloured_share' => $coloured / $total];
+        // Edge density on a larger sample: how much fine detail (illustration,
+        // texture, photo grain) there is, as opposed to flat fills and type.
+        [$ew, $eh] = [96, 144];
+        $edgeSample = imagecreatetruecolor($ew, $eh);
+        imagecopyresampled($edgeSample, $image, 0, 0, 0, 0, $ew, $eh, imagesx($image), imagesy($image));
+        $edges = 0;
+        for ($y = 0; $y < $eh; $y++) {
+            $prev = imagecolorat($edgeSample, 0, $y);
+            for ($x = 1; $x < $ew; $x++) {
+                $cur = imagecolorat($edgeSample, $x, $y);
+                $step = abs((($cur >> 16) & 0xFF) - (($prev >> 16) & 0xFF))
+                    + abs((($cur >> 8) & 0xFF) - (($prev >> 8) & 0xFF))
+                    + abs(($cur & 0xFF) - ($prev & 0xFF));
+                $edges += $step > self::EDGE_STEP ? 1 : 0;
+                $prev = $cur;
+            }
+        }
+        imagedestroy($edgeSample);
+
+        return [
+            'colours' => count($counts), 'background_share' => max($counts) / $total, 'light_share' => $light / $total,
+            'coloured_share' => $coloured / $total, 'edges' => $edges / (($ew - 1) * $eh),
+        ];
     }
 
     /**
