@@ -4,7 +4,8 @@ Read the novels on your Novarr server on a Kindle (or any other e-reader running
 KOReader), one chapter at a time, straight from the server. New chapters are
 readable as soon as Novarr has downloaded them, you can save chapters for reading
 without Wi-Fi, and what you read is sent back to Novarr, so the website and the
-iPhone app know where you are.
+Android and iPhone apps know where you are. Books, manga and comics on the server can
+be read too (see below).
 
 ## What you need
 
@@ -185,9 +186,10 @@ the cover and when the server last got a chapter, with *Check for new chapters*,
 *Choose another novel* and *Close*. The check runs on the server (see below); the page
 stays open and shows how it goes, and when new chapters arrive it offers *Continue
 reading*. You only see a message when the next chapter can't be opened: it isn't
-saved on the device and there is no Wi-Fi, or the server has no text for it yet. A
-manga chapter can't be read on the Kindle: Novarr says "Manga can't be read on this
-device. Open it on the website or the Android app."
+saved on the device and there is no Wi-Fi, or the server has no text for it yet. Manga
+and comics open as CBZ (see above); on a Novarr server too old to send CBZ the plugin
+says "This Novarr server can't send manga to KOReader yet (Novarr needs updating). Open
+it on the website or the Android app."
 
 While you read, the status bar at the bottom shows the time, where you are in the
 novel, the chapters left and the reading time left, for example
@@ -330,8 +332,8 @@ the device. Highlights in other books are never sent anywhere.
 
 ### Read on another device
 
-Since 1.8.0, when you read a novel more recently somewhere else (the website, the iPhone
-app, another Kindle), Novarr asks:
+Since 1.8.0, when you read a novel more recently somewhere else (the website, the Android or
+iPhone app, another Kindle), Novarr asks:
 
     Chapter 124 · 40% was read on iPhone 2 hours ago. Go there?
     [Go to latest]  [Stay here]
@@ -673,8 +675,9 @@ there too). To remove the plugin completely, delete `koreader/plugins/novarr.kop
   bar says "not synced" until they are sent.
 - **"Discover isn't available on this address"**: the server refuses Discover on its
   public address. Use it at home (or through the home/Tailscale address).
-- **"Manga can't be read on this device"**: manga chapters are page images; read them on
-  the website or in the Android app.
+- **"This Novarr server can't send manga (or comics) to KOReader yet"**: the server is
+  older than the CBZ endpoint; update Novarr, or read them on the website or in the
+  Android app.
 - **The status bar doesn't show the reading info**: the status bar may be switched
   off (Settings ▸ Status bar), or you tapped it over to another item: keep tapping the
   bottom of the page until the Novarr line comes round again. With *Reading info

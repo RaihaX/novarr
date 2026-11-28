@@ -82,7 +82,7 @@ The database stays in the `mysql` volume; it is captured by Novarr's own backups
 
 ## Reverse proxy and HTTPS
 
-HTTPS is needed to install Novarr as a PWA. Novarr has **no login**: put an authenticating proxy (Authelia, Authentik, …) in front of anything reachable from outside your LAN.
+HTTPS is needed to install Novarr as a PWA. Sign-in is **off by default** (everyone who can reach Novarr is the owner): turn it on in Settings → Users (or `php artisan novarr:auth on`) before anything outside your LAN can reach it, and see the readme's [Publishing on the internet with a Cloudflare Tunnel](readme.md#publishing-on-the-internet-with-a-cloudflare-tunnel) for a public address.
 
 - **Nginx Proxy Manager:** new Proxy Host → your domain → forward to `<unraid-ip>` port `80` (or the port you mapped) → enable SSL. Then set `APP_URL` to the `https://` origin and recreate the stack.
 - **SWAG:**

@@ -1,6 +1,6 @@
 # Plan: readers upload audiobooks (with the owner's approval) + audiobooks on the Storage page
 
-Status: **planned, not started** (2026-11-27). Owner asked: "an upload audiobook for readers that
+Status: **implemented** (2026-11-27): Part 1 (server + web uploads with owner approval), Android 1.15 uploads and Part 2 (audiobooks on the Storage page) are built; see the readme's Audiobooks section for what shipped. Originally planned 2026-11-27. Owner asked: "an upload audiobook for readers that
 want to upload their own audiobook to be part of the Novarr library".
 
 ## The problem to design around

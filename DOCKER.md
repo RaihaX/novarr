@@ -16,7 +16,8 @@ Not using Docker at all? The bare-metal path is `deploy.sh` — see the readme's
 - Runs as `www-data`. The entrypoint (`docker/docker-entrypoint.sh`) makes sure an `APP_KEY` exists: if none is set in the environment it creates one once and keeps it in `storage/app/.appkey`, so every service in a stack shares the same stable key. Keep that file — it is in the backups.
 - Built-in `HEALTHCHECK` on `/api/ping` (liveness). The stacks override it per service: the app probes `/api/health`, the scheduler checks its heartbeat.
 - Production only: no Composer, no Node, no dev dependencies. Run tests, linting, `composer` and `yarn` on a development machine, not inside the container.
-- Includes `mariadb-client` (`mysqldump` / `mariadb-dump`) for `php artisan backup:run`, and the `tailscale` CLI for the in-app Tailscale panel.
+- Includes `mariadb-client` (`mysqldump` / `mariadb-dump`) for `php artisan backup:run`, `ffmpeg` (`ffprobe`) for the audiobooks inbox, and the `tailscale` CLI for the in-app Tailscale panel. It does **not** include `unar`, `7z` or `pdftoppm`: CBZ and CBT comics import in the container, CBR, CB7 and PDF comics fail with the missing tool named in their `.reason.txt` (see the readme's [Comics & graphic novels](readme.md#comics--graphic-novels)).
+- The audiobooks, comics and download inboxes and the audiobook library default to folders under `storage/app` (inside the `storage` volume). To use a big disk or the download clients' shared folder, bind-mount it and point `NOVARR_AUDIOBOOKS_INBOX`, `NOVARR_AUDIOBOOKS_PATH`, `NOVARR_COMICS_INBOX`, `NOVARR_BOOKS_INBOX` and `NOVARR_MANGA_PATH` at the mount (add them under `x-app-env`).
 - Published for linux/amd64 and linux/arm64. A local build (`docker compose up -d --build`) fetches the RoadRunner binary for the build's own architecture.
 
 ## One-click stack
@@ -32,7 +33,7 @@ Then open `http://<host>/`.
 |---|---|
 | `init` | One-shot: waits for MySQL, runs `migrate --force`, exits. Everything else waits for it. |
 | `app` | Octane on port 80 → 8000. Healthcheck: `/api/health`. |
-| `scheduler` | `schedule:work`: the cron tasks (TOC refresh, chapter downloads, summary email, backups) and, every minute, a `queue:work --stop-when-empty` that drains the command queue. Healthcheck: the scheduler heartbeat. |
+| `scheduler` | `schedule:work`: the cron tasks (TOC refresh, chapter downloads, inbox scans, download polling, summary email, backups) and, every minute, a `queue:work --stop-when-empty` that drains the command queue. Healthcheck: the scheduler heartbeat. |
 | `mysql` | MySQL 8.0. Port not published. |
 | `redis` | Cache and sessions. Port not published. |
 | `flaresolverr` | Solves Cloudflare challenges for the scrapers. |
@@ -157,6 +158,10 @@ storage/
 │   ├── ePub/, Novel/       # generated ePubs and their sources
 │   ├── public/             # covers and other public files (served at /storage)
 │   ├── private/<APP_NAME>/ # backup zips (default BACKUP_DISK=local)
+│   ├── books/              # uploaded ePubs (the only copy: backed up)
+│   ├── manga/              # manga and comic pages (NOVARR_MANGA_PATH)
+│   ├── audiobooks/         # the audiobook library (NOVARR_AUDIOBOOKS_PATH)
+│   ├── audiobooks-inbox/, comics-inbox/, books-inbox/   # drop-in / download inboxes
 │   ├── snapshots/          # failure snapshots (not backed up)
 │   └── .appkey             # generated APP_KEY (one-click stacks)
 ├── framework/              # cache, sessions, compiled views
@@ -211,6 +216,6 @@ Take a backup on the old install, copy the zip to the new host, and follow the r
 
 1. Keep MySQL and Redis unpublished, as every stack here does.
 2. Set real `DB_PASSWORD` / `MYSQL_ROOT_PASSWORD` before the first start if anything else shares the Docker host.
-3. Put HTTPS in front: a reverse proxy, or Tailscale Serve. Novarr has no login — anything that can reach it can use it, so do not expose it to the internet without an authenticating proxy.
+3. Put HTTPS in front: a reverse proxy, or Tailscale Serve. Sign-in is **off by default** (everyone who can reach Novarr is the owner): turn it on (Settings → Users, or `php artisan novarr:auth on`) before anyone else can reach it, and to publish it on the internet follow the readme's [Publishing on the internet with a Cloudflare Tunnel](readme.md#publishing-on-the-internet-with-a-cloudflare-tunnel) (`NOVARR_PUBLIC_HOSTS`: no admin features, a second sign-in step).
 4. Update regularly: `docker compose pull && docker compose up -d`.
 5. Back up `storage/app/.appkey` (the backups include it) and your `.env`, and keep both private.
