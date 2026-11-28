@@ -143,6 +143,11 @@ struct PaginationTests {
         #expect(TapZones.action(x: 150, width: 300) == .toggleChrome)
         #expect(TapZones.action(x: 299, width: 300) == .next)
         #expect(TapZones.action(x: 10, width: 0) == .toggleChrome)
+        // The top fifth shows / hides the controls across the whole width (Kindle-style).
+        #expect(TapZones.action(x: 10, width: 300, y: 50, height: 600) == .toggleChrome)
+        #expect(TapZones.action(x: 290, width: 300, y: 119, height: 600) == .toggleChrome)
+        #expect(TapZones.action(x: 10, width: 300, y: 121, height: 600) == .previous)
+        #expect(TapZones.action(x: 290, width: 300, y: 500, height: 600, rightToLeft: true) == .previous)
         #expect(TapZones.swipe(dx: -80, threshold: 48) == .next)
         #expect(TapZones.swipe(dx: 80, threshold: 48) == .previous)
         #expect(TapZones.swipe(dx: 20, threshold: 48) == nil)

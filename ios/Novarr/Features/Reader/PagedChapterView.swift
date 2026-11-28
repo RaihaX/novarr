@@ -320,8 +320,9 @@ struct PagedChapterView<Header: View, Footer: View>: View {
             .frame(height: pageHeight)
             .scrollBounceBehavior(.basedOnSize)
             .contentShape(Rectangle())
-            .onTapGesture(coordinateSpace: .local) { location in
-                perform(TapZones.action(x: location.x, width: fullWidth))
+            .onTapGesture(coordinateSpace: .global) { location in
+                perform(TapZones.action(x: location.x, width: UIScreen.main.bounds.width,
+                                        y: location.y, height: UIScreen.main.bounds.height))
             }
             .gesture(DragGesture(minimumDistance: 30).onEnded { value in
                 if let action = TapZones.swipe(dx: value.translation.width, threshold: 48) { perform(action) }
@@ -439,8 +440,8 @@ final class PageCanvasView: UIView {
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
         // Thirds of the whole screen, not of the text column.
         let host = window ?? self
-        let x = gesture.location(in: host).x
-        onAction?(TapZones.action(x: x, width: host.bounds.width))
+        let point = gesture.location(in: host)
+        onAction?(TapZones.action(x: point.x, width: host.bounds.width, y: point.y, height: host.bounds.height))
     }
 
     @objc private func swiped(_ gesture: UISwipeGestureRecognizer) {

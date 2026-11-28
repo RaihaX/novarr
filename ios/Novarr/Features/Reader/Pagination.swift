@@ -169,11 +169,19 @@ enum TapZones {
         case previous, next, toggleChrome
     }
 
-    /// Thirds of the width: the middle toggles the chrome; the outer thirds
-    /// turn pages. Left-to-right reading goes forward on the right;
-    /// right-to-left (manga) goes forward on the left.
-    static func action(x: CGFloat, width: CGFloat, rightToLeft: Bool = false) -> Action {
+    /// The top of the screen, across its whole width, shows / hides the chrome
+    /// (as on a Kindle): with only the middle third doing it, a tap a little
+    /// off-centre turned a page instead and showing the controls felt hit and miss.
+    static let menuBand: CGFloat = 0.2
+
+    /// The top band and the middle third toggle the chrome; the rest of the
+    /// outer thirds turn pages. Left-to-right reading goes forward on the
+    /// right; right-to-left (manga) goes forward on the left. `y`/`height`
+    /// may be left out (no top band).
+    static func action(x: CGFloat, width: CGFloat, y: CGFloat? = nil, height: CGFloat? = nil,
+                       rightToLeft: Bool = false) -> Action {
         guard width > 0 else { return .toggleChrome }
+        if let y, let height, height > 0, y < height * menuBand { return .toggleChrome }
         let third = width / 3
         let side = x < third ? -1 : (x >= width - third ? 1 : 0)
         guard side != 0 else { return .toggleChrome }

@@ -253,8 +253,9 @@ private struct PagedManga<End: View>: View {
                     Group {
                         if index < count {
                             let item = pages.pages[index]
-                            ZoomablePage(onTap: { x, width in
-                                perform(TapZones.action(x: x, width: width, rightToLeft: rightToLeft))
+                            ZoomablePage(onTap: { point, screen in
+                                perform(TapZones.action(x: point.x, width: screen.width, y: point.y,
+                                                        height: screen.height, rightToLeft: rightToLeft))
                             }) {
                                 PageImage(url: model.source(for: item), index: index, count: count)
                             }
@@ -263,6 +264,7 @@ private struct PagedManga<End: View>: View {
                                 .contentShape(Rectangle())
                                 .onTapGesture(coordinateSpace: .global) { location in
                                     perform(TapZones.action(x: location.x, width: UIScreen.main.bounds.width,
+                                                            y: location.y, height: UIScreen.main.bounds.height,
                                                             rightToLeft: rightToLeft))
                                 }
                         }

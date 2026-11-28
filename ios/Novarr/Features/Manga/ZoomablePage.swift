@@ -7,7 +7,7 @@ import UIKit
 /// has nothing to scroll, so horizontal swipes reach the pager underneath.
 struct ZoomablePage<Content: View>: UIViewRepresentable {
     /// Called with the tap's x in the window and the window's width.
-    var onTap: (_ x: CGFloat, _ width: CGFloat) -> Void
+    var onTap: (_ point: CGPoint, _ screen: CGSize) -> Void
     @ViewBuilder var content: () -> Content
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -34,7 +34,7 @@ struct ZoomablePage<Content: View>: UIViewRepresentable {
 
 final class ZoomScrollView: UIScrollView, UIScrollViewDelegate {
     private let hosted: UIView
-    var onTap: ((CGFloat, CGFloat) -> Void)?
+    var onTap: ((CGPoint, CGSize) -> Void)?
 
     /// Double-tap zooms to this scale.
     static let doubleTapScale: CGFloat = 2.5
@@ -87,6 +87,7 @@ final class ZoomScrollView: UIScrollView, UIScrollViewDelegate {
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
         let host = window ?? self
-        onTap?(gesture.location(in: host).x, host.bounds.width)
+        let point = gesture.location(in: host)
+        onTap?(point, host.bounds.size)
     }
 }

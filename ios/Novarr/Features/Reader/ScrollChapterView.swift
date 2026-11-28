@@ -89,10 +89,10 @@ struct ScrollChapterView<Header: View, Footer: View, Missing: View>: View {
                 width = $0.width
                 viewportHeight = $0.height
             }
-            // Middle third: chrome (buttons in the footer keep their taps).
-            .onTapGesture(coordinateSpace: .local) { location in
-                if TapZones.action(x: location.x, width: width) == .toggleChrome { onToggleChrome() }
-            }
+            // Scrolling has no page turns: a tap ANYWHERE shows / hides the chrome
+            // (it used to be the middle third only, so taps on the sides did
+            // nothing). Buttons in the footer keep their own taps.
+            .onTapGesture { onToggleChrome() }
             .accessibilityAction(named: "Show or hide controls") { onToggleChrome() }
             .task {
                 // Let the lazy stack lay out before jumping to the saved spot
