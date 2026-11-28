@@ -49,7 +49,7 @@ actor OfflineStore {
     }
 
     nonisolated let root: URL
-    private let log = Logger(subsystem: "studio.visns.novarr", category: "OfflineStore")
+    private let log = Logger(subsystem: "au.com.atomicinsights.novarr", category: "OfflineStore")
 
     init(root: URL) {
         self.root = root
@@ -110,7 +110,7 @@ actor OfflineStore {
                 try Data(String(user.id).utf8).write(to: marker, options: .atomic)
                 return shared
             } catch {
-                Logger(subsystem: "studio.visns.novarr", category: "OfflineStore")
+                Logger(subsystem: "au.com.atomicinsights.novarr", category: "OfflineStore")
                     .error("Could not adopt the existing cache: \(error.localizedDescription, privacy: .public)")
             }
         }

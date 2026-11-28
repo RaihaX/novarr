@@ -73,7 +73,7 @@ actor WriteQueue {
     private let fileURL: URL
     private let now: @Sendable () -> Date
     private var isFlushing = false
-    private let log = Logger(subsystem: "studio.visns.novarr", category: "WriteQueue")
+    private let log = Logger(subsystem: "au.com.atomicinsights.novarr", category: "WriteQueue")
 
     init(fileURL: URL, now: @escaping @Sendable () -> Date = { Date() }) {
         self.fileURL = fileURL

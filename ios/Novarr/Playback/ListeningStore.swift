@@ -32,7 +32,7 @@ actor ListeningStore {
     let fileURL: URL
     private var state: Snapshot
     private var flushing = false
-    private let log = Logger(subsystem: "studio.visns.novarr", category: "Listening")
+    private let log = Logger(subsystem: "au.com.atomicinsights.novarr", category: "Listening")
 
     init(fileURL: URL) {
         self.fileURL = fileURL

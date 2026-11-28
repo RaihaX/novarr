@@ -74,7 +74,7 @@ final class ListeningModel {
     /// Paused by an interruption (a call): resumed when it ends, if the system says so.
     @ObservationIgnored private var interrupted = false
     @ObservationIgnored private var sessionObservers: [NSObjectProtocol] = []
-    @ObservationIgnored private let log = Logger(subsystem: "studio.visns.novarr", category: "Listening")
+    @ObservationIgnored private let log = Logger(subsystem: "au.com.atomicinsights.novarr", category: "Listening")
 
     /// Signed part URLs last 24 h; a cached detail older than this gets fresh ones before streaming.
     static let urlMaxAge: TimeInterval = 20 * 60 * 60

@@ -69,7 +69,7 @@ final class AudiobookUploadManager {
     @ObservationIgnored private var client: APIClient?
     @ObservationIgnored private let network: NetworkConditions
     @ObservationIgnored private let prefs: () -> ListeningPrefs
-    @ObservationIgnored private let log = Logger(subsystem: "studio.visns.novarr", category: "AudiobookUploads")
+    @ObservationIgnored private let log = Logger(subsystem: "au.com.atomicinsights.novarr", category: "AudiobookUploads")
 
     private static let maxAttempts = 10
     private static let chunkTries = 5

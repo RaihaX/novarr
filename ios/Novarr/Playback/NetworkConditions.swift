@@ -20,7 +20,7 @@ final class NetworkConditions {
             let expensive = path.isExpensive
             Task { @MainActor in self?.update(connected: connected, expensive: expensive) }
         }
-        monitor.start(queue: DispatchQueue(label: "studio.visns.novarr.audio-path"))
+        monitor.start(queue: DispatchQueue(label: "au.com.atomicinsights.novarr.audio-path"))
     }
 
     /// Whether a transfer may run now.

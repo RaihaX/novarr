@@ -59,7 +59,7 @@ final class AudiobookDownloads {
     @ObservationIgnored private let prefs: () -> ListeningPrefs
     @ObservationIgnored private let downloader = PartDownloader()
     @ObservationIgnored var onChange: () -> Void = {}
-    @ObservationIgnored private let log = Logger(subsystem: "studio.visns.novarr", category: "AudiobookDownloads")
+    @ObservationIgnored private let log = Logger(subsystem: "au.com.atomicinsights.novarr", category: "AudiobookDownloads")
 
     init(network: NetworkConditions, prefs: @escaping () -> ListeningPrefs) {
         self.network = network

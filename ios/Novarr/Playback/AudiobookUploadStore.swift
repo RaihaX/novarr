@@ -63,7 +63,7 @@ actor AudiobookUploadStore {
     static let fileName = "audiobook-uploads.json"
 
     let fileURL: URL
-    private let log = Logger(subsystem: "studio.visns.novarr", category: "AudiobookUploads")
+    private let log = Logger(subsystem: "au.com.atomicinsights.novarr", category: "AudiobookUploads")
 
     init(fileURL: URL) { self.fileURL = fileURL }
 

@@ -72,7 +72,7 @@ final class AppModel {
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let storageBase: URL
     @ObservationIgnored private let monitor = NWPathMonitor()
-    @ObservationIgnored private let log = Logger(subsystem: "studio.visns.novarr", category: "App")
+    @ObservationIgnored private let log = Logger(subsystem: "au.com.atomicinsights.novarr", category: "App")
     /// The one poll loop for "Link with a code"; owned here so a re-created
     /// sign-in screen never asks for a second code.
     @ObservationIgnored private var pairingTask: Task<Void, Never>?
@@ -106,7 +106,7 @@ final class AppModel {
             guard path.status == .satisfied else { return }
             Task { @MainActor in await self?.networkBecameAvailable() }
         }
-        monitor.start(queue: DispatchQueue(label: "studio.visns.novarr.path"))
+        monitor.start(queue: DispatchQueue(label: "au.com.atomicinsights.novarr.path"))
     }
 
     /// Changes whenever the server or the signed-in user does, so screens

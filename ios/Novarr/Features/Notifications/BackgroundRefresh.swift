@@ -2,16 +2,16 @@ import BackgroundTasks
 import Foundation
 import os
 
-/// The app-refresh task (`studio.visns.novarr.refresh`): iOS's stand-in for
+/// The app-refresh task (`au.com.atomicinsights.novarr.refresh`): iOS's stand-in for
 /// Android's periodic WorkManager worker. It reads the request feed (hourly)
 /// and the new-chapters feed (every 2 hours) for the saved server and
 /// account and posts local notifications. iOS decides when it actually runs;
 /// each check keeps its own spacing (`BackgroundSchedule`).
 enum BackgroundRefresh {
-    static let identifier = "studio.visns.novarr.refresh"
+    static let identifier = "au.com.atomicinsights.novarr.refresh"
     static let requestsCheck = "requests"
     static let newChaptersCheck = "newChapters"
-    private static let log = Logger(subsystem: "studio.visns.novarr", category: "Background")
+    private static let log = Logger(subsystem: "au.com.atomicinsights.novarr", category: "Background")
 
     /// At launch, before the app finishes launching.
     static func register() {

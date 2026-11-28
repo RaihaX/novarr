@@ -17,7 +17,7 @@ struct KeychainError: Error, Equatable {
 /// Readable after the first unlock so queued writes can sync in the background;
 /// never synced to iCloud or restored onto another device.
 struct KeychainStore: SecureStore {
-    var service = "studio.visns.novarr.auth"
+    var service = "au.com.atomicinsights.novarr.auth"
 
     private func baseQuery(_ key: String) -> [String: Any] {
         [
@@ -70,7 +70,7 @@ struct Credential: Codable, Sendable, Equatable {
 /// Keyed by the server's storage key, so two servers never share a token.
 struct CredentialStore: Sendable {
     let secure: SecureStore
-    private let log = Logger(subsystem: "studio.visns.novarr", category: "Credentials")
+    private let log = Logger(subsystem: "au.com.atomicinsights.novarr", category: "Credentials")
 
     init(secure: SecureStore = KeychainStore()) {
         self.secure = secure
