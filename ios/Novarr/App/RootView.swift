@@ -29,6 +29,7 @@ struct RootView: View {
     }
     @SceneStorage("selectedTab") private var selection: Tab = .home
     @State private var libraryPath = NavigationPath()
+    @State private var homePath = NavigationPath()
     @State private var columns = NavigationSplitViewVisibility.all
     /// Files opened from Files or the Share sheet, shown in an upload sheet.
     @State private var incoming: IncomingFiles?
@@ -65,6 +66,21 @@ struct RootView: View {
             }
             // Recreate the tabs (and their models) when the server or account changes.
             .id(app.sessionID)
+            // A tapped notification: Home, then Requests or the series on top (as Android).
+            .onNotificationRoute { route in
+                selection = .home
+                homePath = NavigationPath()
+                switch route {
+                case .requests(let section, let novelId):
+                    homePath.append(RequestsRoute(section: section))
+                    if let novelId { homePath.append(NovelRoute(id: novelId, summary: nil)) }
+                case .series(let id):
+                    homePath.append(NovelRoute(id: id, summary: nil))
+                case .home:
+                    break
+                }
+            }
+            .environment(\.openLibraryTab, OpenLibraryTabAction { selection = .library })
             .onOpenURL { url in
                 if let files = IncomingFiles.receive(url) { incoming = files }
             }
@@ -100,7 +116,7 @@ struct RootView: View {
             }
         }, set: { selection = $0 })
         return TabView(selection: tab) {
-            NavigationStack { HomeView().novarrDestinations() }
+            NavigationStack(path: $homePath) { HomeView().novarrDestinations() }
                 .miniPlayerInset()
                 .tabItem { Label("Home", systemImage: "book") }
                 .tag(Tab.home)
@@ -135,7 +151,7 @@ struct RootView: View {
             Group {
                 switch selection {
                 case .home:
-                    NavigationStack { HomeView().novarrDestinations() }
+                    NavigationStack(path: $homePath) { HomeView().novarrDestinations() }
                 case .library:
                     NavigationStack(path: $libraryPath) { LibraryView().novarrDestinations() }
                 case .listen:
@@ -223,6 +239,24 @@ struct RootView: View {
         }
     }
     #endif
+}
+
+/// Switches to the Library tab (Home's "Open the full Library").
+struct OpenLibraryTabAction {
+    var action: @MainActor () -> Void = {}
+    @MainActor func callAsFunction() { action() }
+}
+
+private struct OpenLibraryTabKey: EnvironmentKey {
+    static let defaultValue: OpenLibraryTabAction? = nil
+}
+
+extension EnvironmentValues {
+    /// Nil outside the tabbed root (then Home pushes the Library instead).
+    var openLibraryTab: OpenLibraryTabAction? {
+        get { self[OpenLibraryTabKey.self] }
+        set { self[OpenLibraryTabKey.self] = newValue }
+    }
 }
 
 extension View {

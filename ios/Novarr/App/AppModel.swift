@@ -127,6 +127,8 @@ final class AppModel {
         serverMeta = meta
         isReachable = true
         listening.audiobooksOffered(meta.audiobooks)
+        // What it offers, for the notifications' background refresh.
+        NotificationHub.shared.noteMeta(meta, for: url)
     }
 
     private func configure(_ url: URL) {
@@ -218,6 +220,8 @@ final class AppModel {
     func apply(_ meta: ServerMeta, for url: URL) {
         serverMeta = meta
         listening.audiobooksOffered(meta.audiobooks)
+        // What it offers, for the notifications' background refresh.
+        NotificationHub.shared.noteMeta(meta, for: url)
         setAuthRequired(meta.requiresSignIn, for: url)
         if meta.requiresSignIn {
             guard account == nil, !needsSignIn else { return }

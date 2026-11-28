@@ -11,6 +11,7 @@ import SwiftUI
 struct HomeView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.openLibraryTab) private var openLibraryTab
     @State private var model = HomeModel()
     @State private var query = ""
     @State private var newCategory = false
@@ -204,18 +205,25 @@ struct HomeView: View {
         case .newChapters:
             newChaptersSection(NewChapters.shown(feed.newChapters))
         case .library:
-            NavigationLink {
-                LibraryView()
-            } label: {
-                Label("Open the full Library", systemImage: "books.vertical")
-                    .font(.ui(.body, .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 48)
-                    .background(Color.brandAccent.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            // As Android: switches to the Library tab (pushes it where there is no tab bar to switch).
+            Group {
+                if let openLibraryTab {
+                    Button { openLibraryTab() } label: { openLibraryLabel }
+                } else {
+                    NavigationLink { LibraryView() } label: { openLibraryLabel }
+                }
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color.brandAccent)
             .padding(.top, 28)
         }
+    }
+
+    private var openLibraryLabel: some View {
+        Label("Open the full Library", systemImage: "books.vertical")
+            .font(.ui(.body, .semibold))
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(Color.brandAccent.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     @ViewBuilder
