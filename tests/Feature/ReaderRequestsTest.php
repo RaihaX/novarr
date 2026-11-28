@@ -267,6 +267,40 @@ class ReaderRequestsTest extends TestCase
         }
     }
 
+    public function test_the_owner_can_raise_or_remove_the_pending_limit_in_settings(): void
+    {
+        // Raised to 8: the sixth to eighth are taken, the ninth is refused.
+        \App\Setting::put('requests_max_pending', '8');
+        foreach (range(1, 8) as $n) {
+            if ($n === 6) {
+                $this->travel(61)->seconds(); // making requests is throttled per reader
+            }
+            $this->freeText("Series {$n}")->assertStatus(201);
+        }
+        $this->freeText('Series 9')->assertStatus(429)->assertJsonPath('code', 'pending_limit')->assertJsonPath('limit', 8);
+        $this->asToken($this->readerToken)->getJson('/api/v1/requests')->assertJsonPath('pending_limit', 8);
+
+        // 0 = no limit: the list reports none and the ninth is taken.
+        \App\Setting::put('requests_max_pending', '0');
+        $this->travel(61)->seconds();
+        $this->freeText('Series 9')->assertStatus(201);
+        $this->asToken($this->readerToken)->getJson('/api/v1/requests')->assertJsonPath('pending_limit', null);
+
+        // Blank falls back to the env/config default.
+        \App\Setting::put('requests_max_pending', null);
+        $this->asToken($this->readerToken)->getJson('/api/v1/requests')->assertJsonPath('pending_limit', 5);
+    }
+
+    public function test_the_pending_limit_setting_is_validated(): void
+    {
+        $this->asSignedIn($this->owner);
+        $this->post(route('settings.update'), ['requests_max_pending' => '-1'])->assertSessionHasErrors('requests_max_pending');
+        $this->post(route('settings.update'), ['requests_max_pending' => '1001'])->assertSessionHasErrors('requests_max_pending');
+        $this->post(route('settings.update'), ['requests_max_pending' => '20'])->assertRedirect(route('settings.index'));
+        $this->assertSame(20, \App\Services\Requests\Requests::maxPending());
+        $this->get(route('settings.index'))->assertOk()->assertSee('Pending requests per reader');
+    }
+
     // ---- Listing and cancelling -------------------------------------------------
 
     public function test_readers_list_their_own_requests_and_the_admin_lists_all(): void

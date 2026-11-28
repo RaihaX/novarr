@@ -64,10 +64,16 @@ class Requests
     ) {
     }
 
-    /** A reader's pending title requests (series to find on a source). */
-    public static function maxPending(): int
+    /**
+     * A reader's pending title requests (series to find on a source): the
+     * owner's Settings value, else NOVARR_REQUESTS_MAX_PENDING_PER_READER.
+     * null = no limit (the setting is 0).
+     */
+    public static function maxPending(): ?int
     {
-        return max(1, (int) config('novarr.requests.max_pending_per_reader', 5));
+        $limit = (int) \App\Setting::get('requests_max_pending', config('novarr.requests.max_pending_per_reader', 5));
+
+        return $limit <= 0 ? null : $limit;
     }
 
     /** A reader's uploaded books waiting for the owner (their own limit: a whole shelf can arrive at once). */
@@ -253,7 +259,8 @@ class Requests
 
         try {
             $request = Cache::lock(self::CREATE_LOCK, 10)->block(5, function () use ($user, $fields, $title, $normalized, $note) {
-                if (!$user->isAdmin()
+                $limit = static::maxPending();
+                if (!$user->isAdmin() && $limit !== null
                     && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)->where('medium', Novel::MEDIUM_BOOK)->whereNotNull('upload_path')->count() >= static::maxPendingUploads()) {
                     throw new RequestRefused(429, 'You have ' . static::maxPendingUploads() . ' books waiting for the owner already. Wait for some to be added, or cancel one.', 'pending_limit', ['limit' => static::maxPendingUploads()]);
                 }
@@ -332,12 +339,13 @@ class Requests
                     return ['request' => $joined, 'joined' => true];
                 }
 
-                if (!$user->isAdmin()
+                $limit = static::maxPending();
+                if (!$user->isAdmin() && $limit !== null
                     && NovelRequest::where('user_id', $user->id)->where('status', NovelRequest::STATUS_PENDING)
                         // Title requests: every medium, and books asked for by title (no file).
                         ->where(fn($q) => $q->where('medium', '!=', Novel::MEDIUM_BOOK)->orWhereNull('upload_path'))
-                        ->count() >= static::maxPending()) {
-                    throw new RequestRefused(429, 'You have ' . static::maxPending() . ' requests waiting already. Wait for the owner to decide on one, or cancel one.', 'pending_limit', ['limit' => static::maxPending()]);
+                        ->count() >= $limit) {
+                    throw new RequestRefused(429, 'You have ' . $limit . ' requests waiting already. Wait for the owner to decide on one, or cancel one.', 'pending_limit', ['limit' => $limit]);
                 }
 
                 return ['joined' => false, 'request' => NovelRequest::create([

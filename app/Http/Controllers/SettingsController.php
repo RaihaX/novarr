@@ -169,6 +169,15 @@ class SettingsController extends Controller
                 'max' => 90,
                 'default' => (string) config('novarr.snapshots.days', 14),
             ],
+            'requests_max_pending' => [
+                'label' => 'Pending requests per reader',
+                'help' => 'How many title requests one reader may have waiting for your decision at once (0 = no limit, up to 1000). Uploaded books have their own limit; you are never limited.',
+                'type' => 'number',
+                'group' => 'Requests',
+                'min' => 0,
+                'max' => 1000,
+                'default' => (string) config('novarr.requests.max_pending_per_reader', 5),
+            ],
             'notification_webhook_url' => [
                 'label' => 'Notification webhook',
                 'help' => 'Optional Discord webhook or ntfy topic URL — pinged when a novel completes or a source starts failing.',
@@ -294,6 +303,7 @@ class SettingsController extends Controller
             'novelupdates_match_threshold' => 'nullable|numeric|min:0.5|max:1',
             'snapshots_keep_per_novel' => 'nullable|integer|min:0|max:50',
             'snapshots_days' => 'nullable|integer|min:1|max:90',
+            'requests_max_pending' => 'nullable|integer|min:0|max:1000',
             'snapshots_enabled' => 'nullable',
             'auto_kindle' => 'nullable',
             'summary_readers' => 'nullable',
