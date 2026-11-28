@@ -42,6 +42,10 @@ function QuickMenuUI.state(plugin)
         status = Reading.statusText(plugin),
         has_prev = prev_id ~= nil,
         has_next = next_id ~= nil or missing ~= nil,
+        has_latest = (function()
+            local latest = Reading.latest(r)
+            return latest ~= nil and latest ~= r.chapter_id
+        end)(),
         pending = Session.queue:count(),
         checking = check ~= nil and CheckState.active(check) or false,
         -- Nothing restricts the check (auth.lua lets readers ask for one too).
@@ -71,6 +75,12 @@ local function act(plugin, id)
         require("novarr.checks").ask(novel_id)
     elseif id == "home" then
         Session:showHome()
+    elseif id == "latest" then
+        Reading.goLatest(plugin)
+    elseif id == "koreader" then
+        -- KOReader's own menu (a tap on the top opens this one in Novarr chapters).
+        local menu = plugin.ui and plugin.ui.menu
+        if menu and menu.onShowMenu then menu:onShowMenu() end
     end
 end
 

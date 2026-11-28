@@ -20,7 +20,7 @@ local plugin_dir = (debug.getinfo(1, "S").source or ""):match("^@(.*)/[^/]*$") o
 local MODULES = {
     "address", "api", "auth", "autopilot", "chapterdoc", "checks", "checkstate", "collections", "covers", "discover",
     "epub", "epubflow", "feeds", "groups", "highlights", "http_client", "json", "manga", "model", "queue", "reading",
-    "readinginfo", "requests", "searchstate", "session",
+    "menuorder", "readinginfo", "requests", "searchstate", "session",
     "position", "quickmenu", "stats", "store", "sync", "ui_highlights", "ui_quickmenu", "wifitime",
     "ui_caughtup", "ui_chapters", "ui_common", "ui_coverlist", "ui_discover", "ui_downloads", "ui_feeds", "ui_home",
     "ui_library", "ui_lists", "ui_more", "ui_requests",
@@ -85,6 +85,8 @@ function Novarr:init()
             require("novarr.ui_update").cleanupLeftovers(Session)
         end
         self:onDispatcherRegisterActions()
+        -- Novarr first in KOReader's menu (both menus' order tables, once).
+        require("novarr.menuorder").apply(Session:get("menu_first"))
         if self.ui and self.ui.menu then
             self.ui.menu:registerToMainMenu(self)
         end
@@ -137,6 +139,8 @@ function Novarr:onDispatcherRegisterActions()
         { category = "none", event = "NovarrChapterList", title = _("Novarr: chapter list"), reader = true })
     Dispatcher:registerAction("novarr_novel_page",
         { category = "none", event = "NovarrNovelPage", title = _("Novarr: novel page"), reader = true })
+    Dispatcher:registerAction("novarr_latest_chapter",
+        { category = "none", event = "NovarrLatestChapter", title = _("Novarr: latest chapter"), reader = true })
     Dispatcher:registerAction("novarr_quick_menu",
         { category = "none", event = "NovarrQuickMenu", title = _("Novarr: quick menu"), reader = true })
     Dispatcher:registerAction("novarr_sync",
@@ -188,6 +192,7 @@ function Novarr:addToMainMenu(menu_items)
                 { text = _("More…"), callback = Session.wrap(function() require("novarr.ui_more").show(Session) end) },
                 { text = _("Next chapter"), callback = Session.wrap(function() Reading.goNext(self) end) },
                 { text = _("Previous chapter"), callback = Session.wrap(function() Reading.goPrev(self) end) },
+                { text = _("Latest chapter"), callback = Session.wrap(function() Reading.goLatest(self) end) },
                 { text = _("Sync now"), callback = Session.wrap(function() Session:syncNow() end) },
             },
         }
@@ -230,6 +235,12 @@ function Novarr:onNovarrNovelPage()
     if not self.reading then return end
     local novel_id = self.reading.novel_id
     Session.guard(function() Session:showNovel(novel_id) end)
+    return true
+end
+
+function Novarr:onNovarrLatestChapter()
+    if not self.reading then return end
+    Session.guard(function() require("novarr.reading").goLatest(self) end)
     return true
 end
 

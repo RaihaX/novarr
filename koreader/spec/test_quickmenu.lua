@@ -26,9 +26,16 @@ T.it("title: novel, chapter, status, missing parts left out", function()
     T.eq(QM.title(nil), nil)
 end)
 
-T.it("rows: four rows of two, in order", function()
-    T.eq(flat(QM.rows({ has_prev = true, has_next = true, pending = 0, can_check = true })),
-        { "chapters|novel", "prev|next", "sync|check", "home|close" })
+T.it("rows: five rows of two, in order", function()
+    T.eq(flat(QM.rows({ has_prev = true, has_next = true, has_latest = true, pending = 0, can_check = true })),
+        { "chapters|novel", "prev|next", "latest|home", "sync|check", "koreader|close" })
+end)
+
+T.it("rows: latest chapter only when there is a newer one", function()
+    T.eq(byId(QM.rows({ has_latest = true }), "latest").enabled, true)
+    T.eq(byId(QM.rows({ has_latest = false }), "latest").enabled, false)
+    T.eq(byId(QM.rows({}), "latest").enabled, false)
+    T.eq(byId(QM.rows({}), "latest").text, "Latest chapter")
 end)
 
 T.it("rows: previous and next follow what exists", function()
@@ -57,14 +64,14 @@ end)
 
 T.it("rows: the other buttons are always enabled", function()
     local rows = QM.rows({})
-    for _i, id in ipairs({ "chapters", "novel", "sync", "home", "close" }) do
+    for _i, id in ipairs({ "chapters", "novel", "sync", "home", "koreader", "close" }) do
         T.eq(byId(rows, id).enabled, true, id)
     end
 end)
 
 T.it("rows: a book has no check for new chapters and a Book page", function()
     local rows = QM.rows({ book = true, can_check = true, has_prev = true, has_next = true })
-    T.eq(flat(rows), { "chapters|novel", "prev|next", "sync", "home|close" })
+    T.eq(flat(rows), { "chapters|novel", "prev|next", "latest|home", "sync", "koreader|close" })
     T.eq(byId(rows, "check"), nil)
     T.eq(byId(rows, "novel").text, "Book page")
     T.eq(byId(QM.rows({ can_check = true }), "novel").text, "Novel page")

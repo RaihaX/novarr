@@ -26,7 +26,8 @@ end
 The buttons, as rows of {id, text, enabled}. state = {has_prev, has_next,
 pending (writes waiting), checking (a check for new chapters is running),
 can_check (the account may ask for one), book (1.12.0: a book is complete:
-no check for new chapters, and "Book page")}.
+no check for new chapters, and "Book page"), has_latest (1.15.0: a newer
+chapter than the open one to jump to)}.
 ]]
 function QuickMenu.rows(state)
     state = state or {}
@@ -45,8 +46,12 @@ function QuickMenu.rows(state)
           { id = "novel", text = state.book and _("Book page") or _("Novel page"), enabled = true } },
         { { id = "prev", text = _("Previous chapter"), enabled = state.has_prev and true or false },
           { id = "next", text = _("Next chapter"), enabled = state.has_next and true or false } },
+        -- 1.15.0: the newest chapter there is (Model.latestIn), off when it is the open one.
+        { { id = "latest", text = _("Latest chapter"), enabled = state.has_latest and true or false },
+          { id = "home", text = _("Novarr home"), enabled = true } },
         { { id = "sync", text = sync_text, enabled = true }, check }, -- a book: Sync alone
-        { { id = "home", text = _("Novarr home"), enabled = true },
+        -- 1.15.0: KOReader's own menu, now that a tap on the top opens this one in Novarr chapters.
+        { { id = "koreader", text = _("KOReader menu"), enabled = true },
           { id = "close", text = _("Close"), enabled = true } },
     }
 end

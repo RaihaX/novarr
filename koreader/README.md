@@ -42,11 +42,24 @@ open Novarr in a web browser, for example `192.168.1.34:8080`. You can leave out
 tells you in plain words if it can't reach the server or if it isn't Novarr. If the
 server needs sign-in, Novarr then offers to link this Kindle to your account (see below).
 
+**Novarr comes first** (since 1.15.0): **Novarr** is the first entry of the first tab of
+KOReader's menu, in the file browser and while reading, so it is never on page 2 of Tools.
+While a Novarr chapter is open:
+- **Tap the top of the page**: the Novarr quick menu (below) instead of KOReader's menu.
+  The top corners keep their KOReader taps (bookmark, page flipping); a swipe down from
+  the top, and the quick menu's **KOReader menu** button, open KOReader's menu. If you set
+  KOReader to open its menu by swipe only, a top tap stays a page turn.
+- **Tap the bottom-right corner**: the chapter list.
+- **Two-finger tap anywhere**: Novarr home.
+Other books are left alone. Each can be switched off in Settings (*Tap the top of the
+page for the Novarr menu*, *Corner tap: chapter list · two-finger tap: home*, *Novarr
+first in KOReader's menu*).
+
 Tip: you can also give Novarr a gesture (Settings ▸ Taps and gestures ▸ Gesture
 manager): look for **Novarr**, **Novarr: next chapter**,
 **Novarr: previous chapter**, **Novarr: chapter list**, **Novarr: novel page**,
-**Novarr: quick menu** and **Novarr: sync now** in the list of actions (the last four
-since 1.11.0; *sync now* works in the file browser too).
+**Novarr: quick menu**, **Novarr: latest chapter** and **Novarr: sync now** in the list
+of actions (*latest chapter* since 1.15.0; *sync now* works in the file browser too).
 
 ## Using it
 
@@ -228,9 +241,10 @@ change applies at once to the chapter you have open.
 **The quick menu** (since 1.11.0): hold your finger on the status bar at the bottom
 (or on the top bar when it shows the Novarr line) and a small menu opens, with the
 novel, the chapter and the whole reading info line at the top, and these buttons:
-*Chapter list*, *Novel page*, *Previous chapter*, *Next chapter*, *Sync now* (with
-the number of changes waiting, e.g. "Sync now (3)"), *Check for new chapters*,
-*Novarr home* and *Close*. It does nothing when the status bar is hidden, and if you
+*Chapter list*, *Novel page*, *Previous chapter*, *Next chapter*, *Latest chapter* (the
+newest chapter there is, since 1.15.0), *Novarr home*, *Sync now* (with the number of
+changes waiting, e.g. "Sync now (3)"), *Check for new chapters*, *KOReader menu* and
+*Close*. A tap on the top of the page opens it too (since 1.15.0). It does nothing when the status bar is hidden, and if you
 chose KOReader's own *Skim on hold* for the status bar, holding it keeps opening the
 skim dialog. Switch it off with *Hold the status bar for the Novarr menu* in Settings.
 The *Novarr: quick menu* gesture opens it too.
@@ -577,9 +591,12 @@ The rows are grouped under four headings; a long row wraps onto a second line.
   Top and bottom; Bottom by default), **Show clock while reading** (on) and
   **Sync status in the status bar** (on; part of the reading info line).
 - **Hold the status bar for the Novarr menu** (on; the quick menu).
+- **Tap the top of the page for the Novarr menu** (on; since 1.15.0).
+- **Corner tap: chapter list · two-finger tap: home** (on; since 1.15.0).
 - **Offer the place read on another device** (on).
 - **Show covers** (on).
 - **Open Novarr when KOReader starts** (on).
+- **Novarr first in KOReader's menu** (on; since 1.15.0).
 - **Book cover as sleep screen**.
 
 **Wi-Fi and storage**

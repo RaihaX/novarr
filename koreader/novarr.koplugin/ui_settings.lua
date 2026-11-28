@@ -320,10 +320,21 @@ function Settings:items()
     toggle("show_clock", _("Show clock while reading"))
     toggle("show_sync_status", _("Sync status in the status bar"))
     toggle("hold_menu", _("Hold the status bar for the Novarr menu"))
+    toggle("tap_menu", _("Tap the top of the page for the Novarr menu"))
+    toggle("tap_gestures", _("Corner tap: chapter list · two-finger tap: home"))
     -- Off: no question and no request for it (position.lua); the device is still named with every write.
     toggle("position_prompt", _("Offer the place read on another device"))
     toggle("show_covers", _("Show covers"))
     toggle("open_on_start", _("Open Novarr when KOReader starts"))
+    table.insert(items, {
+        text = _("Novarr first in KOReader's menu"),
+        mandatory = onOff(s:get("menu_first")),
+        callback = function()
+            s:set("menu_first", not s:get("menu_first"))
+            require("novarr.menuorder").apply(s:get("menu_first"))
+            self:rebuild()
+        end,
+    })
     table.insert(items, {
         text = _("Book cover as sleep screen"),
         mandatory = onOff(s:sleepCoverOn()),

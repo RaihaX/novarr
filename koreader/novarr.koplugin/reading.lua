@@ -310,6 +310,7 @@ function Reading.onReady(plugin)
     Session.guard(Reading.addFooter, plugin)
     Session.guard(Reading.scheduleTick, plugin)
     Session.guard(Reading.setupHold, plugin)
+    Session.guard(Reading.setupTaps, plugin)
     Session.guard(Reading.applyCover, plugin, false)
     Session.guard(Reading.offerSleepCover, plugin)
     if r.group then
@@ -1313,6 +1314,114 @@ function Reading.setupHold(plugin)
     if not ok then logger.warn("Novarr: hold on the status bar not available:", err) end
 end
 
+-- ---------------------------------------------------------------- taps in Novarr chapters
+
+--- Is the position inside a KOReader tap-zone default ({x, y, w, h} ratios)?
+local function inZone(name, pos)
+    local defaults = rawget(_G, "G_defaults")
+    local z = defaults and defaults:readSetting(name)
+    if not z or not pos or not pos.x then return false end
+    local Screen = require("device").screen
+    local w, h = Screen:getWidth(), Screen:getHeight()
+    return pos.x >= z.x * w and pos.x <= (z.x + z.w) * w and pos.y >= z.y * h and pos.y <= (z.y + z.h) * h
+end
+
+--[[--
+A tap on the top of the page (KOReader's menu zone): Novarr's quick menu
+instead of KOReader's menu, while a Novarr chapter is open and tap_menu is
+on. The top corners stay KOReader's (bookmark, page flipping); a swipe down
+from the top, and the quick menu's "KOReader menu", still open KOReader's.
+]]
+function Reading.onMenuTap(plugin, ges)
+    if not plugin.reading or not Session:get("tap_menu") then return nil end
+    -- KOReader set to open its menu by swipe only: a tap stays a page turn.
+    local reader_settings = rawget(_G, "G_reader_settings")
+    if reader_settings and reader_settings:readSetting("activate_menu") == "swipe" then return nil end
+    local pos = ges and ges.pos
+    if inZone("DTAP_ZONE_TOP_LEFT", pos) or inZone("DTAP_ZONE_TOP_RIGHT", pos) then return nil end
+    Session.guard(Reading.showQuickMenu, plugin)
+    return true
+end
+
+--- A tap in the bottom-right corner: the chapter list (tap_gestures on).
+function Reading.onCornerTap(plugin, _ges)
+    if not plugin.reading or not Session:get("tap_gestures") then return nil end
+    local novel_id = plugin.reading.novel_id
+    Session.guard(function() Session:showChapters(novel_id) end)
+    return true
+end
+
+--- A two-finger tap anywhere: Novarr home (tap_gestures on).
+function Reading.onTwoFingerTap(plugin, _ges)
+    if not plugin.reading or not Session:get("tap_gestures") then return nil end
+    Session.guard(function() Session:showHome() end)
+    return true
+end
+
+--[[--
+Registers the tap zones on this ReaderUI, once per plugin instance (touch
+devices only). Like the hold zones they stay with the ReaderUI and every
+handler looks again whether a Novarr chapter is open and its setting is on;
+otherwise the tap goes on to KOReader. Each goes before KOReader's own zone
+for the same place (and the Gestures plugin's, should the user have given
+that corner a gesture).
+]]
+function Reading.setupTaps(plugin)
+    if plugin.tap_zones then return end
+    plugin.tap_zones = true
+    local ui = plugin.ui
+    local ok_dev, Device = pcall(require, "device")
+    if not ok_dev or not Device.isTouchDevice or not Device:isTouchDevice() then return end
+    if not ui or not ui.registerTouchZones then return end
+    local function handle(fn)
+        return function(ges)
+            local okh, res = pcall(fn, plugin, ges)
+            return okh and res or nil
+        end
+    end
+    local ok, err = pcall(function()
+        local defaults = rawget(_G, "G_defaults")
+        local function zone(name)
+            local z = defaults:readSetting(name)
+            return { ratio_x = z.x, ratio_y = z.y, ratio_w = z.w, ratio_h = z.h }
+        end
+        ui:registerTouchZones({
+            {
+                id = "novarr_menu_tap",
+                ges = "tap",
+                screen_zone = zone("DTAP_ZONE_MENU"),
+                handler = handle(Reading.onMenuTap),
+                overrides = { "readermenu_tap", "readermenu_ext_tap", "tap_forward", "tap_backward" },
+            },
+            {
+                -- KOReader's taller, narrower extension of the menu zone.
+                id = "novarr_menu_ext_tap",
+                ges = "tap",
+                screen_zone = zone("DTAP_ZONE_MENU_EXT"),
+                handler = handle(Reading.onMenuTap),
+                overrides = { "readermenu_ext_tap", "readermenu_tap", "tap_forward", "tap_backward" },
+            },
+            {
+                id = "novarr_corner_tap",
+                ges = "tap",
+                screen_zone = zone("DTAP_ZONE_BOTTOM_RIGHT"),
+                handler = handle(Reading.onCornerTap),
+                overrides = { "tap_right_bottom_corner", "readerfooter_tap", "readerconfigmenu_tap",
+                    "readerconfigmenu_ext_tap", "tap_forward", "tap_backward" },
+            },
+            {
+                id = "novarr_two_finger_tap",
+                ges = "two_finger_tap",
+                screen_zone = { ratio_x = 0, ratio_y = 0, ratio_w = 1, ratio_h = 1 },
+                handler = handle(Reading.onTwoFingerTap),
+                overrides = { "two_finger_tap_top_left_corner", "two_finger_tap_top_right_corner",
+                    "two_finger_tap_bottom_left_corner", "two_finger_tap_bottom_right_corner" },
+            },
+        })
+    end)
+    if not ok then logger.warn("Novarr: taps in Novarr chapters not available:", err) end
+end
+
 --[[--
 How wide the status line may be: the width ReaderFooter gives its text
 (screen minus the progress bar's minimum share when the bar is alongside),
@@ -1673,6 +1782,31 @@ message appears only when it cannot be opened. Never prompts to turn Wi-Fi
 on (also used at the end of a chapter). A next chapter the server does not
 have yet is never jumped past: Reading.showMissing asks first.
 ]]
+--[[--
+The newest chapter of the open novel (Model.latestIn over the chapter list:
+on the server, or saved here). Returns its id and whether the server has it
+(the openNext() argument), or nil when the list is unknown or empty.
+]]
+function Reading.latest(r)
+    local cl = Session:chapterList(r.novel_id)
+    if not cl then return nil end
+    local c = Model.latestIn(cl.list, function(id) return Session.store:hasChapter(r.novel_id, id) end)
+    if not c then return nil end
+    return c.id, c.downloaded and true or false
+end
+
+--- The quick menu's "Latest chapter": opens the newest chapter (as openNext does any chapter).
+function Reading.goLatest(plugin)
+    local r = plugin.reading
+    if not r then return end
+    local id, downloaded = Reading.latest(r)
+    if not id or id == r.chapter_id then
+        require("novarr.ui_common").info(_("This is the latest chapter."), 2)
+        return
+    end
+    Reading.openNext(plugin, id, downloaded)
+end
+
 function Reading.goNext(plugin)
     local r = plugin.reading
     if not r then return end

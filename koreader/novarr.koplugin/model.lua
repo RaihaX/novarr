@@ -366,6 +366,20 @@ function Model.neighbourIn(list, pos, dir, stored)
     return nil, passed
 end
 
+--[[--
+The newest chapter there is to read (the quick menu's "Latest chapter"): the
+last row in reading order that the server has downloaded or that is stored
+on this device (stored(id), optional). nil when there is none.
+]]
+function Model.latestIn(list, stored)
+    if type(list) ~= "table" then return nil end
+    for i = #list, 1, -1 do
+        local c = list[i]
+        if c and (c.downloaded or (stored and stored(c.id))) then return c end
+    end
+    return nil
+end
+
 --- Label of a chapter ref (never empty).
 function Model.chapterLabel(ref)
     if not ref then return "" end

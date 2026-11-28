@@ -68,6 +68,9 @@ local DEFAULTS = {
     position_prompt = true, -- ask to go to the latest place read on another device (position.lua)
     info_position = "bottom", -- reading info: "bottom" | "top" | "both" (reading.lua)
     hold_menu = true,         -- hold the status bar for the quick menu (ui_quickmenu.lua)
+    tap_menu = true,          -- 1.15.0: a tap on the top opens the quick menu in Novarr chapters (reading.lua)
+    tap_gestures = true,      -- 1.15.0: bottom-right corner = chapter list, two-finger tap = home (reading.lua)
+    menu_first = true,        -- 1.15.0: Novarr first in KOReader's menu (main.lua)
 }
 
 local purgeSidecar -- defined with the removal functions below

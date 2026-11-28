@@ -147,6 +147,19 @@ T.it("next chapters for prefetch skip ones the server lacks", function()
     T.eq(Model.nextChapters(chapters, 1000 + 3000, 3), {})
 end)
 
+T.it("latest: the last chapter downloaded on the server or stored here", function()
+    local l = {
+        { id = 100, downloaded = true },
+        { id = 101, downloaded = true },
+        { id = 102, downloaded = false },
+    }
+    T.eq(Model.latestIn(l).id, 101, "not on the server yet: not the latest")
+    T.eq(Model.latestIn(l, function(id) return id == 102 end).id, 102, "saved on this device: readable")
+    T.eq(Model.latestIn({ { id = 1, downloaded = false } }), nil)
+    T.eq(Model.latestIn({}), nil)
+    T.eq(Model.latestIn(nil), nil)
+end)
+
 T.it("neighbour: going forward a missing chapter is reported, never skipped silently", function()
     local l = {
         { id = 100, downloaded = true },
