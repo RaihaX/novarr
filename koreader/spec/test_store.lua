@@ -38,6 +38,36 @@ T.it("cache round trip with ETag, corrupt cache treated as missing", function()
     T.eq(s:getCache("home"), nil)
 end)
 
+T.it("the library and Home are decoded once, and dropped on every write", function()
+    local root = T.tmpdir()
+    local decodes = 0
+    local Counting = setmetatable({ decode = function(...)
+        decodes = decodes + 1
+        return Json.decode(...)
+    end }, { __index = Json })
+    local s = Store.new({ root = root, lfs = lfs, json = Counting, now = function() return 1 end })
+    s:putCache("novels", '{"novels":[{"id":1}]}', '"e1"', 5)
+    decodes = 0
+    T.eq(s:getCache("novels").data.novels[1].id, 1)
+    local first = decodes
+    s:getCache("novels")
+    s:getCache("novels")
+    T.eq(decodes, first, "read from memory after the first time")
+    s:touchCache("novels", 9)
+    T.eq(s:getCache("novels").fetched_at, 9, "a 304 keeps the memory copy's fetch time in step")
+    s:putCache("novels", '{"novels":[{"id":2}]}', '"e2"', 10)
+    local c = s:getCache("novels")
+    T.eq({ c.data.novels[1].id, c.etag, c.fetched_at }, { 2, '"e2"', 10 }, "a new body replaces it")
+    s:clearCache()
+    T.eq(s:getCache("novels"), nil, "cleared with the cache")
+    -- Any other entry is read from its file each time.
+    s:putCache("novel_3", '{"novel":{"id":3}}', '"e3"', 5)
+    decodes = 0
+    s:getCache("novel_3")
+    s:getCache("novel_3")
+    T.eq(decodes, 4, "body and meta, twice")
+end)
+
 T.it("stores chapters and maps paths back to ids", function()
     local root = T.tmpdir()
     local s = newStore(root)

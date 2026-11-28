@@ -182,12 +182,30 @@ end
 Returns the cached response for key: { data = decoded, etag, fetched_at }
 or nil. A corrupt body is treated as missing.
 ]]
+--[[--
+Cached responses kept decoded in memory (1.15.1): the library list (with
+books, manga and comics it is thousands of entries, hundreds of KB) and
+Home are read by many lookups (the open novel's name, cover, medium, "is it
+a book"), and decoding the file each time made a Kindle crawl. The memory
+copy is the file's: dropped when the entry is written or the cache cleared,
+its fetch time kept in step on a 304 (touchCache). Callers must not change
+what they get back.
+]]
+Store.MEMO_KEYS = { novels = true, home = true }
+
 function Store:getCache(key)
+    local memo = self.memo and self.memo[key]
+    if memo then return memo end
     local path = self:cachePath(key)
     local data = self:readJson(path)
     if data == nil then return nil end
     local meta = self:readJson(self.root .. "/cache/" .. key .. ".meta.json") or {}
-    return { data = data, etag = meta.etag, fetched_at = meta.fetched_at }
+    local entry = { data = data, etag = meta.etag, fetched_at = meta.fetched_at }
+    if Store.MEMO_KEYS[key] then
+        self.memo = self.memo or {}
+        self.memo[key] = entry
+    end
+    return entry
 end
 
 --- Only the {etag, fetched_at} of a cached entry (cheap: no body decode).
@@ -197,6 +215,7 @@ end
 
 --- Stores a raw response body (already validated JSON text) with its ETag.
 function Store:putCache(key, body, etag, fetched_at)
+    if self.memo then self.memo[key] = nil end
     local ok = self:writeFile(self:cachePath(key), body)
     if ok then
         self:writeJson(self.root .. "/cache/" .. key .. ".meta.json",
@@ -211,9 +230,12 @@ function Store:touchCache(key, fetched_at)
     local meta = self:readJson(metapath) or {}
     meta.fetched_at = fetched_at or self.now()
     self:writeJson(metapath, meta)
+    local memo = self.memo and self.memo[key]
+    if memo then memo.fetched_at = meta.fetched_at end
 end
 
 function Store:clearCache()
+    self.memo = nil
     self:removeTree(self.root .. "/cache")
 end
 
