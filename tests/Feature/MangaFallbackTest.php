@@ -12,6 +12,7 @@ use App\Novel;
 use App\NovelChapter;
 use App\Scraping\Fetcher;
 use App\Scraping\MangaFallback;
+use App\Services\Requests\RequestSearch;
 use App\Scraping\PageDownloader;
 use App\Scraping\PageDownloadResult;
 use App\Scraping\SourceUnavailable;
@@ -379,6 +380,56 @@ class MangaFallbackTest extends TestCase
         // Filled from the preferred alternate.
         $this->assertSame(1, $stats['filled']);
         $this->assertSame('Weeb Central', NovelChapter::where('novel_id', $novel->id)->where('chapter', 139)->value('filled_from'));
+    }
+
+    public function testAFamilysOtherMirrorStandsInWhenItsBestMemberLacksTheSeries(): void
+    {
+        // Weeb Central and MangaPill as one mirror family: only Weeb Central is in the search order.
+        config(['novarr.requests.source_families' => [['Weeb Central', 'MangaPill']]]);
+        $novel = $this->series('Tales of Demons and Gods');
+        $this->stuck($novel, 121.1);
+        $this->server['search'] = [
+            self::WEEB => [],
+            self::PILL => [[41, 'Tales of Demons and Gods']],
+        ];
+        $this->server['chapters'] = [41 => [[121.1, 1211]]];
+
+        $stats = $this->fill();
+
+        $this->assertSame(3, $stats['searched'], 'MangaDex, Weeb Central, MangaFox: the stand-in is no extra source');
+        $this->assertSame(1, $this->searchesOf(self::PILL), 'MangaPill asked for Weeb Central');
+        $alternate = MangaAlternate::where('novel_id', $novel->id)->sole();
+        $this->assertSame('suwayomi:' . self::PILL, $alternate->source_key);
+        $this->assertSame(1, $alternate->rank, "Weeb Central's place");
+        $this->assertSame(1, $stats['filled']);
+        $this->assertSame('MangaPill', NovelChapter::where('novel_id', $novel->id)->where('chapter', '121.1')->value('filled_from'));
+
+        // A new cycle: the stand-in is found again and kept (not forgotten as an unsearched source).
+        $this->stuck($novel, 286.2);
+        $this->server['chapters'][41][] = [286.2, 2862];
+        $this->fill(['refresh' => true]);
+        $this->assertSame(['suwayomi:' . self::PILL], MangaAlternate::where('novel_id', $novel->id)->pluck('source_key')->all());
+
+        // Once Weeb Central has it, the stand-in gives way and MangaPill is not asked.
+        $this->server['search'][self::WEEB] = [[21, 'Tales of Demons and Gods']];
+        $this->server['chapters'][21] = [[1, 1]];
+        $this->stuck($novel, 289.95);
+        $before = $this->searchesOf(self::PILL);
+        Cache::flush(); // searches are cached ten minutes
+        $this->fill(['refresh' => true]);
+        $this->assertSame($before, $this->searchesOf(self::PILL));
+        $this->assertSame(['suwayomi:' . self::WEEB], MangaAlternate::where('novel_id', $novel->id)->pluck('source_key')->all());
+    }
+
+    public function testFamilyStandInsArePure(): void
+    {
+        $names = ['a' => 'Mangakakalot', 'b' => 'MangaPill', 'c' => 'Manganato', 'd' => 'Mangabat', 'e' => 'MangaFox'];
+        $families = [['Mangakakalot', 'Manganato', 'Mangabat'], ['MangaFox', 'Mangahere']];
+
+        $this->assertSame(['a', 'b', 'e'], RequestSearch::searchOrder($names, [], ['Mangakakalot', 'MangaPill'], $families));
+        $this->assertSame(['a' => ['c', 'd']], RequestSearch::familyStandIns($names, [], ['Mangakakalot', 'MangaPill'], $families), 'MangaFox is alone of its family');
+        $this->assertSame(['d' => ['a', 'c']], RequestSearch::familyStandIns($names, [], ['Mangabat', 'Mangakakalot'], $families), 'preference order decides the winner and the stand-ins');
+        $this->assertSame([], RequestSearch::familyStandIns($names, [], [], []));
     }
 
     public function testRenamedSeriesMatchesOnTheTitleItsOwnSourceReports(): void
@@ -1097,6 +1148,7 @@ class MangaFallbackTest extends TestCase
         $chapter = $this->stuck($novel, 5);
         $this->known($novel, [[self::WEEB, 'Weeb Central', 21]]);
         $this->server['chapters'][21] = [[1, 1]];
+        $this->stuck($novel, 289.95);
         $before = $chapter->toArray();
 
         $this->artisan('manga:fill-missing', ['--dry-run' => true])

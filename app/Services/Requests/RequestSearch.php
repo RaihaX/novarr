@@ -433,6 +433,82 @@ class RequestSearch
     }
 
     /**
+     * The family members searchOrder() left out, per kept member: kept key
+     * => the other members' keys, best placed first. A key in no family, or
+     * alone of its family, has no entry. Pure.
+     *
+     * @param  array<string, string>  $names  key => display name, in Discover order
+     * @return array<string, string[]>
+     */
+    public static function familyStandIns(array $names, array $configured, array $preference, array $families): array
+    {
+        $full = static::searchOrder($names, $configured, $preference, []);
+        $kept = array_flip(static::searchOrder($names, $configured, $preference, $families));
+
+        $standIns = [];
+        foreach ($families as $family) {
+            $members = array_values(array_filter(array_map(fn($m) => trim((string) $m), (array) $family), fn($m) => $m !== ''));
+            if (count($members) < 2) {
+                continue;
+            }
+            $inFamily = array_values(array_filter($full, function (string $key) use ($names, $members) {
+                foreach ($members as $member) {
+                    if (static::nameMatches((string) $names[$key], $member)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }));
+            $winner = null;
+            foreach ($inFamily as $key) {
+                if (isset($kept[$key])) {
+                    $winner = $key;
+                    break;
+                }
+            }
+            $others = array_values(array_filter($inFamily, fn(string $key) => $key !== $winner && !isset($kept[$key])));
+            if ($winner !== null && $others !== []) {
+                $standIns[$winner] = $others;
+            }
+        }
+
+        return $standIns;
+    }
+
+    /**
+     * familyStandIns() for the medium's searchable sources (sources()):
+     * kept key => [other member key => Source], best placed first.
+     *
+     * @return array<string, array<string, Source>>
+     */
+    public function standIns(Discover $discover, string $medium): array
+    {
+        if (in_array($medium, [\App\Novel::MEDIUM_BOOK, \App\Novel::MEDIUM_COMIC], true)) {
+            return [];
+        }
+        $sources = array_filter($discover->sourcesFor($medium), fn(Source $s) => in_array('search', $s->discoverLists(), true));
+        $names = [];
+        foreach ($sources as $key => $source) {
+            $names[(string) $key] = static::displayName($source, (string) $key);
+        }
+
+        $result = [];
+        foreach (static::familyStandIns(
+            $names,
+            (array) config('novarr.requests.source_order', []),
+            (array) config('novarr.requests.source_name_preference', []),
+            (array) config('novarr.requests.source_families', []),
+        ) as $winner => $others) {
+            foreach ($others as $key) {
+                $result[$winner][$key] = $sources[$key];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * Seconds one source may take in ProcessSearchRunner before its lane is
      * stopped and the lane's remaining sources go on in a new process;
      * 0 (or less) turns the limit off. Fractions are honoured (tests).

@@ -44,7 +44,10 @@ use Illuminate\Support\Facades\Log;
  *
  * 2. Alternates (refresh()): the other installed manga sources, in the
  *    reader-request search order (RequestSearch::sources(): source_order,
- *    source_name_preference, families), the series' own source left out,
+ *    source_name_preference, families), the series' own source left out;
+ *    when a mirror family's best-placed member has no such series, the
+ *    family's other members are searched in turn and the first that has it
+ *    stands in at that rank (RequestSearch::standIns()),
  *    searched one at a time, at most fallback_max_sources per run; a cycle
  *    walks every source over several runs and starts again every
  *    fallback_search_days (or at once when every alternate it found went
@@ -925,6 +928,7 @@ class MangaFallback
         $ownCount = NovelChapter::where('novel_id', $novel->id)->count();
 
         $sources = $this->searchSources($novel);
+        $standIns = $this->standIns($novel);
         $keys = array_keys($sources);
         $cursor = min((int) $state->cursor, count($keys));
         $slice = array_slice($keys, $cursor, self::maxSources());
@@ -944,16 +948,45 @@ class MangaFallback
                 // The source could not be asked: keep what was known.
                 continue;
             }
-            $existing = $byKey->get($key);
             if ($found === null) {
+                $existing = $byKey->get($key);
                 if ($existing !== null) {
                     if (!$this->dryRun) {
                         $existing->delete();
                     }
                     $byKey->forget($key);
                 }
-                continue;
+                // A mirror family's best-placed member has no such series:
+                // its other members (left out of the search order) are
+                // asked in turn, best placed first; the first that has it
+                // stands in at the same rank.
+                foreach ($standIns[$key] ?? [] as $standInKey => $standIn) {
+                    if ($this->pastDeadline()) {
+                        break;
+                    }
+                    $standInFound = $this->searchSource($novel, (string) $standInKey, $standIn, $queries, $wanted, $colored, $ownCount);
+                    if (is_array($standInFound)) {
+                        $this->note('  ' . self::displayName($source, $key) . ' has no such series: trying its mirror ' . self::displayName($standIn, (string) $standInKey));
+                        [$key, $source, $found] = [(string) $standInKey, $standIn, $standInFound];
+                        break;
+                    }
+                }
+                if ($found === null) {
+                    continue;
+                }
+            } else {
+                // The member itself has it: a stand-in found in an earlier cycle gives way.
+                foreach (array_keys($standIns[$key] ?? []) as $standInKey) {
+                    $old = $byKey->get((string) $standInKey);
+                    if ($old !== null) {
+                        if (!$this->dryRun && $old->exists) {
+                            $old->delete();
+                        }
+                        $byKey->forget((string) $standInKey);
+                    }
+                }
             }
+            $existing = $byKey->get($key);
 
             $alternate = $existing ?? new MangaAlternate(['novel_id' => $novel->id, 'source_key' => $key, 'found_at' => $now]);
             $alternate->forceFill([
@@ -983,8 +1016,12 @@ class MangaFallback
         if ($state->cursor >= count($keys)) {
             $state->cycle_completed_at = $now;
             // Sources searched in no part of this cycle (uninstalled since): forget them.
+            $searchable = $sources;
+            foreach ($standIns as $members) {
+                $searchable += $members;
+            }
             foreach ($byKey as $key => $alternate) {
-                if (!isset($sources[$key]) || ($alternate->checked_at !== null && $alternate->checked_at->lt($state->cycle_started_at))) {
+                if (!isset($searchable[$key]) || ($alternate->checked_at !== null && $alternate->checked_at->lt($state->cycle_started_at))) {
                     if (!$this->dryRun && $alternate->exists) {
                         $alternate->delete();
                     }
@@ -1079,6 +1116,27 @@ class MangaFallback
         $sources = app(RequestSearch::class)->sources(app(Discover::class), Novel::MEDIUM_MANGA);
 
         return array_filter($sources, fn(Source $s, string $key) => $key !== $own, ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * The mirror-family members left out of searchSources(), per kept
+     * member (RequestSearch::standIns()), the series' own source left out.
+     * Overridable for tests.
+     *
+     * @return array<string, array<string, Source>>
+     */
+    protected function standIns(Novel $novel): array
+    {
+        $own = SourceHealth::keyForNovel($novel);
+        $result = [];
+        foreach (app(RequestSearch::class)->standIns(app(Discover::class), Novel::MEDIUM_MANGA) as $winner => $members) {
+            unset($members[$own]);
+            if ($members !== []) {
+                $result[$winner] = $members;
+            }
+        }
+
+        return $result;
     }
 
     /** The titles the series' own source reports for it, or null when it could not say. */
