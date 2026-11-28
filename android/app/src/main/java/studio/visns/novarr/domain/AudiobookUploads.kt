@@ -246,7 +246,9 @@ object AudiobookUploads {
         (upload["files"] as? JsonArray)?.forEachIndexed { position, item ->
             val file = item as? JsonObject ?: return@forEachIndexed
             val index = file["index"].int() ?: position
-            val present = CHUNK_KEYS.firstNotNullOfOrNull { key -> file[key]?.let(::chunkSet) }.orEmpty()
+            // Only a list or a map is "which chunks": the server's `chunks` is a COUNT (with
+            // `received` the list), and reading the count as "none" re-sent every chunk on resume.
+            val present = CHUNK_KEYS.firstNotNullOfOrNull { key -> file[key]?.takeIf { it is JsonArray || it is JsonObject }?.let(::chunkSet) }.orEmpty()
             val done = DONE_KEYS.any { file[it].flag() }
             files[index] = ServerFile(index, present, done)
         }

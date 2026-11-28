@@ -314,4 +314,14 @@ class AudiobookUploadsTest {
         assertEquals("01", entry.copy(bookTitle = null).title)
         root.deleteRecursively()
     }
+
+    @Test
+    fun `resume reads received, not the chunk count`() {
+        // The server's answer: chunks is how many there are, received which arrived.
+        val json = NovarrJson.parseToJsonElement(
+            """{"upload":{"id":"u1","status":"uploading","chunk_size":8388608,"files":[{"index":0,"chunks":5,"received":[0,1,2]}]}}"""
+        )
+        val upload = AudiobookUploads.parseUpload(json)!!
+        assertEquals(setOf(0, 1, 2), upload.files.single().present)
+    }
 }
