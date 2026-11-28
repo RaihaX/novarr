@@ -169,12 +169,12 @@ struct SleepTimerTests {
     @Test func minutesAreKeptWithin5And120() {
         #expect(SleepTimer.minutes(1, now: 0).durationMinutes == 5)
         #expect(SleepTimer.minutes(500, now: 0).durationMinutes == 120)
-        #expect(SleepTimer.minutes(500, now: 0).endsAt == 120 * 60_000)
+        #expect(SleepTimer.minutes(500, now: 0).endsAt == Int64(120 * 60_000))
     }
 
     @Test func remainingAndLabels() {
         let timer = SleepTimer.minutes(30, now: 0)
-        #expect(SleepTimer.remaining(timer, now: 0) == 30 * 60_000)
+        #expect(SleepTimer.remaining(timer, now: 0) == Int64(30 * 60_000))
         #expect(SleepTimer.remaining(timer, now: 99 * 60_000) == 0)
         #expect(SleepTimer.label(timer, now: 0) == "30 min")
         #expect(SleepTimer.label(timer, now: 30 * 60_000 - 11 * 60_000 - 30_000) == "12 min")
@@ -185,11 +185,11 @@ struct SleepTimerTests {
 
     @Test func extendingAddsFromTheEndOrFromNowAndIsCapped() {
         let timer = SleepTimer.minutes(10, now: 0)
-        #expect(SleepTimer.extend(timer, minutes: 5, now: 60_000).endsAt == 15 * 60_000)
+        #expect(SleepTimer.extend(timer, minutes: 5, now: 60_000).endsAt == Int64(15 * 60_000))
         // Already run out: five minutes from now.
-        #expect(SleepTimer.extend(timer, minutes: 5, now: 20 * 60_000).endsAt == 25 * 60_000)
+        #expect(SleepTimer.extend(timer, minutes: 5, now: 20 * 60_000).endsAt == Int64(25 * 60_000))
         // Never more than 120 minutes ahead.
-        #expect(SleepTimer.extend(SleepTimer.minutes(120, now: 0), minutes: 30, now: 0).endsAt == 120 * 60_000)
+        #expect(SleepTimer.extend(SleepTimer.minutes(120, now: 0), minutes: 30, now: 0).endsAt == Int64(120 * 60_000))
         // Only duration timers extend.
         #expect(SleepTimer.extend(.off, minutes: 5, now: 0) == .off)
     }

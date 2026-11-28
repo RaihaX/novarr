@@ -70,7 +70,7 @@ struct ListeningSyncTests {
         let store = store()
         await store.record(rec(2, 50, at: 5_000))
         await store.record(rec(1, 10, at: 1_000))
-        let sent = Recorder()
+        let sent = ListeningRecorder()
         let outcome = await store.flush { await sent.add($0.audiobookId) }
         #expect(outcome == .drained(sent: 2, dropped: 0))
         #expect(await sent.values == [1, 2])
@@ -183,7 +183,7 @@ struct ListeningSyncTests {
     }
 }
 
-actor Recorder {
+actor ListeningRecorder {
     private(set) var values: [Int] = []
     func add(_ value: Int) { values.append(value) }
 }
