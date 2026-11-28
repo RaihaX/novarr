@@ -61,6 +61,8 @@ final class AppModel {
     let checks = ChapterChecks()
     /// The reader's categories (reading lists), shared by every screen.
     let lists = ListsModel()
+    /// The audiobook player, its downloads and uploads (Listen).
+    let listening = ListeningModel()
 
     /// This install's identity, sent with read-state writes and sign-in.
     let device: DeviceIdentity
@@ -92,6 +94,7 @@ final class AppModel {
         device = DeviceIdentity.loadOrCreate(defaults: defaults, name: DeviceIdentity.currentName())
         checks.onChaptersChanged = { [weak self] _ in self?.libraryChanged() }
         lists.attach(self)
+        listening.attach(self)
         // Also honours `-serverURL http://…` as a launch argument (argument domain).
         if let raw = defaults.string(forKey: Self.serverDefaultsKey), let url = ServerURL.normalize(raw) {
             configure(url)
@@ -123,6 +126,7 @@ final class AppModel {
         configure(url)
         serverMeta = meta
         isReachable = true
+        listening.audiobooksOffered(meta.audiobooks)
     }
 
     private func configure(_ url: URL) {
@@ -159,6 +163,7 @@ final class AppModel {
             self?.pendingWrites = await queue.count
             await self?.flushWrites()
         }
+        listening.sessionChanged()
     }
 
     /// Ends the session without touching anything on disk: the queue file
@@ -179,6 +184,7 @@ final class AppModel {
         pendingWrites = 0
         needsSignIn = true
         readStateRevision += 1
+        listening.sessionChanged()
     }
 
     func refreshMeta() async {
@@ -211,6 +217,7 @@ final class AppModel {
     /// off → back to today's behaviour.
     func apply(_ meta: ServerMeta, for url: URL) {
         serverMeta = meta
+        listening.audiobooksOffered(meta.audiobooks)
         setAuthRequired(meta.requiresSignIn, for: url)
         if meta.requiresSignIn {
             guard account == nil, !needsSignIn else { return }
@@ -589,6 +596,7 @@ final class AppModel {
     func networkBecameAvailable() async {
         if !isReachable { await refreshMeta() }
         await flushWrites()
+        await listening.flush()
     }
 
     func noteFailure(_ error: APIError) {
