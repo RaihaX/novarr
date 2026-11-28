@@ -37,13 +37,13 @@ final class ReaderModel {
     /// Asks the view to scroll within the current chapter (Go to latest, same chapter).
     private(set) var scrollRequest: ScrollRequest?
 
-    @ObservationIgnored private var pendingProgress: Int?
-    @ObservationIgnored private var lastSentProgress: Int?
-    @ObservationIgnored private var lastSentAt = Date.distantPast
+    /// The progress-write rules (throttling, the read mark once).
+    @ObservationIgnored private var tracker = ProgressTracker()
     @ObservationIgnored private var sendTask: Task<Void, Never>?
-    @ObservationIgnored private var markedRead = false
-    /// When the oldest still-unsent scroll position was taken.
-    @ObservationIgnored private var pendingSince: Date?
+    /// The end of the chapter is on screen: positions are not reported (a
+    /// fling past the end keeps moving the top line, and those moves must
+    /// not follow the read mark with a lower percentage).
+    @ObservationIgnored private var atEnd = false
 
     // Latest-position check: once when the reader opens (if the route offers
     // it), and again on coming back from the background, for the chapter shown.
@@ -72,6 +72,10 @@ final class ReaderModel {
     @ObservationIgnored private var previewIds = 0
     @ObservationIgnored private var chapterList: [ChapterListItem]?
 
+    /// The series is a book (per the saved library listing or detail):
+    /// complete on arrival, so its last chapter offers no "check for new chapters".
+    private(set) var isBook = false
+
     struct ChapterPosition: Equatable {
         var number: Int
         var count: Int
@@ -88,7 +92,7 @@ final class ReaderModel {
     }
 
     /// Minimum seconds between progress writes while scrolling.
-    static let progressInterval: TimeInterval = 4
+    static let progressInterval: TimeInterval = ProgressTracker.defaultInterval
     /// Longest wait for the server's latest position before giving up on the prompt.
     static let checkTimeout: TimeInterval = 3.5
 
@@ -117,8 +121,7 @@ final class ReaderModel {
     /// 0–99 for paragraph `index`, the rule every progress write uses
     /// (100 is reserved for actually reaching the end of the chapter).
     func progress(forParagraph index: Int) -> Int {
-        let fraction = Double(index) / Double(max(paragraphCount - 1, 1))
-        return min(99, max(0, Int((fraction * 100).rounded())))
+        ProgressTracker.progress(index: index, count: paragraphCount)
     }
 
     // MARK: Loading
@@ -126,11 +129,10 @@ final class ReaderModel {
     func load(app: AppModel) async {
         phase = .loading
         isTracking = false
-        markedRead = false
-        pendingProgress = nil
-        pendingSince = nil
-        lastSentProgress = nil
+        atEnd = false
+        tracker.reset(read: false, progress: nil)
         restoreToEnd = false
+        if !isBookKnown { await lookUpMedium(app: app) }
 
         let id = chapterId
         let novelId = self.novelId
@@ -207,8 +209,7 @@ final class ReaderModel {
         self.offsets = offsets
         anchorOffset = anchor ?? 0
         content = loaded
-        markedRead = loaded.read
-        lastSentProgress = loaded.readProgress
+        tracker.reset(read: loaded.read, progress: loaded.readProgress)
         highlights = []
         highlightRanges = [:]
         shownProgress = restoreToEnd ? 100 : progress(forParagraph: offsets.paragraphAt(anchorOffset))
@@ -238,7 +239,8 @@ final class ReaderModel {
         let novelId = self.novelId
         Task(priority: .utility) {
             guard await !store.hasChapter(id: ref.id, novelId: novelId),
-                  let chapter = try? await client.chapter(id: ref.id) else { return }
+                  var chapter = try? await client.chapter(id: ref.id) else { return }
+            if chapter.novelId == 0 { chapter.novelId = novelId }
             await store.saveChapter(chapter)
         }
     }
@@ -256,8 +258,36 @@ final class ReaderModel {
         prefetch(fresh.next, app: app)
     }
 
+    /// Opens `ref`. Moving on to the open chapter's next chapter (Next
+    /// chapter in the bars or on the end page, a tap or swipe past the last
+    /// page) finishes the one being left first: it is marked read
+    /// (`ReadMark`), even if its last lines never reached the tracker.
     func go(to ref: ChapterRef, app: AppModel) async {
+        if ReadMark.finishesOnOpen(target: ref.id, next: content?.next?.id, loaded: hasLoadedText) {
+            markFinished(app: app)
+        }
         await open(chapterId: ref.id, app: app)
+    }
+
+    /// The chapter on screen is the one asked for and has text to read.
+    private var hasLoadedText: Bool {
+        guard phase == .loaded, let content else { return false }
+        return content.id == chapterId && content.downloaded && !content.paragraphs.isEmpty
+    }
+
+    @ObservationIgnored private var isBookKnown = false
+
+    /// Whether the series is a book: the saved library listing, else the saved detail.
+    private func lookUpMedium(app: AppModel) async {
+        let id = novelId
+        if let listed = await app.cached([NovelSummary].self, .novels)?.first(where: { $0.id == id }) {
+            isBook = listed.isBook
+        } else if let detail = await app.cached(NovelDetail.self, .novel(id)) {
+            isBook = detail.summary.isBook
+        } else {
+            return
+        }
+        isBookKnown = true
     }
 
     /// Opens `ref` at its end (paging back past the first page).
@@ -337,7 +367,7 @@ final class ReaderModel {
 
         var localTimes = await app.unsentWriteTimes(novelId: novelId)
         // Positions taken during the hold don't count (`pendingSince` skips them).
-        if let pendingSince { localTimes.append(pendingSince) }
+        if let pendingSince = tracker.pendingSince { localTimes.append(pendingSince) }
         let localNewer = LatestPosition.localIsNewer(
             localWriteTimes: localTimes, ageSeconds: position.ageSeconds, now: Date())
         var canOpen = position.chapterId == check.chapterId || position.downloaded == true
@@ -367,7 +397,7 @@ final class ReaderModel {
 
     /// This device's position in the open chapter, 0–100.
     private var currentProgress: Int? {
-        pendingProgress ?? lastSentProgress ?? content?.readProgress
+        tracker.current ?? content?.readProgress
     }
 
     /// "Go to latest": the other device's chapter at its position.
@@ -405,30 +435,51 @@ final class ReaderModel {
     func scrolled(toParagraph index: Int, offset: Int? = nil, app: AppModel) {
         guard isTracking, paragraphCount > 0, content?.downloaded == true else { return }
         anchorOffset = offset ?? offsets.paragraphStart(index)
-        pendingProgress = progress(forParagraph: index)
-        shownProgress = pendingProgress ?? 0
-        // Held positions don't date local reading: they'd hide the very prompt the hold waits for.
-        guard !hold.isHolding else { return }
-        if pendingSince == nil { pendingSince = Date() }
-        scheduleSend(app: app)
+        // While the end is on screen the read mark stands (and the label shows 100%).
+        guard !atEnd else { return }
+        let progress = progress(forParagraph: index)
+        shownProgress = progress
+        switch tracker.moved(progress, now: Date(), holding: hold.isHolding) {
+        case .sendNow:
+            sendTask?.cancel()
+            sendTask = Task { await sendPending(app: app) }
+        case .sendAfter(let delay):
+            sendTask?.cancel()
+            sendTask = Task {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                await sendPending(app: app)
+            }
+        case .alreadyScheduled, .held:
+            break
+        }
     }
 
+    /// The end of the chapter came into view (its footer or last page, or
+    /// the bottom of 95% of a scrolled chapter's paragraphs) or left it.
+    func endVisible(_ visible: Bool, app: AppModel) {
+        atEnd = visible && isTracking && content?.downloaded == true
+        if visible { reachedEnd(app: app) }
+    }
+
+    /// The end of the chapter is on screen: mark it read, once.
     func reachedEnd(app: AppModel) {
-        guard isTracking, var content, content.downloaded else { return }
+        guard isTracking, let content, content.downloaded else { return }
         shownProgress = 100
+        markFinished(app: app)
+    }
+
+    /// Marks the open chapter read (once): position 100 with the read flag,
+    /// queued like any write. The read mark goes out regardless of the hold,
+    /// and answers any prompt (it is dismissed, not declined).
+    private func markFinished(app: AppModel) {
         sendTask?.cancel()
         sendTask = nil
-        pendingProgress = nil
-        pendingSince = nil
-        guard !markedRead else { return }
-        markedRead = true
-        // The read mark goes out regardless of the hold, and answers any prompt.
+        guard var content, tracker.reachedEnd(now: Date()) else { return }
         if latestOffer != nil {
             latestOffer = nil
             apply(hold.dismissOffer(), app: app)
         }
-        lastSentProgress = 100
-        lastSentAt = Date()
         content.read = true
         content.readProgress = 100
         self.content = content
@@ -457,10 +508,14 @@ final class ReaderModel {
         }
     }
 
-    /// Carries out what the hold says about the unsent position.
+    /// Carries out what the hold says about the unsent position: once
+    /// nothing holds it, it goes out straight away.
     private func apply(_ release: PositionHold.Release, app: AppModel) {
         switch release {
-        case .send: if pendingProgress != nil { scheduleSend(app: app) }
+        case .send:
+            guard tracker.pending != nil else { return }
+            sendTask?.cancel()
+            sendTask = Task { await sendPending(app: app) }
         case .discard: discardPending()
         case .keep: break
         }
@@ -469,34 +524,12 @@ final class ReaderModel {
     private func discardPending() {
         sendTask?.cancel()
         sendTask = nil
-        pendingProgress = nil
-        pendingSince = nil
-    }
-
-    private func scheduleSend(app: AppModel) {
-        let elapsed = Date().timeIntervalSince(lastSentAt)
-        if elapsed >= Self.progressInterval {
-            sendTask?.cancel()
-            sendTask = Task { await sendPending(app: app) }
-        } else if sendTask == nil {
-            let delay = Self.progressInterval - elapsed
-            sendTask = Task {
-                try? await Task.sleep(for: .seconds(delay))
-                guard !Task.isCancelled else { return }
-                await sendPending(app: app)
-            }
-        }
+        tracker.discardPending()
     }
 
     private func sendPending(app: AppModel) async {
-        sendTask = nil
         // A send scheduled before a check started waits for the hold to end.
-        guard !hold.isHolding, let progress = pendingProgress else { return }
-        pendingProgress = nil
-        pendingSince = nil
-        guard progress != lastSentProgress else { return }
-        lastSentProgress = progress
-        lastSentAt = Date()
+        guard let progress = tracker.takePending(now: Date(), holding: hold.isHolding) else { return }
         let id = chapterId
         await app.store?.updateChapterState(id: id, novelId: novelId, progress: progress, read: nil)
         await app.record(.progress(chapterId: id, progress: progress, read: false), novelId: novelId)

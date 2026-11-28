@@ -3,8 +3,9 @@ import Observation
 
 /// Fetches chapters into the offline store, a few at a time, per novel.
 /// App-wide so a download keeps going when the user leaves the novel screen.
-/// Text chapters are saved as JSON; manga chapters as their page images
-/// (fetched from the pre-signed URLs, without headers) plus the pages index.
+/// Text chapters (web novels, books) are saved as JSON; page chapters
+/// (manga, comics: `manga: true`) as their page images (fetched from the
+/// pre-signed URLs, without headers) plus the pages index.
 @MainActor
 @Observable
 final class DownloadManager {
@@ -47,9 +48,11 @@ final class DownloadManager {
                                 return await Self.saveManga(try await client.mangaPages(id: id), novelId: novelId,
                                                             store: store, session: client.session)
                             }
-                            let chapter = try await client.chapter(id: id)
+                            var chapter = try await client.chapter(id: id)
+                            if chapter.novelId == 0 { chapter.novelId = novelId }
                             await store.saveChapter(chapter)
-                            return chapter.downloaded
+                            // Only a chapter with text is kept (and counts as saved).
+                            return chapter.downloaded && !chapter.paragraphs.isEmpty
                         } catch {
                             return false
                         }

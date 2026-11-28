@@ -1,16 +1,25 @@
 import SwiftUI
 
-// OWNER: stats / readers area. Replace the placeholder views.
-
 extension View {
     func statsDestinations() -> some View {
         navigationDestination(for: StatsRoute.self) { _ in
-            Text("Your stats")
+            StatsView()
         }
     }
 }
 
-/// Settings › Your stats.
+/// Settings › Your stats: streaks, totals and graphs of the reader's own
+/// reading and listening (android SettingsScreen's first row).
 struct SettingsStatsSection: View {
-    var body: some View { EmptyView() }
+    var body: some View {
+        Section {
+            NavigationLink(value: StatsRoute()) {
+                LabeledContent {
+                    Text("Streaks, totals, graphs")
+                } label: {
+                    Label("Your stats", systemImage: "chart.bar.xaxis")
+                }
+            }
+        }
+    }
 }

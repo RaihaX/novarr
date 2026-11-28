@@ -376,8 +376,23 @@ private struct VerticalManga<End: View>: View {
     @State private var zoom: CGFloat = 1
     @State private var pinchBase: CGFloat?
     @State private var started = false
+    /// The last page's bottom (or the end page after it) is on screen.
+    @State private var lastBottomVisible = false
+    @State private var endPageVisible = false
 
     private var count: Int { pages.pages.count }
+    private static var space: String { "mangaStrip" }
+
+    /// The page to report: the last one once the end is in view (the read
+    /// mark), else the top page.
+    private func report() {
+        guard started else { return }
+        if lastBottomVisible || endPageVisible {
+            model.pageShown(count - 1, app: app)
+        } else if let topPage, topPage < count {
+            model.pageShown(min(topPage, count - 1), app: app)
+        }
+    }
     private static var maxZoom: CGFloat { 3 }
 
     var body: some View {
@@ -390,18 +405,22 @@ private struct VerticalManga<End: View>: View {
                                   fillWidth: true, aspect: item.aspect)
                             .frame(width: width)
                             .id(index)
+                            .modifier(LastPageBottom(active: index == count - 1, space: Self.space,
+                                                     viewportHeight: geo.size.height) { lastBottomVisible = $0 })
                     }
                     endPage()
                         .frame(width: min(geo.size.width, 900), height: max(geo.size.height * 0.7, 320))
                         .frame(width: width)
                         .id(count)
                         // The last page counts as read once the end comes into view.
-                        .onAppear { if started { model.pageShown(count - 1, app: app) } }
+                        .onAppear { endPageVisible = true }
+                        .onDisappear { endPageVisible = false }
                 }
                 .scrollTargetLayout()
                 .frame(minWidth: geo.size.width)
             }
             .scrollPosition(id: $topPage, anchor: .top)
+            .coordinateSpace(.named(Self.space))
             .contentMargins(.top, 56, for: .scrollContent)
             .simultaneousGesture(
                 MagnifyGesture()
@@ -429,10 +448,9 @@ private struct VerticalManga<End: View>: View {
             withAnimation { topPage = min(target, count) }
         }
         #endif
-        .onChange(of: topPage) { _, index in
-            guard let index, started, index < count else { return }
-            model.pageShown(min(index, count - 1), app: app)
-        }
+        .onChange(of: topPage) { report() }
+        .onChange(of: lastBottomVisible) { report() }
+        .onChange(of: endPageVisible) { report() }
         .onChange(of: model.scrollRequest) { _, request in
             guard let request else { return }
             topPage = min(max(request.index, 0), count - 1)
@@ -451,6 +469,29 @@ private struct VerticalManga<End: View>: View {
             try? await Task.sleep(for: .milliseconds(600))
             started = true
             model.isTracking = true
+            // A short chapter (or one restored near its end) shows the end straight away.
+            if lastBottomVisible || endPageVisible { report() }
+        }
+    }
+}
+
+/// Reports whether the last page's bottom edge is on screen in the strip.
+private struct LastPageBottom: ViewModifier {
+    let active: Bool
+    let space: String
+    let viewportHeight: CGFloat
+    let onChange: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        if active {
+            content
+                .onGeometryChange(for: Bool.self) { proxy in
+                    let bottom = proxy.frame(in: .named(space)).maxY
+                    return bottom > 0 && bottom <= viewportHeight + 4
+                } action: { onChange($0) }
+                .onDisappear { onChange(false) }
+        } else {
+            content
         }
     }
 }

@@ -24,7 +24,21 @@ struct ScrollChapterView<Header: View, Footer: View, Missing: View>: View {
 
     @State private var topParagraph: Int?
     @State private var footerVisible = false
+    /// Paragraphs (from the 95% mark on) whose bottom is on screen.
+    @State private var bottomsVisible: Set<Int> = []
     @State private var width: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
+
+    private static var space: String { "readerScroll" }
+
+    /// The end of the chapter is in view: its footer, or the bottom of 95%
+    /// of its paragraphs (`ReadMark`).
+    private var endInView: Bool {
+        if footerVisible { return true }
+        guard content.downloaded else { return false }
+        return ReadMark.textEndReached(lastFullyVisible: bottomsVisible.max() ?? -1,
+                                       paragraphCount: content.paragraphs.count)
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -39,6 +53,11 @@ struct ScrollChapterView<Header: View, Footer: View, Missing: View>: View {
                                 highlights: model.highlightRanges[index] ?? [],
                                 onHighlight: onHighlight)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .modifier(BottomOnScreen(
+                                active: index >= ReadMark.firstFinishingParagraph(paragraphCount: content.paragraphs.count),
+                                space: Self.space, viewportHeight: viewportHeight) { visible in
+                                    if visible { bottomsVisible.insert(index) } else { bottomsVisible.remove(index) }
+                                })
                             .id(index)
                         }
                     } else {
@@ -46,10 +65,7 @@ struct ScrollChapterView<Header: View, Footer: View, Missing: View>: View {
                     }
                     footer()
                         .id(Anchor.footer)
-                        .onAppear {
-                            footerVisible = true
-                            model.reachedEnd(app: app)
-                        }
+                        .onAppear { footerVisible = true }
                         .onDisappear { footerVisible = false }
                 }
                 .scrollTargetLayout()
@@ -60,6 +76,8 @@ struct ScrollChapterView<Header: View, Footer: View, Missing: View>: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollPosition(id: $topParagraph, anchor: .top)
+            .coordinateSpace(.named(Self.space))
+            .onChange(of: endInView) { _, visible in model.endVisible(visible, app: app) }
             .onChange(of: topParagraph) { _, index in
                 if let index, index >= 0 { model.scrolled(toParagraph: index, app: app) }
             }
@@ -67,7 +85,10 @@ struct ScrollChapterView<Header: View, Footer: View, Missing: View>: View {
                 guard let request else { return }
                 withAnimation { proxy.scrollTo(request.index, anchor: .top) }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: {
+                width = $0.width
+                viewportHeight = $0.height
+            }
             // Middle third: chrome (buttons in the footer keep their taps).
             .onTapGesture(coordinateSpace: .local) { location in
                 if TapZones.action(x: location.x, width: width) == .toggleChrome { onToggleChrome() }
@@ -89,7 +110,7 @@ struct ScrollChapterView<Header: View, Footer: View, Missing: View>: View {
                     model.isTracking = true
                 }
                 // Short chapters show the end straight away.
-                if footerVisible { model.reachedEnd(app: app) }
+                if endInView { model.endVisible(true, app: app) }
                 #if DEBUG
                 await debugScroll(proxy)
                 #endif
@@ -119,6 +140,28 @@ struct ScrollChapterView<Header: View, Footer: View, Missing: View>: View {
         }
     }
     #endif
+}
+
+/// Reports whether a row's bottom edge is on screen (inside the scroll
+/// view's viewport), for the rows that can finish a chapter.
+private struct BottomOnScreen: ViewModifier {
+    let active: Bool
+    let space: String
+    let viewportHeight: CGFloat
+    let onChange: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        if active {
+            content
+                .onGeometryChange(for: Bool.self) { proxy in
+                    let bottom = proxy.frame(in: .named(space)).maxY
+                    return bottom > 0 && bottom <= viewportHeight + 2
+                } action: { onChange($0) }
+                .onDisappear { onChange(false) }
+        } else {
+            content
+        }
+    }
 }
 
 /// Scroll ids of the non-paragraph rows (paragraphs use their index).

@@ -28,12 +28,22 @@ final class NovelModel {
 
     var summary: NovelSummary? { detail?.summary ?? placeholder }
 
-    /// Chapters open in the manga reader and download as page images.
-    var isManga: Bool { summary?.isManga == true }
+    /// Page images (manga or a comic): chapters open in the page reader and
+    /// download as page images; no highlights.
+    var isPaged: Bool { summary?.isPaged == true }
+
+    /// A book: complete on arrival, never checked for new chapters.
+    var isBook: Bool { summary?.isBook == true }
 
     /// Where a chapter of this series opens.
     func readerRoute(chapterId: Int, offerLatest: Bool = true) -> ReaderRoute {
-        ReaderRoute(novelId: novelId, chapterId: chapterId, offerLatest: offerLatest, manga: isManga)
+        ReaderRoute(novelId: novelId, chapterId: chapterId, offerLatest: offerLatest, manga: isPaged)
+    }
+
+    /// "Continue reading" rather than "Start reading": something is read or
+    /// part-read, here or on the server.
+    var hasStarted: Bool {
+        ResumeRule.hasStarted(chapters: chapters, serverReadCount: summary?.chaptersRead ?? 0, pending: unsentWrites)
     }
 
     var visibleChapters: [ChapterListItem] {
@@ -64,6 +74,11 @@ final class NovelModel {
     func load(app: AppModel) async {
         if detail == nil && chapters.isEmpty {
             phase = .loading
+            // Seed from the library listing so the header shows at once.
+            if placeholder == nil {
+                let id = novelId
+                placeholder = await app.cached([NovelSummary].self, .novels)?.first { $0.id == id }
+            }
             async let cachedDetail = app.cached(NovelDetail.self, .novel(novelId))
             async let cachedChapters = app.cached([ChapterListItem].self, .chapters(novelId))
             if let value = await cachedDetail { detail = value }
@@ -90,8 +105,8 @@ final class NovelModel {
 
     /// Best effort: a server without highlights simply shows no section.
     func loadHighlights(app: AppModel) async {
-        // Manga have pages, not text to highlight.
-        guard !isManga, let client = app.client,
+        // Manga and comics have pages, not text to highlight.
+        guard !isPaged, let client = app.client,
               let page = try? await client.highlights(novelId: novelId, page: 1, perPage: Self.highlightPreviewCount)
         else { return }
         highlights = page.highlights
@@ -173,6 +188,7 @@ final class NovelModel {
     func download(_ selection: DownloadSelection, app: AppModel) async {
         guard let client = app.client, let store = app.store else { return }
         await refreshCachedIDs(app: app)
+        await refreshUnsentWrites(app: app)
         // The chapter Continue opens is wanted even when it is marked read
         // but not finished (the web reader marks read on open).
         let resume = chapters.first { $0.id == resumeChapterId }
@@ -180,7 +196,7 @@ final class NovelModel {
         let ids = chapters
             .filter { $0.downloaded && !cachedIDs.contains($0.id) && (selection == .all || !$0.read || $0.id == resume) }
             .map(\.id)
-        app.downloads.start(novelId: novelId, chapterIds: ids, manga: isManga, client: client, store: store)
+        app.downloads.start(novelId: novelId, chapterIds: ids, manga: isPaged, client: client, store: store)
     }
 
     func removeDownloads(app: AppModel) async {

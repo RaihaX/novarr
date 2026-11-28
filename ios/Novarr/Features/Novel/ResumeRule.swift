@@ -42,45 +42,11 @@ enum ResumeRule {
     ///   - pending: this series' unsent writes, oldest first (queue order).
     static func resolve(chapters: [ChapterListItem], serverId: Int?, pending: [PendingWrite]) -> Int? {
         guard !chapters.isEmpty else { return serverId }
-        var position: [Int: Int] = [:]
-        for (index, chapter) in chapters.enumerated() where position[chapter.id] == nil {
-            position[chapter.id] = index
-        }
-        var read: [Int: Bool] = [:]
-        var progress: [Int: Int?] = [:]
-        for chapter in chapters {
-            read[chapter.id] = chapter.read
-            progress[chapter.id] = chapter.readProgress
-        }
-        func set(_ id: Int, read isRead: Bool?, progress value: Int??) {
-            guard position[id] != nil else { return }
-            if let isRead { read[id] = isRead }
-            if let value { progress[id] = value }
-        }
-
-        // Replay the unsent writes, oldest first, as the server will apply them.
-        // Only real reading (position writes) is recorded as activity; hand
-        // marks and look-ups change the read state only.
-        var readingAt: [Int: Date] = [:]
-        for write in pending {
-            let at = write.recordedAt
-            switch write.kind {
-            case .progress(let id, let value, let isRead):
-                set(id, read: isRead ? true : nil, progress: value.map { .some($0) })
-                if position[id] != nil { readingAt[id] = at }
-            case .setRead(let id, let isRead):
-                set(id, read: isRead, progress: .some(isRead ? 100 : nil))
-            case .lookupRead(let id):
-                // The server marks it read; a look-up leaves a read chapter as it was.
-                if read[id] == false { set(id, read: true, progress: nil) }
-            case .bulkRead(let request):
-                for id in bulkIDs(request, chapters: chapters, position: position) {
-                    set(id, read: request.read, progress: .some(request.read ? 100 : nil))
-                }
-            case .highlight:
-                break
-            }
-        }
+        let state = Replay(chapters: chapters, pending: pending)
+        let position = state.position
+        let read = state.read
+        let progress = state.progress
+        let readingAt = state.readingAt
 
         var anchor: (index: Int, at: Date)?
         for (id, at) in readingAt {
@@ -112,8 +78,64 @@ enum ResumeRule {
         return (after.first { !isRead($0) } ?? after.last ?? anchorChapter).id
     }
 
+    /// "Continue reading" rather than "Start reading": something is read or
+    /// part-read (1 % or more), on the server or in this device's unsent writes.
+    static func hasStarted(chapters: [ChapterListItem], serverReadCount: Int, pending: [PendingWrite]) -> Bool {
+        if serverReadCount > 0 { return true }
+        let state = Replay(chapters: chapters, pending: pending)
+        return chapters.contains { chapter in
+            state.read[chapter.id] == true || ((state.progress[chapter.id] ?? nil) ?? 0) >= 1
+        }
+    }
+
+    /// The chapter list's read state with the unsent writes applied, oldest
+    /// first, as the server will apply them. Only real reading (position
+    /// writes) is recorded as activity; hand marks and look-ups change the
+    /// read state only.
+    private struct Replay {
+        var position: [Int: Int] = [:]
+        var read: [Int: Bool] = [:]
+        var progress: [Int: Int?] = [:]
+        var readingAt: [Int: Date] = [:]
+
+        init(chapters: [ChapterListItem], pending: [PendingWrite]) {
+            for (index, chapter) in chapters.enumerated() where position[chapter.id] == nil {
+                position[chapter.id] = index
+            }
+            for chapter in chapters {
+                read[chapter.id] = chapter.read
+                progress[chapter.id] = chapter.readProgress
+            }
+            for write in pending {
+                let at = write.recordedAt
+                switch write.kind {
+                case .progress(let id, let value, let isRead):
+                    set(id, read: isRead ? true : nil, progress: value.map { .some($0) })
+                    if position[id] != nil { readingAt[id] = at }
+                case .setRead(let id, let isRead):
+                    set(id, read: isRead, progress: .some(isRead ? 100 : nil))
+                case .lookupRead(let id):
+                    // The server marks it read; a look-up leaves a read chapter as it was.
+                    if read[id] == false { set(id, read: true, progress: nil) }
+                case .bulkRead(let request):
+                    for id in ResumeRule.bulkIDs(request, chapters: chapters, position: position) {
+                        set(id, read: request.read, progress: .some(request.read ? 100 : nil))
+                    }
+                case .highlight:
+                    break
+                }
+            }
+        }
+
+        private mutating func set(_ id: Int, read isRead: Bool?, progress value: Int??) {
+            guard position[id] != nil else { return }
+            if let isRead { read[id] = isRead }
+            if let value { progress[id] = value }
+        }
+    }
+
     /// The chapters a bulk mark covers, as the server selects them.
-    private static func bulkIDs(_ request: BulkReadRequest, chapters: [ChapterListItem], position: [Int: Int]) -> [Int] {
+    fileprivate static func bulkIDs(_ request: BulkReadRequest, chapters: [ChapterListItem], position: [Int: Int]) -> [Int] {
         switch request.scope {
         case .all:
             return chapters.map(\.id)

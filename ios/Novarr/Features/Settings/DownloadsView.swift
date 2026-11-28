@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Novels with chapters saved on this device, with the space they use.
+/// Series (web novels, books, manga, comics) with chapters saved on this
+/// device, with the space they use (android DownloadsScreen).
 struct DownloadsView: View {
     @Environment(AppModel.self) private var app
     @State private var items: [OfflineStore.NovelDownloads]?
@@ -10,7 +11,7 @@ struct DownloadsView: View {
             if let items {
                 if items.isEmpty {
                     ContentUnavailableView("No downloads", systemImage: "arrow.down.circle",
-                                           description: Text("Use “Download” on a novel to read it without a connection."))
+                                           description: Text("Use “Download” on a series to read it without a connection."))
                         .listRowSeparator(.hidden)
                 } else {
                     Section {
@@ -29,9 +30,12 @@ struct DownloadsView: View {
                                     Task { await remove(item) }
                                 }
                             }
+                            .accessibilityAction(named: "Remove \(item.name) downloads") {
+                                Task { await remove(item) }
+                            }
                         }
                     } footer: {
-                        Text("Total \(items.reduce(0) { $0 + $1.bytes }.byteString). Swipe to remove a novel's offline chapters.")
+                        Text("Total \(items.reduce(0) { $0 + $1.bytes }.byteString). Swipe to remove a series' offline chapters.")
                     }
                 }
             } else {
