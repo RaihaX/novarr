@@ -59,9 +59,14 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: Novarr connects to your Novarr server on your local network to load your library and chapters.
-        # Audiobooks keep playing with the screen locked or the app in the background.
+        # Audiobooks keep playing with the screen locked or the app in the
+        # background; "fetch" lets iOS wake the app now and then to look for
+        # new chapters and request news (local notifications, no push).
         UIBackgroundModes:
           - audio
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - studio.visns.novarr.refresh
         # "Open in Novarr" / the Share sheet for ePubs (sent to the owner's
         # approval queue) and audiobook files (uploaded). Copied into the
         # app's Inbox, never opened in place. No share extension (that would
