@@ -1,7 +1,7 @@
 #!/bin/bash
 # Novarr's nightly offsite backup to the Hetzner Storage Box (restic, encrypted client-side).
 # Installed on the Novarr LXC (CT 109) as /usr/local/bin/novarr-offsite-backup, run by
-# novarr-offsite-backup.timer. Restores: docs/offsite-backup.md.
+# novarr-offsite-backup.timer. Restores: readme.md › Backup and restore › Offsite (Hetzner, restic).
 #
 # What goes offsite (only what changed since last night is uploaded):
 #   - the database, as a consistent mariadb-dump (NOT /mnt/manga/mysql: copying a live datadir
@@ -76,6 +76,7 @@ restic backup --host novarr --tag novarr --compression auto -q \
   --exclude /mnt/manga/mysql --exclude /mnt/manga/backups \
   --exclude "$APP/storage/backups" --exclude "$APP/storage/framework" --exclude "$APP/storage/logs" \
   --exclude "$APP/storage/app/backup-temp" --exclude "$APP/storage/app/cbz-cache" \
+  --exclude "$APP/storage/app/private/Novarr" \
   --exclude "$APP/storage/backup-webp-*" --exclude '.DS_Store' \
   /mnt/manga "$APP/storage" "$APP/.env" >>"$LOG" 2>&1 \
   || fail "restic backup failed"
