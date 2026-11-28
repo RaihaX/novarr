@@ -377,6 +377,8 @@ class AiCoversTest extends TestCase
         $this->assertFalse($ok($this->series(['medium' => Novel::MEDIUM_MANGA], BookCoversTest::photo(200, 284))), 'a manga thumbnail');
         $this->assertFalse($ok($this->series([], BookCoversTest::textCard())), 'a plain cover from a source');
         $this->assertTrue($ok($this->series([], BookCoversTest::photo(60, 90))), 'an icon-sized image');
+        $smallBook = $this->series(['medium' => Novel::MEDIUM_BOOK, 'translator_url' => 'book://library/' . sha1('small'), 'cover_checked_at' => now()], BookCoversTest::photo(193, 278));
+        $this->assertFalse($ok($smallBook), 'a book\'s small real cover');
         $this->assertTrue($ok($this->series([], BookCoversTest::textCard()), false, true), 'the owner can still ask by id');
         // Text cards come from ePubs: a series converted from a book still gets painted.
         $converted = $this->series(['converted_from' => Novel::MEDIUM_BOOK], BookCoversTest::textCard());

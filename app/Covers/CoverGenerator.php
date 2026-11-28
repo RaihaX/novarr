@@ -232,19 +232,22 @@ class CoverGenerator
      * Webnovel covers): real covers, not placeholders. The first nightly run
      * (2026-11-28) painted over 20 of them. So for those only no cover, a blank
      * page or an icon-sized image qualifies; a text card counts only for books
-     * and series converted from a book (where the ePub's card came from).
+     * and series converted from a book (where the ePub's card came from). Too
+     * small means icon-sized for books too: their small covers are real art.
      */
     public static function placeholderForAi(Novel $novel, array $current): bool
     {
-        if ($novel->isBook() || $novel->wasConvertedFromBook()) {
-            return true;
-        }
         $reason = (string) ($current['reason'] ?? '');
+        // A small real cover is still a real cover, in every library (a book's
+        // small cover is what books:covers tries to replace with a bigger REAL one).
         if (str_starts_with($reason, 'too small')) {
             return (int) ($current['height'] ?? 0) < self::MIN_SOURCE_COVER_HEIGHT;
         }
+        if ($reason === 'a generated text cover') {
+            return $novel->isBook() || $novel->wasConvertedFromBook();
+        }
 
-        return $reason !== 'a generated text cover';
+        return true;
     }
 
     /** Remember that this series has a real cover (the nightly run skips it). */
