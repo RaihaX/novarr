@@ -24,6 +24,9 @@ struct NovarrApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await app.flushWrites() } }
+            // Listening: the position is saved on the way out; unsent ones and uploads go on return.
+            if phase == .active { app.listening.becameActive() }
+            if phase == .background { app.listening.saveNow() }
             // Checks poll only in the foreground and look again on return.
             switch phase {
             case .active: app.checks.setForeground(true)
