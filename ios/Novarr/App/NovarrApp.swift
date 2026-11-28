@@ -8,6 +8,9 @@ struct NovarrApp: App {
 
     init() {
         Self.styleNavigationBars()
+        // Before launch finishes: the app-refresh task and notification taps.
+        BackgroundRefresh.register()
+        NotificationDelegate.install()
     }
 
     var body: some Scene {
@@ -26,8 +29,13 @@ struct NovarrApp: App {
             if phase == .active { Task { await app.flushWrites() } }
             // Checks poll only in the foreground and look again on return.
             switch phase {
-            case .active: app.checks.setForeground(true)
-            case .background: app.checks.setForeground(false)
+            case .active:
+                app.checks.setForeground(true)
+                // Request news into the dot; the new-chapters notification is seen.
+                Task { await NotificationHub.shared.appBecameActive(app) }
+            case .background:
+                app.checks.setForeground(false)
+                BackgroundRefresh.schedule()
             default: break
             }
         }

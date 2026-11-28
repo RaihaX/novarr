@@ -123,6 +123,8 @@ final class AppModel {
         configure(url)
         serverMeta = meta
         isReachable = true
+        // What it offers, for the notifications' background refresh.
+        NotificationHub.shared.noteMeta(meta, for: url)
     }
 
     private func configure(_ url: URL) {
@@ -211,6 +213,8 @@ final class AppModel {
     /// off → back to today's behaviour.
     func apply(_ meta: ServerMeta, for url: URL) {
         serverMeta = meta
+        // What it offers, for the notifications' background refresh.
+        NotificationHub.shared.noteMeta(meta, for: url)
         setAuthRequired(meta.requiresSignIn, for: url)
         if meta.requiresSignIn {
             guard account == nil, !needsSignIn else { return }
