@@ -34,8 +34,11 @@ struct NovelView: View {
                             .listRowSeparator(.hidden)
                         NovelBookActions(summary: summary, detail: model.detail)
                             .listRowSeparator(.hidden)
-                        CheckForChaptersControl(novelId: model.novelId)
-                            .listRowSeparator(.hidden)
+                        // A book is complete on arrival: nothing to check for.
+                        if !summary.isBook {
+                            CheckForChaptersControl(novelId: model.novelId)
+                                .listRowSeparator(.hidden)
+                        }
                         downloadBlock
                             .listRowSeparator(.hidden)
                         if let unavailable = model.detail?.sourceUnavailable, unavailable.count > 0 {
@@ -156,7 +159,7 @@ struct NovelView: View {
             Button {
                 openReader = model.readerRoute(chapterId: resume)
             } label: {
-                Text(summary.chaptersRead > 0 ? "Continue reading" : "Start reading")
+                Text(model.hasStarted ? "Continue reading" : "Start reading")
                     .font(.ui(.headline))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -314,10 +317,12 @@ struct NovelView: View {
                         withAnimation { proxy.scrollTo(RowID.chapter(unread.id), anchor: .center) }
                     }
                 }
-                Button("Check for New Chapters", systemImage: "arrow.clockwise") {
-                    app.startCheck(novelId: model.novelId)
+                if !model.isBook {
+                    Button("Check for New Chapters", systemImage: "arrow.clockwise") {
+                        app.startCheck(novelId: model.novelId)
+                    }
+                    .disabled(app.checks.isRunning(model.novelId))
                 }
-                .disabled(app.checks.isRunning(model.novelId))
                 if let source = model.detail?.sourceUrl {
                     Button("Open Source Page", systemImage: "safari") { openURL(source) }
                 }
@@ -365,13 +370,15 @@ private struct NovelHeader: View {
                     }
                     HStack(spacing: 6) {
                         StateBadge(state: summary.state)
-                        if summary.isManga {
-                            Text("MANGA")
+                        // Manga, comics and books say what they are; web novels are the default.
+                        if summary.isPaged || summary.isBook {
+                            Text(Medium.label(summary.medium).uppercased())
                                 .font(.ui(.caption2, .semibold))
                                 .tracking(0.6)
                                 .foregroundStyle(.secondary)
                         }
-                        if let origin = summary.origin {
+                        // Books carry no origin (no source or translation info).
+                        if let origin = summary.origin, !summary.isBook {
                             Text(origin).font(.ui(.caption)).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
